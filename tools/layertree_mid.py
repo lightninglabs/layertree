@@ -177,34 +177,6 @@ def leaf_join():
     return s + ["OP_CAT"] * 6
 
 
-def exit_block(sparse, depth, out_index):
-    s = ["OP_DUP", "OP_TOALTSTACK", "OP_IF",
-         6, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP", 7, "OP_PICK",
-         "OP_ELSE", 8, "OP_PICK", "OP_ENDIF",
-         "OP_CHECKSIGVERIFY",                            # leaf(10)
-         out_index, SEL_OUT_SINGLE, "OP_TX",             # leaf(10) amt_i spk_i
-         F.P2TR_PREFIX, 11, "OP_PICK", "OP_CAT", "OP_EQUALVERIFY",   # leaf(10) amt_i
-         10, "OP_PICK", "OP_EQUALVERIFY",                # leaf(10)
-         "OP_FROMALTSTACK", "OP_DROP"]                   # (is_evict no longer needed)
-    s += leaf_join()                                     # leaf              | amt
-    if sparse:
-        s += roll(4, 4) + sparse_setup()                 # leaf              | amt plo 0 1 E_0  (wrong order!)
-    s += tagged(F.LEAF_PREFIX)                           # oh
-    return s
-
-
-def _acc_after_leaf(sparse):
-    """oh | .. amt [sparse items]  ->  T oh os E 0 with alt fixed for sparse."""
-    if not sparse:
-        return ["OP_FROMALTSTACK", F.NODE_PREFIX, "OP_ROT", "OP_ROT", lt.EMPTY_LEAF_HASH, "OP_0"]
-    # alt is .. amt plo 0 1 E_0 ; pull the 4 sparse items, fetch amt, push them back
-    return (["OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK",   # oh E 1 0 plo
-             "OP_FROMALTSTACK",                                                              # oh E 1 0 plo amt
-             5, "OP_ROLL", "OP_SWAP",                                                        # E 1 0 plo oh amt
-             "OP_2SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]  # hmm see below
-            )
-
-
 def exit_block_full(sparse, depth, out_index):
     """Complete exit block: -> T oh os nh ns after levels.
     Exit leaf witness: leaf(10) ea_num ze we sig is_evict  (ea_num: minimal evict_after)."""
