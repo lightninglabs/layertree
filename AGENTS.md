@@ -1,0 +1,138 @@
+# LayerTree: guide for agents and contributors
+
+`CLAUDE.md` and `AGENTS.md` are identical copies of this file; edit both
+(`cp CLAUDE.md AGENTS.md`) so that every agent harness reads the same guide.
+
+Read this before changing anything. It records the conventions, invariants
+and gotchas that are not obvious from the code. `design/status.md` has the
+current state, the decision log and the open work.
+
+## What this repository is
+
+A Bitcoin scaling design: one shared UTXO, an off-chain Merkle-sum tree of
+leaves, and tapscript covenants that enforce every state transition so that
+any participant can exit, and the operator can evict, in one constant-size
+transaction. Everything here is *design plus reference implementation*; the
+opcodes it relies on are proposals, not consensus.
+
+| Layer | Where | Executable check |
+|---|---|---|
+| Specification (RFC 2119) | `spec/layertree.md` (base), `spec/channel-leaves.md` (Appendix C), `spec/fee-analysis.md` | none directly; every normative script claim is backed by a test below |
+| Python reference + tapscript simulator | `tools/` | `python3 tools/test_scripts.py`, `test_mid.py`, `test_min.py` |
+| Go implementation (btcd, lnd, taproot-assets) | `tree/`, `script/`, `txn/`, `msg/` | `GOTOOLCHAIN=local go test ./...` |
+| Golden vectors linking Python and Go | `spec/test-vectors.json`, `spec/golden.json` | `python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json` |
+| Formal model (Lean 4, core only) | `formal/` | `cd formal && lake build` (prints the axiom audit) |
+| Design history and findings | `design/review.md` (F1..F18), `design/p-model.md`, `notes.md` | none |
+
+The Python tools are the executable reference; the Go code is cross-checked
+against them byte for byte. The Lean model proves the *rules* of spec
+section 7 are right; the tests show the *scripts* implement the rules.
+
+## Hard constraints from the author
+
+1. **No new opcodes.** Compose only the existing candidates listed in spec
+   4.3: BIP-441 restored opcodes (tapleaf `0xC2`), `OP_TX` (Rusty Russell's
+   draft), `OP_CHECKSIGFROMSTACK` (BIP-348), `OP_TWEAKADD` (BIP-449), and
+   the EC ops draft BIP (`OP_EC_POINT_ADD/MUL/NEGATE/X_COORD`, opcodes
+   `0xbb..0xbe`, operand order `[scalar][point]`, empty vector = G).
+   `tools/test_scripts.py` fails if a script uses anything outside the
+   allowed set. Do not invent a selector, opcode or semantics to make a
+   script shorter.
+2. **Three tiers, one tree format.** Every transition exists in FULL
+   (`0xC2`), MID (`0xC0` + CAT + OP_TX + CSFS + TWEAKADD) and MIN (`0xC0` +
+   CAT + TWEAKADD). A change to a transition rule must land in all tiers
+   that support it, or the spec must say why a tier cannot.
+3. **Spec language.** RFC 2119 keywords in capitals only where normative;
+   paragraphs marked *(informative)* carry no requirements. No em-dashes in
+   prose. Section numbers are referenced as bare numbers ("7.2 rule 3").
+4. **Push incrementally**, on the working branch only, with the commit
+   attribution lines the session provides. Do not open PRs unless asked.
+
+## Change checklists
+
+**Changing a script or adding a variant** (any tier):
+1. Edit the generator (`tools/layertree_scripts.py` FULL,
+   `tools/layertree_mid.py` MID, `tools/layertree_min.py` MIN). Keep the
+   stack comments (`# a b c | alt`) current; they are how the next person
+   debugs depth errors.
+2. Add positive and negative cases to the matching test file. Negative
+   cases must target the rule you changed (wrong key, shortfall, stale
+   root, missing signature).
+3. Regenerate golden vectors and listings: `python3 tools/gen_golden.py`,
+   `python3 tools/gen_listings.py`. Check `git diff spec/golden.json`
+   contains only the entries you meant to change. **The
+   `taptree_full_d4.merkle_root` vector must not change unless the
+   reference script *set* changes**; tree-creation variants (`UPDATE_X`,
+   exact-payout `EXIT`) are excluded from it on purpose.
+4. Mirror the generator in Go (`script/full.go`, `script/mid.go`,
+   `script/min.go`) and add the golden-key comparison test. Run `gofmt -l .`.
+5. Update the spec: the listing in section 8, the size table in 8.8 and
+   `spec/scripts/sizes.md`, the tier matrix in 4.5, the test description in
+   14, and the check counts in 14 (the suites print them). Bump the version
+   in the header (`0.x.y` patch for additive, minor for rule changes).
+6. If a rule of section 7 changed, update `formal/LayerTree/Transitions.lean`
+   and `formal/README.md`; `lake build` must stay free of `sorryAx`.
+
+**Changing the leaf or node format**: touch `tools/layertree_ref.py`,
+`tree/tree.go`, spec 5.2/5.3, `formal/LayerTree/Leaf.lean` and
+`Encoding.lean` (field widths are proof inputs), regenerate
+`spec/test-vectors.json` with `python3 tools/layertree_ref.py`, and expect
+every golden vector to change.
+
+**Changing Appendix C**: keep the "rules that bind the tree layer" list in
+spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
+
+## Gotchas that cost time before
+
+* **Go toolchain**: always `GOTOOLCHAIN=local`. `go mod tidy` will try to
+  upgrade taproot-assets to a version needing a newer Go and rewrite
+  `go.mod`; pin stays at taproot-assets v0.5.1, lnd v0.18.4-beta, btcd
+  v0.24.3-0.20240921052913-67b8efd3ba53.
+* `lnd`'s `input.TaprootNUMSKey` is **not** the BIP-341 `H` point. The
+  spec's `NUMS` is BIP-341 `H`; `tree/taproot.go` has it as `NUMSHex`.
+* **MID/MIN numerics**: `CScriptNum`, 4-byte operands, `MINIMALDATA`
+  policy. Raw little-endian fields (`evict_after`, `pos_lo`, `seq`) cannot
+  be used as numbers; they arrive as a minimal number plus a `PADZ`
+  witness pad (`[x z w]`, `z||w = 00000000`, `size(x)+size(z) = 4`). Pads
+  must sit *below* the level items on the stack. Sparse nonces are ground
+  until `pos_lo` is a minimal positive number.
+* **`SEQ_FINAL` differs by tier**: `0xFFFFFFFF` in FULL, `0x7FFFFFFF` in
+  MID, because `ff ff ff ff` is a negative `CScriptNum` whose successor
+  fits in four bytes. Proven in `formal/LayerTree/Encoding.lean`, tested in
+  `tools/test_mid.py`.
+* **Path order**: the witness supplies sibling pairs leaf-first (level 0
+  consumed first). The Lean model orders paths root-first. Same data,
+  reversed.
+* **Sighash**: the simulator computes the real BIP-341 message and it
+  matches `txscript`; the MIN tier's constructive introspection depends on
+  this. `txscript` accepts `0xC2` leaf versions, which is what makes the
+  sighash cross-check possible.
+* **Killing test processes**: `pkill -f` matched the shell running it
+  (exit 144). Kill by PID, and run long suites under `nohup` or `timeout`.
+* **Sparse profile collisions**: at small `D` two leaves can derive the
+  same position; tests retry the nonce as a real joiner would.
+* **Lean**: no Mathlib on purpose. Positions are `Pos d h` (depth to
+  height) to avoid index arithmetic; `Pos.height_le` dismisses the
+  impossible `cons` case. Use `simp [getSub, setSub, pathSub]` rather than
+  `rfl` for nil cases. The toolchain is downloaded from GitHub releases; in
+  a sandbox `tar --zstd` may be missing, `python3 -m zstandard` works.
+* **Subagents** on Opus have hit session rate limits mid-task twice.
+  Review their partial work with the full test matrix before committing
+  rather than assuming it is unfinished or finished.
+
+## Running everything
+
+```
+python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
+python3 tools/test_scripts.py      # FULL tier, both profiles (272 checks)
+python3 tools/test_mid.py          # MID tier (59 checks)
+python3 tools/test_min.py          # MIN tier (7 checks)
+python3 tools/gen_listings.py      # spec/scripts/
+python3 tools/gen_golden.py        # spec/golden.json
+python3 tools/fee_analysis.py      # spec/fee-analysis.md tables
+GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./... && gofmt -l .
+cd formal && lake build
+```
+
+CI (`.github/workflows/ci.yml`) runs the Python suites with a golden-vector
+diff check, the Go build and tests, and the Lean build.

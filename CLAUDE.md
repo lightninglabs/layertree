@@ -1,5 +1,8 @@
 # LayerTree: guide for agents and contributors
 
+`CLAUDE.md` and `AGENTS.md` are identical copies of this file; edit both
+(`cp CLAUDE.md AGENTS.md`) so that every agent harness reads the same guide.
+
 Read this before changing anything. It records the conventions, invariants
 and gotchas that are not obvious from the code. `design/status.md` has the
 current state, the decision log and the open work.
