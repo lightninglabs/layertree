@@ -465,22 +465,6 @@ def test_minimal(depth, verbose=True):
     return script, wit, it
 
 
-if __name__ == "__main__" and "--subtree" not in sys.argv:
-    for d, h in ((16, 2), (16, 4)):
-        test_evict_subtree(d, h)
-    for d in (4, 16):
-        test_minimal(d)
-    for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
-        for d in depths:
-            test_all(d, prof)
-    ls.COMPRESSION["S"] = "bitmap"
-    for d in (8, 32):
-        test_all(d, "S")
-    ls.COMPRESSION["S"] = "empty"
-    print(f"\n{CHECKS} checks, {FAILS} failures")
-    sys.exit(1 if FAILS else 0)
-
-
 def test_evict_subtree(depth, height, verbose=True):
     """Cohort sweep: evict every leaf of an aligned subtree in one spend."""
     w = World(depth, "D")
@@ -540,7 +524,26 @@ def test_evict_subtree(depth, height, verbose=True):
     return script, wit, it
 
 
+
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
     print(f"\n{CHECKS} checks, {FAILS} failures")
+
+
+if __name__ == "__main__" and "--subtree" not in sys.argv:
+    for d, h in ((16, 2), (16, 4)):
+        test_evict_subtree(d, h)
+    for d in (4, 16):
+        test_minimal(d)
+    for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
+        for d in depths:
+            test_all(d, prof)
+    ls.COMPRESSION["S"] = "bitmap"
+    for d in (8, 32):
+        test_all(d, "S")
+    ls.COMPRESSION["S"] = "empty"
+    print(f"\n{CHECKS} checks, {FAILS} failures")
+    sys.exit(1 if FAILS else 0)
