@@ -465,7 +465,9 @@ def test_minimal(depth, verbose=True):
     return script, wit, it
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and "--subtree" not in sys.argv:
+    for d, h in ((16, 2), (16, 4)):
+        test_evict_subtree(d, h)
     for d in (4, 16):
         test_minimal(d)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
@@ -477,3 +479,68 @@ if __name__ == "__main__":
     ls.COMPRESSION["S"] = "empty"
     print(f"\n{CHECKS} checks, {FAILS} failures")
     sys.exit(1 if FAILS else 0)
+
+
+def test_evict_subtree(depth, height, verbose=True):
+    """Cohort sweep: evict every leaf of an aligned subtree in one spend."""
+    w = World(depth, "D")
+    script = assemble(ls.evict_subtree_script(depth, height, w.op_pk))
+    bad = {t for t in ls.evict_subtree_script(depth, height, w.op_pk) if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"EVICT_SUBTREE uses non-candidate opcodes: {sorted(bad)}")
+    w.compiled = dict(w.compiled); w.compiled[f"EVICT_SUBTREE_{height}"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    n = 1 << height
+    base = 1 << height                        # subtree index 1 -> positions [n, 2n)
+    cohort = {}
+    for i in range(n):
+        if i % 5 == 3:                        # some positions already exited
+            continue
+        cohort[base + i] = mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for p in cohort:
+        del t1.leaves[p]
+    r1 = t1.root()
+    outputs = [(r1[1], w.spk(r1))]
+    for i in range(n):
+        if base + i in cohort:
+            lf = cohort[base + i]
+            outputs.append((lf.amount, lt.p2tr_spk(lf.exit_key)))
+    outputs.append((400, P2WPKH))
+    ctx = w.ctx(outputs, extra_in=(5_000, P2WPKH), locktime=800_000)
+    sig = schnorr_sign(ctx.sighash(), w.op_sk)
+    leaves_rev = [cohort[base + i].serialize() if base + i in cohort else b"" for i in reversed(range(n))]
+    wit = w.path_witness(path, height) + leaves_rev + [sig, root[0], w.m]
+    it = w.run(f"EVICT_SUBTREE_{height}", wit, ctx)
+    # negatives
+    ctx_e = w.ctx(outputs, extra_in=(5_000, P2WPKH), locktime=799_999)
+    sig_e = schnorr_sign(ctx_e.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(f"EVICT_SUBTREE_{height}", w.path_witness(path, height) + leaves_rev + [sig_e, root[0], w.m], ctx_e), "subtree sweep before lease expiry")
+    bad_out = list(outputs); bad_out[1] = (outputs[1][0] - 1, outputs[1][1])
+    ctx_b = w.ctx(bad_out, extra_in=(5_000, P2WPKH), locktime=800_000)
+    sig_b = schnorr_sign(ctx_b.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(f"EVICT_SUBTREE_{height}", w.path_witness(path, height) + leaves_rev + [sig_b, root[0], w.m], ctx_b), "subtree sweep shortchanges a leaf")
+    # a leaf with a NUMS evictor blocks the sweep
+    t_n = w.clone(); stubborn = mk_leaf("stubborn", 5_000)   # NUMS evictor
+    free = next(base + i for i in range(n) if base + i not in cohort)
+    t_n.leaves[free] = stubborn; w.tree = t_n
+    root_n = w.tree.root()
+    lr = [w.tree.leaves[base + i].serialize() if base + i in w.tree.leaves else b"" for i in reversed(range(n))]
+    outs_n = [(t1.root()[1], w.spk(t1.root()))] + [(w.tree.leaves[base + i].amount, lt.p2tr_spk(w.tree.leaves[base + i].exit_key)) for i in range(n) if base + i in w.tree.leaves]
+    ctx_n = w.ctx(outs_n, extra_in=(5_000, P2WPKH), locktime=800_000)
+    sig_n = schnorr_sign(ctx_n.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(f"EVICT_SUBTREE_{height}", w.path_witness(w.tree.path(base, height=height), height) + lr + [sig_n, root_n[0], w.m], ctx_n), "subtree sweep with a non-evictable leaf")
+    if verbose:
+        k_evict = len(assemble(ls.exit_script(depth, n, "D")))
+        print(f"\nEVICT_SUBTREE_{height} D={depth}: {len(cohort)} leaves, script {len(script)} B, witness {sum(len(x) for x in wit)} B, varops {it.cost}, sigops {it.sigchecks};  EXIT_{n} script would be {k_evict} B")
+    return script, wit, it
+
+
+if __name__ == "__main__" and "--subtree" in sys.argv:
+    for d, h in ((16, 2), (16, 4), (16, 6)):
+        test_evict_subtree(d, h)
+    print(f"\n{CHECKS} checks, {FAILS} failures")

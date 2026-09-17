@@ -694,10 +694,54 @@ position fails, since the leaf is `E_0` after step 1). Output 0 receives the
 total after all `K` removals. A taptree MAY include `EXIT_K` for any set of
 `K`; section 8.3 gives the script.
 
+**Shape-specialised multiproofs.** Sequential composition verifies each
+step's full path, so `K` steps cost `K·D` levels even when the positions
+share most of their paths. Because script has no loops but a taptree can
+hold many leaves, a tree MAY instead include scripts whose *shape* is fixed:
+the set of positions they act on is known at script-generation time, the
+internal nodes of the union of paths are hashed exactly once each, and every
+stack depth is static, so no runtime flags are needed. This document defines
+one such shape, `EVICT_SUBTREE_h` (section 7.7); others (sibling pairs,
+partially filled subtrees, multi-exit within a subtree) follow the same
+construction. A general "any `K` positions" multiproof driven by witness
+flags is possible but saves only witness bytes and hashing, not script,
+because each unrolled step must carry both branches.
+
 Implementations MAY define further combined scripts provided each component
 enforces the rules of its type.
 
-### 7.7 Terminal transitions
+### 7.7 EVICT_SUBTREE_h (cohort sweep)
+
+`EVICT_SUBTREE_h` evicts every remaining leaf of one aligned subtree of
+height `h` in a single spend. It is intended for cohorts: the operator
+grafts a batch of members into one aligned subtree with a common
+`evict_after` (`JOIN_h`), and sweeps the subtree once the lease has
+expired.
+
+Witness inputs: sibling path of the subtree root (`D − h` levels), the
+`2^h` leaf positions in position order (each either the 116-byte leaf or the
+empty string for an empty position), `sig`, `r`, `m`.
+
+Rules:
+
+1. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY` (hash type
+   as in section 7.2).
+2. For every non-empty position, in position order: the leaf's
+   `evictor_key` MUST equal `OPERATOR_KEY`; `tx.nLockTime` MUST be at least
+   its `evict_after`; and the next unused output, starting from output 1,
+   MUST pay exactly `leaf.amount` to `P2TR(leaf.exit_key)`.
+3. The old node is the subtree root recomputed from the supplied leaves
+   (empty positions contribute `E_0`); it MUST `fold` with the path to
+   `(r, S)` with `S` equal to input 0's amount.
+4. The new node is `E_h`. Output 0 is `(S − subtree sum, TREE_SPK(r', m))`
+   per section 7.1, or unconstrained if `r' = E_D` (section 7.8).
+
+A leaf whose `evictor_key` is not `OPERATOR_KEY` blocks the sweep; the
+operator MUST remove it with `EXIT` (if it is evictable by some other key
+it controls) or wait for its owner. Owners who do not want to be swept with
+their cohort set a different evictor at join time.
+
+### 7.8 Terminal transitions
 
 If the post-transition root `r'` equals `E_D` (every position is empty),
 rules 7.1.2 and 7.1.5 do not apply: output 0 is unconstrained, and the
@@ -1017,7 +1061,58 @@ OP_FROMALTSTACK OP_NUMEQUALVERIFY                   # T nh2 ns2       (os2 == S1
 FINAL
 ```
 
-### 8.7 Sizes
+### 8.7 EVICT_SUBTREE_h
+
+Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  leaf_{2^h−1} … leaf_0  sig  r  m`
+(`leaf_0` on top; each `leaf_i` is 116 bytes or empty).
+
+```
+PROLOGUE <OPERATOR_KEY> OP_CHECKSIGVERIFY          # …leaves            | m r
+OP_1 OP_TOALTSTACK <TAG_NODE>                      # T                  | m r idx
+POSTORDER(h)                                       # T oh os            | m r idx
+OP_FROMALTSTACK OP_DROP <E_h.hash> OP_0            # T oh os E_h 0
+LEVEL × (D − h)
+CHECK_OLD FINAL
+```
+
+`POSTORDER(h)` is generated recursively: `POSTORDER(0)` is `LEAF_STEP`;
+`POSTORDER(k)` is `POSTORDER(k−1) POSTORDER(k−1) HASH_STEP`. The generator
+tracks the number of machine elements above `T`, so every `OP_PICK` and
+`OP_ROLL` depth is a constant.
+
+**`LEAF_STEP`** — rolls the next leaf element up from below `T` and
+converts it to a node, paying it out if non-empty:
+
+```
+<d+1> OP_ROLL                                      # … leaf_or_empty
+OP_SIZE OP_0NOTEQUAL
+OP_IF
+  OP_SIZE 116 OP_EQUALVERIFY
+  OP_DUP 72 32 OP_SUBSTR <OPERATOR_KEY> OP_EQUALVERIFY
+  OP_DUP 104 OP_4 OP_SUBSTR OP_CHECKLOCKTIMEVERIFY OP_DROP
+  OP_FROMALTSTACK OP_DUP OP_1ADD OP_TOALTSTACK     # leaf idx           | … idx+1
+  <SEL_OUT_SINGLE> OP_TX                           # leaf amt spk
+  <0x5120> OP_3 OP_PICK OP_8 32 OP_SUBSTR OP_CAT OP_EQUALVERIFY
+  OP_OVER OP_8 OP_LEFT OP_NUMEQUALVERIFY           # leaf   (exact payout)
+  LEAF_ACC                                         # oh os
+OP_ELSE
+  OP_DROP <EMPTY_LEAF_HASH> OP_0                   # E_0
+OP_ENDIF
+```
+
+**`HASH_STEP`** — `[T … lh ls rh rs] → [T … ph ps]`:
+
+```
+OP_2 OP_PICK OP_OVER OP_ADD OP_TOALTSTACK          # lh ls rh rs        | … ps
+PAD8 OP_CAT OP_SWAP PAD8 OP_ROT OP_SWAP OP_CAT OP_SWAP OP_CAT   # lh||enc64(ls)||rh||enc64(rs)
+<t> OP_PICK OP_SWAP OP_CAT OP_SHA256               # ph
+OP_FROMALTSTACK                                    # ph ps
+```
+
+The output index is kept on the altstack and passed to `OP_TX` dynamically,
+so empty positions consume no output.
+
+### 8.8 Sizes
 
 Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
 (sparse). Witness data (paths, leaves, signatures, `r`, `m`) is
@@ -1085,6 +1180,15 @@ set, a lock time of at least `evict_after`, and output 1 paying exactly
 `leaf.amount` to `P2TR(leaf.exit_key)`. The evictor pays fees. Operators
 SHOULD notify owners before evicting and SHOULD offer an `UPDATE` extending
 `evict_after` instead.
+
+Operators SHOULD organise members into **cohorts**: a batch grafted with
+`JOIN_h` into one aligned subtree, sharing an `evict_after`. An expired
+cohort is swept with one `EVICT_SUBTREE_h` (section 7.7) at a small
+fraction of the per-leaf cost of individual evictions (section 11).
+Members who renew (`UPDATE`) before expiry, or who set a different evictor,
+are not swept; a single non-evictable leaf blocks the sweep of its subtree,
+so operators SHOULD require `evictor_key = OPERATOR_KEY` as a condition of
+joining a cohort subtree.
 
 ### 9.5 Updates
 
@@ -1323,6 +1427,8 @@ control block assumes a five-leaf taptree (depth 3, 129 bytes).
 | dense | 16 | 65,536 | 2,101 | 902 | 3,132 | ≈ 4,080 | ≈ 1,020 |
 | dense | 20 | 1,048,576 | 2,453 | 1,066 | 3,648 | ≈ 4,600 | ≈ 1,150 |
 | dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | ≈ 4,340 | ≈ 1,085 |
+| dense, `EVICT_SUBTREE_4` (13 leaves swept) | 16 | 65,536 | 5,281 | 2,129 | 7,539 | ≈ 8,490 | ≈ 2,120 (≈ 165 per leaf) |
+| dense, `EVICT_SUBTREE_6` (51 leaves swept) | 16 | 65,536 | 16,097 | 6,455 | 22,681 | ≈ 23,630 | ≈ 5,910 (≈ 116 per leaf) |
 | sparse | 32 | 2^32 | 5,147 | 326 + 41·log2 N | ≈ 6,260 (N = 65k) | ≈ 7,210 | ≈ 1,800 |
 | sparse | 64 | 2^64 | 9,499 | 326 + 41·log2 N | ≈ 10,610 (N = 65k) | ≈ 11,560 | ≈ 2,890 |
 | sparse | 256 | 2^256 | 35,611 | 285 + 41·log2 N | ≈ 36,680 (N = 65k) | ≈ 37,630 | ≈ 9,410 |
@@ -1372,6 +1478,23 @@ batched, whereas a dense graft (`JOIN_h`) adds any number of leaves for a
 constant 2 kWU; this is the decisive difference between the profiles for
 bulk onboarding (see the 16M-leaf comparison in `design/review.md`, F14).
 
+Shape-specialised multiproofs change the picture for *removals* in the same
+way grafting does for additions. `EVICT_SUBTREE_h` (section 7.7) hashes the
+subtree's internal nodes once and checks one signature:
+
+| script | positions | leaves swept | script | witness | per-leaf total | sequential equivalent |
+|---|---|---|---|---|---|---|
+| `EVICT_SUBTREE_2` | 4 | 3 | 2,709 | 1,051 | ≈ 1,300 WU | `EXIT_4`: 7,039 B script |
+| `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 WU | `EXIT_16`: 26,791 B script |
+| `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 WU | `EXIT_64`: 105,847 B script |
+
+(`D = 16`; three of every sixteen positions already empty.) Per-leaf cost
+falls from about 2.5 kWU (sequential) or 4 kWU (standalone) to about
+0.45 kWU, and the script grows only with the subtree, not with `D` per
+leaf. This is why cohorts SHOULD be grafted into aligned subtrees with a
+common lease expiry: the operator can then both add and remove a cohort in
+one constant-shape transaction each.
+
 Varops usage is 6–8% of budget for the dense profile and 8–25% for the
 sparse profile; the EC operations (82 sigops units per `TREE_SPK`) and the
 signature dominate at small depths, hashing at large ones.
@@ -1413,21 +1536,27 @@ exits in a batch" as `EXIT_K` (section 13).
 3. **Smaller `LEVEL`.** With `OP_MULTI OP_CAT` the four concatenations per
    level collapse to two; keeping `ZERO8` on the stack replaces the 9-byte
    push in `PAD8` with a 2-byte `OP_PICK`. Together these save roughly 25%.
-4. **Aggregate node keys.** Storing a MuSig2 aggregate of all owner keys in
+4. **More multiproof shapes.** The `POSTORDER` generator of section 8.7
+   extends directly to owner-authorised mass exits within a subtree (a
+   signature per leaf instead of the evictor-key equality), to sibling
+   pairs, and to subtrees with a fixed pattern of empties. A runtime-shaped
+   multiproof (a stack machine driven by witness flags) is also expressible
+   but does not reduce script size.
+5. **Aggregate node keys.** Storing a MuSig2 aggregate of all owner keys in
    each node (72-byte `sc`) allows a "replace subtree" transition authorised
    by one aggregate signature, giving Ark-style cooperative round updates
    for whole cohorts in one signature. This reintroduces interactive nonce
    coordination and is left for a separate document.
-5. **Hash-locked vouchers.** Including a payment hash in the voucher message
+6. **Hash-locked vouchers.** Including a payment hash in the voucher message
    and requiring the preimage in `CLAIM` turns a voucher into an HTLC,
    enabling atomic swaps between trees, into Lightning, or with on-chain
    funds (the "loop in / loop out" flows of the design notes) and
    third-party liquidity provision: any leaf owner can service a swap by
    issuing a voucher.
-6. **Nesting.** A leaf's `exit_key` may be the output key of another
+7. **Nesting.** A leaf's `exit_key` may be the output key of another
    LayerTree, giving hierarchical trees with constant-size exit at each
    level.
-7. **`OP_INTERNALKEY` fast path.** Where only `r` must be checked (never
+8. **`OP_INTERNALKEY` fast path.** Where only `r` must be checked (never
    for output construction), `OP_INTERNALKEY` saves one `OP_TX` and one
    `TREE_SPK`; see the caveat in section 10.4.
 
@@ -1456,9 +1585,11 @@ exits in a batch" as `EXIT_K` (section 13).
   and for the terminal exit; sparse-specific cases cover a wrongly
   compressed sibling, a join at an occupied derived position and an update
   that would move a leaf; the bitmap-compressed sparse variant and the
-  minimal-inventory `EXIT_1` (including a shifted field boundary) and
-  batched joins (`JOINK_2`, including a stale second path and an
-  underfunded batch) are exercised as well, 186 checks in total. Run:
+  minimal-inventory `EXIT_1` (including a shifted field boundary), batched
+  joins (`JOINK_2`, including a stale second path and an underfunded batch)
+  and cohort sweeps (`EVICT_SUBTREE_2/4/6`, including a sweep before lease
+  expiry, a shortchanged leaf and a non-evictable leaf) are exercised as
+  well, 219 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the minimal-inventory `EXIT_1`, and the size table covering both

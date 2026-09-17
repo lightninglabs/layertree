@@ -69,3 +69,11 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | S/bitmap | 64 | JOIN_0 | 10047 | 334 | 129 | 10510 | 3977179 | 1 |
 | D/minimal | 8 | EXIT_1 (owner) | 1538 | 566 | 129 | 2233 | 2696051 | 1 |
 | D/minimal | 16 | EXIT_1 (owner) | 2378 | 886 | 129 | 3393 | 2855147 | 1 |
+| D/subtree | 16 | EVICT_SUBTREE_2 (4 positions) | 2709 | 1051 | 129 | 3889 | 2498069 | 1 |
+| D | 16 | EXIT_4 (evictions, for comparison) | 7039 | - | 129 | - | - | 4 |
+| D/subtree | 16 | EVICT_SUBTREE_4 (16 positions) | 5281 | 2129 | 129 | 7539 | 2689863 | 1 |
+| D | 16 | EXIT_16 (evictions, for comparison) | 26791 | - | 129 | - | - | 16 |
+| D/subtree | 16 | EVICT_SUBTREE_6 (64 positions) | 16097 | 6455 | 129 | 22681 | 3552831 | 1 |
+| D | 16 | EXIT_64 (evictions, for comparison) | 105847 | - | 129 | - | - | 64 |
+| D/subtree | 20 | EVICT_SUBTREE_8 (256 positions) | 60242 | 24401 | 129 | 84772 | 7239651 | 1 |
+| D | 20 | EXIT_256 (evictions, for comparison) | 512184 | - | 129 | - | - | 256 |

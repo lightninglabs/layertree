@@ -263,6 +263,26 @@ leaf. A hybrid, dense subtrees hung at derived positions of a shallow sparse
 top, would give bulk joins with key-addressed sharding and is noted but not
 designed.
 
+### F15. Multiproofs: fix the shape, not the flags
+
+Asked whether multi-path verification could cut the hashing, the useful
+distinction turned out to be between runtime-shaped and script-shaped
+multiproofs. A general verifier for any `K` positions is a stack machine
+(push sibling / hash top two) driven by witness flags; script can run it
+with the machine on the altstack, but every unrolled step carries both
+branches, so it saves witness and varops and not script, and script is the
+cost that matters. A verifier whose shape is fixed by the taptree leaf is
+straight-line code with static stack depths: the internal nodes of the
+union are hashed once, no flags, no duplicated branches. Since the operator
+assigns positions in the dense profile, the natural shape is an aligned
+subtree, and the natural use is a *cohort*: graft a batch with a common
+lease into one subtree, sweep it with `EVICT_SUBTREE_h` when the lease
+expires. Measured at `D = 16`: a 64-position sweep is 16.1 kB of script
+against 105.8 kB for 64 sequential evictions, about 0.45 kWU per leaf. The
+`POSTORDER` generator is a template for other shapes. Together with
+grafting this gives constant-shape add and remove for whole cohorts, which
+is the operational model the essay's "unified batching" was reaching for.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):
@@ -279,7 +299,7 @@ designed.
 ## 4. Validation
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
-at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 186
+at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 219
 checks including the negative cases that matter for the findings above:
 attacker-chosen `m` (F4), forged leaf amount and stale root (F3), unconserved
 tree amount (F6), join over an occupied position and underfunded join,

@@ -73,6 +73,15 @@ with open(os.path.join(OUT, "TREE_SPK.txt"), "a") as f:
     f.write(listing("TREE_SPK_MIN (BIP-449 OP_TWEAKADD)", ls.tree_spk_min()))
 with open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w") as f:
     f.write(listing("EXIT_1 (minimal inventory, dense, D=4)", ls.exit_script_min(4)))
+for d, h in ((16, 2), (16, 4), (16, 6), (20, 8)):
+    script, wit, it = test_scripts.test_evict_subtree(d, h, verbose=False)
+    n = 1 << h
+    rows.append(("D/subtree", d, f"EVICT_SUBTREE_{h} ({n} positions)", len(script), sum(len(x) for x in wit), 129,
+                 len(script) + sum(len(x) for x in wit) + 129, it.cost, it.sigchecks))
+    rows.append(("D", d, f"EXIT_{n} (evictions, for comparison)", len(assemble(ls.exit_script(d, n, "D"))),
+                 "-", 129, "-", "-", n))
+with open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w") as f:
+    f.write(listing("EVICT_SUBTREE_2 (dense, D=8): cohort sweep of a 4-position subtree", ls.evict_subtree_script(8, 2, OP_KEY)))
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
     f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")

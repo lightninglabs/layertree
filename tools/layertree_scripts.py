@@ -486,3 +486,69 @@ def exit_script_min(depth):
           "OP_0", SEL_OUT_SINGLE, "OP_TX", "OP_ROT", "OP_EQUALVERIFY",
           "OP_NUMEQUAL", "OP_ENDIF"]
     return s
+
+
+# ---------------------------------------------------------------------------
+# Shape-specialised multiproof: EVICT_SUBTREE_h (dense profile).
+#
+# Sweeps every leaf of an aligned subtree of height h whose leaves name
+# OPERATOR_KEY as evictor and whose evict_after has passed. The subtree's
+# 2^h - 1 internal hashes are computed once (a fixed post-order program),
+# the new node is the constant E_h, and one operator signature covers the
+# transaction. Positions that are already empty are supplied as an empty
+# witness element and produce no payout. Payouts fill outputs 1.. in leaf
+# order; the running output index lives on the altstack so OP_TX can take
+# it dynamically.
+# ---------------------------------------------------------------------------
+def _leaf_step(operator_key):
+    """[T ... leaf_or_empty] | .. m r idx  ->  [T ... oh os] | .. m r idx'"""
+    return ["OP_SIZE", "OP_0NOTEQUAL",
+            "OP_IF",
+            "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+            "OP_DUP", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", operator_key, "OP_EQUALVERIFY",
+            "OP_DUP", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
+            "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
+            "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",   # leaf idx
+            SEL_OUT_SINGLE, "OP_TX",                                    # leaf amt spk
+            P2TR_PREFIX, 3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
+            "OP_EQUALVERIFY",                                           # leaf amt
+            "OP_OVER", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",               # leaf   (exact payout)
+            ] + leaf_acc() + [                                          # oh os
+            "OP_ELSE",
+            "OP_DROP", lt.EMPTY_LEAF_HASH, "OP_0",                      # E_0
+            "OP_ENDIF"]
+
+
+def _hash_step(t_depth):
+    """[T ... lh ls rh rs] -> [T ... ph ps]; T is t_depth elements below rs."""
+    return [2, "OP_PICK", "OP_OVER", "OP_ADD", "OP_TOALTSTACK",         # lh ls rh rs | ps
+            ] + PAD8 + ["OP_CAT",                                       # lh ls rc
+            "OP_SWAP"] + PAD8 + ["OP_ROT", "OP_SWAP", "OP_CAT",          # rc (lh||ls9)
+            "OP_SWAP", "OP_CAT",                                        # pre
+            t_depth - 3, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",    # ph
+            "OP_FROMALTSTACK"]                                          # ph ps
+
+
+def evict_subtree_script(depth, height, operator_key):
+    """witness (bottom..top) = [dir sc]*(D-h)  leaf_{2^h-1} ... leaf_0  sig  r  m
+    (leaf_0 on top; each leaf element is 116 bytes or empty)."""
+    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...leaves | m r
+    s += ["OP_1", "OP_TOALTSTACK", NODE_PREFIX]               # T          | m r 1
+    # fixed post-order program over a complete tree of height h; `d` tracks
+    # the number of machine elements above T so PICK depths are static.
+    d = [0]
+    def gen(h):
+        if h == 0:
+            # the next leaf sits below T and the machine stack: roll it up
+            s.extend([d[0] + 1, "OP_ROLL"])
+            s.extend(_leaf_step(operator_key))
+            d[0] += 2
+        else:
+            gen(h - 1); gen(h - 1)
+            s.extend(_hash_step(d[0]))
+            d[0] -= 2
+    gen(height)                                              # T oh os   | m r idx
+    s += ["OP_FROMALTSTACK", "OP_DROP",                      # drop idx
+          lt.empty_node(height)[0], "OP_0"]                  # T oh os E_h 0
+    s += levels("D", depth, height)
+    return s + check_old_root_from_alt("D") + final_output(depth)
