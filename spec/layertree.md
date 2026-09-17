@@ -174,6 +174,15 @@ Merkle root, `m`, doubles as the tree identifier.
 
 ## 4. Consensus Environment
 
+**Design constraint.** LayerTree proposes no opcodes. It is a composition of
+opcodes that already exist or are already proposed by others as general
+primitives: the BIP-342 tapscript set, the BIP-441 restorations, `OP_TX`,
+`OP_CHECKSIGFROMSTACK` and the elliptic-curve opcodes of the EC ops draft.
+Section 4.3 is the complete inventory; `tools/test_scripts.py` fails if any
+reference script uses an opcode outside it. Where this document could have
+been made cheaper by a purpose-built opcode (a Merkle-sum step, a taproot
+tweak check, a loop), it deliberately is not.
+
 This section lists the consensus rules this document depends on. A
 deployment MUST NOT be considered conforming unless all of them are active.
 Where a referenced proposal leaves a detail unspecified, the assumption made
@@ -223,12 +232,32 @@ design does not.
 * `OP_INTERNALKEY` is not used: the scripts verify the full input
   scriptPubKey instead (section 6.4), which also binds the taptree root.
 * `OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV`, `OP_EC_POINT_NEGATE` are not
-  used. Section 13 notes optimisations that would use them.
+  used. Section 13 notes optimisations that would use them if they ship.
 * No `OP_CHECKTEMPLATEVERIFY`, `OP_TEMPLATEHASH`, `OP_CHECKCONTRACTVERIFY`
   or `SIGHASH_ANYPREVOUT` is required by the tree itself. Section 9.8 notes
   where rebindable signatures help *leaf-level* constructions.
 
-### 4.3 Policy assumptions
+### 4.3 Opcode inventory
+
+The reference scripts of section 8 use exactly the following opcodes and no
+others. The "source" column names the document that defines each one.
+
+| Source | Opcodes |
+|---|---|
+| BIP-342 tapscript (unchanged) | `OP_0`…`OP_16` pushes, `OP_DUP`, `OP_2DUP`, `OP_DROP`, `OP_2DROP`, `OP_NIP`, `OP_OVER`, `OP_PICK`, `OP_ROLL`, `OP_ROT`, `OP_SWAP`, `OP_2SWAP`, `OP_TUCK`, `OP_TOALTSTACK`, `OP_FROMALTSTACK`, `OP_IF`, `OP_NOTIF`, `OP_ELSE`, `OP_ENDIF`, `OP_VERIFY`, `OP_EQUAL`, `OP_EQUALVERIFY`, `OP_SIZE`, `OP_SHA256`, `OP_CHECKSIGVERIFY`, `OP_CHECKLOCKTIMEVERIFY` |
+| BIP-441 (0xC2 numeric semantics) | `OP_ADD`, `OP_1ADD`, `OP_SUB`, `OP_NOT`, `OP_0NOTEQUAL`, `OP_NUMEQUAL`, `OP_NUMEQUALVERIFY`, `OP_LESSTHANOREQUAL` (arbitrary-length unsigned) |
+| BIP-441 (restored) | `OP_CAT`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT` |
+| `OP_TX` draft | `OP_TX` (selectors of section 8.1 only) |
+| BIP-348 | `OP_CHECKSIGFROMSTACK` (`CLAIM` only) |
+| EC ops draft BIP | `OP_EC_POINT_MUL`, `OP_EC_POINT_ADD`, `OP_EC_POINT_X_COORD` |
+
+`OP_AND` and `OP_DOWNSHIFT` are used only by the sparse profile (to read
+one bit of the position hash). `OP_EC_POINT_NEGATE`, `OP_INTERNALKEY`,
+`OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV`, `OP_CHECKTEMPLATEVERIFY`,
+`OP_TEMPLATEHASH`, `OP_CHECKCONTRACTVERIFY` and `OP_PAIRCOMMIT` are not
+required.
+
+### 4.4 Policy assumptions
 
 *(informative)* Relay of `0xC2` script-path spends with witnesses of a few
 kilobytes is assumed to be standard once BIP-441 activates. Transitions use

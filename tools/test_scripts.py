@@ -13,6 +13,21 @@ FAILS = 0
 CHECKS = 0
 P2WPKH = b"\x00\x14" + bytes(20)
 
+# Design constraint (spec section 4.4): scripts compose ONLY existing candidate
+# opcodes. Any opcode outside this inventory is a test failure.
+BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ADD", "OP_1ADD",
+              "OP_CHECKLOCKTIMEVERIFY", "OP_CHECKSIGVERIFY", "OP_CHECKSIG", "OP_DROP",
+              "OP_DUP", "OP_ELSE", "OP_ENDIF", "OP_EQUAL", "OP_EQUALVERIFY",
+              "OP_FROMALTSTACK", "OP_IF", "OP_LESSTHANOREQUAL", "OP_NIP", "OP_NOT",
+              "OP_NOTIF", "OP_NUMEQUAL", "OP_NUMEQUALVERIFY", "OP_OVER", "OP_PICK",
+              "OP_ROLL", "OP_ROT", "OP_SHA256", "OP_SIZE", "OP_SUB", "OP_SWAP",
+              "OP_TOALTSTACK", "OP_TUCK", "OP_VERIFY", "OP_0NOTEQUAL"}
+BIP441_OPS = {"OP_CAT", "OP_SUBSTR", "OP_LEFT", "OP_RIGHT", "OP_AND", "OP_DOWNSHIFT"}
+OPTX_OPS = {"OP_TX"}
+BIP348_OPS = {"OP_CHECKSIGFROMSTACK"}
+ECOPS_OPS = {"OP_EC_POINT_ADD", "OP_EC_POINT_MUL", "OP_EC_POINT_X_COORD"}
+ALLOWED_OPCODES = BIP342_OPS | BIP441_OPS | OPTX_OPS | BIP348_OPS | ECOPS_OPS
+
 
 def check(cond, msg):
     global FAILS, CHECKS
@@ -47,6 +62,9 @@ class World:
         self.op_sk = sk("operator")
         self.op_pk = pubkey_x(self.op_sk)
         self.scripts = ls.all_scripts(depth, self.op_pk, join_heights, exit_ks, profile)
+        for name, toks in self.scripts.items():
+            bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+            check(not bad, f"{name}: opcodes outside the candidate set: {sorted(bad)}")
         self.compiled = {k: assemble(v) for k, v in self.scripts.items()}
         self.m = lt.taptree_root([lt.tapleaf_hash(c) for c in self.compiled.values()])
         self.tree = lt.Tree(depth)

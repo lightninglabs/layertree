@@ -7,7 +7,9 @@ EC opcodes) enforce every state transition. Any participant can exit, and
 the operator can evict any expired participant, in **one transaction whose
 size is independent of the number of participants**. Two tree profiles are
 specified: a dense operator-allocated tree, and a key-addressed sparse
-Merkle-sum tree with compressed proofs.
+Merkle-sum tree with compressed proofs. LayerTree proposes no opcodes of its
+own; it composes the existing candidates listed in spec section 4.3, and the
+test suite fails if a script uses anything else.
 
 ## Contents
 
