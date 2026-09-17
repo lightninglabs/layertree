@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.1.0
+Version:  0.2.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -246,7 +246,7 @@ A leaf is a fixed-length 116-byte record:
 | 40 | 32 | `owner_key` | x-only public key authorising `EXIT`, `UPDATE` and vouchers |
 | 72 | 32 | `evictor_key` | x-only public key authorising eviction |
 | 104 | 4 | `evict_after` | `le32` block height; eviction is valid only in a transaction with `nLockTime ≥ evict_after` |
-| 108 | 8 | `seq` | `le64` sequence number, incremented by `CLAIM` |
+| 108 | 8 | `seq` | `le64` sequence/nonce; chosen at creation, incremented by `CLAIM` |
 
 Requirements:
 
@@ -256,6 +256,10 @@ Requirements:
 * `evict_after` MUST be less than 500,000,000. A leaf that MUST NOT be
   evictable SHALL set `evictor_key` to a provably unspendable key; `NUMS` is
   RECOMMENDED.
+* No two leaves in a tree SHALL have identical serialisations. Creators
+  MUST choose `seq` so that this holds; a uniformly random 64-bit value is
+  RECOMMENDED. (The covenant cannot enforce uniqueness; section 10.3 explains
+  why it matters for vouchers.)
 * `leaf_hash = H_leaf(leaf_bytes)`; the leaf's node is `(leaf_hash, amount)`.
 
 *(informative)* `exit_key` is deliberately distinct from `owner_key`, so a
@@ -429,13 +433,17 @@ Rules:
 2. Output 1 MUST have scriptPubKey `P2TR(leaf.exit_key)`.
 3. If `is_evict` is false (owner exit):
    * `sig` MUST be a valid BIP-340 signature over the BIP-341 signature hash
-     of `tx` (input 0, `SIGHASH_DEFAULT` or any hash type) by
-     `leaf.owner_key`;
+     of `tx` for input 0 by `leaf.owner_key`, with a hash type that commits
+     to all outputs (`SIGHASH_DEFAULT` or `SIGHASH_ALL`, with or without
+     `ANYONECANPAY`). The covenant fixes output 1's script but only bounds
+     its amount, so a signature that does not cover outputs would let a
+     relayer divert the difference to fees;
    * output 1's amount MUST be less than or equal to `leaf.amount`. The
      difference, if any, is available to the transaction as fee or for other
      outputs; the owner consented to it by signing.
 4. If `is_evict` is true (eviction):
-   * `sig` MUST be a valid signature over `tx` by `leaf.evictor_key`;
+   * `sig` MUST be a valid signature over `tx` by `leaf.evictor_key`, with
+     the same hash-type requirement;
    * `tx.nLockTime` MUST be at least `leaf.evict_after` and input 0's
      `nSequence` MUST enable lock-time (`OP_CHECKLOCKTIMEVERIFY` semantics);
    * output 1's amount MUST equal `leaf.amount`.
@@ -508,7 +516,8 @@ Rules:
 2. **Step 1** (source): old node `(H_leaf(source_leaf), source_leaf.amount)`;
    new node is the leaf `source_leaf'` identical to `source_leaf` except
    `amount' = source_leaf.amount − claim_leaf.amount` (MUST NOT underflow)
-   and `seq' = source_leaf.seq + 1`. `fold` over the source path MUST yield
+   and `seq' = source_leaf.seq + 1`; if `amount' = 0` the new node is `E_0`
+   instead (the position becomes empty). `fold` over the source path MUST yield
    `(r, S)` with `S` equal to input 0's amount; call the folded new root
    `(r_1, S_1)`.
 3. **Step 2** (claim): old node `E_0`; new node
@@ -525,7 +534,9 @@ value still differs from every previously signed voucher. Honouring a
 voucher by other means (for example a `JOIN` of the same `claim_leaf`
 elsewhere) does *not* invalidate it; issuers MUST track outstanding vouchers
 as liabilities until the source leaf's `seq` has advanced past them
-(section 9.6).
+(section 9.6). The voucher binds the source leaf by content, not position,
+which is why section 5.2 forbids duplicate leaves: two identical leaves
+would let one voucher be redeemed against each.
 
 ### 7.6 Composition and variants
 
@@ -535,9 +546,26 @@ Transition types compose by sequencing: a script that applies transitions
 rules 2 and 5 only to the final root. `CLAIM` is the composition of an
 `UPDATE`-like step and a `JOIN_0`-like step with a different authorisation.
 
-Implementations MAY define `EXIT_K` (K owner or evictor exits paying outputs
-`1..K`), or combined scripts, provided each component enforces the rules of
-its type. This document defines only the single-step scripts and `CLAIM`.
+**`EXIT_K`** applies `K` `EXIT` steps in order. Step `i` (1-based) pays
+output `i`, is authorised independently (owner or evictor, each with its own
+`sig` and `is_evict`), and proves its leaf against the root produced by step
+`i − 1` (step 1 against `r`). Steps MUST name distinct positions (a repeated
+position fails, since the leaf is `E_0` after step 1). Output 0 receives the
+total after all `K` removals. A taptree MAY include `EXIT_K` for any set of
+`K`; section 8.3 gives the script.
+
+Implementations MAY define further combined scripts provided each component
+enforces the rules of its type.
+
+### 7.7 Terminal transitions
+
+If the post-transition root `r'` equals `E_D` (every position is empty),
+rules 7.1.2 and 7.1.5 do not apply: output 0 is unconstrained, and the
+transaction MUST still contain an output 0 for the payouts to be numbered
+from 1. This lets the last participant leave without creating a zero-value
+tree output. Only `EXIT` can produce `E_D`. Scripts MUST take this branch
+only when `r' = E_D` exactly; the reference `FINAL` macro compares against
+the constant `E_D` of the tree's depth.
 
 Section 5.2 requires `amount > 0`. The scripts do not enforce this, and
 zero-amount leaves are harmless to the total but useless:
@@ -657,22 +685,45 @@ OP_2SWAP <SEL_IN_AMOUNT> OP_TX OP_NUMEQUALVERIFY OP_FROMALTSTACK OP_EQUALVERIFY
 ```
 
 **`FINAL`** — `[T nh ns] | m → [1]`; requires output 0 to be
-`(ns, TREE_SPK(nh, m))`.
+`(ns, TREE_SPK(nh, m))` unless `nh = E_D` (section 7.7).
 
 ```
-OP_ROT OP_DROP OP_SWAP OP_FROMALTSTACK TREE_SPK      # ns spk'
-OP_0 <SEL_OUT_SINGLE> OP_TX                          # ns spk' amt0 spk0
-OP_ROT OP_EQUALVERIFY OP_NUMEQUAL                    # 1
+OP_ROT OP_DROP                                       # nh ns
+OP_OVER <E_D.hash> OP_EQUAL
+OP_IF   OP_2DROP OP_FROMALTSTACK OP_DROP OP_1        # terminal: 1
+OP_ELSE OP_SWAP OP_FROMALTSTACK TREE_SPK             # ns spk'
+        OP_0 <SEL_OUT_SINGLE> OP_TX                  # ns spk' amt0 spk0
+        OP_ROT OP_EQUALVERIFY OP_NUMEQUAL            # 1
+OP_ENDIF
 ```
 
-### 8.3 EXIT_1
+**`CHECK_PREV`** — `[T oh os nh ns] | … nh_p ns_p → [T nh ns]`; requires
+`os == ns_p` and `oh == nh_p`. Used between steps of `EXIT_K`.
 
-Witness (bottom → top):
-`dir_{D-1} sc_{D-1} … dir_0 sc_0  leaf  sig  is_evict  r  m`
+```
+OP_2SWAP OP_FROMALTSTACK OP_NUMEQUALVERIFY OP_FROMALTSTACK OP_EQUALVERIFY
+```
+
+### 8.3 EXIT_K
+
+Witness (bottom → top): `block_K … block_1  r  m`, where
+`block_i = dir_{D-1} sc_{D-1} … dir_0 sc_0  leaf_i  sig_i  is_evict_i`.
+Block 1 is nearest the top and is processed first.
 
 ```
 PROLOGUE                                           # leaf sig is_evict     | m r
-OP_DUP OP_TOALTSTACK                               #                       | m r is_evict
+EXIT_BLOCK(1)  CHECK_OLD                           # T nh ns               | m
+for i in 2..K:
+  OP_SWAP OP_TOALTSTACK OP_TOALTSTACK OP_DROP      # leaf sig is_evict     | m nh ns
+  EXIT_BLOCK(i)  CHECK_PREV                        # T nh ns               | m
+FINAL
+```
+
+**`EXIT_BLOCK(i)`** — `[path] leaf sig is_evict → T oh os nh ns` after `D`
+levels; pays output `i`:
+
+```
+OP_DUP OP_TOALTSTACK                               #                       | … is_evict
 OP_IF                                              # -- eviction --
   OP_OVER 104 OP_4 OP_SUBSTR OP_CHECKLOCKTIMEVERIFY OP_DROP
   OP_OVER 72 32 OP_SUBSTR                          # leaf sig evictor_key
@@ -681,20 +732,21 @@ OP_ELSE                                            # -- owner exit --
 OP_ENDIF
 OP_CHECKSIGVERIFY                                  # leaf
 OP_SIZE 116 OP_EQUALVERIFY
-OP_1 <SEL_OUT_SINGLE> OP_TX                        # leaf amt1 spk1
-<0x5120> OP_3 OP_PICK OP_8 32 OP_SUBSTR OP_CAT     # leaf amt1 spk1 P2TR(exit_key)
-OP_EQUALVERIFY                                     # leaf amt1
-OP_OVER OP_8 OP_LEFT                               # leaf amt1 leaf.amount
-OP_FROMALTSTACK                                    # leaf amt1 leaf.amount is_evict   | m r
+<i> <SEL_OUT_SINGLE> OP_TX                        # leaf amt_i spk_i
+<0x5120> OP_3 OP_PICK OP_8 32 OP_SUBSTR OP_CAT     # leaf amt_i spk_i P2TR(exit_key)
+OP_EQUALVERIFY                                     # leaf amt_i
+OP_OVER OP_8 OP_LEFT                               # leaf amt_i leaf.amount
+OP_FROMALTSTACK                                    # leaf amt_i leaf.amount is_evict
 OP_IF OP_NUMEQUALVERIFY OP_ELSE OP_LESSTHANOREQUAL OP_VERIFY OP_ENDIF
 LEAF_ACC                                           # oh os
 <TAG_NODE> OP_ROT OP_ROT                           # T oh os
 <EMPTY_LEAF_HASH> OP_0                             # T oh os E_0.hash 0
 LEVEL × D
-CHECK_OLD FINAL
 ```
 
-Size: `651 + 88·D` bytes (1,003 at `D = 4`; 2,059 at `D = 16`).
+Size of `EXIT_1`: `693 + 88·D` bytes (1,045 at `D = 4`; 2,101 at
+`D = 16`). Each further step adds `~118 + 88·D` bytes of script and
+`~230 + 40·D` bytes of witness data.
 
 ### 8.4 JOIN_h
 
@@ -753,6 +805,7 @@ OP_FROMALTSTACK OP_ROT OP_TOALTSTACK OP_TOALTSTACK  # src src'              | m 
 <TAG_NODE> OP_ROT OP_ROT                            # T src src'
 OP_SWAP LEAF_ACC                                    # T src' oh os
 OP_ROT LEAF_ACC                                     # T oh os nh ns
+OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_LEAF_HASH> OP_SWAP OP_ENDIF   # ns == 0 → nh = E_0.hash
 LEVEL × D                                           # (source path)
 CHECK_OLD                                           # T r1 S1               | m claim
 OP_FROMALTSTACK LEAF_ACC                            # T r1 S1 ch cs
@@ -949,7 +1002,11 @@ IOU: the first redeemer is paid by consensus.
 
 A voucher commits to `m`, so it cannot be replayed in another tree; it
 commits to the full source leaf including `seq`, so it cannot be replayed
-after any change to the source leaf.
+after any change to the source leaf. It does not commit to the source
+*position*: if the same 116 bytes occurred at two positions, one voucher
+could be redeemed against both, doubling the issuer's loss. Section 5.2
+therefore requires unique leaves; an issuer MUST additionally check that no
+duplicate of its source leaf exists before signing a voucher.
 
 ### 10.4 Binding the taptree
 
@@ -994,10 +1051,13 @@ cover outputs, so a third party cannot alter where an exit pays.
 ### 10.7 Signature coverage
 
 Owner, evictor and operator signatures are ordinary `OP_CHECKSIG(VERIFY)`
-over the transaction. `SIGHASH_DEFAULT` is RECOMMENDED. Signers that use
-`SIGHASH_SINGLE`/`ANYONECANPAY` variants do so at their own risk: the
-covenant constrains outputs 0 and 1 regardless, but change outputs are not
-constrained by script.
+over the transaction. `EXIT` signatures MUST use `SIGHASH_DEFAULT` or
+`SIGHASH_ALL` (section 7.2): with `SIGHASH_NONE` or `SIGHASH_SINGLE` the
+payout amount, which the covenant only bounds from above for owner exits,
+could be lowered by anyone relaying the transaction. `ANYONECANPAY` is
+harmless and useful for adding a fee input later. `JOIN` and `UPDATE`
+signers SHOULD use `SIGHASH_DEFAULT`; change outputs are never constrained
+by script.
 
 Leaf keys are checked by `lift_x` at signature verification; a leaf with an
 invalid `owner_key` can never `EXIT` and an invalid `exit_key` pays to an
@@ -1053,10 +1113,10 @@ control block assumes a five-leaf taptree (depth 3, 129 bytes).
 
 | D | leaves | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
 |---|---|---|---|---|---|---|
-| 8 | 256 | 1,355 | 566 | 2,050 | ≈ 3,000 | ≈ 750 |
-| 12 | 4,096 | 1,707 | 726 | 2,562 | ≈ 3,510 | ≈ 880 |
-| 16 | 65,536 | 2,059 | 886 | 3,074 | ≈ 4,020 | ≈ 1,005 |
-| 20 | 1,048,576 | 2,411 | 1,046 | 3,586 | ≈ 4,540 | ≈ 1,135 |
+| 8 | 256 | 1,397 | 566 | 2,092 | ≈ 3,040 | ≈ 760 |
+| 12 | 4,096 | 1,749 | 726 | 2,604 | ≈ 3,550 | ≈ 890 |
+| 16 | 65,536 | 2,101 | 886 | 3,116 | ≈ 4,070 | ≈ 1,020 |
+| 20 | 1,048,576 | 2,453 | 1,046 | 3,628 | ≈ 4,580 | ≈ 1,145 |
 
 The transaction weight column adds a fee input (P2WPKH), a change output
 and non-witness overhead (≈ 950 WU). Each additional level costs 130 WU
@@ -1073,6 +1133,10 @@ the transaction skeleton) plus 130 WU per level, so it breaks even near
 with size. The trade-off is that LayerTree requires the
 larger opcode set of section 4, whereas CTV-based trees need only a template
 opcode.
+
+`EXIT_2` at `D = 16` uses 3,747 bytes of script and 1,709 of witness data
+(5,585 WU in total), i.e. a second exit in the same transaction costs about
+2,470 WU against roughly 4,070 WU for a separate transaction.
 
 Varops usage is about 12% of budget at every `D` measured; the constant
 term (EC operations and the signature) dominates. `OP_ECSCALARMUL` and
@@ -1106,10 +1170,9 @@ exits in a batch" as `EXIT_K` (section 13).
 
 *(informative)* None of the following is required for conformance.
 
-1. **`EXIT_K`.** Unroll `K` exits in one script; each exit's path is
-   verified against the root produced by the previous one and pays output
-   `1..K`. Script size grows as `K × (651 + 88·D)`; witness as `K × ~890`.
-   Useful for operator-driven batch evictions and cooperative mass exits.
+1. **Larger `K`.** `EXIT_K` (section 8.3) is defined for any `K`; the
+   reference taptree includes `K ∈ {1, 2}`. Larger `K` suits operator-driven
+   batch evictions and cooperative mass exits.
 2. **Higher radix.** A radix-4 sum tree halves the number of levels at the
    cost of three 40-byte siblings per level; per-level script grows but
    total witness shrinks for large `D`.
@@ -1152,7 +1215,10 @@ exits in a batch" as `EXIT_K` (section 13).
   against the reference tree, including negative cases (forged leaf, stale
   root, attacker-chosen `m`, unconserved amount, underfunded join, join over
   an occupied position, early eviction, evictor shortchange, unsigned update,
-  voucher replay, over-claim, wrong voucher signer). Run:
+  voucher replay, over-claim, wrong voucher signer, stale second path in
+  `EXIT_2`, shortchanged second evictee, non-terminal exit taking the
+  terminal branch) and positive cases for a `CLAIM` that drains its source
+  and for the terminal exit. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` and the size table.
 

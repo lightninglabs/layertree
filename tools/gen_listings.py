@@ -34,7 +34,7 @@ def listing(name, tokens):
 
 
 D = 4
-for name, toks in ls.all_scripts(D, OP_KEY, (0, 2)).items():
+for name, toks in ls.all_scripts(D, OP_KEY, (0, 2), (1, 2)).items():
     with open(os.path.join(OUT, f"{name}_D{D}.txt"), "w") as f:
         f.write(listing(f"{name} (D={D})", toks))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:

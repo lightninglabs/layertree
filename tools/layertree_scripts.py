@@ -114,39 +114,68 @@ def check_old_root_from_alt():
             "OP_FROMALTSTACK", "OP_EQUALVERIFY"]
 
 
-def final_output():
-    """[T nh ns] (alt: m) -> [1]; output 0 must be (ns, tree_spk(nh, m))."""
-    return (["OP_ROT", "OP_DROP", "OP_SWAP", "OP_FROMALTSTACK"] + tree_spk() +
+def final_output(depth):
+    """[T nh ns] (alt: m) -> [1].
+
+    If nh == E_D (the tree is now empty) output 0 is unconstrained (the
+    total is 0 and a zero-value output would be unspendable/non-standard).
+    Otherwise output 0 must be (ns, tree_spk(nh, m)).
+    """
+    e_d = lt.empty_node(depth)[0]
+    return (["OP_ROT", "OP_DROP",                                  # nh ns
+             "OP_OVER", e_d, "OP_EQUAL",
+             "OP_IF", "OP_2DROP", "OP_FROMALTSTACK", "OP_DROP", "OP_1",
+             "OP_ELSE", "OP_SWAP", "OP_FROMALTSTACK"] + tree_spk() +
             ["OP_0", SEL_OUT_SINGLE, "OP_TX", "OP_ROT", "OP_EQUALVERIFY",
-             "OP_NUMEQUAL"])
+             "OP_NUMEQUAL", "OP_ENDIF"])
 
 
-def exit_script(depth):
-    """EXIT_1: witness (bottom..top) = [dir sc]*D leaf sig is_evict root m."""
-    s = prologue()                                       # leaf sig is_evict
-    s += ["OP_DUP", "OP_TOALTSTACK",                     # alt: m root is_evict
-          "OP_IF",
-          "OP_OVER", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
-          "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
-          "OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR",
-          "OP_ELSE",
-          "OP_OVER", OFF_OWNER_KEY, 32, "OP_SUBSTR",
-          "OP_ENDIF",
-          "OP_CHECKSIGVERIFY",                           # leaf
-          "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
-          1, SEL_OUT_SINGLE, "OP_TX",                    # leaf out_amt out_spk
-          P2TR_PREFIX, 3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
-          "OP_EQUALVERIFY",                              # leaf out_amt
-          "OP_OVER", 8, "OP_LEFT",                       # leaf out_amt leaf_amt
-          "OP_FROMALTSTACK",                             # ... is_evict
-          "OP_IF", "OP_NUMEQUALVERIFY",
-          "OP_ELSE", "OP_LESSTHANOREQUAL", "OP_VERIFY", "OP_ENDIF",  # leaf
-          ] + leaf_acc() + [                             # oh os
-          NODE_PREFIX, "OP_ROT", "OP_ROT",               # T oh os
-          lt.EMPTY_LEAF_HASH, "OP_0"]                    # T oh os nh ns
+def check_prev_root_from_alt():
+    """[T oh os nh ns] | ... nh_prev ns_prev -> [T nh ns]; chained exits."""
+    return ["OP_2SWAP", "OP_FROMALTSTACK", "OP_NUMEQUALVERIFY",
+            "OP_FROMALTSTACK", "OP_EQUALVERIFY"]
+
+
+def exit_block(depth, out_index):
+    """One exit. Stack: [path] leaf sig is_evict | ... ; ends with T oh os nh ns
+    after the levels (the caller appends the root check)."""
+    s = ["OP_DUP", "OP_TOALTSTACK",                     # alt: ... is_evict
+         "OP_IF",
+         "OP_OVER", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
+         "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
+         "OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR",
+         "OP_ELSE",
+         "OP_OVER", OFF_OWNER_KEY, 32, "OP_SUBSTR",
+         "OP_ENDIF",
+         "OP_CHECKSIGVERIFY",                           # leaf
+         "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+         out_index, SEL_OUT_SINGLE, "OP_TX",            # leaf out_amt out_spk
+         P2TR_PREFIX, 3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
+         "OP_EQUALVERIFY",                              # leaf out_amt
+         "OP_OVER", 8, "OP_LEFT",                       # leaf out_amt leaf_amt
+         "OP_FROMALTSTACK",                             # ... is_evict
+         "OP_IF", "OP_NUMEQUALVERIFY",
+         "OP_ELSE", "OP_LESSTHANOREQUAL", "OP_VERIFY", "OP_ENDIF",  # leaf
+         ] + leaf_acc() + [                             # oh os
+         NODE_PREFIX, "OP_ROT", "OP_ROT",               # T oh os
+         lt.EMPTY_LEAF_HASH, "OP_0"]                    # T oh os nh ns
     for _ in range(depth):
         s += level()
-    return s + check_old_root_from_alt() + final_output()
+    return s
+
+
+def exit_script(depth, k=1):
+    """EXIT_K: K sequential exits paying outputs 1..K.
+
+    witness (bottom..top) = [block_K] ... [block_1] root m
+    block_i = [dir sc]*D leaf_i sig_i is_evict_i   (block_1 is on top)
+    """
+    s = prologue()                                       # leaf sig is_evict | m r
+    s += exit_block(depth, 1) + check_old_root_from_alt()  # T nh ns | m
+    for i in range(2, k + 1):
+        s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]  # | m nh ns
+        s += exit_block(depth, i) + check_prev_root_from_alt()        # T nh ns | m
+    return s + final_output(depth)
 
 
 def join_script(depth, height, operator_key):
@@ -163,7 +192,7 @@ def join_script(depth, height, operator_key):
           e_h, "OP_0", "OP_2SWAP"]                       # T E_h 0 new_h new_s8
     for _ in range(depth - height):
         s += level()
-    return s + check_old_root_from_alt() + final_output()
+    return s + check_old_root_from_alt() + final_output(depth)
 
 
 def update_script(depth, operator_key):
@@ -178,7 +207,7 @@ def update_script(depth, operator_key):
           "OP_ROT"] + leaf_acc()                         # T oh os nh ns
     for _ in range(depth):
         s += level()
-    return s + check_old_root_from_alt() + final_output()
+    return s + check_old_root_from_alt() + final_output(depth)
 
 
 def claim_script(depth):
@@ -203,7 +232,10 @@ def claim_script(depth):
           "OP_FROMALTSTACK", "OP_ROT", "OP_TOALTSTACK", "OP_TOALTSTACK",  # src new_src
           NODE_PREFIX, "OP_ROT", "OP_ROT",                       # T src new_src
           "OP_SWAP"] + leaf_acc() + [                            # T new_src oh os
-          "OP_ROT"] + leaf_acc()                                 # T oh os nh ns
+          "OP_ROT"] + leaf_acc() + [                             # T oh os nh ns
+          # a fully drained source position becomes the empty leaf
+          "OP_DUP", "OP_NOT", "OP_IF", "OP_SWAP", "OP_DROP",
+          lt.EMPTY_LEAF_HASH, "OP_SWAP", "OP_ENDIF"]             # T oh os nh' ns
     for _ in range(depth):
         s += level()
     s += check_old_root_from_alt()                               # T nh1 ns1 ; alt: m claim
@@ -215,12 +247,12 @@ def claim_script(depth):
     s += ["OP_2SWAP",                                            # T nh2 ns2 oh2 os2
           "OP_FROMALTSTACK", "OP_ROT", "OP_EQUALVERIFY",         # T nh2 ns2 os2   (oh2 == nh1)
           "OP_FROMALTSTACK", "OP_NUMEQUALVERIFY"]                # T nh2 ns2       (os2 == ns1)
-    return s + final_output()
+    return s + final_output(depth)
 
 
-def all_scripts(depth, operator_key, join_heights=(0,)):
+def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,)):
     """Return ordered dict name -> token list for a tree's taptree."""
-    out = {"EXIT_1": exit_script(depth)}
+    out = {f"EXIT_{k}": exit_script(depth, k) for k in exit_ks}
     for h in join_heights:
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key)
     out["UPDATE"] = update_script(depth, operator_key)

@@ -48,11 +48,11 @@ def path_witness(path):
 
 
 class World:
-    def __init__(self, depth, join_heights=(0, 2)):
+    def __init__(self, depth, join_heights=(0, 2), exit_ks=(1, 2)):
         self.depth = depth
         self.op_sk = sk("operator")
         self.op_pk = pubkey_x(self.op_sk)
-        self.scripts = ls.all_scripts(depth, self.op_pk, join_heights)
+        self.scripts = ls.all_scripts(depth, self.op_pk, join_heights, exit_ks)
         self.compiled = {k: assemble(v) for k, v in self.scripts.items()}
         self.leaf_hashes = [lt.tapleaf_hash(s) for s in self.compiled.values()]
         self.m = lt.taptree_root(self.leaf_hashes)
@@ -238,6 +238,74 @@ def test_all(depth, verbose=True):
     # negative: voucher signed by the wrong owner
     bsig = schnorr_sign(vmsg, sk("bob-owner"))
     expect_fail(lambda: w.run("CLAIM", path_witness(cpath) + path_witness(spath) + [src.serialize(), frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
+
+    w.tree = t5
+
+    # ---------------- EXIT_2: carol (owner) + dave (evict) in one tx ----------------
+    root = w.tree.root()
+    cslot, dslot = (idx << h) + 0, (idx << h) + 3
+    t7 = lt.Tree(depth); t7.leaves = dict(w.tree.leaves)
+    path_c = t7.path(cslot); del t7.leaves[cslot]
+    path_d = t7.path(dslot); del t7.leaves[dslot]   # path after carol removed
+    r7 = t7.root()
+    outputs = [(r7[1], w.spk(r7)), (carol.amount - 300, lt.p2tr_spk(carol.exit_key)),
+               (dave.amount, lt.p2tr_spk(dave.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=900_000)
+    csig = schnorr_sign(ctx.sighash(), sk("carol-owner"))
+    dsig = schnorr_sign(ctx.sighash(), w.op_sk)
+    block2 = path_witness(path_d) + [dave.serialize(), dsig, b"\x01"]
+    block1 = path_witness(path_c) + [carol.serialize(), csig, b""]
+    wit = block2 + block1 + [root[0], w.m]
+    it = w.run("EXIT_2", wit, ctx)
+    costs["EXIT_2"] = (it, len(w.compiled["EXIT_2"]), sum(len(x) for x in wit))
+    # negative: second block's path must be against the root AFTER the first exit
+    stale_d = w.tree.path(dslot)
+    expect_fail(lambda: w.run("EXIT_2", path_witness(stale_d) + [dave.serialize(), dsig, b"\x01"] + block1 + [root[0], w.m], ctx), "EXIT_2 stale second path")
+    # negative: second payout at wrong index amount
+    bad = list(outputs); bad[2] = (dave.amount - 1, lt.p2tr_spk(dave.exit_key))
+    ctxb = w.ctx(bad, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=900_000)
+    csb = schnorr_sign(ctxb.sighash(), sk("carol-owner")); dsb = schnorr_sign(ctxb.sighash(), w.op_sk)
+    expect_fail(lambda: w.run("EXIT_2", path_witness(path_d) + [dave.serialize(), dsb, b"\x01"] + path_witness(path_c) + [carol.serialize(), csb, b""] + [root[0], w.m], ctxb), "EXIT_2 evictee shortchanged")
+    w.tree = t7
+
+    # ---------------- CLAIM draining the source completely -> E_0 ----------------
+    root = w.tree.root()
+    src_slot2 = 9  # erin, 12_345
+    src2 = w.tree.leaves[src_slot2]
+    gina = mk_leaf("gina", src2.amount, w.op_pk, 900_000)
+    spath2 = w.tree.path(src_slot2)
+    t8 = lt.Tree(depth); t8.leaves = dict(w.tree.leaves)
+    del t8.leaves[src_slot2]                       # drained position becomes empty
+    cpath_g = t8.path(6)
+    t8.leaves[6] = gina
+    r8 = t8.root()
+    ctx = w.ctx([(r8[1], w.spk(r8))], extra_in=(600, b"\x00\x14" + bytes(20)))
+    gsig = schnorr_sign(lt.voucher_msg(w.m, src2, gina), sk("erin-owner"))
+    wit = path_witness(cpath_g) + path_witness(spath2) + [src2.serialize(), gina.serialize(), gsig, root[0], w.m]
+    it = w.run("CLAIM", wit, ctx)
+    check(True, "claim full drain -> empty position")
+    w.tree = t8
+
+    # ---------------- terminal exit: last leaf leaves, output 0 unconstrained ----------------
+    tiny = lt.Tree(depth)
+    solo = mk_leaf("solo", 77_000)
+    tiny.leaves = {2: solo}
+    w.tree = tiny
+    root = w.tree.root()
+    spath = w.tree.path(2)
+    outputs = [(600, b"\x00\x14" + bytes(20)), (solo.amount - 400, lt.p2tr_spk(solo.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(1_000, b"\x00\x14" + bytes(20)))
+    ssig = schnorr_sign(ctx.sighash(), sk("solo-owner"))
+    it = w.run("EXIT_1", path_witness(spath) + [solo.serialize(), ssig, b"", root[0], w.m], ctx)
+    costs["EXIT_1 (terminal)"] = (it, len(w.compiled["EXIT_1"]), 0)
+    # negative: terminal branch must not be reachable while leaves remain
+    w.tree = t8
+    root = w.tree.root()
+    apath = w.tree.path(0)
+    outputs = [(600, b"\x00\x14" + bytes(20)), (alice2.amount, lt.p2tr_spk(alice2.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(1_000, b"\x00\x14" + bytes(20)))
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    expect_fail(lambda: w.run("EXIT_1", path_witness(apath) + [alice2.serialize(), asig, b"", root[0], w.m], ctx), "non-terminal exit with unconstrained output 0")
 
     if verbose:
         print(f"\nD={depth}  taptree leaves={len(w.compiled)}  m={w.m.hex()}")

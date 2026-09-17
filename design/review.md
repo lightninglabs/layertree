@@ -135,6 +135,31 @@ non-zero (spec 10.5). Cooperative exits and anchor outputs mitigate; a
 sharded deployment (several trees) bounds blast radius. This is inherent to
 any single-UTXO design and is noted rather than solved.
 
+### F10. Second-pass findings
+
+A re-read of the draft spec against the scripts found four gaps, all now
+closed and tested:
+
+* **Hash types.** An owner exit only bounds the payout from above, so a
+  signature with `SIGHASH_NONE`/`SINGLE` would let a relayer lower the
+  payout and pocket the difference as fee. Exit signatures must commit to
+  all outputs (spec 7.2, 10.7).
+* **Empty tree.** When the last leaf exits, the recreated tree output would
+  carry 0 sats: consensus-valid, non-standard, and pointless. `FINAL` now
+  recognises `r' = E_D` and leaves output 0 unconstrained (spec 7.7).
+* **Fully drained `CLAIM` source.** A voucher for the whole balance would
+  leave a zero-amount leaf. The script now substitutes `E_0` (spec 7.5).
+* **Duplicate leaves and vouchers.** A voucher binds the source leaf by
+  content, so two byte-identical leaves would let one voucher be redeemed
+  twice. `seq` is now a creation-time nonce and uniqueness is a requirement
+  on leaf creators and voucher issuers (spec 5.2, 10.3). Binding the
+  position in the voucher instead would cost a per-level index accumulator
+  in `LEVEL`; the requirement is cheaper and sufficient.
+
+`EXIT_K` was also implemented rather than merely described, to confirm the
+composition rule (spec 7.6): step `i` proves against the root produced by
+step `i − 1`, and the test suite checks that a stale second path fails.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):
@@ -151,7 +176,7 @@ any single-UTXO design and is noted rather than solved.
 ## 4. Validation
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
-at depths 4 and 16 in a simulator of the required opcode subset, with 36
+at depths 4 and 16 in a simulator of the required opcode subset, with 44
 checks including the negative cases that matter for the findings above:
 attacker-chosen `m` (F4), forged leaf amount and stale root (F3), unconserved
 tree amount (F6), join over an occupied position and underfunded join,
