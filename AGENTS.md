@@ -116,6 +116,11 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   impossible `cons` case. Use `simp [getSub, setSub, pathSub]` rather than
   `rfl` for nil cases. The toolchain is downloaded from GitHub releases; in
   a sandbox `tar --zstd` may be missing, `python3 -m zstandard` works.
+  `omit M in` must come *before* a declaration's doc comment, not between
+  the comment and `theorem`; the latter is a parse error. After any Lean
+  edit, check `lake build`'s exit code, not a grep over its output: a
+  failed module silently skips everything downstream, including the axiom
+  audit in `Axioms.lean`, so a filtered log can look empty and green.
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.

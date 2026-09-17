@@ -34,6 +34,7 @@ structure BindingModel (H : Type) where
   treeSpk : H → TapRoot → Spk
   treeSpk_inj : ∀ {r₁ r₂ : H} {m₁ m₂ : TapRoot}, treeSpk r₁ m₁ = treeSpk r₂ m₂ → r₁ = r₂ ∧ m₁ = m₂
 
+omit M in
 /-- **The witness root is the committed root.** If the current input's
 scriptPubKey was created as `treeSpk r m` (the tree output of section 6),
 and the script finds `treeSpk r' m' = input scriptPubKey` for the witness
@@ -41,18 +42,17 @@ values `r'`, `m'`, then `r' = r` and `m' = m`: the script is checking
 proofs against the true root and running under the true script set. Every
 `fold_sound` application in `LayerTree.Transitions` starts from the `r`
 this theorem delivers. -/
-omit M in
 theorem witness_root_binds (B : BindingModel H) (r r' : H) (m m' : B.TapRoot)
     (hcheck : B.treeSpk r' m' = B.treeSpk r m) : r' = r ∧ m' = m :=
   B.treeSpk_inj hcheck
 
+omit M in
 /-- The same fact for the *output*: the script builds output 0's
 scriptPubKey as `treeSpk r_new m` with the `m` it verified, so the next
 tree output commits to exactly the root the fold computed and to the same
 script set (section 7.1 rule 2). A spender cannot substitute another `m`
 for the successor output without changing the scriptPubKey the covenant
 requires. -/
-omit M in
 theorem output_binds (B : BindingModel H) (rNew : H) (m m' : B.TapRoot) (rOut : H)
     (hout : B.treeSpk rOut m' = B.treeSpk rNew m) : rOut = rNew ∧ m' = m :=
   B.treeSpk_inj hout
