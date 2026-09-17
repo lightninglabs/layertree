@@ -20,6 +20,7 @@ test suite fails if a script uses anything else.
 | [`spec/fee-analysis.md`](spec/fee-analysis.md) | Exit and eviction costs at fee rates from 1 to 250 sat/vB |
 | [`spec/test-vectors.json`](spec/test-vectors.json) | Generated test vectors |
 | [`spec/scripts/`](spec/scripts/) | Annotated script listings and the measured size table |
+| [`formal/`](formal/README.md) | Lean 4 formalisation of the tree and covenant rules: conservation, proof soundness, payability, encodings (core library only, `lake build`) |
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
 | [`design/layertree.md`](design/layertree.md) | Raw design sketch (verbatim) |
@@ -59,6 +60,19 @@ python3 tools/gen_golden.py        # regenerate spec/golden.json for the Go test
 ```
 
 No dependencies beyond the Python 3 standard library.
+
+## Formal model
+
+`formal/` is a Lean 4 development (no Mathlib) that proves the security
+argument of spec section 10.2 for the abstract transition rules: every
+accepted transition conserves the tree sum, only removes leaves that are
+really there, and every leaf holder can always build an accepted exit.
+`formal/README.md` lists the theorems, the hash assumptions and what is
+deliberately left to the executable tests.
+
+```
+cd formal && lake build
+```
 
 ## Consensus dependencies
 
