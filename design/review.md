@@ -239,6 +239,30 @@ witness cost. `OP_CHECKSIGFROMSTACK` cannot be emulated and is needed only
 for vouchers. A minimal-inventory `EXIT_1` is implemented and tested; it
 costs 13% more script than the full-inventory one.
 
+### F14. Batched joins, and the 16M-leaf comparison
+
+Joins batch by the same sequential composition as exits: `JOINK_K` verifies
+`K` single-leaf insertions in one script under one operator signature, each
+against the root the previous step produced. Measured (`spec 11`): a second
+join costs about 2.2 kWU dense at `D = 16` and 4.9 kWU sparse at `D = 32`,
+against 3.9 and 6.6 kWU for a standalone transaction. So the earlier remark
+that onboarding 16M users into a sparse tree needs 16M transactions was
+wrong as stated; it needs 16M path verifications, which can be packed into
+as few transactions as the varops budget and relay policy allow. The total
+byte cost is what does not change: about 5 kWU per leaf in the sparse
+profile against a constant 2 kWU per graft of any size in the dense
+profile, because derived positions are not contiguous and cannot be grafted.
+
+For a tree of 2^24 leaves, per exit: dense `D = 24` about 5.1 kWU, sparse
+`D = 32` about 7.5 kWU (at that density 25 of 32 sibling levels are
+non-empty, so compression buys little). For onboarding: 2^24 × 5 kWU
+≈ 80 GWU sparse versus 65,536 grafts of 256 leaves ≈ 0.13 GWU dense. Use the
+dense profile, or shard into dense trees of depth 16–20, for anything at
+that scale; the sparse profile is for key-addressed trees that grow leaf by
+leaf. A hybrid, dense subtrees hung at derived positions of a shallow sparse
+top, would give bulk joins with key-addressed sharding and is noted but not
+designed.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):
@@ -255,7 +279,7 @@ costs 13% more script than the full-inventory one.
 ## 4. Validation
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
-at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 170
+at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 186
 checks including the negative cases that matter for the findings above:
 attacker-chosen `m` (F4), forged leaf amount and stale root (F3), unconserved
 tree amount (F6), join over an occupied position and underfunded join,

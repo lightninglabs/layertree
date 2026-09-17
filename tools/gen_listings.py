@@ -58,7 +58,7 @@ ls.COMPRESSION["S"] = "bitmap"
 for d in (32, 64):
     costs, w = test_scripts.test_all(d, "S", verbose=False)
     for k, (it, sl, wl) in costs.items():
-        if k.startswith("EXIT_1 (owner)") or k == "JOIN_0":
+        if k.startswith("EXIT_1 (owner)") or k in ("JOIN_0", "JOINK_2"):
             rows.append(("S/bitmap", d, k, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 ls.COMPRESSION["S"] = "empty"
 for d in (8, 16):

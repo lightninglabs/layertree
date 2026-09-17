@@ -279,30 +279,39 @@ def exit_script(depth, k=1, profile="D"):
     return s + final_output(depth)
 
 
-def join_script(depth, height, operator_key, profile="D"):
-    """JOIN_h (dense: any height; sparse: height 0 only, single leaf).
-
-    dense:  witness = [dir sc]*(D-h) new_hash new_sum8 sig root m
-    sparse: witness = [sc]*D leaf sig root m
-    """
-    s = prologue()
+def join_block(profile, depth, height):
+    """One join step. Stack (dense): [path] new_hash new_sum8 -> T oh os nh ns after levels.
+    Stack (sparse, height 0): [sc*D] leaf -> T oh os nh ns after levels."""
     if profile == "D":
         e_h = lt.empty_node(height)[0]
-        s += [operator_key, "OP_CHECKSIGVERIFY",         # new_h new_s8
-              "OP_SIZE", 8, "OP_EQUALVERIFY",
-              "OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",
-              NODE_PREFIX, "OP_ROT", "OP_ROT",           # T new_h new_s8
-              e_h, "OP_0", "OP_2SWAP"]                   # T E_h 0 new_h new_s8
-        s += levels("D", depth, height)
-    else:
-        assert height == 0
-        s += [operator_key, "OP_CHECKSIGVERIFY",         # leaf
-              "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY"]
-        s += leaf_pos() + sparse_setup()                 # leaf               | pos E_0
-        s += leaf_acc() + [NODE_PREFIX, "OP_ROT", "OP_ROT",  # T nh ns
-              lt.EMPTY_LEAF_HASH, "OP_0", "OP_2SWAP"]    # T E_0 0 nh ns
-        s += levels("S", depth)
-    return s + check_old_root_from_alt(profile) + final_output(depth)
+        s = ["OP_SIZE", 8, "OP_EQUALVERIFY",
+             "OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",
+             NODE_PREFIX, "OP_ROT", "OP_ROT",           # T new_h new_s8
+             e_h, "OP_0", "OP_2SWAP"]                   # T E_h 0 new_h new_s8
+        return s + levels("D", depth, height)
+    assert height == 0
+    s = ["OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY"]
+    s += leaf_pos() + sparse_setup()                    # leaf               | pos E_0
+    s += leaf_acc() + [NODE_PREFIX, "OP_ROT", "OP_ROT",  # T nh ns
+          lt.EMPTY_LEAF_HASH, "OP_0", "OP_2SWAP"]       # T E_0 0 nh ns
+    return s + levels("S", depth)
+
+
+def join_script(depth, height, operator_key, profile="D", k=1):
+    """JOIN_h (k = 1): graft one subtree of height h (dense) or insert one leaf
+    (sparse, h = 0).  JOINK_k (h = 0): k sequential single-leaf insertions.
+
+    witness (bottom..top) = [block_k] ... [block_1] sig root m
+      dense block  = [dir sc]*(D-h) new_hash new_sum8
+      sparse block = [sc]*D leaf
+    """
+    s = prologue()                                       # ... sig | m r
+    s += [operator_key, "OP_CHECKSIGVERIFY"]
+    s += join_block(profile, depth, height) + check_old_root_from_alt(profile)
+    for _ in range(2, k + 1):
+        s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]  # | m nh ns
+        s += join_block(profile, depth, height) + check_prev_root_from_alt(profile)
+    return s + final_output(depth)
 
 
 def update_script(depth, operator_key, profile="D"):
@@ -363,11 +372,13 @@ def claim_script(depth, profile="D"):
     return s + final_output(depth)
 
 
-def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,), profile="D"):
+def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,), profile="D", join_ks=(2,)):
     """Return ordered dict name -> token list for a tree's taptree."""
     out = {f"EXIT_{k}": exit_script(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key, profile)
+    for k in join_ks:
+        out[f"JOINK_{k}"] = join_script(depth, 0, operator_key, profile, k)
     out["UPDATE"] = update_script(depth, operator_key, profile)
     out["CLAIM"] = claim_script(depth, profile)
     return out

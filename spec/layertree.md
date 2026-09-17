@@ -581,7 +581,10 @@ Rules:
 `JOIN_h` grafts a subtree of height `h` into an empty position. `h = 0`
 inserts a single leaf. The sparse profile supports `h = 0` only, and its
 witness carries the full new leaf (so that the script can derive the
-position) instead of `(new_hash, new_sum)`.
+position) instead of `(new_hash, new_sum)`. **`JOINK_K`** applies `K`
+single-leaf joins in sequence under one operator signature, exactly as
+`EXIT_K` sequences exits (section 7.6); it is the batching primitive of the
+sparse profile, whose derived positions cannot be grafted as a subtree.
 
 Witness inputs (dense): sibling path of the node at height `h` (`D − h`
 levels), `new_hash` (32 bytes), `new_sum` (8 bytes `le64`), `sig`, `r`,
@@ -682,7 +685,8 @@ Transition types compose by sequencing: a script that applies transitions
 rules 2 and 5 only to the final root. `CLAIM` is the composition of an
 `UPDATE`-like step and a `JOIN_0`-like step with a different authorisation.
 
-**`EXIT_K`** applies `K` `EXIT` steps in order. Step `i` (1-based) pays
+**`EXIT_K`** and **`JOINK_K`** apply `K` `EXIT` or single-leaf `JOIN` steps
+in order. For `EXIT_K`: Step `i` (1-based) pays
 output `i`, is authorised independently (owner or evictor, each with its own
 `sig` and `is_evict`), and proves its leaf against the root produced by step
 `i − 1` (step 1 against `r`). Steps MUST name distinct positions (a repeated
@@ -932,12 +936,16 @@ step adds `~118 + 88·D` (dense) or `~130 + 135·D` (sparse) bytes of script
 and `~230 + 42·D` (dense) or `~250 + 41·log2 N` (sparse) bytes of witness
 data.
 
-### 8.4 JOIN_h
+### 8.4 JOIN_h and JOINK_K
 
-Witness (dense): `dir_{D-1} sc_{D-1} … dir_h sc_h  new_hash  new_sum8  sig  r  m`.
-Witness (sparse, `h = 0` only): `sc_{D-1} … sc_0  new_leaf  sig  r  m`; the
-script checks `OPERATOR_KEY`'s signature and the leaf size, then
-`LEAF_POS SPARSE_SETUP LEAF_ACC` supplies the new node.
+Witness: `block_K … block_1  sig  r  m`, with `block_i` =
+`dir_{D-1} sc_{D-1} … dir_h sc_h  new_hash  new_sum8` (dense) or
+`sc_{D-1} … sc_0  new_leaf` (sparse, `h = 0`); `JOIN_h` is the case
+`K = 1`. The operator's signature is checked once, immediately after
+`PROLOGUE`; each block then supplies its node (`LEAF_POS SPARSE_SETUP
+LEAF_ACC` in the sparse profile) and runs `D − h` levels, chained through
+`CHECK_OLD` for the first block and `CHECK_PREV` for the rest, as in
+`EXIT_K`.
 
 ```
 PROLOGUE                                           # new_hash new_sum8 sig  | m r
@@ -1350,8 +1358,19 @@ opcode.
 witness data (5,617 WU in total), i.e. a second exit in the same transaction
 costs about 2,490 WU against roughly 4,080 WU for a separate transaction;
 in the sparse profile at `D = 32` the second exit costs about 4,950 WU.
-Batching `K` exits scales linearly with no per-step signature-hash or EC
-overhead beyond the one extra signature.
+Batching `K` exits scales linearly with no per-step EC overhead; each step
+adds one signature check.
+
+Joins batch the same way. `JOINK_2` measures 3,545 bytes of script and
+1,525 of witness data at `D = 16` (dense), so a second single-leaf join in
+the same transaction costs about 2,230 WU against 3,920 WU for its own
+transaction; in the sparse profile at `D = 32` the figures are 9,773 and
+606 bytes, about 4,880 WU per additional join against 6,580 WU standalone.
+One operator signature covers the whole batch. The sparse profile's
+per-leaf join cost therefore stays at roughly 5 kWU however many leaves are
+batched, whereas a dense graft (`JOIN_h`) adds any number of leaves for a
+constant 2 kWU; this is the decisive difference between the profiles for
+bulk onboarding (see the 16M-leaf comparison in `design/review.md`, F14).
 
 Varops usage is 6–8% of budget for the dense profile and 8–25% for the
 sparse profile; the EC operations (82 sigops units per `TREE_SPK`) and the
@@ -1437,8 +1456,9 @@ exits in a batch" as `EXIT_K` (section 13).
   and for the terminal exit; sparse-specific cases cover a wrongly
   compressed sibling, a join at an occupied derived position and an update
   that would move a leaf; the bitmap-compressed sparse variant and the
-  minimal-inventory `EXIT_1` (including a shifted field boundary) are
-  exercised as well, 170 checks in total. Run:
+  minimal-inventory `EXIT_1` (including a shifted field boundary) and
+  batched joins (`JOINK_2`, including a stale second path and an
+  underfunded batch) are exercised as well, 186 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the minimal-inventory `EXIT_1`, and the size table covering both

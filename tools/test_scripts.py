@@ -255,6 +255,7 @@ def test_all(depth, profile, verbose=True):
         wit = w.path_witness(jpath0) + w.bm(jpath0) + [erin.serialize(), osig, root[0], w.m]
     record("JOIN_0", w.run("JOIN_0", wit, ctx), wit)
     w.tree = t3
+
     if profile == "S" and ls.COMPRESSION["S"] == "bitmap":
         # bitmap compression is implemented for the single-path scripts only
         if verbose:
@@ -262,6 +263,38 @@ def test_all(depth, profile, verbose=True):
             for k, (it, sl, wl) in costs.items():
                 print(f"{k:18} {sl:9} {wl:10} {it.cost:10}")
         return costs, w
+
+    # ---------------- JOINK_2: two single-leaf joins in one tx ----------------
+    root = w.tree.root()
+    def free_leaf(label, amount, want, taken):
+        """Like a real joiner: retry the nonce until the derived position is free."""
+        lf = mk_leaf(label, amount, w.op_pk, 900_000)
+        while profile == "S" and (w.slot(lf) in w.tree.leaves or w.slot(lf) in taken):
+            lf = mk_leaf(label, amount, w.op_pk, 900_000, nonce=lf.nonce + 1)
+        return lf, w.slot(lf, want)
+    hank, s_hank = free_leaf("hank", 9_000, 12, set())
+    ivy, s_ivy = free_leaf("ivy", 11_000, 13, {s_hank})
+    tj = w.clone()
+    path_h = tj.path(s_hank); tj.leaves[s_hank] = hank
+    path_i = tj.path(s_ivy); tj.leaves[s_ivy] = ivy       # path after hank inserted
+    rj = tj.root()
+    ctx = w.ctx([(rj[1], w.spk(rj))], extra_in=(hank.amount + ivy.amount + 700, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    if profile == "D":
+        b1 = w.path_witness(path_h) + [hank.hash(), lt.le64(hank.amount)]
+        b2 = w.path_witness(path_i) + [ivy.hash(), lt.le64(ivy.amount)]
+        b2_stale = w.path_witness(w.tree.path(s_ivy)) + [ivy.hash(), lt.le64(ivy.amount)]
+    else:
+        b1 = w.path_witness(path_h) + [hank.serialize()]
+        b2 = w.path_witness(path_i) + [ivy.serialize()]
+        b2_stale = w.path_witness(w.tree.path(s_ivy)) + [ivy.serialize()]
+    wit = b2 + b1 + [osig, root[0], w.m]
+    record("JOINK_2", w.run("JOINK_2", wit, ctx), wit)
+    expect_fail(lambda: w.run("JOINK_2", b2_stale + b1 + [osig, root[0], w.m], ctx), "JOINK_2 stale second path")
+    ctxu = w.ctx([(rj[1] - 1, w.spk(rj))], extra_in=(hank.amount + ivy.amount + 700, P2WPKH))
+    osigu = schnorr_sign(ctxu.sighash(), w.op_sk)
+    expect_fail(lambda: w.run("JOINK_2", b2 + b1 + [osigu, root[0], w.m], ctxu), "JOINK_2 underfunded")
+    w.tree = tj
 
     # ---------------- UPDATE ----------------
     root = w.tree.root()
