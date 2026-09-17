@@ -43,7 +43,7 @@ OPS = {
     "OP_DOWNSHIFT": 0x99, "OP_UPSHIFT": 0x98, "OP_AND": 0x84,
     # BIP-449 OP_TWEAKADD ("0xBE or TBD"); 0xc0 PLACEHOLDER here to avoid the
     # collision with OP_EC_POINT_X_COORD.
-    "OP_TWEAKADD": 0xc0,
+    "OP_TWEAKADD": 0xc0, "OP_BOOLOR": 0x9b, "OP_BOOLAND": 0x9a, "OP_1NEGATE": 0x4f,
 }
 for i in range(1, 17):
     OPS[f"OP_{i}"] = 0x50 + i
@@ -77,10 +77,11 @@ class ScriptError(Exception):
 
 
 # --------------------------------------------------------------- assembler --
-def push(data):
-    """Return script bytes pushing `data`."""
+def push(data, mode="c2"):
+    """Return script bytes pushing `data`. Ints are encoded as script numbers
+    of the given tapleaf mode ("c2": BIP-441 unsigned LE; "c0": CScriptNum)."""
     if isinstance(data, int):
-        data = num_encode(data)
+        data = scriptnum_encode(data) if mode == "c0" else num_encode(data)
     n = len(data)
     if n == 0:
         return bytes([0x00])
@@ -93,7 +94,7 @@ def push(data):
     return bytes([0x4d]) + n.to_bytes(2, "little") + data
 
 
-def assemble(tokens):
+def assemble(tokens, mode="c2"):
     """tokens: list of opcode-name strings, ints (numbers) or bytes (data)."""
     out = bytearray()
     for t in tokens:
@@ -102,7 +103,7 @@ def assemble(tokens):
                 raise ValueError(f"unknown opcode {t}")
             out.append(OPS[t])
         else:
-            out += push(t)
+            out += push(t, mode)
     return bytes(out)
 
 
@@ -183,24 +184,49 @@ def pubkey_x(seckey):
 
 # ---------------------------------------------------------------- tx model --
 class TxContext:
-    """Just enough of a transaction for OP_TX, CLTV and CHECKSIG."""
+    """Just enough of a transaction for OP_TX, CLTV and CHECKSIG.
 
-    def __init__(self, inputs, outputs, locktime=0, input_index=0, sequences=None):
+    sighash() implements the BIP-341 signature message for a script-path
+    spend with SIGHASH_DEFAULT (ext_flag = 1, no annex), so that scripts of
+    the MIN tier can rebuild it, and so that the Go implementation
+    (txscript.CalcTapscriptSignaturehash) produces the same digest.
+    """
+
+    def __init__(self, inputs, outputs, locktime=0, input_index=0, sequences=None,
+                 prevouts=None, version=2, tapleaf_hash=bytes(32)):
         # inputs: list of (amount, scriptPubKey); outputs: list of (amount, scriptPubKey)
         self.inputs, self.outputs = inputs, outputs
         self.locktime, self.input_index = locktime, input_index
         self.sequences = sequences or [0xfffffffd] * len(inputs)
+        self.prevouts = prevouts or [(hashlib.sha256(b"prevout%d" % i).digest(), i) for i in range(len(inputs))]
+        self.version = version
+        self.tapleaf_hash = tapleaf_hash
+
+    # BIP-341 intermediate hashes
+    def sha_prevouts(self):
+        return hashlib.sha256(b"".join(txid + vout.to_bytes(4, "little") for txid, vout in self.prevouts)).digest()
+
+    def sha_amounts(self):
+        return hashlib.sha256(b"".join(a.to_bytes(8, "little") for a, _ in self.inputs)).digest()
+
+    def sha_scriptpubkeys(self):
+        return hashlib.sha256(b"".join(lt.compact_size(len(spk)) + spk for _, spk in self.inputs)).digest()
+
+    def sha_sequences(self):
+        return hashlib.sha256(b"".join(q.to_bytes(4, "little") for q in self.sequences)).digest()
+
+    def sha_outputs(self):
+        return hashlib.sha256(b"".join(a.to_bytes(8, "little") + lt.compact_size(len(spk)) + spk
+                                       for a, spk in self.outputs)).digest()
+
+    def sighash_msg(self):
+        return (b"\x00" + b"\x00" + self.version.to_bytes(4, "little") + self.locktime.to_bytes(4, "little") +
+                self.sha_prevouts() + self.sha_amounts() + self.sha_scriptpubkeys() + self.sha_sequences() +
+                self.sha_outputs() + b"\x02" + self.input_index.to_bytes(4, "little") +
+                self.tapleaf_hash + b"\x00" + b"\xff\xff\xff\xff")
 
     def sighash(self):
-        # Stand-in for the BIP-341 signature message: commits to everything
-        # the LayerTree scripts care about (all inputs, outputs, locktime).
-        h = hashlib.sha256()
-        h.update(self.locktime.to_bytes(4, "little"))
-        for (a, spk), seq in zip(self.inputs, self.sequences):
-            h.update(a.to_bytes(8, "little") + lt.compact_size(len(spk)) + spk + seq.to_bytes(4, "little"))
-        for a, spk in self.outputs:
-            h.update(a.to_bytes(8, "little") + lt.compact_size(len(spk)) + spk)
-        return lt.tagged_hash("SimSighash", h.digest())
+        return lt.tagged_hash("TapSighash", self.sighash_msg())
 
 
 # OP_TX selector bits (draft BIP, rustyrussell/bips guilt/varops).
@@ -234,15 +260,56 @@ SEL_OUT_SINGLE = TXSELECT_OUTPUT_AMOUNT | TXSELECT_OUTPUT_SCRIPT | TXSELECT_OUTP
 
 
 # -------------------------------------------------------------- interpreter --
+def scriptnum_encode(n):
+    """CScriptNum minimal encoding (tapscript 0xC0)."""
+    if n == 0:
+        return b""
+    neg = n < 0
+    v = -n if neg else n
+    out = bytearray()
+    while v:
+        out.append(v & 0xff)
+        v >>= 8
+    if out[-1] & 0x80:
+        out.append(0x80 if neg else 0x00)
+    elif neg:
+        out[-1] |= 0x80
+    return bytes(out)
+
+
+def scriptnum_decode(b, max_size=4):
+    if len(b) > max_size:
+        raise ScriptError("scriptnum overflow (operand > %d bytes)" % max_size)
+    if not b:
+        return 0
+    # MINIMALDATA (policy): reject non-minimal numeric operands
+    if b[-1] & 0x7f == 0 and (len(b) == 1 or not (b[-2] & 0x80)):
+        raise ScriptError("non-minimal scriptnum (MINIMALDATA policy)")
+    v = int.from_bytes(b, "little")
+    if b[-1] & 0x80:
+        return -(v & ~(0x80 << (8 * (len(b) - 1))))
+    return v
+
+
 class Interp:
     MAX_ELEM = 4_000_000
 
-    def __init__(self, ctx, budget=None):
+    def __init__(self, ctx, budget=None, mode="c2"):
+        """mode: "c2" = tapleaf 0xC2 (BIP-441 numerics), "c0" = tapleaf 0xC0 (CScriptNum)."""
         self.ctx = ctx
         self.cost = 0
         self.budget = budget
         self.sigchecks = 0
         self.max_depth = 0
+        self.mode = mode
+        if mode == "c0":
+            self.MAX_ELEM = 520
+
+    def n_enc(self, v):
+        return scriptnum_encode(v) if self.mode == "c0" else num_encode(v)
+
+    def n_dec(self, b):
+        return scriptnum_decode(b) if self.mode == "c0" else num_decode(b)
 
     def charge(self, units):
         self.cost += units
@@ -250,7 +317,19 @@ class Interp:
             raise ScriptError("varops budget exceeded")
 
     def run(self, script, stack):
+        try:
+            return self._run(script, stack)
+        except ScriptError as e:
+            tr = getattr(self, "_trace", None)
+            if tr:
+                raise ScriptError(f"{e}  [at pc={tr[0]} {tr[1]}; top6={tr[2]}]") from None
+            raise
+
+    def _run(self, script, stack):
         st = list(stack)
+        for el in st:
+            if len(el) > self.MAX_ELEM:
+                raise ScriptError("witness element too large")
         alt = []
         pc = 0
         cond = []  # execution condition stack
@@ -264,7 +343,7 @@ class Interp:
             return st.pop()
 
         def popn():
-            return num_decode(pop())
+            return self.n_dec(pop())
 
         def top(i=0):
             return st[-1 - i]
@@ -274,6 +353,8 @@ class Interp:
                 raise ScriptError("element too large")
             st.append(bytes(v))
             self.max_depth = max(self.max_depth, len(st) + len(alt))
+            if len(st) + len(alt) > (1000 if self.mode == "c0" else 32768):
+                raise ScriptError("stack size limit")
 
         while pc < len(script):
             op = script[pc]
@@ -297,9 +378,16 @@ class Interp:
                 if exec_ok():
                     pushv(bytes([op - 0x50]))
                 continue
+            if op == 0x4f:  # OP_1NEGATE (0xC0 only)
+                if exec_ok():
+                    if self.mode != "c0":
+                        raise ScriptError("OP_1NEGATE is OP_SUCCESS in 0xC2")
+                    pushv(b"\x81")
+                continue
             name = OPNAME.get(op)
             if name is None:
                 raise ScriptError(f"unknown opcode {op:#x}")
+            self._trace = (pc - 1, name, [x.hex() for x in st[-6:]])
             # --- control flow ---
             if name in ("OP_IF", "OP_NOTIF"):
                 v = False
@@ -359,7 +447,7 @@ class Interp:
                 pushv(a)
             elif name == "OP_PICK":
                 nb = pop()
-                n = num_decode(nb)
+                n = self.n_dec(nb)
                 self.charge(wordspan(len(nb)) * 2)
                 if n >= len(st):
                     raise ScriptError("PICK out of range")
@@ -368,7 +456,7 @@ class Interp:
                 pushv(a)
             elif name == "OP_ROLL":
                 nb = pop()
-                n = num_decode(nb)
+                n = self.n_dec(nb)
                 self.charge(wordspan(len(nb)) * 2 + 48 * n)
                 if n >= len(st):
                     raise ScriptError("ROLL out of range")
@@ -389,21 +477,27 @@ class Interp:
                 self.charge((len(a) + len(b)) * 3)
                 pushv(a + b)
             elif name == "OP_SUBSTR":
+                if self.mode == "c0":
+                    raise ScriptError("OP_SUBSTR disabled in 0xC0")
                 lb, bb, a = pop(), pop(), pop()
                 ln, bg = num_decode(lb), num_decode(bb)
                 self.charge((wordspan(len(lb)) + wordspan(len(bb))) * 2 + min(ln, max(len(a) - bg, 0)) * 3)
                 pushv(a[bg:bg + ln])
             elif name == "OP_LEFT":
+                if self.mode == "c0":
+                    raise ScriptError("OP_LEFT disabled in 0xC0")
                 ob, a = pop(), pop()
                 self.charge(wordspan(len(ob)) * 2)
                 pushv(a[:num_decode(ob)])
             elif name == "OP_RIGHT":
+                if self.mode == "c0":
+                    raise ScriptError("OP_RIGHT disabled in 0xC0")
                 ob, a = pop(), pop()
                 o = num_decode(ob)
                 self.charge(wordspan(len(ob)) * 2 + min(o, len(a)) * 3)
                 pushv(a[-o:] if o < len(a) else a)
             elif name == "OP_SIZE":
-                pushv(num_encode(len(top())))
+                pushv(self.n_enc(len(top())))
             elif name in ("OP_EQUAL", "OP_EQUALVERIFY"):
                 b, a = pop(), pop()
                 if len(a) == len(b):
@@ -419,15 +513,21 @@ class Interp:
                 else:
                     b, a = pop(), pop()
                 m = max(wordspan(len(a)), wordspan(len(b)))
+                x, y = self.n_dec(a), self.n_dec(b)
                 if name in ("OP_ADD", "OP_1ADD"):
                     self.charge(m * 9)
-                    pushv(num_encode(num_decode(a) + num_decode(b)))
+                    pushv(self.n_enc(x + y))
                 else:
                     self.charge(m * 6)
-                    r = num_decode(a) - num_decode(b)
-                    if r < 0:
+                    r = x - y
+                    if r < 0 and self.mode != "c0":
                         raise ScriptError("SUB underflow")
-                    pushv(num_encode(r))
+                    pushv(self.n_enc(r))
+            elif name in ("OP_BOOLOR", "OP_BOOLAND"):
+                b, a = pop(), pop()
+                self.charge((wordspan(len(a)) + wordspan(len(b))) * 2)
+                x, y = any(a), any(b)
+                pushv(b"\x01" if ((x or y) if name == "OP_BOOLOR" else (x and y)) else b"")
             elif name == "OP_NOT":
                 a = pop(); self.charge(wordspan(len(a)) * 2)
                 pushv(b"" if any(a) else b"\x01")
@@ -438,7 +538,7 @@ class Interp:
                           "OP_LESSTHANOREQUAL", "OP_GREATERTHANOREQUAL"):
                 b, a = pop(), pop()
                 self.charge(max(wordspan(len(a)), wordspan(len(b))) * 2)
-                x, y = num_decode(a), num_decode(b)
+                x, y = self.n_dec(a), self.n_dec(b)
                 r = {"OP_NUMEQUAL": x == y, "OP_NUMEQUALVERIFY": x == y,
                      "OP_LESSTHAN": x < y, "OP_LESSTHANOREQUAL": x <= y,
                      "OP_GREATERTHANOREQUAL": x >= y}[name]
@@ -477,7 +577,7 @@ class Interp:
             elif name == "OP_CHECKLOCKTIMEVERIFY":
                 a = top()
                 self.charge(wordspan(len(a)) * 2)
-                v = num_decode(a)
+                v = scriptnum_decode(a, 5) if self.mode == "c0" else num_decode(a)
                 if v >= 1 << 32:
                     raise ScriptError("CLTV operand too large")
                 if self.ctx.sequences[self.ctx.input_index] == 0xffffffff:
@@ -600,9 +700,9 @@ class Interp:
             raise ScriptError("COLLATE not modelled")
         outs = []
         if sel & TXSELECT_VERSION:
-            outs.append((2).to_bytes(4, "little"))
+            outs.append(ctx.version.to_bytes(4, "little"))
         if sel & TXSELECT_NUM_INPUTS:
-            outs.append(num_encode(len(ctx.inputs)))
+            outs.append(self.n_enc(len(ctx.inputs)))
         for i in inputs:
             amt, spk = ctx.inputs[i]
             if sel & TXSELECT_INPUT_SEQUENCE:
@@ -612,7 +712,7 @@ class Interp:
             if sel & TXSELECT_INPUT_SCRIPTPUBKEY:
                 outs.append(spk)
         if sel & TXSELECT_NUM_OUTPUTS:
-            outs.append(num_encode(len(ctx.outputs)))
+            outs.append(self.n_enc(len(ctx.outputs)))
         for i in outputs:
             amt, spk = ctx.outputs[i]
             if sel & TXSELECT_OUTPUT_AMOUNT:
@@ -622,7 +722,7 @@ class Interp:
         if sel & TXSELECT_LOCKTIME:
             outs.append(ctx.locktime.to_bytes(4, "little"))
         if sel & TXSELECT_CURR_INPUT_NUMBER:
-            outs.append(num_encode(ctx.input_index))
+            outs.append(self.n_enc(ctx.input_index))
         for o in outs:
             self.charge(len(o) * 2)
             pushv(o)
