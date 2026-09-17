@@ -2,7 +2,9 @@
 
 Distilled from personal vault mentions of "layertree" (2025-03-09 through
 2026-W38). The raw source note is copied into this repo at
-`design/layertree.md` since the vault itself isn't on GitHub.
+`design/layertree.md` since the vault itself isn't on GitHub. The full
+write-up on the underlying unified batching concept — the essay LayerTree
+was named in — is copied verbatim at `design/unified-batching.md`.
 
 ## Concept origin (2025-03-09)
 
