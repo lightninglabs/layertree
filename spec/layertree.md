@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.2.0
+Version:  0.3.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -47,9 +47,14 @@ the owner's signature, and the sum commitment guarantees the output can
 always pay every provable leaf.
 
 The construction requires the Great Script Restoration (BIP-440, BIP-441),
-transaction introspection (`OP_TX`), `OP_CHECKSIGFROMSTACK`, and two
-elliptic-curve opcodes (`OP_ECSCALARMUL`, `OP_ECPOINTADD`) proposed
-alongside them.
+transaction introspection (`OP_TX`), `OP_CHECKSIGFROMSTACK`, and the
+elliptic-curve opcodes of the "Elliptic Curve Operations for Bitcoin Script"
+draft BIP (`OP_EC_POINT_ADD`, `OP_EC_POINT_MUL`, `OP_EC_POINT_X_COORD`).
+
+Two tree profiles are specified over the same scripts: a **dense** tree with
+operator-assigned positions and constant-size subtree grafting, and a
+**sparse** key-addressed Merkle-sum tree (a truncated MS-SMT) with
+compressed proofs, in which positions are derived from the owner's key.
 
 ## 2. Conventions
 
@@ -121,11 +126,17 @@ four changes, detailed in `design/review.md`:
    transaction, which also stops third parties from forcing a user on-chain.
    Vouchers survive as an optional transition (`CLAIM`, section 7.5) that
    lets a leaf owner pre-authorise a push payment into a new leaf.
-2. **A dense, fixed-depth Merkle-sum tree replaces the 256-level MS-SMT.**
-   Script has no loops; every level of a proof is unrolled in the script. A
-   depth-256 sparse tree is impractical, and its non-inclusion proofs are not
-   needed: joining into a position only requires proving that position
-   currently holds the *empty node*, which is an ordinary inclusion proof.
+2. **Depth is a cost knob, and both tree shapes are specified.** Script has
+   no loops, so every proof level is unrolled at 88–134 bytes of script. A
+   full 256-level MS-SMT therefore costs about 35 kB of script per exit
+   (section 11). The spec keeps the MS-SMT's key-addressed shape as the
+   *sparse profile* at a truncated depth (32–64 levels, positions derived
+   from `H(owner_key || nonce)`, empty siblings compressed away, direction
+   bits derived rather than supplied), and adds a *dense profile* with
+   operator-assigned positions that costs about half as much per exit and
+   supports grafting whole subtrees of new members in one transaction.
+   Non-inclusion proofs are ordinary inclusion proofs of the empty node in
+   both profiles.
 3. **Sums are committed at every node and re-derived by the verifier.** This
    is what turns "the operator cannot steal" into a theorem (section 10.2):
    the tree output always holds at least the total of every leaf whose
@@ -147,7 +158,9 @@ four changes, detailed in `design/review.md`:
    owner/evictor    operator sig    owner+operator     voucher CSFS
    removes 1 leaf   grafts subtree  replaces 1 leaf   moves value between leaves
 
-   off-chain: dense binary Merkle-sum tree, depth D, 2^D positions
+   off-chain: binary Merkle-sum tree, depth D, 2^D positions
+              dense profile:  positions assigned by the operator
+              sparse profile: position = low D bits of H_pos(owner_key || nonce)
               node = (hash, sum);  hash = H_node(lh || le64(ls) || rh || le64(rs))
               leaf = 116-byte record; empty leaf hash = 0x00..00, sum 0
 ```
@@ -174,9 +187,10 @@ design does not.
 2. **BIP-440 (varops budget)**: per-transaction budget of `10,000 × weight`
    units; cost formulas as specified there.
 3. **BIP-441 (tapleaf version 0xC2)**: restored `OP_CAT`, `OP_SUBSTR`,
-   `OP_LEFT`, `OP_RIGHT`; arbitrary-length unsigned integers; 4,000,000-byte
-   stack elements; the modified success rule (a single non-zero element).
-   All LayerTree scripts are tapleaf version `0xC2`.
+   `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT`; arbitrary-length unsigned
+   integers; 4,000,000-byte stack elements; the modified success rule (a
+   single non-zero element). All LayerTree scripts are tapleaf version
+   `0xC2`.
 4. **`OP_TX`** as in the draft BIP (`rustyrussell/bips`, branch
    `guilt/varops`, `bip-unknown-optx.mediawiki`, version 0.1.0), redefining
    `OP_SUCCESS189` (0xbd). Only the selector bits enumerated in section 8.1
@@ -187,24 +201,29 @@ design does not.
    1 on success. It is used by `CLAIM` only. **[A-2]** Its 0xC2 varops cost
    equals a signature check (500,000 units), as the "New Opcodes for Tapscript
    v2" draft states.
-6. **`OP_ECSCALARMUL`**. **[A-3]** Pops one element of at most 32 bytes,
-   interprets it as a big-endian scalar `s` with `0 < s < n`, and pushes the
-   33-byte compressed encoding of `s·G`. Fails otherwise. Cost 500,000.
-7. **`OP_ECPOINTADD`**. **[A-4]** Pops two 33-byte compressed points and
-   pushes the 33-byte compressed encoding of their sum; fails if either
-   encoding is invalid or the result is the point at infinity. Cost 500,000.
-
-If the final EC opcodes use a different point or scalar encoding (for example
-x-only points with a parity byte, or little-endian scalars), implementers
-MUST adapt `TREE_SPK` (section 8.2) accordingly; `OP_BYTEREV` or one
-additional `OP_CAT` suffices in each case.
+6. **Elliptic-curve opcodes** as in the draft BIP "Elliptic Curve Operations
+   for Bitcoin Script" (Osuntokun; `Roasbeef/bips` branch `ec-ops-bip`,
+   bitcoin/bips PR #1945): `OP_EC_POINT_ADD` (0xbb; `[point2] [point1]` →
+   `point1 + point2`), `OP_EC_POINT_MUL` (0xbc; `[scalar] [point]` with the
+   scalar on top, a 32-byte big-endian scalar reduced mod `n`, and the empty
+   vector standing for `G`), `OP_EC_POINT_NEGATE` (0xbd, unused here) and
+   `OP_EC_POINT_X_COORD` (0xbe; 33-byte point → 32-byte x coordinate). All
+   points are 33-byte compressed; the point at infinity is the empty vector.
+   Costs are 10, 30, 5 and 1 sigops units respectively (BIP-342 units in
+   which `OP_CHECKSIG` is 50); under BIP-440 this is 10,000 varops per unit.
+   **[A-3]** The scripts assume these opcodes are available in tapleaf
+   version `0xC2` with those costs. **[A-4]** That draft assigns `0xbd` to
+   `OP_EC_POINT_NEGATE` and the `OP_TX` draft assigns `0xbd` to `OP_TX`;
+   BIP-443 also claims `0xbb`. The final numbering is out of scope here and
+   does not affect the design; the reference simulator parks `OP_TX` at
+   `0xbf` as a placeholder.
 
 ### 4.2 Not required
 
 * `OP_INTERNALKEY` is not used: the scripts verify the full input
   scriptPubKey instead (section 6.4), which also binds the taptree root.
-* `OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV` are not used. Section 13 notes
-  optimisations that would use them.
+* `OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV`, `OP_EC_POINT_NEGATE` are not
+  used. Section 13 notes optimisations that would use them.
 * No `OP_CHECKTEMPLATEVERIFY`, `OP_TEMPLATEHASH`, `OP_CHECKCONTRACTVERIFY`
   or `SIGHASH_ANYPREVOUT` is required by the tree itself. Section 9.8 notes
   where rebindable signatures help *leaf-level* constructions.
@@ -227,11 +246,12 @@ scripts in this document.
 | `TAG_NODE` | `"LayerTree/node"` |
 | `TAG_STATE` | `"LayerTree/state"` |
 | `TAG_VOUCHER` | `"LayerTree/voucher"` |
+| `TAG_POS` | `"LayerTree/pos"` (sparse profile positions) |
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
 | `LEAF_LEN` | 116 |
 
-`H_leaf`, `H_node`, `H_state`, `H_voucher` denote `H_tag` with the
+`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_pos` denote `H_tag` with the
 corresponding tag. The 64-byte tagged-hash prefixes are given in
 `spec/test-vectors.json` under `tags`.
 
@@ -246,7 +266,8 @@ A leaf is a fixed-length 116-byte record:
 | 40 | 32 | `owner_key` | x-only public key authorising `EXIT`, `UPDATE` and vouchers |
 | 72 | 32 | `evictor_key` | x-only public key authorising eviction |
 | 104 | 4 | `evict_after` | `le32` block height; eviction is valid only in a transaction with `nLockTime ≥ evict_after` |
-| 108 | 8 | `seq` | `le64` sequence/nonce; chosen at creation, incremented by `CLAIM` |
+| 108 | 4 | `nonce` | `le32`, chosen at creation; with `owner_key` it identifies the leaf and, in the sparse profile, defines its position |
+| 112 | 4 | `seq` | `le32`, incremented by each `CLAIM` against the leaf; MUST NOT wrap |
 
 Requirements:
 
@@ -256,10 +277,11 @@ Requirements:
 * `evict_after` MUST be less than 500,000,000. A leaf that MUST NOT be
   evictable SHALL set `evictor_key` to a provably unspendable key; `NUMS` is
   RECOMMENDED.
-* No two leaves in a tree SHALL have identical serialisations. Creators
-  MUST choose `seq` so that this holds; a uniformly random 64-bit value is
-  RECOMMENDED. (The covenant cannot enforce uniqueness; section 10.3 explains
-  why it matters for vouchers.)
+* No two leaves in a tree SHALL share the same `(owner_key, nonce)`. In the
+  sparse profile this is structural (both leaves would need the same
+  position). In the dense profile creators MUST choose `nonce` so that it
+  holds; a uniformly random 32-bit value is RECOMMENDED, and section 10.3
+  explains why it matters for vouchers.
 * `leaf_hash = H_leaf(leaf_bytes)`; the leaf's node is `(leaf_hash, amount)`.
 
 *(informative)* `exit_key` is deliberately distinct from `owner_key`, so a
@@ -289,8 +311,27 @@ The **empty node of height h**, `E_h`, is the parent of two copies of
 A LayerTree of **depth D** is a complete binary tree with `2^D` leaf
 positions numbered `0 .. 2^D − 1`. The node at height `h` and index `i`
 covers positions `[i·2^h, (i+1)·2^h)`. Unoccupied positions hold `E_0`.
-Implementations SHOULD support `D` in the range 8 to 24; `D` is fixed at
-tree creation (section 6.2).
+`D` is fixed at tree creation (section 6.2). A tree has one of two
+**profiles**, also fixed at creation:
+
+* **Dense (`D`)**: the operator assigns positions. Subtrees of new leaves
+  may be grafted at any height (`JOIN_h`). Implementations SHOULD support
+  `D` in the range 8 to 24.
+* **Sparse (`S`)**: a leaf's position is derived from the leaf:
+
+  ```
+  pos(leaf) = int_le( H_pos( leaf.owner_key || le32(leaf.nonce) ) ) mod 2^D
+  ```
+
+  where `int_le` reads the 32-byte hash as a little-endian integer, so the
+  direction bit at level `k` is bit `k` of the hash. Only single-leaf joins
+  exist (`JOIN_0`), the root is history-independent (a function of the leaf
+  set alone), and non-inclusion of `(owner_key, nonce)` is proven by an
+  inclusion proof of `E_0` at its position. A position collision on join is
+  detected by that proof and resolved by choosing another `nonce`.
+  Implementations SHOULD support `D` in the range 32 to 64; `D = 256`
+  (the full MS-SMT) is valid but costs about 35 kB of script per exit
+  (section 11).
 
 The **root** is the node at height `D`, index 0. Its sum is the **total**.
 
@@ -309,10 +350,14 @@ for (dir, sib) in path (bottom up):
 return node
 ```
 
-In witnesses, each level is supplied as two elements: `dir` (the empty
-string for 0, `0x01` for 1, per BIP-342 `MINIMALIF`) and `sc = sib.hash ||
-le64(sib.sum)`. A path whose `sc` element is not exactly 40 bytes MUST be
-rejected (the scripts enforce this).
+In witnesses of the **dense** profile, each level is supplied as two
+elements: `dir` (the empty string for 0, `0x01` for 1, per BIP-342
+`MINIMALIF`) and `sc = sib.hash || le64(sib.sum)`. In the **sparse** profile
+only `sc` is supplied, and `sc` MAY be the empty string when the sibling is
+the empty node `E_k` of that level (a *compressed* proof); the script derives
+`dir` from the leaf and computes `E_k` itself. A non-empty `sc` that is not
+exactly 40 bytes MUST be rejected (the scripts enforce this). A compressed
+proof for a tree of `N` leaves has about `log2 N` non-empty siblings.
 
 ### 5.6 Root binding
 
@@ -341,13 +386,14 @@ A tree's **taptree** contains one tapleaf (version `0xC2`) per supported
 transition script, built as specified in section 8 from the tree's
 parameters:
 
+* the profile (dense or sparse);
 * `D`, the depth;
 * `OPERATOR_KEY`, a 32-byte x-only key;
-* the set of supported `JOIN` heights.
+* the set of supported `JOIN` heights (dense) and `EXIT_K` sizes.
 
 A conforming taptree MUST contain `EXIT_1`. It SHOULD contain at least one
-`JOIN_h`, and MAY contain `UPDATE`, `CLAIM` and further variants (section
-7.6). Scripts MUST NOT reference the taptree's own Merkle root; the scripts
+`JOIN_h` (`JOIN_0` in the sparse profile), and MAY contain `UPDATE`, `CLAIM`
+and further variants (section 7.6). Scripts MUST NOT reference the taptree's own Merkle root; the scripts
 receive it from the witness and verify it (section 6.4), which avoids the
 circular dependency.
 
@@ -453,10 +499,14 @@ Rules:
 ### 7.3 JOIN
 
 `JOIN_h` grafts a subtree of height `h` into an empty position. `h = 0`
-inserts a single leaf.
+inserts a single leaf. The sparse profile supports `h = 0` only, and its
+witness carries the full new leaf (so that the script can derive the
+position) instead of `(new_hash, new_sum)`.
 
-Witness inputs: sibling path of the node at height `h` (`D − h` levels),
-`new_hash` (32 bytes), `new_sum` (8 bytes `le64`), `sig`, `r`, `m`.
+Witness inputs (dense): sibling path of the node at height `h` (`D − h`
+levels), `new_hash` (32 bytes), `new_sum` (8 bytes `le64`), `sig`, `r`,
+`m`. Witness inputs (sparse): compressed sibling path (`D` levels),
+`new_leaf`, `sig`, `r`, `m`; the old node is `E_0` at `pos(new_leaf)`.
 
 Rules:
 
@@ -489,7 +539,10 @@ Rules:
    decrease is free for the transaction to spend (both signers see where it
    goes); any increase MUST be funded by other inputs.
 4. `new_leaf` MAY change any field, including `owner_key` (ownership
-   transfer), `evict_after` (lease renewal) and `exit_key`.
+   transfer), `evict_after` (lease renewal) and `exit_key`. In the sparse
+   profile `pos(new_leaf)` MUST equal `pos(old_leaf)` (the script compares
+   the two derived position hashes), so `owner_key` and `nonce` are in
+   practice fixed; ownership transfer is done by `EXIT`+`JOIN` or `CLAIM`.
 
 ### 7.5 CLAIM
 
@@ -516,8 +569,10 @@ Rules:
 2. **Step 1** (source): old node `(H_leaf(source_leaf), source_leaf.amount)`;
    new node is the leaf `source_leaf'` identical to `source_leaf` except
    `amount' = source_leaf.amount − claim_leaf.amount` (MUST NOT underflow)
-   and `seq' = source_leaf.seq + 1`; if `amount' = 0` the new node is `E_0`
-   instead (the position becomes empty). `fold` over the source path MUST yield
+   and `seq' = source_leaf.seq + 1` (the script fails if `seq'` does not
+   fit in 4 bytes); if `amount' = 0` the new node is `E_0` instead (the
+   position becomes empty). In the sparse profile the source position is
+   `pos(source_leaf)` and the claim position is `pos(claim_leaf)`. `fold` over the source path MUST yield
    `(r, S)` with `S` equal to input 0's amount; call the folded new root
    `(r_1, S_1)`.
 3. **Step 2** (claim): old node `E_0`; new node
@@ -535,8 +590,9 @@ voucher by other means (for example a `JOIN` of the same `claim_leaf`
 elsewhere) does *not* invalidate it; issuers MUST track outstanding vouchers
 as liabilities until the source leaf's `seq` has advanced past them
 (section 9.6). The voucher binds the source leaf by content, not position,
-which is why section 5.2 forbids duplicate leaves: two identical leaves
-would let one voucher be redeemed against each.
+which is why section 5.2 forbids two leaves with the same
+`(owner_key, nonce)`: two identical leaves would let one voucher be redeemed
+against each. In the sparse profile this cannot occur.
 
 ### 7.6 Composition and variants
 
@@ -626,14 +682,31 @@ OP_DUP OP_8 OP_LEFT OP_SWAP TAGGED(TAG_LEAF) OP_SWAP
 
 ```
 OP_SWAP TAGGED(TAG_STATE)                    # m t
-OP_ECSCALARMUL <NUMS33> OP_ECPOINTADD        # m P
-32 OP_RIGHT                                  # m x(P)
+OP_0 OP_SWAP OP_EC_POINT_MUL                 # m t·G          (empty point = G)
+<NUMS33> OP_EC_POINT_ADD                     # m P
+OP_EC_POINT_X_COORD                          # m x(P)
 OP_TUCK OP_SWAP OP_CAT                       # x(P) (x(P)||m)
 TAGGED(TapTweak)                             # x(P) t2
-OP_ECSCALARMUL                               # x(P) t2·G
+OP_0 OP_SWAP OP_EC_POINT_MUL                 # x(P) t2·G
 OP_SWAP <0x02> OP_SWAP OP_CAT                # t2·G (02||x(P))
-OP_ECPOINTADD 32 OP_RIGHT                    # x(Q)
+OP_EC_POINT_ADD OP_EC_POINT_X_COORD          # x(Q)
 <0x5120> OP_SWAP OP_CAT                      # scriptPubKey
+```
+
+`TREE_SPK` is 203 bytes and costs 82 sigops units (820,000 varops).
+
+**`LEAF_POS`** (sparse) — `[leaf] → [leaf pos_hash]`
+
+```
+OP_DUP 40 32 OP_SUBSTR OP_OVER 108 OP_4 OP_SUBSTR OP_CAT TAGGED(TAG_POS)
+```
+
+**`SPARSE_SETUP`** — `[pos_hash] → [] | … pos_hash E_0.hash`; the two
+altstack items are consumed level by level and dropped by `CHECK_OLD` /
+`CHECK_PREV` (`SPARSE_TEARDOWN` = `OP_FROMALTSTACK OP_DROP` twice).
+
+```
+OP_TOALTSTACK <EMPTY_LEAF_HASH> OP_TOALTSTACK
 ```
 
 Note `02 || x(P)` is `lift_x(x(P))`, matching BIP-341's use of the even-y
@@ -677,8 +750,30 @@ OP_FROMALTSTACK OP_2SWAP                 # T oh' os' nh' ns'
 `LEVEL` is 88 bytes. `dir` MUST be the empty string or `0x01`; any other
 encoding fails `OP_NOTIF` under `MINIMALIF`.
 
+**`LEVEL_S(k)`** (sparse) — before: `sc T oh os nh ns | … pos E_k`; after:
+`T oh' os' nh' ns' | … pos E_{k+1}`. It replaces the first two `OP_ROLL`s
+of `LEVEL` with the following prologue and then continues from
+`OP_SIZE 40 OP_EQUALVERIFY`:
+
+```
+OP_5 OP_ROLL                             # T oh os nh ns sc
+OP_FROMALTSTACK                          # … sc E_k                 | pos
+OP_SWAP OP_SIZE OP_0NOTEQUAL
+OP_NOTIF OP_DROP OP_DUP <ZERO8> OP_CAT OP_ENDIF   # … E_k sc   (sc := E_k||0 if empty)
+OP_SWAP <ZERO8> OP_CAT OP_DUP OP_CAT     # … sc (E_k||0||E_k||0)
+OP_6 OP_PICK OP_SWAP OP_CAT OP_SHA256    # … sc E_{k+1}
+OP_FROMALTSTACK OP_DUP OP_TOALTSTACK     # … sc E_{k+1} pos         | pos
+OP_SWAP OP_TOALTSTACK                    # … sc pos                 | pos E_{k+1}
+<k> OP_DOWNSHIFT <0x01> OP_AND OP_0NOTEQUAL   # … sc dir   (bit k of pos)
+OP_SWAP                                  # T oh os nh ns dir sc
+```
+
+`LEVEL_S` is 133–134 bytes. Because `dir` is computed, a witness cannot
+place a leaf anywhere but at `pos(leaf)`.
+
 **`CHECK_OLD`** — `[T oh os nh ns] | … r → [T nh ns] | …`; requires
-`os == amount(input 0)` and `oh == r`.
+`os == amount(input 0)` and `oh == r`. (Sparse: `SPARSE_TEARDOWN` is
+inserted before the final `OP_FROMALTSTACK`; likewise in `CHECK_PREV`.)
 
 ```
 OP_2SWAP <SEL_IN_AMOUNT> OP_TX OP_NUMEQUALVERIFY OP_FROMALTSTACK OP_EQUALVERIFY
@@ -707,8 +802,11 @@ OP_2SWAP OP_FROMALTSTACK OP_NUMEQUALVERIFY OP_FROMALTSTACK OP_EQUALVERIFY
 ### 8.3 EXIT_K
 
 Witness (bottom → top): `block_K … block_1  r  m`, where
-`block_i = dir_{D-1} sc_{D-1} … dir_0 sc_0  leaf_i  sig_i  is_evict_i`.
-Block 1 is nearest the top and is processed first.
+`block_i = dir_{D-1} sc_{D-1} … dir_0 sc_0  leaf_i  sig_i  is_evict_i`
+(dense) or `block_i = sc_{D-1} … sc_0  leaf_i  sig_i  is_evict_i` (sparse).
+Block 1 is nearest the top and is processed first. In the sparse profile
+`LEAF_POS SPARSE_SETUP` is inserted before `LEAF_ACC` in `EXIT_BLOCK`, and
+`LEVEL_S(k)` replaces `LEVEL`.
 
 ```
 PROLOGUE                                           # leaf sig is_evict     | m r
@@ -744,13 +842,18 @@ LEAF_ACC                                           # oh os
 LEVEL × D
 ```
 
-Size of `EXIT_1`: `693 + 88·D` bytes (1,045 at `D = 4`; 2,101 at
-`D = 16`). Each further step adds `~118 + 88·D` bytes of script and
-`~230 + 40·D` bytes of witness data.
+Size of `EXIT_1`: `693 + 88·D` bytes dense (1,045 at `D = 4`; 2,101 at
+`D = 16`) and `≈ 800 + 134·D` bytes sparse (5,083 at `D = 32`). Each further
+step adds `~118 + 88·D` (dense) or `~130 + 134·D` (sparse) bytes of script
+and `~230 + 40·D` (dense) or `~250 + 40·log2 N` (sparse) bytes of witness
+data.
 
 ### 8.4 JOIN_h
 
-Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  new_hash  new_sum8  sig  r  m`
+Witness (dense): `dir_{D-1} sc_{D-1} … dir_h sc_h  new_hash  new_sum8  sig  r  m`.
+Witness (sparse, `h = 0` only): `sc_{D-1} … sc_0  new_leaf  sig  r  m`; the
+script checks `OPERATOR_KEY`'s signature and the leaf size, then
+`LEAF_POS SPARSE_SETUP LEAF_ACC` supplies the new node.
 
 ```
 PROLOGUE                                           # new_hash new_sum8 sig  | m r
@@ -767,7 +870,9 @@ CHECK_OLD FINAL
 
 ### 8.5 UPDATE
 
-Witness: `path(D)  old_leaf  new_leaf  owner_sig  operator_sig  r  m`
+Witness: `path(D)  old_leaf  new_leaf  owner_sig  operator_sig  r  m`.
+Sparse: after the size checks the script computes `LEAF_POS` of both leaves
+and `OP_EQUALVERIFY`s them, then `LEAF_POS SPARSE_SETUP` on `old_leaf`.
 
 ```
 PROLOGUE                                           # old new osig opsig     | m r
@@ -786,7 +891,8 @@ CHECK_OLD FINAL
 
 Witness: `claim_path(D)  source_path(D)  source_leaf  claim_leaf
 voucher_sig  r  m` (the claim path is deeper in the stack because it is
-consumed second).
+consumed second). Sparse: `LEAF_POS SPARSE_SETUP` is applied to
+`source_leaf` before the first pass and to `claim_leaf` before the second.
 
 ```
 <SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
@@ -799,8 +905,9 @@ OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
 OP_SIZE 116 OP_EQUALVERIFY
 OP_SWAP OP_SIZE 116 OP_EQUALVERIFY OP_SWAP          # src claim
 OP_OVER OP_8 OP_LEFT OP_OVER OP_8 OP_LEFT OP_SUB PAD8      # src claim le64(src.amt − claim.amt)
-OP_2 OP_PICK OP_8 100 OP_SUBSTR OP_CAT              # … || src[8:108]
-OP_2 OP_PICK 108 OP_8 OP_SUBSTR OP_1ADD PAD8 OP_CAT # src claim src'
+OP_2 OP_PICK OP_8 104 OP_SUBSTR OP_CAT              # … || src[8:112]
+OP_2 OP_PICK 112 OP_4 OP_SUBSTR OP_1ADD
+OP_SIZE OP_4 OP_LESSTHANOREQUAL OP_VERIFY PAD4 OP_CAT   # src claim src'   (seq+1 must fit 4 bytes)
 OP_FROMALTSTACK OP_ROT OP_TOALTSTACK OP_TOALTSTACK  # src src'              | m claim r
 <TAG_NODE> OP_ROT OP_ROT                            # T src src'
 OP_SWAP LEAF_ACC                                    # T src' oh os
@@ -808,8 +915,9 @@ OP_ROT LEAF_ACC                                     # T oh os nh ns
 OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_LEAF_HASH> OP_SWAP OP_ENDIF   # ns == 0 → nh = E_0.hash
 LEVEL × D                                           # (source path)
 CHECK_OLD                                           # T r1 S1               | m claim
-OP_FROMALTSTACK LEAF_ACC                            # T r1 S1 ch cs
-OP_2SWAP OP_TOALTSTACK OP_TOALTSTACK                # T ch cs               | m S1 r1
+OP_FROMALTSTACK OP_2 OP_ROLL OP_2 OP_ROLL           # T claim r1 S1
+OP_SWAP OP_TOALTSTACK OP_TOALTSTACK                 # T claim               | m r1 S1
+LEAF_ACC                                            # T ch cs
 <EMPTY_LEAF_HASH> OP_0 OP_2SWAP                     # T E_0.hash 0 ch cs
 LEVEL × D                                           # (claim path)
 OP_2SWAP OP_FROMALTSTACK OP_ROT OP_EQUALVERIFY      # T nh2 ns2 os2   (oh2 == r1)
@@ -819,8 +927,10 @@ FINAL
 
 ### 8.7 Sizes
 
-Script sizes are `base + 88·levels`. Witness data (paths, leaves,
-signatures, `r`, `m`) is `40·levels + constant`. Full tables from the
+Script sizes are `base + 88·levels` (dense) or `base + 134·levels`
+(sparse). Witness data (paths, leaves, signatures, `r`, `m`) is
+`40·levels + constant` (dense) or `40·(non-empty siblings) + levels +
+constant` (sparse). Full tables from the
 simulator, including varops consumed, are in `spec/scripts/sizes.md`; see
 section 11.
 
@@ -1005,8 +1115,9 @@ commits to the full source leaf including `seq`, so it cannot be replayed
 after any change to the source leaf. It does not commit to the source
 *position*: if the same 116 bytes occurred at two positions, one voucher
 could be redeemed against both, doubling the issuer's loss. Section 5.2
-therefore requires unique leaves; an issuer MUST additionally check that no
-duplicate of its source leaf exists before signing a voucher.
+therefore requires unique `(owner_key, nonce)`; in the dense profile an
+issuer MUST additionally check that no duplicate of its source leaf exists
+before signing a voucher. In the sparse profile duplicates are impossible.
 
 ### 10.4 Binding the taptree
 
@@ -1083,12 +1194,14 @@ REQUIRED for unilateral safety.
 
 ### 10.10 Resource limits
 
-At `D = 16` an `EXIT_1` consumes about 4.84M varops against a budget of
-roughly 40M for a transaction of its weight (section 11). Costs are
-dominated by the eight EC operations and one signature check
-(4.5M units); hashing and stack work contribute about 0.3M. Stack depth
-peaks at 42 elements (`CLAIM`: 75) against a limit of 32,768, and no element
-exceeds 40 bytes except the script itself.
+At `D = 16` (dense) an `EXIT_1` consumes about 2.48M varops against a
+budget of roughly 40M for a transaction of its weight (section 11): 1.64M
+for the two `TREE_SPK` evaluations (82 sigops units each), 0.5M for the
+signature, and about 0.3M for hashing and stack work. The sparse profile at
+`D = 32` uses 3.06M, and the 256-level tree 9.2M, still under a quarter of
+budget. Stack depth peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80)
+against a limit of 32,768, and no element exceeds 40 bytes except the script
+itself.
 
 ### 10.11 Reorganisations
 
@@ -1111,17 +1224,29 @@ Implementers MUST NOT parameterise selectors from the witness.
 the simulator (`tools/gen_listings.py` → `spec/scripts/sizes.md`). The
 control block assumes a five-leaf taptree (depth 3, 129 bytes).
 
-| D | leaves | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
-|---|---|---|---|---|---|---|
-| 8 | 256 | 1,397 | 566 | 2,092 | ≈ 3,040 | ≈ 760 |
-| 12 | 4,096 | 1,749 | 726 | 2,604 | ≈ 3,550 | ≈ 890 |
-| 16 | 65,536 | 2,101 | 886 | 3,116 | ≈ 4,070 | ≈ 1,020 |
-| 20 | 1,048,576 | 2,453 | 1,046 | 3,628 | ≈ 4,580 | ≈ 1,145 |
+| profile | D | positions | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
+|---|---|---|---|---|---|---|---|
+| dense | 8 | 256 | 1,397 | 566 | 2,092 | ≈ 3,040 | ≈ 760 |
+| dense | 12 | 4,096 | 1,749 | 726 | 2,604 | ≈ 3,550 | ≈ 890 |
+| dense | 16 | 65,536 | 2,101 | 886 | 3,116 | ≈ 4,070 | ≈ 1,020 |
+| dense | 20 | 1,048,576 | 2,453 | 1,046 | 3,628 | ≈ 4,580 | ≈ 1,145 |
+| sparse | 32 | 2^32 | 5,083 | 324 + 40·log2 N | ≈ 6,200 (N = 65k) | ≈ 7,150 | ≈ 1,790 |
+| sparse | 64 | 2^64 | 9,371 | 324 + 40·log2 N | ≈ 10,500 (N = 65k) | ≈ 11,450 | ≈ 2,860 |
+| sparse | 256 | 2^256 | 35,099 | 284 + 40·log2 N | ≈ 36,200 (N = 65k) | ≈ 37,150 | ≈ 9,290 |
 
 The transaction weight column adds a fee input (P2WPKH), a change output
-and non-witness overhead (≈ 950 WU). Each additional level costs 130 WU
-(88 script + 40 path + 2 length prefixes), independent of how many leaves
-are occupied.
+and non-witness overhead (≈ 950 WU). In the dense profile each level costs
+130 WU (88 script + 40 path + 2 length prefixes) regardless of occupancy. In
+the sparse profile each level costs 134 WU of script plus 1 WU for an empty
+sibling or 41 WU for a non-empty one, so witness data grows with `log2 N`
+rather than with `D`.
+
+The sparse profile at `D = 32` costs about twice the dense profile at
+`D = 16` per exit. What it buys is key-addressed positions: no slot
+allocation, a history-independent root, and structural uniqueness of
+leaves. The full 256-level MS-SMT is about twelve times the dense cost and
+is not recommended; truncating positions to 32–64 bits loses nothing but
+the ability to use a raw key as the position.
 
 For comparison, a unilateral exit from a radix-2 Ark or CTV tree of `2^D`
 leaves publishes `D` transactions of roughly 600 WU each (about 9,600 WU at
@@ -1134,14 +1259,16 @@ with size. The trade-off is that LayerTree requires the
 larger opcode set of section 4, whereas CTV-based trees need only a template
 opcode.
 
-`EXIT_2` at `D = 16` uses 3,747 bytes of script and 1,709 of witness data
-(5,585 WU in total), i.e. a second exit in the same transaction costs about
-2,470 WU against roughly 4,070 WU for a separate transaction.
+`EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,709 of
+witness data (5,585 WU in total), i.e. a second exit in the same transaction
+costs about 2,470 WU against roughly 4,070 WU for a separate transaction;
+in the sparse profile at `D = 32` the second exit costs about 4,900 WU.
+Batching `K` exits scales linearly with no per-step signature-hash or EC
+overhead beyond the one extra signature.
 
-Varops usage is about 12% of budget at every `D` measured; the constant
-term (EC operations and the signature) dominates. `OP_ECSCALARMUL` and
-`OP_ECPOINTADD` are each charged as a signature check; if the final costing
-is lower, headroom grows.
+Varops usage is 6–8% of budget for the dense profile and 8–25% for the
+sparse profile; the EC operations (82 sigops units per `TREE_SPK`) and the
+signature dominate at small depths, hashing at large ones.
 
 ## 12. Comparison With Related Constructions
 
@@ -1156,13 +1283,14 @@ is lower, headroom grows.
 | Operator liquidity | none required (self-funded joins); optional for vouchers | must front the new round | must front | varies |
 | Batch join | `O(1)` tx for any subtree | per round | per tree | per tree |
 | Off-chain payments | channel leaves (LN) or vouchers | OOR + rounds | channels | varies |
-| Opcodes | GSR + OP_TX + CSFS + EC add/mul | none (pre-signed) or CTV | none or CTV | CTV/CCV (+CAT) |
+| Opcodes | GSR + OP_TX + CSFS + EC ops BIP | none (pre-signed) or CTV | none or CTV | CTV/CCV (+CAT) |
 
 Relative to the original LayerTree sketch: the exit no longer needs the
-operator's voucher (so the operator cannot withhold exits), the MS-SMT is
-replaced by a dense fixed-depth sum tree that script can verify without
-loops, and eviction, cooperative update, subtree grafting and single-use
-vouchers are added. The sketch's "signed events drive an on-chain state
+operator's voucher (so the operator cannot withhold exits); the MS-SMT
+survives as the sparse profile with its depth truncated to 32–64 levels and
+its proofs compressed, alongside a dense profile that is about half the cost
+per exit and supports subtree grafting; and eviction, cooperative update
+and single-use vouchers are added. The sketch's "signed events drive an on-chain state
 machine" model survives as `CLAIM`, and its "the contract can accept many
 exits in a batch" as `EXIT_K` (section 13).
 
@@ -1211,14 +1339,17 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/script_sim.py` — a tapscript `0xC2` subset interpreter modelling
   BIP-441 numerics, `OP_TX`, `OP_CHECKSIGFROMSTACK` and the assumed EC
   opcodes, with BIP-440 varops accounting.
-* `tools/test_scripts.py` — executes every script at `D = 4` and `D = 16`
-  against the reference tree, including negative cases (forged leaf, stale
+* `tools/test_scripts.py` — executes every script in both profiles (dense
+  at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
+  tree, 88 checks including negative cases (forged leaf, stale
   root, attacker-chosen `m`, unconserved amount, underfunded join, join over
   an occupied position, early eviction, evictor shortchange, unsigned update,
   voucher replay, over-claim, wrong voucher signer, stale second path in
   `EXIT_2`, shortchanged second evictee, non-terminal exit taking the
   terminal branch) and positive cases for a `CLAIM` that drains its source
-  and for the terminal exit. Run:
+  and for the terminal exit; sparse-specific cases cover a wrongly
+  compressed sibling, a join at an occupied derived position and an update
+  that would move a leaf. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` and the size table.
 
@@ -1234,6 +1365,9 @@ and signature-hash models are simplified as documented in its header.
 * BIP-349 — `OP_INTERNALKEY` (Black, Rubin).
 * Draft "OP_TX" and "New Opcodes for Tapscript v2" (Russell, Moik),
   `https://github.com/rustyrussell/bips/pull/1`.
+* Draft "Elliptic Curve Operations for Bitcoin Script" (Osuntokun),
+  `https://github.com/Roasbeef/bips/blob/ec-ops-bip/bips-ec-ops.md`,
+  bitcoin/bips PR #1945.
 * "[0/4] A Bitcoin Scripting Proposal BIP Quartet", bitcoindev,
   `https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ`.
 * BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala): the data-tweaked internal

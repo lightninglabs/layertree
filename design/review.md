@@ -45,19 +45,47 @@ Two further observations:
   voucher is single-use without any nonce registry; a `seq` field prevents
   revival if a balance returns to a previous value.
 
-### F2. A 256-level sparse tree cannot be verified by loop-free script
+### F2. The MS-SMT *can* be verified in script; the question is what depth to pay for
 
-Script has no iteration, so each proof level is unrolled. The MS-SMT's 256
-levels (even with compressed empty-sibling bitmaps, which require 256
-empty-hash constants or 256 unrolled hashes) are impractical. A dense tree of
-fixed depth `D` (8–24) with operator-assigned positions gives a proof of
-exactly `D` levels, and "prove this position is empty" is an ordinary
-inclusion proof of the empty node, so joins need no non-inclusion proof at
-all. History independence, the MS-SMT's other property, is not needed: the
-operator allocates positions.
+An earlier draft of this review claimed a 256-level sparse tree "cannot" be
+verified by loop-free script. That was wrong, and the author pushed back on
+it. Script has no loops, so each proof level is unrolled, but each level is
+a fixed 130–140 bytes of script; nothing stops unrolling 256 of them. The
+sparse profile of the spec does exactly this, with compressed proofs
+(empty siblings are a zero-length witness element and the script computes
+`E_k` itself) and with the direction bits *derived* from the leaf rather than
+supplied. Measured cost per exit (`spec/scripts/sizes.md`):
 
-Measured cost per level is 88 bytes of script plus 40 bytes of proof
-(spec 8.2, 11).
+| tree | levels | script | witness | total (WU) |
+|---|---|---|---|---|
+| dense, operator-assigned | 16 | 2,101 | 886 | 3,116 |
+| sparse, key-addressed | 32 | 5,083 | ≈ 324 + 40·log2 N | ≈ 6,200 |
+| sparse, key-addressed | 64 | 9,371 | ≈ 324 + 40·log2 N | ≈ 10,500 |
+| sparse, full 256-bit keys | 256 | 35,099 | ≈ 284 + 40·log2 N | ≈ 36,200 |
+
+So the honest statement is: a 256-level SMT costs about 9 kvB per exit,
+roughly twelve times the dense tree; a *truncated* key-addressed SMT of 32
+levels costs about twice the dense tree and keeps the properties that made
+the MS-SMT attractive:
+
+* positions are a function of `(owner_key, nonce)`, so nobody allocates
+  slots, the root is history-independent (auditable from the leaf set
+  alone), and duplicate leaves are impossible by construction, which removes
+  the uniqueness requirement F10 needed for vouchers;
+* non-inclusion is an inclusion proof of `E_0` at the derived position, so
+  joins need no coordination on positions.
+
+Truncation to 32 bits is safe because a collision only means a join must
+retry with a new nonce (the position is occupied), and an adversary cannot
+occupy positions without the operator's `JOIN` signature. What the sparse
+profile gives up is subtree grafting (`JOIN_h` for `h > 0`), since derived
+positions are not contiguous.
+
+The spec therefore defines both profiles; the reference scripts share every
+macro except the per-level prologue. The 256-level variant is not given its
+own profile: it buys nothing over 32–64 levels except the ability to use a
+raw 256-bit key as the position, which a tagged hash of `(owner_key, nonce)`
+provides more cheaply.
 
 ### F3. Sums at every node make "the operator cannot steal" a theorem
 
@@ -135,6 +163,31 @@ non-zero (spec 10.5). Cooperative exits and anchor outputs mitigate; a
 sharded deployment (several trees) bounds blast radius. This is inherent to
 any single-UTXO design and is noted rather than solved.
 
+### F11. Aligning with the EC ops draft BIP
+
+The first draft of the spec assumed `OP_ECSCALARMUL`/`OP_ECPOINTADD` from
+the GSR "new opcodes" list, whose semantics are unspecified. The author's own
+draft, "Elliptic Curve Operations for Bitcoin Script"
+(`Roasbeef/bips`, branch `ec-ops-bip`, PR bitcoin/bips#1945), does specify
+them: `OP_EC_POINT_ADD` (0xbb), `OP_EC_POINT_MUL` (0xbc, `[point scalar]`
+with the empty vector standing for `G`, scalars 32-byte big-endian reduced
+mod `n`), `OP_EC_POINT_NEGATE` (0xbd) and `OP_EC_POINT_X_COORD` (0xbe);
+33-byte compressed points throughout; infinity as the empty vector; costs
+of 10/30/5/1 sigops units. The simulator, the scripts and spec section 4
+now follow that document. Two consequences:
+
+* `TREE_SPK` costs `2×30 + 2×10 + 2×1 = 82` sigops units (820,000 varops)
+  rather than four signature checks; exits now use about 6% of the varops
+  budget instead of 12%.
+* `OP_EC_POINT_X_COORD` replaces `32 OP_RIGHT` and validates the point.
+
+Two nits in that draft surfaced while aligning: its "Computing a Taproot
+Tweak" example pushes `<tweak> <empty_vector>` before `OP_EC_POINT_MUL`,
+which puts the point on top, whereas the execution rules and `reference.py`
+pop the scalar first; and its opcode numbers collide with `OP_TX`'s draft
+(0xbd) and BIP-443 (0xbb). The simulator parks `OP_TX` at 0xbf as a
+placeholder.
+
 ### F10. Second-pass findings
 
 A re-read of the draft spec against the scripts found four gaps, all now
@@ -151,10 +204,10 @@ closed and tested:
   leave a zero-amount leaf. The script now substitutes `E_0` (spec 7.5).
 * **Duplicate leaves and vouchers.** A voucher binds the source leaf by
   content, so two byte-identical leaves would let one voucher be redeemed
-  twice. `seq` is now a creation-time nonce and uniqueness is a requirement
-  on leaf creators and voucher issuers (spec 5.2, 10.3). Binding the
-  position in the voucher instead would cost a per-level index accumulator
-  in `LEVEL`; the requirement is cheaper and sufficient.
+  twice. The leaf now carries a creation-time `nonce` separate from the
+  `seq` that `CLAIM` increments; uniqueness of `(owner_key, nonce)` is a
+  requirement on creators in the dense profile and structural in the sparse
+  profile, where it defines the position (spec 5.2, 10.3).
 
 `EXIT_K` was also implemented rather than merely described, to confirm the
 composition rule (spec 7.6): step `i` proves against the root produced by
@@ -176,7 +229,7 @@ step `i − 1`, and the test suite checks that a stale second path fails.
 ## 4. Validation
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
-at depths 4 and 16 in a simulator of the required opcode subset, with 44
+at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 88
 checks including the negative cases that matter for the findings above:
 attacker-chosen `m` (F4), forged leaf amount and stale root (F3), unconserved
 tree amount (F6), join over an occupied position and underfunded join,

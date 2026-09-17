@@ -94,6 +94,7 @@ TAG_LEAF = "LayerTree/leaf"
 TAG_NODE = "LayerTree/node"
 TAG_STATE = "LayerTree/state"
 TAG_VOUCHER = "LayerTree/voucher"
+TAG_POS = "LayerTree/pos"
 TAG_TAPTWEAK = "TapTweak"
 TAG_TAPLEAF = "TapLeaf"
 TAG_TAPBRANCH = "TapBranch"
@@ -123,21 +124,27 @@ def le32(n):
 # Leaf
 # --------------------------------------------------------------------------
 class Leaf:
-    """A LayerTree leaf (spec section 5.2)."""
+    """A LayerTree leaf (spec section 5.2).
 
-    def __init__(self, amount, exit_key, owner_key, evictor_key, evict_after, seq):
+    amount(8) exit_key(32) owner_key(32) evictor_key(32) evict_after(4)
+    nonce(4) seq(4) = 116 bytes.
+    """
+
+    def __init__(self, amount, exit_key, owner_key, evictor_key, evict_after, nonce=0, seq=0):
         assert len(exit_key) == len(owner_key) == len(evictor_key) == 32
         assert 0 <= evict_after < 500_000_000
+        assert 0 <= nonce < 1 << 32 and 0 <= seq < 1 << 32
         self.amount = amount
         self.exit_key = exit_key
         self.owner_key = owner_key
         self.evictor_key = evictor_key
         self.evict_after = evict_after
+        self.nonce = nonce
         self.seq = seq
 
     def serialize(self):
         b = (le64(self.amount) + self.exit_key + self.owner_key +
-             self.evictor_key + le32(self.evict_after) + le64(self.seq))
+             self.evictor_key + le32(self.evict_after) + le32(self.nonce) + le32(self.seq))
         assert len(b) == LEAF_LEN
         return b
 
@@ -146,7 +153,8 @@ class Leaf:
         assert len(b) == LEAF_LEN
         return cls(int.from_bytes(b[0:8], "little"), b[8:40], b[40:72],
                    b[72:104], int.from_bytes(b[104:108], "little"),
-                   int.from_bytes(b[108:116], "little"))
+                   int.from_bytes(b[108:112], "little"),
+                   int.from_bytes(b[112:116], "little"))
 
     def hash(self):
         return tagged_hash(TAG_LEAF, self.serialize())
@@ -156,7 +164,12 @@ class Leaf:
 
     def with_amount_seq(self, amount, seq):
         return Leaf(amount, self.exit_key, self.owner_key, self.evictor_key,
-                    self.evict_after, seq)
+                    self.evict_after, self.nonce, seq)
+
+    def position(self, depth):
+        """Sparse profile: low `depth` bits of int_le(H_pos(owner_key || le32(nonce)))."""
+        h = tagged_hash(TAG_POS, self.owner_key + le32(self.nonce))
+        return int.from_bytes(h, "little") & ((1 << depth) - 1)
 
     def to_json(self):
         return {
@@ -165,6 +178,7 @@ class Leaf:
             "owner_key": self.owner_key.hex(),
             "evictor_key": self.evictor_key.hex(),
             "evict_after": self.evict_after,
+            "nonce": self.nonce,
             "seq": self.seq,
             "serialized": self.serialize().hex(),
             "leaf_hash": self.hash().hex(),
@@ -244,6 +258,14 @@ def fold(node, path):
 
 def verify_path(root, node, path):
     return fold(node, path) == root
+
+
+def compress_path(path, height=0):
+    """Sparse profile: replace empty siblings by the empty string."""
+    out = []
+    for k, (d, sib) in enumerate(path):
+        out.append((d, b"" if sib == empty_node(height + k) else sib[0] + le64(sib[1])))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -380,7 +402,7 @@ def build_vectors():
     t = Tree(D)
     alice = Leaf(50_000, det_key("alice-exit"), det_key("alice-owner"), NUMS_X, 0, 0)
     bob = Leaf(125_000, det_key("bob-exit"), det_key("bob-owner"), det_key("operator"), 850_000, 0)
-    oper = Leaf(1_000_000, det_key("operator-exit"), det_key("operator"), NUMS_X, 0, 7)
+    oper = Leaf(1_000_000, det_key("operator-exit"), det_key("operator"), NUMS_X, 0, nonce=7)
     t.leaves = {0: alice, 5: bob, 15: oper}
     merkle_root = sha256(b"example taptree root (placeholder)")
     r0 = t.root()
@@ -458,6 +480,18 @@ def build_vectors():
         "claim_slot": 3, "claim_leaf": erin.to_json(), "claim_path": path_json(cpath),
         "voucher_msg": hx(voucher_msg(merkle_root, src_before, erin)),
         "old_root": node_json(r3), "new_root": node_json(r4),
+    }
+    # Sparse profile example: positions derived from (owner_key, nonce).
+    SD = 32
+    sp = Tree(SD)
+    sparse_leaves = [alice, bob, oper, carol, dave, erin]
+    for lf in sparse_leaves:
+        sp.leaves[lf.position(SD)] = lf
+    vec["sparse_example"] = {
+        "depth": SD,
+        "positions": {lf.owner_key.hex()[:16]: lf.position(SD) for lf in sparse_leaves},
+        "root": node_json(sp.root()),
+        "compressed_path_bob": [{"dir": d, "sc": sc.hex()} for d, sc in compress_path(sp.path(bob.position(SD)))],
     }
     return vec
 

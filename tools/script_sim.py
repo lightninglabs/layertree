@@ -33,16 +33,23 @@ OPS = {
     "OP_LESSTHANOREQUAL": 0xa1, "OP_GREATERTHANOREQUAL": 0xa2,
     "OP_SHA256": 0xa8, "OP_CHECKSIG": 0xac, "OP_CHECKSIGVERIFY": 0xad,
     "OP_CHECKLOCKTIMEVERIFY": 0xb1,
-    # OP_SUCCESSx redefinitions (BIP-348, OP_TX draft, BIP-349) and
-    # PLACEHOLDER numbers for the EC opcodes, which have none assigned yet.
-    "OP_TX": 0xbd, "OP_CHECKSIGFROMSTACK": 0xcc, "OP_INTERNALKEY": 0xcb,
-    "OP_ECSCALARMUL": 0xbe, "OP_ECPOINTADD": 0xbf,
+    # OP_SUCCESSx redefinitions: BIP-348 (0xcc), BIP-349 (0xcb), the EC ops
+    # draft BIP (Roasbeef/bips ec-ops-bip: 0xbb..0xbe). The OP_TX draft also
+    # claims 0xbd; we place OP_TX at 0xbf here as a PLACEHOLDER until the
+    # collision is resolved upstream.
+    "OP_TX": 0xbf, "OP_CHECKSIGFROMSTACK": 0xcc, "OP_INTERNALKEY": 0xcb,
+    "OP_EC_POINT_ADD": 0xbb, "OP_EC_POINT_MUL": 0xbc,
+    "OP_EC_POINT_NEGATE": 0xbd, "OP_EC_POINT_X_COORD": 0xbe,
+    "OP_DOWNSHIFT": 0x99, "OP_UPSHIFT": 0x98, "OP_AND": 0x84,
 }
 for i in range(1, 17):
     OPS[f"OP_{i}"] = 0x50 + i
 OPNAME = {v: k for k, v in OPS.items()}
 
 SIGCHECK_COST = 500_000
+# EC ops draft BIP: sigops-budget units where OP_CHECKSIG is 50; BIP-440 makes
+# a sigcheck 500,000 varops, i.e. 10,000 varops per sigops unit.
+EC_ADD_COST, EC_MUL_COST, EC_NEG_COST, EC_X_COST = 100_000, 300_000, 50_000, 10_000
 
 
 def num_encode(n):
@@ -476,22 +483,46 @@ class Interp:
                     raise ScriptError("CLTV not satisfied")
             elif name == "OP_INTERNALKEY":
                 pushv(self.ctx.internal_key)
-            elif name == "OP_ECSCALARMUL":
-                a = pop()
-                self.charge(SIGCHECK_COST)
-                if len(a) > 32:
-                    raise ScriptError("scalar too long")
-                s = int.from_bytes(a, "big")
-                if s == 0 or s >= lt.N:
-                    raise ScriptError("scalar out of range")
-                pushv(lt.compress(lt.point_mul(lt.G, s)))
-            elif name == "OP_ECPOINTADD":
+            elif name == "OP_EC_POINT_ADD":
                 b, a = pop(), pop()
-                self.charge(SIGCHECK_COST)
-                r = lt.point_add(lt.decompress(a), lt.decompress(b))
-                if r is None:
-                    raise ScriptError("point at infinity")
-                pushv(lt.compress(r))
+                self.charge(EC_ADD_COST)
+                r = lt.point_add(self.ec_decode(a), self.ec_decode(b))
+                pushv(b"" if r is None else lt.compress(r))
+            elif name == "OP_EC_POINT_MUL":
+                scalar, pt = pop(), pop()
+                self.charge(EC_MUL_COST)
+                if len(scalar) != 32:
+                    raise ScriptError("EC_POINT_MUL: scalar must be 32 bytes")
+                k = int.from_bytes(scalar, "big") % lt.N
+                P0 = lt.G if pt == b"" else self.ec_decode(pt)
+                r = lt.point_mul(P0, k) if k else None
+                pushv(b"" if r is None else lt.compress(r))
+            elif name == "OP_EC_POINT_NEGATE":
+                a = pop()
+                self.charge(EC_NEG_COST)
+                if a == b"":
+                    pushv(b"")
+                else:
+                    P0 = self.ec_decode(a)
+                    pushv(lt.compress((P0[0], (lt.P - P0[1]) % lt.P)))
+            elif name == "OP_EC_POINT_X_COORD":
+                a = pop()
+                self.charge(EC_X_COST)
+                if a == b"":
+                    raise ScriptError("EC_POINT_X_COORD: infinity")
+                pushv(self.ec_decode(a)[0].to_bytes(32, "big"))
+            elif name == "OP_DOWNSHIFT":
+                bits, a = popn(), pop()
+                self.charge(wordspan(1) * 2 + max(len(a) - bits // 8, 0) * 3)
+                v = int.from_bytes(a, "little") >> bits
+                n_out = max(len(a) - bits // 8, 0)
+                pushv(v.to_bytes(n_out, "little") if n_out else b"")
+            elif name == "OP_AND":
+                b, a = pop(), pop()
+                self.charge((wordspan(len(a)) + wordspan(len(b))) * 2)
+                if len(b) > len(a):
+                    a, b = b, a
+                pushv(bytes(x & (b[i] if i < len(b) else 0) for i, x in enumerate(a)))
             elif name == "OP_TX":
                 self.op_tx(st, pop, popn, pushv)
             else:
@@ -502,6 +533,21 @@ class Interp:
             raise ScriptError(f"final stack invalid: {[x.hex() for x in st]}")
         self.charge(wordspan(len(st[0])) * 2)
         return True
+
+    @staticmethod
+    def ec_decode(b):
+        """Decode a 33-byte compressed point per the EC ops draft BIP."""
+        if len(b) != 33 or b[0] not in (2, 3):
+            raise ScriptError("invalid compressed point")
+        x = int.from_bytes(b[1:], "big")
+        if x >= lt.P:
+            raise ScriptError("x >= p")
+        pt = lt.lift_x(x)
+        if pt is None:
+            raise ScriptError("not on curve")
+        if (b[0] == 3) != (pt[1] % 2 == 1):
+            pt = (pt[0], lt.P - pt[1])
+        return pt
 
     def op_tx(self, st, pop, popn, pushv):
         sel = popn()

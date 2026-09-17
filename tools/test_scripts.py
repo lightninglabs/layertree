@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end execution of the LayerTree scripts in the simulator."""
+"""End-to-end execution of the LayerTree scripts in the simulator (both profiles)."""
 import os
 import sys
 
@@ -11,6 +11,7 @@ from script_sim import (Interp, ScriptError, TxContext, assemble, pubkey_x,  # n
 
 FAILS = 0
 CHECKS = 0
+P2WPKH = b"\x00\x14" + bytes(20)
 
 
 def check(cond, msg):
@@ -22,12 +23,14 @@ def check(cond, msg):
 
 
 def expect_fail(fn, msg):
+    global FAILS, CHECKS
+    CHECKS += 1
     try:
         fn()
     except ScriptError:
-        check(True, msg)
         return
-    check(False, f"expected failure: {msg}")
+    FAILS += 1
+    print(f"FAIL: expected failure: {msg}")
 
 
 def sk(label):
@@ -38,32 +41,37 @@ def sc_bytes(node):
     return node[0] + lt.le64(node[1])
 
 
-def path_witness(path):
-    """Witness items for a path, bottom..top: dir_{D-1} sc_{D-1} ... dir_0 sc_0."""
-    items = []
-    for d, sib in reversed(path):
-        items.append(b"\x01" if d else b"")
-        items.append(sc_bytes(sib))
-    return items
-
-
 class World:
-    def __init__(self, depth, join_heights=(0, 2), exit_ks=(1, 2)):
-        self.depth = depth
+    def __init__(self, depth, profile, join_heights=(0, 2), exit_ks=(1, 2)):
+        self.depth, self.profile = depth, profile
         self.op_sk = sk("operator")
         self.op_pk = pubkey_x(self.op_sk)
-        self.scripts = ls.all_scripts(depth, self.op_pk, join_heights, exit_ks)
+        self.scripts = ls.all_scripts(depth, self.op_pk, join_heights, exit_ks, profile)
         self.compiled = {k: assemble(v) for k, v in self.scripts.items()}
-        self.leaf_hashes = [lt.tapleaf_hash(s) for s in self.compiled.values()]
-        self.m = lt.taptree_root(self.leaf_hashes)
+        self.m = lt.taptree_root([lt.tapleaf_hash(c) for c in self.compiled.values()])
         self.tree = lt.Tree(depth)
+
+    # -- helpers -----------------------------------------------------------
+    def slot(self, leaf, want=None):
+        return leaf.position(self.depth) if self.profile == "S" else want
+
+    def path_witness(self, path, height=0):
+        """Witness items for a path, bottom..top (level D-1 first)."""
+        items = []
+        if self.profile == "D":
+            for d, sib in reversed(path):
+                items += [b"\x01" if d else b"", sc_bytes(sib)]
+        else:
+            for _, sc in reversed(lt.compress_path(path, height)):
+                items.append(sc)
+        return items
 
     def spk(self, root=None):
         root = root or self.tree.root()
         return lt.tree_spk(root[0], self.m)
 
-    def run(self, name, witness, ctx, budget=None):
-        it = Interp(ctx, budget)
+    def run(self, name, witness, ctx):
+        it = Interp(ctx)
         it.run(self.compiled[name], witness)
         return it
 
@@ -74,241 +82,261 @@ class World:
             inputs.append(extra_in)
         return TxContext(inputs, outputs, locktime=locktime)
 
+    def clone(self):
+        t = lt.Tree(self.depth)
+        t.leaves = dict(self.tree.leaves)
+        return t
 
-def mk_leaf(label, amount, evictor=None, evict_after=0, seq=0):
+
+def mk_leaf(label, amount, evictor=None, evict_after=0, nonce=None, seq=0):
+    if nonce is None:
+        nonce = int.from_bytes(lt.sha256(label.encode())[:4], "little")
     return lt.Leaf(amount, pubkey_x(sk(label + "-exit")), pubkey_x(sk(label + "-owner")),
-                   evictor if evictor else lt.NUMS_X, evict_after, seq)
+                   evictor if evictor else lt.NUMS_X, evict_after, nonce, seq)
 
 
-def test_all(depth, verbose=True):
-    w = World(depth)
-    alice = mk_leaf("alice", 50_000)
-    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
-    w.tree.leaves = {0: alice, 5: bob, (1 << depth) - 1: mk_leaf("operator", 1_000_000)}
+def test_all(depth, profile, verbose=True):
+    w = World(depth, profile)
+    D = depth
     costs = {}
 
-    # ---------------- EXIT (owner) ----------------
+    def record(name, it, wit):
+        costs[name] = (it, len(w.compiled[name.split(" ")[0]]), sum(len(x) for x in wit))
+
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    oper = mk_leaf("operator", 1_000_000)
+    s_alice, s_bob, s_oper = w.slot(alice, 0), w.slot(bob, 5), w.slot(oper, (1 << D) - 1)
+    w.tree.leaves = {s_alice: alice, s_bob: bob, s_oper: oper}
+
+    # ---------------- EXIT_1 owner ----------------
     root = w.tree.root()
-    path = w.tree.path(5)
-    new_tree = lt.Tree(depth); new_tree.leaves = {k: v for k, v in w.tree.leaves.items() if k != 5}
-    new_root = new_tree.root()
+    path = w.tree.path(s_bob)
+    t1 = w.clone(); del t1.leaves[s_bob]
+    r1 = t1.root()
     fee = 1_000
-    outputs = [(new_root[1], w.spk(new_root)), (bob.amount - fee, lt.p2tr_spk(bob.exit_key)), (49_000, b"\x00\x14" + bytes(20))]
-    ctx = w.ctx(outputs, extra_in=(50_000, b"\x00\x14" + bytes(20)))
+    outputs = [(r1[1], w.spk(r1)), (bob.amount - fee, lt.p2tr_spk(bob.exit_key)), (49_000, P2WPKH)]
+    ctx = w.ctx(outputs, extra_in=(50_000, P2WPKH))
     sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
-    wit = path_witness(path) + [bob.serialize(), sig, b"", root[0], w.m]
-    it = w.run("EXIT_1", wit, ctx)
-    costs["EXIT_1 (owner)"] = (it, len(w.compiled["EXIT_1"]), sum(len(x) for x in wit))
-    check(True, "exit owner ok")
+    wit = w.path_witness(path) + [bob.serialize(), sig, b"", root[0], w.m]
+    record("EXIT_1 (owner)", w.run("EXIT_1", wit, ctx), wit)
 
-    # negative: wrong m (attacker-controlled taptree) must fail
     expect_fail(lambda: w.run("EXIT_1", wit[:-1] + [lt.sha256(b"evil")], ctx), "wrong merkle root")
-    # negative: overpay exit output
     bad = list(outputs); bad[1] = (bob.amount + 1, lt.p2tr_spk(bob.exit_key))
-    ctx2 = w.ctx(bad, extra_in=(50_000, b"\x00\x14" + bytes(20)))
-    sig2 = schnorr_sign(ctx2.sighash(), sk("bob-owner"))
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [bob.serialize(), sig2, b"", root[0], w.m], ctx2), "exit output too large")
-    # negative: tree output amount not reduced
-    bad = list(outputs); bad[0] = (root[1], w.spk(new_root))
-    ctx3 = w.ctx(bad, extra_in=(200_000, b"\x00\x14" + bytes(20)))
-    sig3 = schnorr_sign(ctx3.sighash(), sk("bob-owner"))
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [bob.serialize(), sig3, b"", root[0], w.m], ctx3), "tree amount not conserved")
-    # negative: wrong signer
+    ctx2 = w.ctx(bad, extra_in=(50_000, P2WPKH)); sig2 = schnorr_sign(ctx2.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig2, b"", root[0], w.m], ctx2), "exit output too large")
+    bad = list(outputs); bad[0] = (root[1], w.spk(r1))
+    ctx3 = w.ctx(bad, extra_in=(200_000, P2WPKH)); sig3 = schnorr_sign(ctx3.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig3, b"", root[0], w.m], ctx3), "tree amount not conserved")
     sig4 = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [bob.serialize(), sig4, b"", root[0], w.m], ctx), "wrong owner key")
-    # negative: proof for a different leaf content
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig4, b"", root[0], w.m], ctx), "wrong owner key")
     fake = bob.with_amount_seq(bob.amount + 1, 0)
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [fake.serialize(), sig, b"", root[0], w.m], ctx), "forged leaf amount")
-    # negative: new tree spk built from wrong root
-    bad = list(outputs); bad[0] = (new_root[1], w.spk(root))
-    ctx5 = w.ctx(bad, extra_in=(50_000, b"\x00\x14" + bytes(20)))
-    sig5 = schnorr_sign(ctx5.sighash(), sk("bob-owner"))
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [bob.serialize(), sig5, b"", root[0], w.m], ctx5), "stale root in output")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [fake.serialize(), sig, b"", root[0], w.m], ctx), "forged leaf amount")
+    bad = list(outputs); bad[0] = (r1[1], w.spk(root))
+    ctx5 = w.ctx(bad, extra_in=(50_000, P2WPKH)); sig5 = schnorr_sign(ctx5.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig5, b"", root[0], w.m], ctx5), "stale root in output")
+    if profile == "S":
+        # a non-empty sc supplied where the sibling is empty (or vice versa) must fail
+        wrong = list(w.path_witness(path))
+        wrong[0] = sc_bytes(lt.empty_node(D - 1)) if wrong[0] == b"" else b""
+        expect_fail(lambda: w.run("EXIT_1", wrong + [bob.serialize(), sig, b"", root[0], w.m], ctx), "sparse: explicit empty sibling")
 
-    # ---------------- EXIT (evict) ----------------
-    outputs_e = [(new_root[1], w.spk(new_root)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
-    ctx_e = w.ctx(outputs_e, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=800_000)
+    # ---------------- EXIT_1 evict ----------------
+    outputs_e = [(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+    ctx_e = w.ctx(outputs_e, extra_in=(5_000, P2WPKH), locktime=800_000)
     esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
-    wit_e = path_witness(path) + [bob.serialize(), esig, b"\x01", root[0], w.m]
-    it = w.run("EXIT_1", wit_e, ctx_e)
-    costs["EXIT_1 (evict)"] = (it, len(w.compiled["EXIT_1"]), sum(len(x) for x in wit_e))
-    ctx_early = w.ctx(outputs_e, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=799_999)
+    wit_e = w.path_witness(path) + [bob.serialize(), esig, b"\x01", root[0], w.m]
+    record("EXIT_1 (evict)", w.run("EXIT_1", wit_e, ctx_e), wit_e)
+    ctx_early = w.ctx(outputs_e, extra_in=(5_000, P2WPKH), locktime=799_999)
     esig2 = schnorr_sign(ctx_early.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [bob.serialize(), esig2, b"\x01", root[0], w.m], ctx_early), "evict before evict_after")
-    outputs_e2 = [(new_root[1], w.spk(new_root)), (bob.amount - 1, lt.p2tr_spk(bob.exit_key))]
-    ctx_e2 = w.ctx(outputs_e2, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=800_000)
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), esig2, b"\x01", root[0], w.m], ctx_early), "evict before evict_after")
+    outputs_e2 = [(r1[1], w.spk(r1)), (bob.amount - 1, lt.p2tr_spk(bob.exit_key))]
+    ctx_e2 = w.ctx(outputs_e2, extra_in=(5_000, P2WPKH), locktime=800_000)
     esig3 = schnorr_sign(ctx_e2.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_1", path_witness(path) + [bob.serialize(), esig3, b"\x01", root[0], w.m], ctx_e2), "evictor may not shortchange")
-    # alice has NUMS evictor: eviction impossible
-    apath = w.tree.path(0)
-    t_a = lt.Tree(depth); t_a.leaves = {k: v for k, v in w.tree.leaves.items() if k != 0}
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), esig3, b"\x01", root[0], w.m], ctx_e2), "evictor may not shortchange")
+    apath = w.tree.path(s_alice)
+    t_a = w.clone(); del t_a.leaves[s_alice]
     outputs_a = [(t_a.root()[1], w.spk(t_a.root())), (alice.amount, lt.p2tr_spk(alice.exit_key))]
-    ctx_a = w.ctx(outputs_a, extra_in=(5_000, b"\x00\x14" + bytes(20)))
+    ctx_a = w.ctx(outputs_a, extra_in=(5_000, P2WPKH))
     asig = schnorr_sign(ctx_a.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_1", path_witness(apath) + [alice.serialize(), asig, b"\x01", root[0], w.m], ctx_a), "NUMS evictor")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(apath) + [alice.serialize(), asig, b"\x01", root[0], w.m], ctx_a), "NUMS evictor")
+    w.tree = t1
 
-    # commit the exit of bob
-    w.tree = new_tree
-
-    # ---------------- JOIN (height 2 subtree, 4 slots) ----------------
+    # ---------------- JOIN ----------------
+    carol = mk_leaf("carol", 30_000, w.op_pk, 900_000)
+    dave = mk_leaf("dave", 70_000, w.op_pk, 900_000)
     root = w.tree.root()
-    carol, dave = mk_leaf("carol", 30_000, w.op_pk, 900_000), mk_leaf("dave", 70_000, w.op_pk, 900_000)
-    h, idx = 2, 2
-    jpath = w.tree.path(idx << h, height=h)
-    t2 = lt.Tree(depth); t2.leaves = dict(w.tree.leaves)
-    lt.apply_join(t2, h, idx, {0: carol, 3: dave})
-    new_node, r2 = t2.subtree(h, idx), t2.root()
-    outputs = [(r2[1], w.spk(r2)), (900, b"\x00\x14" + bytes(20))]
-    ctx = w.ctx(outputs, extra_in=(new_node[1] + 2_000, b"\x00\x14" + bytes(20)))
-    osig = schnorr_sign(ctx.sighash(), w.op_sk)
-    wit = path_witness(jpath) + [new_node[0], lt.le64(new_node[1]), osig, root[0], w.m]
-    it = w.run("JOIN_2", wit, ctx)
-    costs["JOIN_2"] = (it, len(w.compiled["JOIN_2"]), sum(len(x) for x in wit))
-    # negative: joining over an occupied position (slot 0 region) fails
-    jpath_bad = w.tree.path(0, height=h)
-    expect_fail(lambda: w.run("JOIN_2", path_witness(jpath_bad) + [new_node[0], lt.le64(new_node[1]), osig, root[0], w.m], ctx), "join over occupied subtree")
-    # negative: underfunded tree output
-    bad = [(r2[1] - 1, w.spk(r2))]
-    ctxb = w.ctx(bad, extra_in=(new_node[1] + 2_000, b"\x00\x14" + bytes(20)))
-    osigb = schnorr_sign(ctxb.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("JOIN_2", path_witness(jpath) + [new_node[0], lt.le64(new_node[1]), osigb, root[0], w.m], ctxb), "join underfunded")
-    # negative: not signed by operator
-    usig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    expect_fail(lambda: w.run("JOIN_2", path_witness(jpath) + [new_node[0], lt.le64(new_node[1]), usig, root[0], w.m], ctx), "join without operator")
-    w.tree = t2
+    if profile == "D":
+        h, idx = 2, 2
+        jpath = w.tree.path(idx << h, height=h)
+        t2 = w.clone(); lt.apply_join(t2, h, idx, {0: carol, 3: dave})
+        new_node, r2 = t2.subtree(h, idx), t2.root()
+        outputs = [(r2[1], w.spk(r2)), (900, P2WPKH)]
+        ctx = w.ctx(outputs, extra_in=(new_node[1] + 2_000, P2WPKH))
+        osig = schnorr_sign(ctx.sighash(), w.op_sk)
+        wit = w.path_witness(jpath, h) + [new_node[0], lt.le64(new_node[1]), osig, root[0], w.m]
+        record("JOIN_2", w.run("JOIN_2", wit, ctx), wit)
+        jpath_bad = w.tree.path(0, height=h)
+        expect_fail(lambda: w.run("JOIN_2", w.path_witness(jpath_bad, h) + [new_node[0], lt.le64(new_node[1]), osig, root[0], w.m], ctx), "join over occupied subtree")
+        bad = [(r2[1] - 1, w.spk(r2))]
+        ctxb = w.ctx(bad, extra_in=(new_node[1] + 2_000, P2WPKH)); osigb = schnorr_sign(ctxb.sighash(), w.op_sk)
+        expect_fail(lambda: w.run("JOIN_2", w.path_witness(jpath, h) + [new_node[0], lt.le64(new_node[1]), osigb, root[0], w.m], ctxb), "join underfunded")
+        usig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+        expect_fail(lambda: w.run("JOIN_2", w.path_witness(jpath, h) + [new_node[0], lt.le64(new_node[1]), usig, root[0], w.m], ctx), "join without operator")
+        w.tree = t2
+        s_carol, s_dave = (idx << h), (idx << h) + 3
+    else:
+        # sparse: two single-leaf joins
+        for lf in (carol, dave):
+            root = w.tree.root()
+            slot = w.slot(lf)
+            jpath = w.tree.path(slot)
+            t2 = w.clone(); t2.leaves[slot] = lf
+            r2 = t2.root()
+            ctx = w.ctx([(r2[1], w.spk(r2))], extra_in=(lf.amount + 500, P2WPKH))
+            osig = schnorr_sign(ctx.sighash(), w.op_sk)
+            wit = w.path_witness(jpath) + [lf.serialize(), osig, root[0], w.m]
+            record("JOIN_0", w.run("JOIN_0", wit, ctx), wit)
+            w.tree = t2
+        s_carol, s_dave = w.slot(carol), w.slot(dave)
+        # negative: join at an occupied derived position (same owner+nonce as alice)
+        root = w.tree.root()
+        dup = lt.Leaf(1_000, alice.exit_key, alice.owner_key, alice.evictor_key, 0, alice.nonce, 0)
+        slot = w.slot(dup)
+        check(slot == s_alice, "duplicate (owner, nonce) derives the same position")
+        jpath = w.tree.path(slot)
+        t_bad = w.clone(); t_bad.leaves[slot] = dup
+        ctx = w.ctx([(t_bad.root()[1], w.spk(t_bad.root()))], extra_in=(2_000, P2WPKH))
+        osig = schnorr_sign(ctx.sighash(), w.op_sk)
+        expect_fail(lambda: w.run("JOIN_0", w.path_witness(jpath) + [dup.serialize(), osig, root[0], w.m], ctx), "sparse join over occupied position")
+        usig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+        expect_fail(lambda: w.run("JOIN_0", w.path_witness(jpath) + [dup.serialize(), usig, root[0], w.m], ctx), "join without operator")
 
-    # single-leaf JOIN_0
+    # single-leaf JOIN_0 (both profiles)
     root = w.tree.root()
     erin = mk_leaf("erin", 12_345, w.op_pk, 900_000)
-    slot = 9
-    jpath0 = w.tree.path(slot)
-    t3 = lt.Tree(depth); t3.leaves = dict(w.tree.leaves); t3.leaves[slot] = erin
+    s_erin = w.slot(erin, 9)
+    jpath0 = w.tree.path(s_erin)
+    t3 = w.clone(); t3.leaves[s_erin] = erin
     r3 = t3.root()
-    ctx = w.ctx([(r3[1], w.spk(r3))], extra_in=(erin.amount + 500, b"\x00\x14" + bytes(20)))
+    ctx = w.ctx([(r3[1], w.spk(r3))], extra_in=(erin.amount + 500, P2WPKH))
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
-    wit = path_witness(jpath0) + [erin.hash(), lt.le64(erin.amount), osig, root[0], w.m]
-    it = w.run("JOIN_0", wit, ctx)
-    costs["JOIN_0"] = (it, len(w.compiled["JOIN_0"]), sum(len(x) for x in wit))
+    if profile == "D":
+        wit = w.path_witness(jpath0) + [erin.hash(), lt.le64(erin.amount), osig, root[0], w.m]
+    else:
+        wit = w.path_witness(jpath0) + [erin.serialize(), osig, root[0], w.m]
+    record("JOIN_0", w.run("JOIN_0", wit, ctx), wit)
     w.tree = t3
 
-    # ---------------- UPDATE (alice 50k -> 80k, seq 1) ----------------
+    # ---------------- UPDATE ----------------
     root = w.tree.root()
-    upath = w.tree.path(0)
+    upath = w.tree.path(s_alice)
     alice2 = alice.with_amount_seq(80_000, 1)
-    t4 = lt.Tree(depth); t4.leaves = dict(w.tree.leaves); t4.leaves[0] = alice2
+    t4 = w.clone(); t4.leaves[s_alice] = alice2
     r4 = t4.root()
-    ctx = w.ctx([(r4[1], w.spk(r4))], extra_in=(30_000 + 700, b"\x00\x14" + bytes(20)))
+    ctx = w.ctx([(r4[1], w.spk(r4))], extra_in=(30_700, P2WPKH))
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    wit = path_witness(upath) + [alice.serialize(), alice2.serialize(), asig, osig, root[0], w.m]
-    it = w.run("UPDATE", wit, ctx)
-    costs["UPDATE"] = (it, len(w.compiled["UPDATE"]), sum(len(x) for x in wit))
-    expect_fail(lambda: w.run("UPDATE", path_witness(upath) + [alice.serialize(), alice2.serialize(), osig, osig, root[0], w.m], ctx), "update without owner")
+    wit = w.path_witness(upath) + [alice.serialize(), alice2.serialize(), asig, osig, root[0], w.m]
+    record("UPDATE", w.run("UPDATE", wit, ctx), wit)
+    expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + [alice.serialize(), alice2.serialize(), osig, osig, root[0], w.m], ctx), "update without owner")
+    if profile == "S":
+        moved = lt.Leaf(80_000, alice.exit_key, alice.owner_key, alice.evictor_key, 0, alice.nonce + 1, 1)
+        t_m = w.clone(); del t_m.leaves[s_alice]; t_m.leaves[w.slot(moved)] = moved
+        ctxm = w.ctx([(t_m.root()[1], w.spk(t_m.root()))], extra_in=(30_700, P2WPKH))
+        osm = schnorr_sign(ctxm.sighash(), w.op_sk); asm_ = schnorr_sign(ctxm.sighash(), sk("alice-owner"))
+        expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + [alice.serialize(), moved.serialize(), asm_, osm, root[0], w.m], ctxm), "sparse update changing position")
     w.tree = t4
 
-    # ---------------- CLAIM (voucher from operator leaf to frank) ----------------
+    # ---------------- CLAIM ----------------
     root = w.tree.root()
-    src_slot, claim_slot = (1 << depth) - 1, 3
-    src = w.tree.leaves[src_slot]
+    src = w.tree.leaves[s_oper]
     frank = mk_leaf("frank", 40_000, w.op_pk, 900_000)
-    spath = w.tree.path(src_slot)
-    t5 = lt.Tree(depth); t5.leaves = dict(w.tree.leaves)
-    lt.apply_claim(t5, src_slot, claim_slot, frank)
-    cpath = t5.path(claim_slot)
+    s_frank = w.slot(frank, 3)
+    spath = w.tree.path(s_oper)
+    t5 = w.clone(); lt.apply_claim(t5, s_oper, s_frank, frank)
+    cpath = t5.path(s_frank)
     r5 = t5.root()
     check(r5[1] == root[1], "claim conserves sum")
-    ctx = w.ctx([(r5[1], w.spk(r5))], extra_in=(600, b"\x00\x14" + bytes(20)))
+    ctx = w.ctx([(r5[1], w.spk(r5))], extra_in=(600, P2WPKH))
     vmsg = lt.voucher_msg(w.m, src, frank)
     vsig = schnorr_sign(vmsg, sk("operator-owner"))
-    wit = path_witness(cpath) + path_witness(spath) + [src.serialize(), frank.serialize(), vsig, root[0], w.m]
-    it = w.run("CLAIM", wit, ctx)
-    costs["CLAIM"] = (it, len(w.compiled["CLAIM"]), sum(len(x) for x in wit))
-    # negative: replay after the source leaf changed (seq/amount) fails
-    t6 = lt.Tree(depth); t6.leaves = dict(t5.leaves)
+    wit = w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), frank.serialize(), vsig, root[0], w.m]
+    record("CLAIM", w.run("CLAIM", wit, ctx), wit)
+    # replay after the source leaf changed
     frank2 = mk_leaf("frank2", 40_000, w.op_pk, 900_000)
-    spath2 = t5.path(src_slot)
-    lt.apply_claim(t6, src_slot, 4, frank2)
-    cpath2 = t6.path(4)
-    ctx6 = TxContext([(r5[1], w.spk(r5)), (600, b"\x00\x14" + bytes(20))], [(t6.root()[1], w.spk(t6.root()))])
-    expect_fail(lambda: w.run("CLAIM", path_witness(cpath2) + path_witness(spath2) + [src.serialize(), frank2.serialize(), vsig, r5[0], w.m], ctx6), "voucher replay / wrong leaf")
-    # negative: over-claim
+    s_frank2 = w.slot(frank2, 4)
+    t6 = lt.Tree(D); t6.leaves = dict(t5.leaves)
+    spath2 = t5.path(s_oper)
+    lt.apply_claim(t6, s_oper, s_frank2, frank2)
+    cpath2 = t6.path(s_frank2)
+    ctx6 = TxContext([(r5[1], w.spk(r5)), (600, P2WPKH)], [(t6.root()[1], w.spk(t6.root()))])
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath2) + w.path_witness(spath2) + [src.serialize(), frank2.serialize(), vsig, r5[0], w.m], ctx6), "voucher replay / wrong leaf")
     greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000)
     gsig = schnorr_sign(lt.voucher_msg(w.m, src, greedy), sk("operator-owner"))
-    expect_fail(lambda: w.run("CLAIM", path_witness(cpath) + path_witness(spath) + [src.serialize(), greedy.serialize(), gsig, root[0], w.m], ctx), "over-claim underflow")
-    # negative: voucher signed by the wrong owner
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), greedy.serialize(), gsig, root[0], w.m], ctx), "over-claim underflow")
     bsig = schnorr_sign(vmsg, sk("bob-owner"))
-    expect_fail(lambda: w.run("CLAIM", path_witness(cpath) + path_witness(spath) + [src.serialize(), frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
-
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
     w.tree = t5
 
-    # ---------------- EXIT_2: carol (owner) + dave (evict) in one tx ----------------
+    # ---------------- EXIT_2: carol (owner) + dave (evict) ----------------
     root = w.tree.root()
-    cslot, dslot = (idx << h) + 0, (idx << h) + 3
-    t7 = lt.Tree(depth); t7.leaves = dict(w.tree.leaves)
-    path_c = t7.path(cslot); del t7.leaves[cslot]
-    path_d = t7.path(dslot); del t7.leaves[dslot]   # path after carol removed
+    t7 = w.clone()
+    path_c = t7.path(s_carol); del t7.leaves[s_carol]
+    path_d = t7.path(s_dave); del t7.leaves[s_dave]
     r7 = t7.root()
-    outputs = [(r7[1], w.spk(r7)), (carol.amount - 300, lt.p2tr_spk(carol.exit_key)),
-               (dave.amount, lt.p2tr_spk(dave.exit_key))]
-    ctx = w.ctx(outputs, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=900_000)
-    csig = schnorr_sign(ctx.sighash(), sk("carol-owner"))
-    dsig = schnorr_sign(ctx.sighash(), w.op_sk)
-    block2 = path_witness(path_d) + [dave.serialize(), dsig, b"\x01"]
-    block1 = path_witness(path_c) + [carol.serialize(), csig, b""]
+    outputs = [(r7[1], w.spk(r7)), (carol.amount - 300, lt.p2tr_spk(carol.exit_key)), (dave.amount, lt.p2tr_spk(dave.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(5_000, P2WPKH), locktime=900_000)
+    csig = schnorr_sign(ctx.sighash(), sk("carol-owner")); dsig = schnorr_sign(ctx.sighash(), w.op_sk)
+    block2 = w.path_witness(path_d) + [dave.serialize(), dsig, b"\x01"]
+    block1 = w.path_witness(path_c) + [carol.serialize(), csig, b""]
     wit = block2 + block1 + [root[0], w.m]
-    it = w.run("EXIT_2", wit, ctx)
-    costs["EXIT_2"] = (it, len(w.compiled["EXIT_2"]), sum(len(x) for x in wit))
-    # negative: second block's path must be against the root AFTER the first exit
-    stale_d = w.tree.path(dslot)
-    expect_fail(lambda: w.run("EXIT_2", path_witness(stale_d) + [dave.serialize(), dsig, b"\x01"] + block1 + [root[0], w.m], ctx), "EXIT_2 stale second path")
-    # negative: second payout at wrong index amount
+    record("EXIT_2", w.run("EXIT_2", wit, ctx), wit)
+    stale_d = w.tree.path(s_dave)
+    expect_fail(lambda: w.run("EXIT_2", w.path_witness(stale_d) + [dave.serialize(), dsig, b"\x01"] + block1 + [root[0], w.m], ctx), "EXIT_2 stale second path")
     bad = list(outputs); bad[2] = (dave.amount - 1, lt.p2tr_spk(dave.exit_key))
-    ctxb = w.ctx(bad, extra_in=(5_000, b"\x00\x14" + bytes(20)), locktime=900_000)
+    ctxb = w.ctx(bad, extra_in=(5_000, P2WPKH), locktime=900_000)
     csb = schnorr_sign(ctxb.sighash(), sk("carol-owner")); dsb = schnorr_sign(ctxb.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_2", path_witness(path_d) + [dave.serialize(), dsb, b"\x01"] + path_witness(path_c) + [carol.serialize(), csb, b""] + [root[0], w.m], ctxb), "EXIT_2 evictee shortchanged")
+    expect_fail(lambda: w.run("EXIT_2", w.path_witness(path_d) + [dave.serialize(), dsb, b"\x01"] + w.path_witness(path_c) + [carol.serialize(), csb, b""] + [root[0], w.m], ctxb), "EXIT_2 evictee shortchanged")
     w.tree = t7
 
-    # ---------------- CLAIM draining the source completely -> E_0 ----------------
+    # ---------------- CLAIM draining the source -> E_0 ----------------
     root = w.tree.root()
-    src_slot2 = 9  # erin, 12_345
-    src2 = w.tree.leaves[src_slot2]
+    src2 = w.tree.leaves[s_erin]
     gina = mk_leaf("gina", src2.amount, w.op_pk, 900_000)
-    spath2 = w.tree.path(src_slot2)
-    t8 = lt.Tree(depth); t8.leaves = dict(w.tree.leaves)
-    del t8.leaves[src_slot2]                       # drained position becomes empty
-    cpath_g = t8.path(6)
-    t8.leaves[6] = gina
+    s_gina = w.slot(gina, 6)
+    spath2 = w.tree.path(s_erin)
+    t8 = w.clone(); del t8.leaves[s_erin]
+    cpath_g = t8.path(s_gina); t8.leaves[s_gina] = gina
     r8 = t8.root()
-    ctx = w.ctx([(r8[1], w.spk(r8))], extra_in=(600, b"\x00\x14" + bytes(20)))
+    ctx = w.ctx([(r8[1], w.spk(r8))], extra_in=(600, P2WPKH))
     gsig = schnorr_sign(lt.voucher_msg(w.m, src2, gina), sk("erin-owner"))
-    wit = path_witness(cpath_g) + path_witness(spath2) + [src2.serialize(), gina.serialize(), gsig, root[0], w.m]
-    it = w.run("CLAIM", wit, ctx)
+    wit = w.path_witness(cpath_g) + w.path_witness(spath2) + [src2.serialize(), gina.serialize(), gsig, root[0], w.m]
+    w.run("CLAIM", wit, ctx)
     check(True, "claim full drain -> empty position")
     w.tree = t8
 
-    # ---------------- terminal exit: last leaf leaves, output 0 unconstrained ----------------
-    tiny = lt.Tree(depth)
+    # ---------------- terminal exit ----------------
     solo = mk_leaf("solo", 77_000)
-    tiny.leaves = {2: solo}
+    tiny = lt.Tree(D); tiny.leaves = {w.slot(solo, 2): solo}
     w.tree = tiny
     root = w.tree.root()
-    spath = w.tree.path(2)
-    outputs = [(600, b"\x00\x14" + bytes(20)), (solo.amount - 400, lt.p2tr_spk(solo.exit_key))]
-    ctx = w.ctx(outputs, extra_in=(1_000, b"\x00\x14" + bytes(20)))
+    spath = w.tree.path(w.slot(solo, 2))
+    outputs = [(600, P2WPKH), (solo.amount - 400, lt.p2tr_spk(solo.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(1_000, P2WPKH))
     ssig = schnorr_sign(ctx.sighash(), sk("solo-owner"))
-    it = w.run("EXIT_1", path_witness(spath) + [solo.serialize(), ssig, b"", root[0], w.m], ctx)
+    it = w.run("EXIT_1", w.path_witness(spath) + [solo.serialize(), ssig, b"", root[0], w.m], ctx)
     costs["EXIT_1 (terminal)"] = (it, len(w.compiled["EXIT_1"]), 0)
-    # negative: terminal branch must not be reachable while leaves remain
     w.tree = t8
     root = w.tree.root()
-    apath = w.tree.path(0)
-    outputs = [(600, b"\x00\x14" + bytes(20)), (alice2.amount, lt.p2tr_spk(alice2.exit_key))]
-    ctx = w.ctx(outputs, extra_in=(1_000, b"\x00\x14" + bytes(20)))
+    apath = w.tree.path(s_alice)
+    outputs = [(600, P2WPKH), (alice2.amount, lt.p2tr_spk(alice2.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(1_000, P2WPKH))
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    expect_fail(lambda: w.run("EXIT_1", path_witness(apath) + [alice2.serialize(), asig, b"", root[0], w.m], ctx), "non-terminal exit with unconstrained output 0")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(apath) + [alice2.serialize(), asig, b"", root[0], w.m], ctx), "non-terminal exit with unconstrained output 0")
 
     if verbose:
-        print(f"\nD={depth}  taptree leaves={len(w.compiled)}  m={w.m.hex()}")
+        print(f"\nprofile={profile} D={depth}  taptree leaves={len(w.compiled)}  m={w.m.hex()[:16]}…")
         print(f"{'transition':18} {'script B':>9} {'witness B':>10} {'varops':>10} {'sigops':>6} {'maxdepth':>8}")
         for k, (it, sl, wl) in costs.items():
             print(f"{k:18} {sl:9} {wl:10} {it.cost:10} {it.sigchecks:6} {it.max_depth:8}")
@@ -316,7 +344,8 @@ def test_all(depth, verbose=True):
 
 
 if __name__ == "__main__":
-    for d in (4, 16):
-        test_all(d)
+    for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
+        for d in depths:
+            test_all(d, prof)
     print(f"\n{CHECKS} checks, {FAILS} failures")
     sys.exit(1 if FAILS else 0)

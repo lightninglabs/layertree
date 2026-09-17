@@ -34,23 +34,31 @@ def listing(name, tokens):
 
 
 D = 4
-for name, toks in ls.all_scripts(D, OP_KEY, (0, 2), (1, 2)).items():
+for name, toks in ls.all_scripts(D, OP_KEY, (0, 2), (1, 2), "D").items():
     with open(os.path.join(OUT, f"{name}_D{D}.txt"), "w") as f:
-        f.write(listing(f"{name} (D={D})", toks))
+        f.write(listing(f"{name} (dense, D={D})", toks))
+for name, toks in ls.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
+    with open(os.path.join(OUT, f"{name}_S8.txt"), "w") as f:
+        f.write(listing(f"{name} (sparse, D=8)", toks))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:
-    f.write(listing("LEVEL macro (one merkle-sum level, both accumulators)", ls.level()))
+    f.write(listing("LEVEL (dense): one merkle-sum level, both accumulators", ls.level_dense()))
+    f.write("\n")
+    f.write(listing("LEVEL_S (sparse, k=5): derives dir from pos, computes E_k", ls.level_sparse(5)))
 with open(os.path.join(OUT, "TREE_SPK.txt"), "w") as f:
     f.write(listing("TREE_SPK macro ([root m] -> [scriptPubKey])", ls.tree_spk()))
 
 rows = []
-for d in (8, 12, 16, 20):
-    costs, w = test_scripts.test_all(d, verbose=False)
-    for k, (it, sl, wl) in costs.items():
-        cb = 33 + 32 * 3  # control block for a 5-leaf taptree (depth 3)
-        rows.append((d, k, sl, wl, cb, sl + wl + cb, it.cost, it.sigchecks))
+for prof, depths in (("D", (8, 12, 16, 20)), ("S", (32, 64, 256))):
+    for d in depths:
+        costs, w = test_scripts.test_all(d, prof, verbose=False)
+        for k, (it, sl, wl) in costs.items():
+            cb = 33 + 32 * 3  # control block for a 5-6 leaf taptree (depth 3)
+            rows.append((prof, d, k, sl, wl, cb, sl + wl + cb, it.cost, it.sigchecks))
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
-    f.write("| D | transition | script (WU) | witness data (WU) | control block (WU) | total witness (WU) | varops used | sigops |\n")
-    f.write("|---|---|---|---|---|---|---|---|\n")
+    f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
+    f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")
+    f.write("| profile | D | transition | script (WU) | witness data (WU) | control block (WU) | total witness (WU) | varops used | sigops |\n")
+    f.write("|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:
         f.write("| " + " | ".join(str(x) for x in r) + " |\n")
 print("wrote listings; test failures:", test_scripts.FAILS)
