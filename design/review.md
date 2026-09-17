@@ -299,7 +299,7 @@ is the operational model the essay's "unified batching" was reaching for.
 ## 4. Validation
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
-at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 219
+at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 208
 checks including the negative cases that matter for the findings above:
 attacker-chosen `m` (F4), forged leaf amount and stale root (F3), unconserved
 tree amount (F6), join over an occupied position and underfunded join,

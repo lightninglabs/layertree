@@ -1589,7 +1589,7 @@ exits in a batch" as `EXIT_K` (section 13).
   joins (`JOINK_2`, including a stale second path and an underfunded batch)
   and cohort sweeps (`EVICT_SUBTREE_2/4/6`, including a sweep before lease
   expiry, a shortchanged leaf and a non-evictable leaf) are exercised as
-  well, 219 checks in total. Run:
+  well, 208 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the minimal-inventory `EXIT_1`, and the size table covering both
