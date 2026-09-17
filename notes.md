@@ -1,5 +1,9 @@
 # Notes
 
+> Status (2026-09-17): the design has been scrutinised and written up as a
+> specification in `spec/layertree.md`; the review of this sketch is in
+> `design/review.md`. The notes below are the pre-spec material.
+
 Distilled from personal vault mentions of "layertree" (2025-03-09 through
 2026-W38). The raw source note is copied into this repo at
 `design/layertree.md` since the vault itself isn't on GitHub. The full
