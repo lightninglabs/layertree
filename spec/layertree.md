@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.3.0
+Version:  0.4.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -70,6 +70,10 @@ Sections and paragraphs marked *(informative)* do not contain requirements.
 * `a || b` denotes byte-string concatenation.
 * `le64(n)` denotes the 8-byte little-endian encoding of the unsigned integer
   `n`, which MUST be less than 2^64. `le32(n)` is the 4-byte analogue.
+* `enc64(n) = le64(n) || 0x01`, the 9-byte encoding used for sums inside
+  node hashes. It is exactly the BIP-441 minimal little-endian encoding of
+  `n + 2^64`, so a script produces it from a computed sum with a single
+  `OP_ADD` (section 8.2).
 * `H_tag(m) = SHA256(SHA256(tag) || SHA256(tag) || m)` is the tagged hash of
   BIP-340. The tag strings used by this document are listed in section 5.1.
 * `x(P)` is the 32-byte big-endian x coordinate of the secp256k1 point `P`.
@@ -83,7 +87,7 @@ Sections and paragraphs marked *(informative)* do not contain requirements.
   with arithmetic results minimally encoded.
 * A *node* is a pair `(hash, sum)` with `hash` a 32-byte string and `sum` an
   unsigned integer of satoshis. Its *canonical encoding* is
-  `hash || le64(sum)` (40 bytes), abbreviated `sc`.
+  `hash || enc64(sum)` (41 bytes), abbreviated `sc`.
 
 ### 2.2 Roles
 
@@ -179,7 +183,8 @@ opcodes that already exist or are already proposed by others as general
 primitives: the BIP-342 tapscript set, the BIP-441 restorations, `OP_TX`,
 `OP_CHECKSIGFROMSTACK` and the elliptic-curve opcodes of the EC ops draft.
 Section 4.3 is the complete inventory; `tools/test_scripts.py` fails if any
-reference script uses an opcode outside it. Where this document could have
+reference script uses an opcode outside it. Section 4.4 identifies the
+irreducible subset. Where this document could have
 been made cheaper by a purpose-built opcode (a Merkle-sum step, a taproot
 tweak check, a loop), it deliberately is not.
 
@@ -257,7 +262,40 @@ one bit of the position hash). `OP_EC_POINT_NEGATE`, `OP_INTERNALKEY`,
 `OP_TEMPLATEHASH`, `OP_CHECKCONTRACTVERIFY` and `OP_PAIRCOMMIT` are not
 required.
 
-### 4.4 Policy assumptions
+### 4.4 Minimal opcode set
+
+*(informative, with measurements)* Section 4.3 lists what the reference
+scripts use. This section answers a different question: what is the
+smallest subset of the candidate opcodes with which LayerTree can be built
+at all, using ordinary script tricks in place of convenience opcodes.
+
+| Need | Reference scripts use | Minimal alternative | Cost of the alternative |
+|---|---|---|---|
+| Concatenation for hash preimages, `P2TR` construction | `OP_CAT` | none: `OP_CAT` is irreducible (`OP_PAIRCOMMIT` can hash pairs but cannot build the 34-byte scriptPubKey) | — |
+| 8-byte satoshi arithmetic | BIP-441 numerics (`OP_ADD`, `OP_SUB`, `OP_NUMEQUAL`, `OP_LESSTHANOREQUAL` on arbitrary length) | none within tapleaf `0xC2`; under 4-byte `CScriptNum` one would split sums into 32-bit limbs with witness-supplied carries | — |
+| Padding a computed sum to a fixed width | `2^64 OP_ADD` (`enc64`) | already minimal: no `OP_LEFT`/`OP_RIGHT`; this is why sums are hashed as `enc64` | 0 |
+| Field extraction from a leaf or `sc` | `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT` | supply the fields as separate witness elements, check each with `OP_SIZE`, re-join with `OP_CAT` to hash the leaf | ≈ +17 bytes of script per level, +7 witness elements per leaf |
+| Reading one bit of the position hash (sparse) | `OP_DOWNSHIFT`, `OP_AND` | supply `dir` bits in the witness; accumulate `acc += dir ? pw : 0`, `pw += pw` with `OP_IF`/`OP_ADD`; check `acc` against the low `D/8` bytes of `H_pos`, which are verified by `CAT`-joining them with the remaining bytes and comparing to the hash | ≈ +6 bytes per level, +1 witness byte per level |
+| Taproot output key recomputation | `OP_EC_POINT_MUL`, `OP_EC_POINT_ADD`, `OP_EC_POINT_X_COORD` | BIP-449 `OP_TWEAKADD` (`[tweak32 pubkey32] → x(P + t·G)`), applied twice: once with `NUMS` and the state tweak, once with the resulting key and the TapTweak | −12 bytes per `TREE_SPK`; cost 50 sigops units per use vs 41 |
+| Transaction introspection | `OP_TX` | `OP_CHECKSIG` with the generator as public key and a signature whose `s` equals `e + 1`, so that the script must reconstruct the BIP-341 signature message from witness-supplied serialisations of prevouts, amounts, scriptPubKeys and outputs, hash it, and pick the fields it needs from those serialisations with `OP_CAT` and `OP_SIZE` | several hundred witness bytes and about a dozen hashes per introspection; grinding the transaction until `e` has no carry into `s` |
+| Signature over an arbitrary message (`CLAIM` vouchers) | `OP_CHECKSIGFROMSTACK` | none; a voucher is not a transaction signature. Drop `CLAIM` if `OP_CHECKSIGFROMSTACK` is unavailable | — |
+| Owner/evictor/operator authorisation, lock time, hashing, stack work | BIP-342 | — | — |
+
+Hence the irreducible core is **BIP-342 tapscript, the BIP-441 numeric
+semantics (or tapleaf `0xC2` generally), `OP_CAT`, and one EC tweak
+primitive**. `OP_TX` is replaceable in principle but not in practice, and
+`OP_CHECKSIGFROMSTACK` is needed only for vouchers. Every restored splice,
+bit and shift opcode is a convenience.
+
+To make the claim concrete, `tools/layertree_scripts.py` contains
+`exit_script_min`: an `EXIT_1` for the dense profile built from BIP-342
+opcodes, `OP_CAT`, `OP_TX` and `OP_TWEAKADD` only (the test suite fails if
+it uses anything else). Against the full-inventory `EXIT_1` it costs 13%
+more script (2,378 vs 2,101 bytes at `D = 16`) and the same witness size,
+the difference being the per-field `OP_SIZE` checks and three-element
+sibling encoding.
+
+### 4.5 Policy assumptions
 
 *(informative)* Relay of `0xC2` script-path spends with witnesses of a few
 kilobytes is assumed to be standard once BIP-441 activates. Transitions use
@@ -325,10 +363,12 @@ The **branch hash** of a left node `L = (lh, ls)` and a right node
 `R = (rh, rs)` is
 
 ```
-H_node(lh || le64(ls) || rh || le64(rs))
+H_node(lh || enc64(ls) || rh || enc64(rs))
 ```
 
-and the parent node is `(H_node(...), ls + rs)`. The sum of a branch is
+and the parent node is `(H_node(...), ls + rs)`. (`enc64` rather than
+`le64` costs one byte per sum and removes the need for any truncation
+opcode when a script pads a computed sum; see section 4.5.) The sum of a branch is
 *defined* as the sum of its children's sums; it is never an independent
 input. Verifiers MUST recompute it.
 
@@ -385,8 +425,19 @@ elements: `dir` (the empty string for 0, `0x01` for 1, per BIP-342
 only `sc` is supplied, and `sc` MAY be the empty string when the sibling is
 the empty node `E_k` of that level (a *compressed* proof); the script derives
 `dir` from the leaf and computes `E_k` itself. A non-empty `sc` that is not
-exactly 40 bytes MUST be rejected (the scripts enforce this). A compressed
+exactly 41 bytes MUST be rejected (the scripts enforce this). A compressed
 proof for a tree of `N` leaves has about `log2 N` non-empty siblings.
+
+*(informative)* The MS-SMT BIP compresses proofs with a bitmap of empty
+levels followed by only the non-empty nodes. That is the RECOMMENDED
+**off-chain** wire format between operator and participants (a `ceil(D/8)`
+byte bitmap plus `41·(non-empty)` bytes). **On-chain** the empty-element
+form is cheaper: with a bitmap each level must extract a bit and
+conditionally roll a witness element, which the reference implementation
+measured at 276 bytes more script at `D = 32` and 564 more at `D = 64`,
+against a saving of `D − ceil(D/8)` witness bytes. Both encodings are
+implemented in `tools/layertree_scripts.py` (`COMPRESSION`); the bitmap
+variant exists only to make the comparison measurable.
 
 ### 5.6 Root binding
 
@@ -693,13 +744,17 @@ triggered by a witness.
 <prefix64> OP_SWAP OP_CAT OP_SHA256
 ```
 
-**`PAD8`** — `[n] → [le64(n)]` for `n < 2^64`. (If `n` has more than 8
-bytes the result is truncated; every use in this document is followed by a
-check that makes truncation fail, see section 10.6.)
+**`PAD8`** — `[n] → [enc64(n)]` for `n < 2^64`. A single addition: the
+minimal encoding of `n + 2^64` is `le64(n) || 0x01`. (For `n ≥ 2^64` the
+result is longer than 9 bytes and every use in this document is followed by
+a check that then fails, see section 10.6.)
 
 ```
-<0x0000000000000000> OP_CAT OP_8 OP_LEFT
+<2^64> OP_ADD
 ```
+
+**`LE64`** — `[n] → [le64(n)]`, used only where a raw 8-byte field is
+rebuilt (`CLAIM`'s new source amount): `PAD8 OP_8 OP_LEFT`.
 
 **`LEAF_ACC`** — `[leaf] → [H_leaf(leaf) amount]`
 
@@ -722,7 +777,7 @@ OP_EC_POINT_ADD OP_EC_POINT_X_COORD          # x(Q)
 <0x5120> OP_SWAP OP_CAT                      # scriptPubKey
 ```
 
-`TREE_SPK` is 203 bytes and costs 82 sigops units (820,000 varops).
+`TREE_SPK` is 193 bytes and costs 82 sigops units (820,000 varops).
 
 **`LEAF_POS`** (sparse) — `[leaf] → [leaf pos_hash]`
 
@@ -756,20 +811,20 @@ the pre-transition node, `(nh, ns)` the post-transition node.
 
 ```
 OP_6 OP_ROLL OP_6 OP_ROLL                # T oh os nh ns dir sc
-OP_SIZE 40 OP_EQUALVERIFY                #   sc is exactly hash||le64(sum)
-OP_DUP OP_8 OP_RIGHT                     # … dir sc ss8
+OP_SIZE 41 OP_EQUALVERIFY                #   sc is exactly hash||enc64(sum)
+OP_DUP 32 OP_8 OP_SUBSTR                 # … dir sc ss8   (the raw le64, usable as a number)
 OP_DUP OP_TOALTSTACK                     # | ss8
 OP_3 OP_ROLL OP_TUCK OP_ADD              # T oh os nh dir sc ns ns'
-OP_TOALTSTACK PAD8                       # T oh os nh dir sc ns8      | ss8 ns'
-OP_3 OP_ROLL OP_SWAP OP_CAT              # T oh os dir sc nc          (nc = nh||ns8)
+OP_TOALTSTACK PAD8                       # T oh os nh dir sc ns9      | ss8 ns'
+OP_3 OP_ROLL OP_SWAP OP_CAT              # T oh os dir sc nc          (nc = nh||enc64(ns))
 OP_OVER OP_SWAP OP_3 OP_PICK             # T oh os dir sc sc nc dir
 OP_NOTIF OP_SWAP OP_ENDIF OP_CAT         # T oh os dir sc pre_n       (dir? sc||nc : nc||sc)
 OP_5 OP_PICK OP_SWAP OP_CAT OP_SHA256    # T oh os dir sc nh'
 OP_TOALTSTACK                            #                            | ss8 ns' nh'
 OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK   # T oh os dir sc nh' ns' ss8
 OP_5 OP_ROLL OP_TUCK OP_ADD              # T oh dir sc nh' ns' os os'
-OP_TOALTSTACK PAD8                       # T oh dir sc nh' ns' os8    | os'
-OP_5 OP_ROLL OP_SWAP OP_CAT              # T dir sc nh' ns' oc        (oc = oh||os8)
+OP_TOALTSTACK PAD8                       # T oh dir sc nh' ns' os9    | os'
+OP_5 OP_ROLL OP_SWAP OP_CAT              # T dir sc nh' ns' oc        (oc = oh||enc64(os))
 OP_3 OP_ROLL OP_SWAP OP_4 OP_ROLL        # T nh' ns' sc oc dir
 OP_NOTIF OP_SWAP OP_ENDIF OP_CAT         # T nh' ns' pre_o
 OP_3 OP_PICK OP_SWAP OP_CAT OP_SHA256    # T nh' ns' oh'
@@ -788,8 +843,8 @@ of `LEVEL` with the following prologue and then continues from
 OP_5 OP_ROLL                             # T oh os nh ns sc
 OP_FROMALTSTACK                          # … sc E_k                 | pos
 OP_SWAP OP_SIZE OP_0NOTEQUAL
-OP_NOTIF OP_DROP OP_DUP <ZERO8> OP_CAT OP_ENDIF   # … E_k sc   (sc := E_k||0 if empty)
-OP_SWAP <ZERO8> OP_CAT OP_DUP OP_CAT     # … sc (E_k||0||E_k||0)
+OP_NOTIF OP_DROP OP_DUP <ENC0> OP_CAT OP_ENDIF    # … E_k sc   (sc := E_k||enc64(0) if empty)
+OP_SWAP <ENC0> OP_CAT OP_DUP OP_CAT      # … sc (E_k||enc64(0)||E_k||enc64(0))
 OP_6 OP_PICK OP_SWAP OP_CAT OP_SHA256    # … sc E_{k+1}
 OP_FROMALTSTACK OP_DUP OP_TOALTSTACK     # … sc E_{k+1} pos         | pos
 OP_SWAP OP_TOALTSTACK                    # … sc pos                 | pos E_{k+1}
@@ -797,7 +852,7 @@ OP_SWAP OP_TOALTSTACK                    # … sc pos                 | pos E_{k
 OP_SWAP                                  # T oh os nh ns dir sc
 ```
 
-`LEVEL_S` is 133–134 bytes. Because `dir` is computed, a witness cannot
+`LEVEL_S` is 135 bytes. Because `dir` is computed, a witness cannot
 place a leaf anywhere but at `pos(leaf)`.
 
 **`CHECK_OLD`** — `[T oh os nh ns] | … r → [T nh ns] | …`; requires
@@ -872,9 +927,9 @@ LEVEL × D
 ```
 
 Size of `EXIT_1`: `693 + 88·D` bytes dense (1,045 at `D = 4`; 2,101 at
-`D = 16`) and `≈ 800 + 134·D` bytes sparse (5,083 at `D = 32`). Each further
-step adds `~118 + 88·D` (dense) or `~130 + 134·D` (sparse) bytes of script
-and `~230 + 40·D` (dense) or `~250 + 40·log2 N` (sparse) bytes of witness
+`D = 16`) and `≈ 830 + 135·D` bytes sparse (5,147 at `D = 32`). Each further
+step adds `~118 + 88·D` (dense) or `~130 + 135·D` (sparse) bytes of script
+and `~230 + 42·D` (dense) or `~250 + 41·log2 N` (sparse) bytes of witness
 data.
 
 ### 8.4 JOIN_h
@@ -933,7 +988,7 @@ OP_3 OP_PICK 40 32 OP_SUBSTR                        # src claim vsig msg src.own
 OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
 OP_SIZE 116 OP_EQUALVERIFY
 OP_SWAP OP_SIZE 116 OP_EQUALVERIFY OP_SWAP          # src claim
-OP_OVER OP_8 OP_LEFT OP_OVER OP_8 OP_LEFT OP_SUB PAD8      # src claim le64(src.amt − claim.amt)
+OP_OVER OP_8 OP_LEFT OP_OVER OP_8 OP_LEFT OP_SUB LE64      # src claim le64(src.amt − claim.amt)
 OP_2 OP_PICK OP_8 104 OP_SUBSTR OP_CAT              # … || src[8:112]
 OP_2 OP_PICK 112 OP_4 OP_SUBSTR OP_1ADD
 OP_SIZE OP_4 OP_LESSTHANOREQUAL OP_VERIFY PAD4 OP_CAT   # src claim src'   (seq+1 must fit 4 bytes)
@@ -956,9 +1011,9 @@ FINAL
 
 ### 8.7 Sizes
 
-Script sizes are `base + 88·levels` (dense) or `base + 134·levels`
+Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
 (sparse). Witness data (paths, leaves, signatures, `r`, `m`) is
-`40·levels + constant` (dense) or `40·(non-empty siblings) + levels +
+`42·levels + constant` (dense) or `41·(non-empty siblings) + levels +
 constant` (sparse). Full tables from the
 simulator, including varops consumed, are in `spec/scripts/sizes.md`; see
 section 11.
@@ -1176,13 +1231,13 @@ cover outputs, so a third party cannot alter where an exit pays.
 
 * Amounts and sums are unsigned. `OP_SUB` underflow fails the script, which
   is what makes over-claims and negative balances impossible.
-* `PAD8` truncates values above 2^64 − 1. Every value passed to `PAD8` is
-  either an amount read from the transaction (8 bytes), a sum that later
-  MUST equal an 8-byte transaction amount (`CHECK_OLD`, `FINAL`), or an
-  intermediate along a path whose final value is so checked. Since sums are
-  monotone non-decreasing up the path, an intermediate above 2^64 forces the
-  final sum above any valid amount and the script fails.
-* `sc` elements MUST be exactly 40 bytes and leaves exactly 116 bytes; the
+* `PAD8` produces a 10-byte string for values of 2^64 or more, so the hash
+  preimage differs from any honestly built node and the proof fails; in
+  addition every sum is monotone non-decreasing up the path and the final
+  sum MUST equal an 8-byte transaction amount (`CHECK_OLD`, `FINAL`).
+  `LE64` (used once, in `CLAIM`) truncates, but its input is a difference
+  of two 8-byte amounts and cannot exceed 2^64.
+* `sc` elements MUST be exactly 41 bytes and leaves exactly 116 bytes; the
   scripts check both, so no field can be shifted.
 * `evict_after` is compared by `OP_CHECKLOCKTIMEVERIFY`, which also fails if
   the lock-time types differ; since `evict_after < 500,000,000`, eviction
@@ -1227,7 +1282,7 @@ At `D = 16` (dense) an `EXIT_1` consumes about 2.48M varops against a
 budget of roughly 40M for a transaction of its weight (section 11): 1.64M
 for the two `TREE_SPK` evaluations (82 sigops units each), 0.5M for the
 signature, and about 0.3M for hashing and stack work. The sparse profile at
-`D = 32` uses 3.06M, and the 256-level tree 9.2M, still under a quarter of
+`D = 32` uses 3.07M, and the 256-level tree 9.3M, still under a quarter of
 budget. Stack depth peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80)
 against a limit of 32,768, and no element exceeds 40 bytes except the script
 itself.
@@ -1255,20 +1310,23 @@ control block assumes a five-leaf taptree (depth 3, 129 bytes).
 
 | profile | D | positions | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
 |---|---|---|---|---|---|---|---|
-| dense | 8 | 256 | 1,397 | 566 | 2,092 | ≈ 3,040 | ≈ 760 |
-| dense | 12 | 4,096 | 1,749 | 726 | 2,604 | ≈ 3,550 | ≈ 890 |
-| dense | 16 | 65,536 | 2,101 | 886 | 3,116 | ≈ 4,070 | ≈ 1,020 |
-| dense | 20 | 1,048,576 | 2,453 | 1,046 | 3,628 | ≈ 4,580 | ≈ 1,145 |
-| sparse | 32 | 2^32 | 5,083 | 324 + 40·log2 N | ≈ 6,200 (N = 65k) | ≈ 7,150 | ≈ 1,790 |
-| sparse | 64 | 2^64 | 9,371 | 324 + 40·log2 N | ≈ 10,500 (N = 65k) | ≈ 11,450 | ≈ 2,860 |
-| sparse | 256 | 2^256 | 35,099 | 284 + 40·log2 N | ≈ 36,200 (N = 65k) | ≈ 37,150 | ≈ 9,290 |
+| dense | 8 | 256 | 1,397 | 574 | 2,100 | ≈ 3,050 | ≈ 765 |
+| dense | 12 | 4,096 | 1,749 | 738 | 2,616 | ≈ 3,570 | ≈ 890 |
+| dense | 16 | 65,536 | 2,101 | 902 | 3,132 | ≈ 4,080 | ≈ 1,020 |
+| dense | 20 | 1,048,576 | 2,453 | 1,066 | 3,648 | ≈ 4,600 | ≈ 1,150 |
+| dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | ≈ 4,340 | ≈ 1,085 |
+| sparse | 32 | 2^32 | 5,147 | 326 + 41·log2 N | ≈ 6,260 (N = 65k) | ≈ 7,210 | ≈ 1,800 |
+| sparse | 64 | 2^64 | 9,499 | 326 + 41·log2 N | ≈ 10,610 (N = 65k) | ≈ 11,560 | ≈ 2,890 |
+| sparse | 256 | 2^256 | 35,611 | 285 + 41·log2 N | ≈ 36,680 (N = 65k) | ≈ 37,630 | ≈ 9,410 |
 
 The transaction weight column adds a fee input (P2WPKH), a change output
 and non-witness overhead (≈ 950 WU). In the dense profile each level costs
-130 WU (88 script + 40 path + 2 length prefixes) regardless of occupancy. In
-the sparse profile each level costs 134 WU of script plus 1 WU for an empty
-sibling or 41 WU for a non-empty one, so witness data grows with `log2 N`
-rather than with `D`.
+131 WU (88 script + 41 path + 2 length prefixes) regardless of occupancy. In
+the sparse profile each level costs 135 WU of script plus 1 WU for an empty
+sibling or 42 WU for a non-empty one, so witness data grows with `log2 N`
+rather than with `D`. The minimal-inventory row (section 4.4) shows the
+price of doing without the restored splice opcodes and the EC point
+opcodes: about 260 WU per exit.
 
 The sparse profile at `D = 32` costs about twice the dense profile at
 `D = 16` per exit. What it buys is key-addressed positions: no slot
@@ -1288,10 +1346,10 @@ with size. The trade-off is that LayerTree requires the
 larger opcode set of section 4, whereas CTV-based trees need only a template
 opcode.
 
-`EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,709 of
-witness data (5,585 WU in total), i.e. a second exit in the same transaction
-costs about 2,470 WU against roughly 4,070 WU for a separate transaction;
-in the sparse profile at `D = 32` the second exit costs about 4,900 WU.
+`EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,741 of
+witness data (5,617 WU in total), i.e. a second exit in the same transaction
+costs about 2,490 WU against roughly 4,080 WU for a separate transaction;
+in the sparse profile at `D = 32` the second exit costs about 4,950 WU.
 Batching `K` exits scales linearly with no per-step signature-hash or EC
 overhead beyond the one extra signature.
 
@@ -1378,9 +1436,13 @@ exits in a batch" as `EXIT_K` (section 13).
   terminal branch) and positive cases for a `CLAIM` that drains its source
   and for the terminal exit; sparse-specific cases cover a wrongly
   compressed sibling, a join at an occupied derived position and an update
-  that would move a leaf. Run:
+  that would move a leaf; the bitmap-compressed sparse variant and the
+  minimal-inventory `EXIT_1` (including a shifted field boundary) are
+  exercised as well, 170 checks in total. Run:
   `python3 tools/test_scripts.py`.
-* `spec/scripts/` — annotated listings for `D = 4` and the size table.
+* `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
+  (sparse), the minimal-inventory `EXIT_1`, and the size table covering both
+  profiles, both compression encodings and the minimal inventory.
 
 The simulator is a design-validation tool, not consensus code; its `OP_TX`
 and signature-hash models are simplified as documented in its header.

@@ -27,6 +27,7 @@ OPTX_OPS = {"OP_TX"}
 BIP348_OPS = {"OP_CHECKSIGFROMSTACK"}
 ECOPS_OPS = {"OP_EC_POINT_ADD", "OP_EC_POINT_MUL", "OP_EC_POINT_X_COORD"}
 ALLOWED_OPCODES = BIP342_OPS | BIP441_OPS | OPTX_OPS | BIP348_OPS | ECOPS_OPS
+MINIMAL_OPCODES = BIP342_OPS | {"OP_CAT"} | OPTX_OPS | {"OP_TWEAKADD"}
 
 
 def check(cond, msg):
@@ -53,7 +54,7 @@ def sk(label):
 
 
 def sc_bytes(node):
-    return node[0] + lt.le64(node[1])
+    return node[0] + lt.enc64(node[1])
 
 
 class World:
@@ -79,10 +80,19 @@ class World:
         if self.profile == "D":
             for d, sib in reversed(path):
                 items += [b"\x01" if d else b"", sc_bytes(sib)]
+        elif ls.COMPRESSION["S"] == "bitmap":
+            _, nodes = lt.path_bitmap(path, height)
+            items += list(reversed(nodes))          # level D-1 first
         else:
             for _, sc in reversed(lt.compress_path(path, height)):
                 items.append(sc)
         return items
+
+    def bm(self, path, height=0):
+        """Bitmap witness element(s): [bm] for bitmap compression, [] otherwise."""
+        if self.profile == "S" and ls.COMPRESSION["S"] == "bitmap":
+            return [lt.path_bitmap(path, height)[0]]
+        return []
 
     def spk(self, root=None):
         root = root or self.tree.root()
@@ -136,23 +146,23 @@ def test_all(depth, profile, verbose=True):
     outputs = [(r1[1], w.spk(r1)), (bob.amount - fee, lt.p2tr_spk(bob.exit_key)), (49_000, P2WPKH)]
     ctx = w.ctx(outputs, extra_in=(50_000, P2WPKH))
     sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
-    wit = w.path_witness(path) + [bob.serialize(), sig, b"", root[0], w.m]
+    wit = w.path_witness(path) + w.bm(path) + [bob.serialize(), sig, b"", root[0], w.m]
     record("EXIT_1 (owner)", w.run("EXIT_1", wit, ctx), wit)
 
     expect_fail(lambda: w.run("EXIT_1", wit[:-1] + [lt.sha256(b"evil")], ctx), "wrong merkle root")
     bad = list(outputs); bad[1] = (bob.amount + 1, lt.p2tr_spk(bob.exit_key))
     ctx2 = w.ctx(bad, extra_in=(50_000, P2WPKH)); sig2 = schnorr_sign(ctx2.sighash(), sk("bob-owner"))
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig2, b"", root[0], w.m], ctx2), "exit output too large")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [bob.serialize(), sig2, b"", root[0], w.m], ctx2), "exit output too large")
     bad = list(outputs); bad[0] = (root[1], w.spk(r1))
     ctx3 = w.ctx(bad, extra_in=(200_000, P2WPKH)); sig3 = schnorr_sign(ctx3.sighash(), sk("bob-owner"))
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig3, b"", root[0], w.m], ctx3), "tree amount not conserved")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [bob.serialize(), sig3, b"", root[0], w.m], ctx3), "tree amount not conserved")
     sig4 = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig4, b"", root[0], w.m], ctx), "wrong owner key")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [bob.serialize(), sig4, b"", root[0], w.m], ctx), "wrong owner key")
     fake = bob.with_amount_seq(bob.amount + 1, 0)
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [fake.serialize(), sig, b"", root[0], w.m], ctx), "forged leaf amount")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [fake.serialize(), sig, b"", root[0], w.m], ctx), "forged leaf amount")
     bad = list(outputs); bad[0] = (r1[1], w.spk(root))
     ctx5 = w.ctx(bad, extra_in=(50_000, P2WPKH)); sig5 = schnorr_sign(ctx5.sighash(), sk("bob-owner"))
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig5, b"", root[0], w.m], ctx5), "stale root in output")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [bob.serialize(), sig5, b"", root[0], w.m], ctx5), "stale root in output")
     if profile == "S":
         # a non-empty sc supplied where the sibling is empty (or vice versa) must fail
         wrong = list(w.path_witness(path))
@@ -163,21 +173,21 @@ def test_all(depth, profile, verbose=True):
     outputs_e = [(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
     ctx_e = w.ctx(outputs_e, extra_in=(5_000, P2WPKH), locktime=800_000)
     esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
-    wit_e = w.path_witness(path) + [bob.serialize(), esig, b"\x01", root[0], w.m]
+    wit_e = w.path_witness(path) + w.bm(path) + [bob.serialize(), esig, b"\x01", root[0], w.m]
     record("EXIT_1 (evict)", w.run("EXIT_1", wit_e, ctx_e), wit_e)
     ctx_early = w.ctx(outputs_e, extra_in=(5_000, P2WPKH), locktime=799_999)
     esig2 = schnorr_sign(ctx_early.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), esig2, b"\x01", root[0], w.m], ctx_early), "evict before evict_after")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [bob.serialize(), esig2, b"\x01", root[0], w.m], ctx_early), "evict before evict_after")
     outputs_e2 = [(r1[1], w.spk(r1)), (bob.amount - 1, lt.p2tr_spk(bob.exit_key))]
     ctx_e2 = w.ctx(outputs_e2, extra_in=(5_000, P2WPKH), locktime=800_000)
     esig3 = schnorr_sign(ctx_e2.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), esig3, b"\x01", root[0], w.m], ctx_e2), "evictor may not shortchange")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + w.bm(path) + [bob.serialize(), esig3, b"\x01", root[0], w.m], ctx_e2), "evictor may not shortchange")
     apath = w.tree.path(s_alice)
     t_a = w.clone(); del t_a.leaves[s_alice]
     outputs_a = [(t_a.root()[1], w.spk(t_a.root())), (alice.amount, lt.p2tr_spk(alice.exit_key))]
     ctx_a = w.ctx(outputs_a, extra_in=(5_000, P2WPKH))
     asig = schnorr_sign(ctx_a.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(apath) + [alice.serialize(), asig, b"\x01", root[0], w.m], ctx_a), "NUMS evictor")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(apath) + w.bm(apath) + [alice.serialize(), asig, b"\x01", root[0], w.m], ctx_a), "NUMS evictor")
     w.tree = t1
 
     # ---------------- JOIN ----------------
@@ -213,7 +223,7 @@ def test_all(depth, profile, verbose=True):
             r2 = t2.root()
             ctx = w.ctx([(r2[1], w.spk(r2))], extra_in=(lf.amount + 500, P2WPKH))
             osig = schnorr_sign(ctx.sighash(), w.op_sk)
-            wit = w.path_witness(jpath) + [lf.serialize(), osig, root[0], w.m]
+            wit = w.path_witness(jpath) + w.bm(jpath) + [lf.serialize(), osig, root[0], w.m]
             record("JOIN_0", w.run("JOIN_0", wit, ctx), wit)
             w.tree = t2
         s_carol, s_dave = w.slot(carol), w.slot(dave)
@@ -226,9 +236,9 @@ def test_all(depth, profile, verbose=True):
         t_bad = w.clone(); t_bad.leaves[slot] = dup
         ctx = w.ctx([(t_bad.root()[1], w.spk(t_bad.root()))], extra_in=(2_000, P2WPKH))
         osig = schnorr_sign(ctx.sighash(), w.op_sk)
-        expect_fail(lambda: w.run("JOIN_0", w.path_witness(jpath) + [dup.serialize(), osig, root[0], w.m], ctx), "sparse join over occupied position")
+        expect_fail(lambda: w.run("JOIN_0", w.path_witness(jpath) + w.bm(jpath) + [dup.serialize(), osig, root[0], w.m], ctx), "sparse join over occupied position")
         usig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-        expect_fail(lambda: w.run("JOIN_0", w.path_witness(jpath) + [dup.serialize(), usig, root[0], w.m], ctx), "join without operator")
+        expect_fail(lambda: w.run("JOIN_0", w.path_witness(jpath) + w.bm(jpath) + [dup.serialize(), usig, root[0], w.m], ctx), "join without operator")
 
     # single-leaf JOIN_0 (both profiles)
     root = w.tree.root()
@@ -242,9 +252,16 @@ def test_all(depth, profile, verbose=True):
     if profile == "D":
         wit = w.path_witness(jpath0) + [erin.hash(), lt.le64(erin.amount), osig, root[0], w.m]
     else:
-        wit = w.path_witness(jpath0) + [erin.serialize(), osig, root[0], w.m]
+        wit = w.path_witness(jpath0) + w.bm(jpath0) + [erin.serialize(), osig, root[0], w.m]
     record("JOIN_0", w.run("JOIN_0", wit, ctx), wit)
     w.tree = t3
+    if profile == "S" and ls.COMPRESSION["S"] == "bitmap":
+        # bitmap compression is implemented for the single-path scripts only
+        if verbose:
+            print(f"\nprofile=S/bitmap D={depth}")
+            for k, (it, sl, wl) in costs.items():
+                print(f"{k:18} {sl:9} {wl:10} {it.cost:10}")
+        return costs, w
 
     # ---------------- UPDATE ----------------
     root = w.tree.root()
@@ -255,15 +272,15 @@ def test_all(depth, profile, verbose=True):
     ctx = w.ctx([(r4[1], w.spk(r4))], extra_in=(30_700, P2WPKH))
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    wit = w.path_witness(upath) + [alice.serialize(), alice2.serialize(), asig, osig, root[0], w.m]
+    wit = w.path_witness(upath) + w.bm(upath) + [alice.serialize(), alice2.serialize(), asig, osig, root[0], w.m]
     record("UPDATE", w.run("UPDATE", wit, ctx), wit)
-    expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + [alice.serialize(), alice2.serialize(), osig, osig, root[0], w.m], ctx), "update without owner")
+    expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + w.bm(upath) + [alice.serialize(), alice2.serialize(), osig, osig, root[0], w.m], ctx), "update without owner")
     if profile == "S":
         moved = lt.Leaf(80_000, alice.exit_key, alice.owner_key, alice.evictor_key, 0, alice.nonce + 1, 1)
         t_m = w.clone(); del t_m.leaves[s_alice]; t_m.leaves[w.slot(moved)] = moved
         ctxm = w.ctx([(t_m.root()[1], w.spk(t_m.root()))], extra_in=(30_700, P2WPKH))
         osm = schnorr_sign(ctxm.sighash(), w.op_sk); asm_ = schnorr_sign(ctxm.sighash(), sk("alice-owner"))
-        expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + [alice.serialize(), moved.serialize(), asm_, osm, root[0], w.m], ctxm), "sparse update changing position")
+        expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + w.bm(upath) + [alice.serialize(), moved.serialize(), asm_, osm, root[0], w.m], ctxm), "sparse update changing position")
     w.tree = t4
 
     # ---------------- CLAIM ----------------
@@ -279,7 +296,7 @@ def test_all(depth, profile, verbose=True):
     ctx = w.ctx([(r5[1], w.spk(r5))], extra_in=(600, P2WPKH))
     vmsg = lt.voucher_msg(w.m, src, frank)
     vsig = schnorr_sign(vmsg, sk("operator-owner"))
-    wit = w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), frank.serialize(), vsig, root[0], w.m]
+    wit = w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), vsig, root[0], w.m]
     record("CLAIM", w.run("CLAIM", wit, ctx), wit)
     # replay after the source leaf changed
     frank2 = mk_leaf("frank2", 40_000, w.op_pk, 900_000)
@@ -289,12 +306,12 @@ def test_all(depth, profile, verbose=True):
     lt.apply_claim(t6, s_oper, s_frank2, frank2)
     cpath2 = t6.path(s_frank2)
     ctx6 = TxContext([(r5[1], w.spk(r5)), (600, P2WPKH)], [(t6.root()[1], w.spk(t6.root()))])
-    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath2) + w.path_witness(spath2) + [src.serialize(), frank2.serialize(), vsig, r5[0], w.m], ctx6), "voucher replay / wrong leaf")
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath2) + w.path_witness(spath2) + w.bm(spath2) + [src.serialize()] + w.bm(cpath2) + [frank2.serialize(), vsig, r5[0], w.m], ctx6), "voucher replay / wrong leaf")
     greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000)
     gsig = schnorr_sign(lt.voucher_msg(w.m, src, greedy), sk("operator-owner"))
-    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), greedy.serialize(), gsig, root[0], w.m], ctx), "over-claim underflow")
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [greedy.serialize(), gsig, root[0], w.m], ctx), "over-claim underflow")
     bsig = schnorr_sign(vmsg, sk("bob-owner"))
-    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
     w.tree = t5
 
     # ---------------- EXIT_2: carol (owner) + dave (evict) ----------------
@@ -306,16 +323,16 @@ def test_all(depth, profile, verbose=True):
     outputs = [(r7[1], w.spk(r7)), (carol.amount - 300, lt.p2tr_spk(carol.exit_key)), (dave.amount, lt.p2tr_spk(dave.exit_key))]
     ctx = w.ctx(outputs, extra_in=(5_000, P2WPKH), locktime=900_000)
     csig = schnorr_sign(ctx.sighash(), sk("carol-owner")); dsig = schnorr_sign(ctx.sighash(), w.op_sk)
-    block2 = w.path_witness(path_d) + [dave.serialize(), dsig, b"\x01"]
-    block1 = w.path_witness(path_c) + [carol.serialize(), csig, b""]
+    block2 = w.path_witness(path_d) + w.bm(path_d) + [dave.serialize(), dsig, b"\x01"]
+    block1 = w.path_witness(path_c) + w.bm(path_c) + [carol.serialize(), csig, b""]
     wit = block2 + block1 + [root[0], w.m]
     record("EXIT_2", w.run("EXIT_2", wit, ctx), wit)
     stale_d = w.tree.path(s_dave)
-    expect_fail(lambda: w.run("EXIT_2", w.path_witness(stale_d) + [dave.serialize(), dsig, b"\x01"] + block1 + [root[0], w.m], ctx), "EXIT_2 stale second path")
+    expect_fail(lambda: w.run("EXIT_2", w.path_witness(stale_d) + w.bm(stale_d) + [dave.serialize(), dsig, b"\x01"] + block1 + [root[0], w.m], ctx), "EXIT_2 stale second path")
     bad = list(outputs); bad[2] = (dave.amount - 1, lt.p2tr_spk(dave.exit_key))
     ctxb = w.ctx(bad, extra_in=(5_000, P2WPKH), locktime=900_000)
     csb = schnorr_sign(ctxb.sighash(), sk("carol-owner")); dsb = schnorr_sign(ctxb.sighash(), w.op_sk)
-    expect_fail(lambda: w.run("EXIT_2", w.path_witness(path_d) + [dave.serialize(), dsb, b"\x01"] + w.path_witness(path_c) + [carol.serialize(), csb, b""] + [root[0], w.m], ctxb), "EXIT_2 evictee shortchanged")
+    expect_fail(lambda: w.run("EXIT_2", w.path_witness(path_d) + w.bm(path_d) + [dave.serialize(), dsb, b"\x01"] + w.path_witness(path_c) + w.bm(path_c) + [carol.serialize(), csb, b""] + [root[0], w.m], ctxb), "EXIT_2 evictee shortchanged")
     w.tree = t7
 
     # ---------------- CLAIM draining the source -> E_0 ----------------
@@ -329,7 +346,7 @@ def test_all(depth, profile, verbose=True):
     r8 = t8.root()
     ctx = w.ctx([(r8[1], w.spk(r8))], extra_in=(600, P2WPKH))
     gsig = schnorr_sign(lt.voucher_msg(w.m, src2, gina), sk("erin-owner"))
-    wit = w.path_witness(cpath_g) + w.path_witness(spath2) + [src2.serialize(), gina.serialize(), gsig, root[0], w.m]
+    wit = w.path_witness(cpath_g) + w.path_witness(spath2) + w.bm(spath2) + [src2.serialize()] + w.bm(cpath_g) + [gina.serialize(), gsig, root[0], w.m]
     w.run("CLAIM", wit, ctx)
     check(True, "claim full drain -> empty position")
     w.tree = t8
@@ -343,7 +360,7 @@ def test_all(depth, profile, verbose=True):
     outputs = [(600, P2WPKH), (solo.amount - 400, lt.p2tr_spk(solo.exit_key))]
     ctx = w.ctx(outputs, extra_in=(1_000, P2WPKH))
     ssig = schnorr_sign(ctx.sighash(), sk("solo-owner"))
-    it = w.run("EXIT_1", w.path_witness(spath) + [solo.serialize(), ssig, b"", root[0], w.m], ctx)
+    it = w.run("EXIT_1", w.path_witness(spath) + w.bm(spath) + [solo.serialize(), ssig, b"", root[0], w.m], ctx)
     costs["EXIT_1 (terminal)"] = (it, len(w.compiled["EXIT_1"]), 0)
     w.tree = t8
     root = w.tree.root()
@@ -351,7 +368,7 @@ def test_all(depth, profile, verbose=True):
     outputs = [(600, P2WPKH), (alice2.amount, lt.p2tr_spk(alice2.exit_key))]
     ctx = w.ctx(outputs, extra_in=(1_000, P2WPKH))
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    expect_fail(lambda: w.run("EXIT_1", w.path_witness(apath) + [alice2.serialize(), asig, b"", root[0], w.m], ctx), "non-terminal exit with unconstrained output 0")
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(apath) + w.bm(apath) + [alice2.serialize(), asig, b"", root[0], w.m], ctx), "non-terminal exit with unconstrained output 0")
 
     if verbose:
         print(f"\nprofile={profile} D={depth}  taptree leaves={len(w.compiled)}  m={w.m.hex()[:16]}…")
@@ -361,9 +378,69 @@ def test_all(depth, profile, verbose=True):
     return costs, w
 
 
+def test_minimal(depth, verbose=True):
+    """EXIT_1 built from the minimal inventory (spec 4.5)."""
+    toks = ls.exit_script_min(depth)
+    bad = {t for t in toks if isinstance(t, str)} - MINIMAL_OPCODES
+    check(not bad, f"minimal EXIT_1 uses non-minimal opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w = World(depth, "D")
+    # taptree: replace EXIT_1 by the minimal script so m is consistent
+    w.compiled = dict(w.compiled); w.compiled["EXIT_1"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    w.tree.leaves = {0: alice, 5: bob, (1 << depth) - 1: mk_leaf("operator", 1_000_000)}
+    root = w.tree.root()
+    path = w.tree.path(5)
+    t1 = w.clone(); del t1.leaves[5]; r1 = t1.root()
+
+    def fields(lf):
+        b = lf.serialize()
+        return [b[0:8], b[8:40], b[40:72], b[72:104], b[104:108], b[108:112], b[112:116]]
+
+    def pw(path):
+        items = []
+        for d, sib in reversed(path):
+            items += [b"\x01" if d else b"", sib[0], lt.le64(sib[1])]
+        return items
+
+    outputs = [(r1[1], w.spk(r1)), (bob.amount - 1_000, lt.p2tr_spk(bob.exit_key)), (49_000, P2WPKH)]
+    ctx = w.ctx(outputs, extra_in=(50_000, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+    wit = pw(path) + fields(bob) + [sig, b"", root[0], w.m]
+    it = w.run("EXIT_1", wit, ctx)
+    # evict
+    outputs_e = [(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+    ctx_e = w.ctx(outputs_e, extra_in=(5_000, P2WPKH), locktime=800_000)
+    esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
+    w.run("EXIT_1", pw(path) + fields(bob) + [esig, b"\x01", root[0], w.m], ctx_e)
+    # negatives
+    expect_fail(lambda: w.run("EXIT_1", wit[:-1] + [lt.sha256(b"evil")], ctx), "min: wrong m")
+    bad = list(outputs); bad[1] = (bob.amount + 1, lt.p2tr_spk(bob.exit_key))
+    ctx2 = w.ctx(bad, extra_in=(50_000, P2WPKH)); sig2 = schnorr_sign(ctx2.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", pw(path) + fields(bob) + [sig2, b"", root[0], w.m], ctx2), "min: overpay")
+    f = fields(bob); f[0] = lt.le64(bob.amount + 1)
+    expect_fail(lambda: w.run("EXIT_1", pw(path) + f + [sig, b"", root[0], w.m], ctx), "min: forged amount")
+    f = fields(bob); f[2], f[3] = f[2][1:], f[2][:1] + f[3]   # shift a field boundary
+    expect_fail(lambda: w.run("EXIT_1", pw(path) + f + [sig, b"", root[0], w.m], ctx), "min: shifted field boundary")
+    ctx_early = w.ctx(outputs_e, extra_in=(5_000, P2WPKH), locktime=799_999)
+    esig2 = schnorr_sign(ctx_early.sighash(), w.op_sk)
+    expect_fail(lambda: w.run("EXIT_1", pw(path) + fields(bob) + [esig2, b"\x01", root[0], w.m], ctx_early), "min: early evict")
+    if verbose:
+        print(f"\nminimal-inventory EXIT_1 D={depth}: script {len(script)} B, witness {sum(len(x) for x in wit)} B, varops {it.cost}")
+    return script, wit, it
+
+
 if __name__ == "__main__":
+    for d in (4, 16):
+        test_minimal(d)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)
+    ls.COMPRESSION["S"] = "bitmap"
+    for d in (8, 32):
+        test_all(d, "S")
+    ls.COMPRESSION["S"] = "empty"
     print(f"\n{CHECKS} checks, {FAILS} failures")
     sys.exit(1 if FAILS else 0)

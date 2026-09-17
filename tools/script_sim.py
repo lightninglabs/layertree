@@ -41,6 +41,9 @@ OPS = {
     "OP_EC_POINT_ADD": 0xbb, "OP_EC_POINT_MUL": 0xbc,
     "OP_EC_POINT_NEGATE": 0xbd, "OP_EC_POINT_X_COORD": 0xbe,
     "OP_DOWNSHIFT": 0x99, "OP_UPSHIFT": 0x98, "OP_AND": 0x84,
+    # BIP-449 OP_TWEAKADD ("0xBE or TBD"); 0xc0 PLACEHOLDER here to avoid the
+    # collision with OP_EC_POINT_X_COORD.
+    "OP_TWEAKADD": 0xc0,
 }
 for i in range(1, 17):
     OPS[f"OP_{i}"] = 0x50 + i
@@ -511,6 +514,21 @@ class Interp:
                 if a == b"":
                     raise ScriptError("EC_POINT_X_COORD: infinity")
                 pushv(self.ec_decode(a)[0].to_bytes(32, "big"))
+            elif name == "OP_TWEAKADD":
+                pk, tw = pop(), pop()
+                self.charge(SIGCHECK_COST)
+                if len(pk) != 32 or len(tw) != 32:
+                    raise ScriptError("TWEAKADD: operands must be 32 bytes")
+                t = int.from_bytes(tw, "big")
+                if t >= lt.N:
+                    raise ScriptError("TWEAKADD: tweak >= n")
+                P0 = lt.lift_x(int.from_bytes(pk, "big"))
+                if P0 is None:
+                    raise ScriptError("TWEAKADD: invalid x")
+                Q = lt.point_add(P0, lt.point_mul(lt.G, t)) if t else P0
+                if Q is None:
+                    raise ScriptError("TWEAKADD: infinity")
+                pushv(Q[0].to_bytes(32, "big"))
             elif name == "OP_DOWNSHIFT":
                 bits, a = popn(), pop()
                 self.charge(wordspan(1) * 2 + max(len(a) - bits // 8, 0) * 3)

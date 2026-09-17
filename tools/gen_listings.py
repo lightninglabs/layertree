@@ -54,6 +54,25 @@ for prof, depths in (("D", (8, 12, 16, 20)), ("S", (32, 64, 256))):
         for k, (it, sl, wl) in costs.items():
             cb = 33 + 32 * 3  # control block for a 5-6 leaf taptree (depth 3)
             rows.append((prof, d, k, sl, wl, cb, sl + wl + cb, it.cost, it.sigchecks))
+ls.COMPRESSION["S"] = "bitmap"
+for d in (32, 64):
+    costs, w = test_scripts.test_all(d, "S", verbose=False)
+    for k, (it, sl, wl) in costs.items():
+        if k.startswith("EXIT_1 (owner)") or k == "JOIN_0":
+            rows.append(("S/bitmap", d, k, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+ls.COMPRESSION["S"] = "empty"
+for d in (8, 16):
+    script, wit, it = test_scripts.test_minimal(d, verbose=False)
+    rows.append(("D/minimal", d, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
+                 len(script) + sum(len(x) for x in wit) + 129, it.cost, it.sigchecks))
+with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
+    f.write("\n")
+    f.write(listing("LEVEL_MIN (minimal inventory): sibling as two elements, CAT-only padding", ls.level_min()))
+with open(os.path.join(OUT, "TREE_SPK.txt"), "a") as f:
+    f.write("\n")
+    f.write(listing("TREE_SPK_MIN (BIP-449 OP_TWEAKADD)", ls.tree_spk_min()))
+with open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w") as f:
+    f.write(listing("EXIT_1 (minimal inventory, dense, D=4)", ls.exit_script_min(4)))
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
     f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")

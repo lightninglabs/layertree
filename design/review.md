@@ -54,14 +54,14 @@ a fixed 130–140 bytes of script; nothing stops unrolling 256 of them. The
 sparse profile of the spec does exactly this, with compressed proofs
 (empty siblings are a zero-length witness element and the script computes
 `E_k` itself) and with the direction bits *derived* from the leaf rather than
-supplied. Measured cost per exit (`spec/scripts/sizes.md`):
+supplied. Measured cost per exit (`spec/scripts/sizes.md`; figures after the `enc64` change of F13):
 
 | tree | levels | script | witness | total (WU) |
 |---|---|---|---|---|
-| dense, operator-assigned | 16 | 2,101 | 886 | 3,116 |
-| sparse, key-addressed | 32 | 5,083 | ≈ 324 + 40·log2 N | ≈ 6,200 |
-| sparse, key-addressed | 64 | 9,371 | ≈ 324 + 40·log2 N | ≈ 10,500 |
-| sparse, full 256-bit keys | 256 | 35,099 | ≈ 284 + 40·log2 N | ≈ 36,200 |
+| dense, operator-assigned | 16 | 2,101 | 902 | 3,132 |
+| sparse, key-addressed | 32 | 5,147 | ≈ 326 + 41·log2 N | ≈ 6,260 |
+| sparse, key-addressed | 64 | 9,499 | ≈ 326 + 41·log2 N | ≈ 10,610 |
+| sparse, full 256-bit keys | 256 | 35,611 | ≈ 285 + 41·log2 N | ≈ 36,680 |
 
 So the honest statement is: a 256-level SMT costs about 9 kvB per exit,
 roughly twelve times the dense tree; a *truncated* key-addressed SMT of 32
@@ -213,6 +213,32 @@ closed and tested:
 composition rule (spec 7.6): step `i` proves against the root produced by
 step `i − 1`, and the test suite checks that a stale second path fails.
 
+### F12. Proof compression: empty elements beat the bitmap on-chain
+
+The MS-SMT BIP compresses proofs with a bitmap of empty levels. Both that
+encoding and a simpler one (an empty sibling is a zero-length witness
+element; the script tests `OP_SIZE`) were implemented for the sparse
+profile and measured. The bitmap costs 276 more bytes of script at `D = 32`
+and 564 at `D = 64`, because each level must extract a bit and conditionally
+`OP_ROLL`, and saves only `D − ceil(D/8)` witness bytes. The spec keeps the
+empty-element form on-chain and recommends the bitmap as the off-chain wire
+format (spec 5.5).
+
+### F13. The irreducible opcode set
+
+Asked what the smallest sufficient subset of the candidate opcodes is, the
+answer (spec 4.4) is: BIP-342 tapscript, BIP-441 numeric semantics,
+`OP_CAT`, and one EC tweak primitive (BIP-449 `OP_TWEAKADD` is enough, and
+cheaper than the general EC ops for this use). Everything else is
+convenience: field extraction is replaced by witness-supplied fields under
+`OP_SIZE` checks re-joined with `OP_CAT`; fixed-width padding by adding
+`2^64` (which is why node hashes now use the 9-byte `enc64` encoding); bit
+extraction by an `OP_IF`/`OP_ADD` accumulator checked against a `CAT`-split
+hash; and `OP_TX` by the `OP_CHECKSIG`-with-generator trick at a large
+witness cost. `OP_CHECKSIGFROMSTACK` cannot be emulated and is needed only
+for vouchers. A minimal-inventory `EXIT_1` is implemented and tested; it
+costs 13% more script than the full-inventory one.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):
@@ -229,7 +255,7 @@ step `i − 1`, and the test suite checks that a stale second path fails.
 ## 4. Validation
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
-at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 88
+at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 170
 checks including the negative cases that matter for the findings above:
 attacker-chosen `m` (F4), forged leaf amount and stale root (F3), unconserved
 tree amount (F6), join over an occupied position and underfunded join,

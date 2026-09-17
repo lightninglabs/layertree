@@ -120,6 +120,13 @@ def le32(n):
     return n.to_bytes(4, "little")
 
 
+def enc64(n):
+    """Sum encoding used inside node hashes: the BIP-441 minimal little-endian
+    encoding of n + 2**64, i.e. le64(n) || 0x01 (always 9 bytes for n < 2**64).
+    Chosen so that script can produce it with a single OP_ADD."""
+    return le64(n) + b"\x01"
+
+
 # --------------------------------------------------------------------------
 # Leaf
 # --------------------------------------------------------------------------
@@ -194,7 +201,7 @@ EMPTY_NODE = (EMPTY_LEAF_HASH, 0)
 def node_hash(left, right):
     """Merkle-sum branch hash (spec section 5.3)."""
     (lh, ls), (rh, rs) = left, right
-    return tagged_hash(TAG_NODE, lh + le64(ls) + rh + le64(rs))
+    return tagged_hash(TAG_NODE, lh + enc64(ls) + rh + enc64(rs))
 
 
 def parent(left, right):
@@ -260,11 +267,23 @@ def verify_path(root, node, path):
     return fold(node, path) == root
 
 
+def path_bitmap(path, height=0):
+    """Sparse/bitmap: (bitmap_bytes, [sc for non-empty siblings, bottom-up])."""
+    bm, nodes = 0, []
+    for k, (d, sib) in enumerate(path):
+        if sib == empty_node(height + k):
+            bm |= 1 << k
+        else:
+            nodes.append(sib[0] + enc64(sib[1]))
+    nbytes = (len(path) + 7) // 8
+    return bm.to_bytes(nbytes, "little"), nodes
+
+
 def compress_path(path, height=0):
     """Sparse profile: replace empty siblings by the empty string."""
     out = []
     for k, (d, sib) in enumerate(path):
-        out.append((d, b"" if sib == empty_node(height + k) else sib[0] + le64(sib[1])))
+        out.append((d, b"" if sib == empty_node(height + k) else sib[0] + enc64(sib[1])))
     return out
 
 
@@ -378,7 +397,7 @@ def node_json(n):
 
 
 def path_json(path):
-    return [{"dir": d, "sibling": node_json(s), "sc": hx(s[0] + le64(s[1]))} for d, s in path]
+    return [{"dir": d, "sibling": node_json(s), "sc": hx(s[0] + enc64(s[1]))} for d, s in path]
 
 
 def det_key(label):
