@@ -8,6 +8,10 @@ import layertree_ref as lt  # noqa: E402
 import layertree_scripts as ls  # noqa: E402
 from script_sim import assemble, disassemble, pubkey_x  # noqa: E402
 import test_scripts  # noqa: E402
+import test_mid  # noqa: E402
+import test_min  # noqa: E402
+import layertree_mid as LM  # noqa: E402
+import layertree_min as LN  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "spec", "scripts")
 os.makedirs(OUT, exist_ok=True)
@@ -20,7 +24,8 @@ for h in range(0, 33):
 
 
 def listing(name, tokens):
-    script = assemble(tokens)
+    mode = "c0" if ("MID" in name or "MIN" in name or "PADZ" in name) else "c2"
+    script = assemble(tokens, mode)
     words = disassemble(script, names)
     lines = [f"# {name}: {len(script)} bytes", ""]
     line = ""
@@ -82,6 +87,25 @@ for d, h in ((16, 2), (16, 4), (16, 6), (20, 8)):
                  "-", 129, "-", "-", n))
 with open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w") as f:
     f.write(listing("EVICT_SUBTREE_2 (dense, D=8): cohort sweep of a 4-position subtree", ls.evict_subtree_script(8, 2, OP_KEY)))
+# ---- opcode tiers: MID (0xC0 + CAT + OP_TX + CSFS + TWEAKADD) and MIN (0xC0 + CAT + TWEAKADD)
+for d, sparse in ((16, False), (31, True)):
+    costs, w = test_mid.test_mid(d, sparse, verbose=False)
+    for k, (it, sl, wl) in costs.items():
+        rows.append(("MID/" + ("S" if sparse else "D"), d, k, sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+script, wit, it = test_min.test_min(16, verbose=False)
+rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
+             len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
+for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,)).items():
+    with open(os.path.join(OUT, f"MID_{name}_D4.txt"), "w") as f:
+        f.write(listing(f"{name} (MID tier, dense, D=4)", toks))
+with open(os.path.join(OUT, "MIN_EXIT_1_D4.txt"), "w") as f:
+    f.write(listing("EXIT_1 (MIN tier, dense, D=4)", LN.exit_script(4)))
+with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
+    f.write("\n")
+    f.write(listing("LEVEL_MID (dense): PADZ gadgets, sibling as hash + number", LM.level(False)))
+    f.write("\n")
+    f.write(listing("PADZ gadget: [x z w] -> [le32(x)]", LM.padz()))
+
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
     f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")

@@ -77,3 +77,16 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | D | 16 | EXIT_64 (evictions, for comparison) | 105847 | - | 129 | - | - | 64 |
 | D/subtree | 20 | EVICT_SUBTREE_8 (256 positions) | 60242 | 24401 | 129 | 84772 | 7239651 | 1 |
 | D | 20 | EXIT_256 (evictions, for comparison) | 512184 | - | 129 | - | - | 256 |
+| MID/D | 16 | EXIT_1 (owner) | 3299 | 978 | 129 | 4406 | n/a (0xC0) | 1 |
+| MID/D | 16 | EXIT_1 (evict) | 3299 | 979 | 129 | 4407 | n/a (0xC0) | 1 |
+| MID/D | 16 | JOIN_2 | 2824 | 794 | 129 | 3747 | n/a (0xC0) | 1 |
+| MID/D | 16 | JOINK_2 | 5749 | 1637 | 129 | 7515 | n/a (0xC0) | 1 |
+| MID/D | 16 | UPDATE | 3407 | 1156 | 129 | 4692 | n/a (0xC0) | 2 |
+| MID/D | 16 | CLAIM | 6291 | 1832 | 129 | 8252 | n/a (0xC0) | 1 |
+| MID/S | 31 | EXIT_1 (owner) | 9274 | 796 | 129 | 10199 | n/a (0xC0) | 1 |
+| MID/S | 31 | EXIT_1 (evict) | 9274 | 797 | 129 | 10200 | n/a (0xC0) | 1 |
+| MID/S | 31 | JOIN_0 | 9254 | 783 | 129 | 10166 | n/a (0xC0) | 1 |
+| MID/S | 31 | JOINK_2 | 17985 | 1433 | 129 | 19547 | n/a (0xC0) | 1 |
+| MID/S | 31 | UPDATE | 9393 | 1002 | 129 | 10524 | n/a (0xC0) | 2 |
+| MID/S | 31 | CLAIM | 18241 | 1543 | 129 | 19913 | n/a (0xC0) | 1 |
+| MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |

@@ -283,6 +283,26 @@ against 105.8 kB for 64 sequential evictions, about 0.45 kWU per leaf. The
 grafting this gives constant-shape add and remove for whole cohorts, which
 is the operational model the essay's "unified batching" was reaching for.
 
+### F16. Three tiers, one format
+
+Every transition now exists in three opcode tiers (spec 4.5): FULL (GSR
+`0xC2` + `OP_TX` + CSFS + EC ops), MID (`0xC0` + `OP_CAT` + `OP_TX` + CSFS +
+`OP_TWEAKADD`) and MIN (`0xC0` + `OP_CAT` + `OP_TWEAKADD`). The tree format
+is shared, which required one trick worth recording: `0xC0` has no way to
+widen a script number to a fixed 8 bytes, so the MID/MIN scripts take a
+witness-supplied zero pad and prove it correct with `OP_CAT` and `OP_SIZE`
+(`PADZ`). Two other `0xC0` facts shaped the tiers: 4-byte operands cap
+every sum at 2^31 − 1 sat, and `MINIMALDATA` policy forbids using raw
+little-endian fields (`evict_after`, `pos_lo`) as numbers, so those arrive
+as minimal numbers with a pad, and sparse nonces are ground until `pos_lo`
+is minimal. MIN's introspection is constructive: the script builds the
+BIP-341 sighash message from derived values and raw witness pieces and
+checks a generator-key signature with `s = e + 1`, formed by grinding a free
+field until `e` ends in `0x00`. The simulator now computes the real BIP-341
+message so this is tested end to end, and the same message is what
+`txscript.CalcTapscriptSignaturehash` produces, which the Go implementation
+uses for cross-checking.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):

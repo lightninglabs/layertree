@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.4.0
+Version:  0.5.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -287,15 +287,74 @@ primitive**. `OP_TX` is replaceable in principle but not in practice, and
 `OP_CHECKSIGFROMSTACK` is needed only for vouchers. Every restored splice,
 bit and shift opcode is a convenience.
 
-To make the claim concrete, `tools/layertree_scripts.py` contains
-`exit_script_min`: an `EXIT_1` for the dense profile built from BIP-342
-opcodes, `OP_CAT`, `OP_TX` and `OP_TWEAKADD` only (the test suite fails if
-it uses anything else). Against the full-inventory `EXIT_1` it costs 13%
-more script (2,378 vs 2,101 bytes at `D = 16`) and the same witness size,
-the difference being the per-field `OP_SIZE` checks and three-element
-sibling encoding.
+Section 4.5 makes the claim concrete with three complete script tiers.
+Two intermediate data points are also measured: `exit_script_min` in
+`tools/layertree_scripts.py` keeps the BIP-441 numerics but drops every
+splice opcode and the EC point opcodes (`OP_TX` + `OP_TWEAKADD`), costing
+2,378 bytes at `D = 16` against 2,101; the MIN tier drops `OP_TX` as well
+and pays 3,572.
 
-### 4.5 Policy assumptions
+### 4.5 Opcode tiers
+
+Every transition in this document is specified once, in section 7, and
+implemented three times, against three opcode sets. A tree is created for
+one tier; its tapleaf version and scripts follow from it. The tree format
+(section 5) is the same in every tier, so proofs, roots and off-chain data
+are interchangeable, with one numeric cap noted below.
+
+| | **FULL** | **MID** | **MIN** |
+|---|---|---|---|
+| Tapleaf version | `0xC2` (BIP-441) | `0xC0` | `0xC0` |
+| Numerics | arbitrary length, unsigned | `CScriptNum`, 4-byte operands | `CScriptNum`, 4-byte operands |
+| Beyond BIP-342 | `OP_CAT`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT`; `OP_TX`; `OP_CHECKSIGFROMSTACK`; `OP_EC_POINT_MUL/ADD/X_COORD` | `OP_CAT`; `OP_TX` (assumed in `0xC0`, **[A-5]**); `OP_CHECKSIGFROMSTACK`; `OP_TWEAKADD` | `OP_CAT`; `OP_TWEAKADD` |
+| Introspection | `OP_TX` | `OP_TX` | constructive: the script rebuilds the BIP-341 sighash message and checks a generator-key signature with `OP_CHECKSIG` (section 4.4) |
+| Leaf on the stack | one 116-byte element, fields by `OP_SUBSTR` | seven field elements, rejoined by `OP_CAT` under `OP_SIZE` checks | as MID |
+| Fixed-width numbers | `2^64 OP_ADD` | `PADZ`: witness zero pad `z`, filler `w`, `z||w = 00000000`, `size(x)+size(z) = 4` | as MID |
+| Sum limit per tree | none (< 2^51 by leaf rule) | every sum < 2^31 sat | every sum < 2^31 sat |
+| Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both |
+| Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID |
+| `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) |
+| Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output |
+| Transaction shape | free (input 0, outputs 0..K constrained) | free | fixed per script: two inputs, outputs `[tree', payouts…, raw extras]` |
+| Spender work | none | none | grind a free field (fee input `nSequence`) until `e` ends in `0x00`: 256 hashes expected |
+| Reference | `tools/layertree_scripts.py` | `tools/layertree_mid.py` | `tools/layertree_min.py` |
+
+**[A-5]** The `OP_TX` draft defines the opcode for tapleaf `0xC2`. The MID
+tier assumes it is also available (with `CScriptNum` outputs for the
+"varint or int" fields) in `0xC0`; if it is not, MID collapses into MIN for
+introspection and keeps `OP_CHECKSIGFROMSTACK` for vouchers.
+
+Measured sizes at `D = 16` (dense) and `D = 31/32` (sparse), bytes of
+script / witness data:
+
+| transition | FULL D | MID D | MIN D | FULL S (32) | MID S (31) |
+|---|---|---|---|---|---|
+| `EXIT_1` | 2,101 / 902 | 3,299 / 978 | 3,572 / 1,175 | 5,147 / 326 | 9,274 / 796 |
+| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 745 | 2,824 / 794 | — | 5,131 / 367 | 9,254 / 783 |
+| `JOINK_2` | 3,545 / 1,525 | 5,749 / 1,637 | — | 9,773 / 606 | 17,985 / 1,433 |
+| `UPDATE` | 2,137 / 1,064 | 3,407 / 1,156 | — | 5,283 / 504 | 9,393 / 1,002 |
+| `CLAIM` | 3,801 / 1,658 | 6,291 / 1,832 | n/a | 9,767 / 600 | 18,241 / 1,543 |
+
+The MID premium over FULL is about 55% of script for the dense profile and
+80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
+level) and the per-field size checks. MIN adds the sighash reconstruction
+(about 270 bytes) on top of MID and removes `OP_TX`. The complete table,
+including `EXIT_K`, `EVICT_SUBTREE_h`, both compression encodings and the
+`FULL`-numerics-without-splice-opcodes data point, is
+`spec/scripts/sizes.md`; per-tier listings for `D = 4` are under
+`spec/scripts/`.
+
+*(informative)* The tiers answer three different deployment questions.
+FULL is what the Great Script Restoration plus the introspection, CSFS and
+EC-ops candidates make possible, and is the recommended target. MID is what
+a `0xC0`-only soft fork of the LNhance flavour plus `OP_CAT`, `OP_TX` and
+`OP_TWEAKADD` would give: everything in this document at roughly 1.6× the
+size, with a 21.47 BTC cap per tree. MIN is the existence proof that
+`OP_CAT` and one tweak opcode suffice for the covenant itself, at the cost
+of vouchers, terminal exits, a fixed transaction shape and a small grinding
+step.
+
+### 4.6 Policy assumptions
 
 *(informative)* Relay of `0xC2` script-path spends with witnesses of a few
 kilobytes is assumed to be standard once BIP-441 activates. Transitions use
@@ -1574,7 +1633,12 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/script_sim.py` — a tapscript `0xC2` subset interpreter modelling
   BIP-441 numerics, `OP_TX`, `OP_CHECKSIGFROMSTACK` and the assumed EC
   opcodes, with BIP-440 varops accounting.
-* `tools/test_scripts.py` — executes every script in both profiles (dense
+* `tools/layertree_mid.py`, `tools/layertree_min.py` — the MID and MIN
+  tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
+  and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
+  (including the `MINIMALDATA` policy checks that caught two non-minimal
+  operands during development), 28 and 7 checks respectively.
+* `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, 88 checks including negative cases (forged leaf, stale
   root, attacker-chosen `m`, unconserved amount, underfunded join, join over
