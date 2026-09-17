@@ -24,12 +24,36 @@ test suite fails if a script uses anything else.
 | [`notes.md`](notes.md) | Notes distilled from the working vault |
 | [`tools/`](tools/) | Reference implementation, script templates, simulator, tests |
 
+## Go implementation
+
+The module `github.com/roasbeef/layertree` (this repository) implements the
+specification in Go on top of `btcsuite/btcd`, `lightningnetwork/lnd` and
+`lightninglabs/taproot-assets`:
+
+| Package | Contents |
+|---|---|
+| `tree` | leaves, merkle-sum tree, paths, proof compression, taproot binding of roots to the tree output |
+| `script` | transition script generators for the FULL, MID and MIN opcode tiers, byte-checked against `spec/golden.json` |
+| `txn` | transaction construction, witness assembly, BIP-341 sighash and Schnorr signing |
+| `msg` | TLV-encoded off-chain messages: compressed proofs, vouchers, join offers |
+
+```
+go build ./... && go test ./...
+```
+
+The Python tools remain the executable reference because they include a
+simulator for the candidate opcodes; the Go code is cross-checked against
+vectors the Python emits (`spec/test-vectors.json`, `spec/golden.json`).
+
 ## Running the reference code
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
 python3 tools/test_scripts.py      # execute all scripts, both profiles
+python3 tools/test_mid.py          # MID tier (0xC0 numerics), both profiles
+python3 tools/test_min.py          # MIN tier EXIT_1 with sighash grinding
 python3 tools/gen_listings.py      # regenerate spec/scripts/
+python3 tools/gen_golden.py        # regenerate spec/golden.json for the Go tests
 ```
 
 No dependencies beyond the Python 3 standard library.

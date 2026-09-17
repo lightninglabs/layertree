@@ -1656,8 +1656,17 @@ exits in a batch" as `EXIT_K` (section 13).
   well, 208 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
-  (sparse), the minimal-inventory `EXIT_1`, and the size table covering both
-  profiles, both compression encodings and the minimal inventory.
+  (sparse), the MID and MIN tiers, and the size table covering both
+  profiles, both compression encodings and all tiers.
+* `spec/golden.json` — compiled scripts for every tier, the taptree root of
+  the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
+  vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
+* Go implementation (module `github.com/roasbeef/layertree`, packages
+  `tree`, `script`, `txn`, `msg`): built on btcd, lnd and taproot-assets;
+  every generated script is compared byte for byte with the Python output,
+  and the BIP-341 signature hash computed by `txscript` is compared with the
+  Python simulator's, which is what makes the MIN tier's constructive
+  introspection testable.
 
 The simulator is a design-validation tool, not consensus code; its `OP_TX`
 and signature-hash models are simplified as documented in its header.
