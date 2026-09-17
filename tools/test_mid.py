@@ -200,6 +200,43 @@ def test_mid(depth, sparse, verbose=True):
                 M.w_leaf(src) + M.w_leaf(greedy) + bad_extras + [gsig, root[0], w.m], ctx), "mid: over-claim")
     w.tree = t5
 
+    # ---------------- SEQ_FINAL marker (spec 5.2 / 7.5; Appendix C.6.5) ----------------
+    # In MID the CLAIM seq check is a CScriptNum: 0x7FFFFFFF + 1 = 2^31 needs 5 bytes and
+    # fails PADZ, so 0x7FFFFFFF is the non-claimable marker. 0xFFFFFFFF is NOT a marker
+    # here: it is the minimal encoding of -2^31+1, whose successor still fits 4 bytes.
+    def claim_wit(src, src_seq_num, seq1_num, claim, s_src, s_claim):
+        w.tree.leaves = {s_alice: w.tree.leaves[s_alice], s_src: src}
+        root = w.tree.root()
+        spath = w.tree.path(s_src)
+        t = w.clone()
+        t.leaves[s_src] = src.with_amount_seq(src.amount - claim.amount, int.from_bytes((seq1_num + bytes(4))[:4], "little"))
+        t.leaves[s_claim] = claim
+        src2 = t.leaves[s_src]
+        cpath = t.path(s_claim); r = t.root()
+        ctx = w.ctx([(r[1], w.spk(r))], (600, P2WPKH))
+        vsig = schnorr_sign(lt.voucher_msg(w.m, src, claim), sk("chan-src-owner"))
+        pad_of = lambda x: (bytes(4 - len(x)), bytes(len(x))) if len(x) <= 4 else (b"", bytes(4))
+        extras = [src_seq_num] + list(pad_of(src_seq_num)) + list(pad_of(seq1_num)) + list(M.pad(src.amount - claim.amount))
+        wit = (list(M.pad(r[1])) + M.w_levels(cpath, lt.EMPTY_NODE, claim.node(), S) + w.pos(claim) +
+               w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
+               M.w_leaf(src) + M.w_leaf(claim) + extras + [vsig, root[0], w.m])
+        return wit, ctx
+    s_alice = w.slot(alice, 0)
+    for seq, seq_num, seq1_num, claimable in (
+            (0x7FFFFFFF, b"\xff\xff\xff\x7f", b"\x00\x00\x00\x80\x00", False),
+            (0x7FFFFFFE, b"\xfe\xff\xff\x7f", b"\xff\xff\xff\x7f", True),
+            (0xFFFFFFFF, b"\xff\xff\xff\xff", b"\xfe\xff\xff\xff", True)):
+        src = mk_leaf("chan-src", 1_000_000, seq=seq, sparse=S)
+        s_src = w.slot(src, (1 << depth) - 1)
+        claim = mk_leaf("claimant", 40_000, w.op_pk, 900_000, sparse=S)
+        s_claim = w.slot(claim, 3)
+        wit, ctx = claim_wit(src, seq_num, seq1_num, claim, s_src, s_claim)
+        if claimable:
+            w.run("CLAIM", wit, ctx)
+            check(True, f"mid: CLAIM with seq {seq:#x} succeeds")
+        else:
+            expect_fail(lambda: w.run("CLAIM", wit, ctx), f"mid: CLAIM against SEQ_FINAL {seq:#x} must fail")
+
     if verbose:
         print(f"\nMID profile={'S' if S else 'D'} D={depth} taptree leaves={len(w.compiled)}")
         for k, (it, sl, wl) in costs.items():

@@ -527,6 +527,69 @@ def test_evict_subtree(depth, height, verbose=True):
 
 
 
+def test_channel_rules(depth, verbose=True):
+    """Tree-layer rules that channel leaves rely on (spec 5.2, 7.2 rule 6, 7.5; Appendix C.6).
+
+    1. SEQ_FINAL = 0xFFFFFFFF makes a leaf non-claimable in FULL: seq + 1 is a
+       5-byte BIP-441 number, rejected by the OP_SIZE 4 check in CLAIM.
+       0xFFFFFFFE (one below) and 0x7FFFFFFF (the MID marker) stay claimable.
+    2. The exact-payout EXIT_K^= variant rejects an owner exit paying less than
+       leaf.amount and accepts one paying exactly leaf.amount; eviction is unchanged.
+    """
+    w = World(depth, "D")
+    D = depth
+    alice = mk_leaf("alice", 50_000)
+    s_alice = 0
+    for seq, claimable in ((0xFFFFFFFF, False), (0xFFFFFFFE, True), (0x7FFFFFFF, True)):
+        src = mk_leaf("chan-src", 1_000_000, seq=seq)
+        s_src = (1 << D) - 1
+        w.tree.leaves = {s_alice: alice, s_src: src}
+        root = w.tree.root()
+        claim = mk_leaf("claimant", 40_000, w.op_pk, 900_000)
+        s_claim = 3
+        spath = w.tree.path(s_src)
+        t5 = w.clone()
+        t5.leaves[s_src] = src.with_amount_seq(src.amount - claim.amount, (seq + 1) & 0xffffffff)
+        t5.leaves[s_claim] = claim
+        cpath = t5.path(s_claim)
+        r5 = t5.root()
+        ctx = w.ctx([(r5[1], w.spk(r5))], extra_in=(600, P2WPKH))
+        vsig = schnorr_sign(lt.voucher_msg(w.m, src, claim), sk("chan-src-owner"))
+        wit = w.path_witness(cpath) + w.path_witness(spath) + [src.serialize(), claim.serialize(), vsig, root[0], w.m]
+        if claimable:
+            w.run("CLAIM", wit, ctx)
+            check(True, f"CLAIM with seq {seq:#x} succeeds")
+        else:
+            expect_fail(lambda: w.run("CLAIM", wit, ctx), f"CLAIM against SEQ_FINAL {seq:#x} must fail")
+
+    # exact-payout variant: swap EXIT_1 for EXIT_1^= (a different taptree, hence a different m)
+    exact = assemble(ls.exit_script(depth, 1, "D", exact=True))
+    w.compiled = dict(w.compiled); w.compiled["EXIT_1"] = exact
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    s_bob = 5
+    w.tree.leaves = {s_alice: alice, s_bob: bob}
+    root = w.tree.root()
+    path = w.tree.path(s_bob)
+    t1 = w.clone(); lt.apply_exit(t1, s_bob); r1 = t1.root()
+    # owner exit paying exactly leaf.amount (fees from a second input)
+    ctx = w.ctx([(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key))], extra_in=(600, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+    w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig, b"", root[0], w.m], ctx)
+    check(True, "EXIT_1^= exact owner payout")
+    # owner exit paying less than leaf.amount (the FULL fee-from-payout option) is rejected
+    ctx2 = w.ctx([(r1[1], w.spk(r1)), (bob.amount - 500, lt.p2tr_spk(bob.exit_key))])
+    sig2 = schnorr_sign(ctx2.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig2, b"", root[0], w.m], ctx2), "EXIT_1^= owner shortfall")
+    # eviction still requires the exact amount and the lock time
+    ctx_e = w.ctx([(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key))], extra_in=(600, P2WPKH), locktime=800_000)
+    esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
+    w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), esig, b"\x01", root[0], w.m], ctx_e)
+    check(True, "EXIT_1^= eviction")
+    if verbose:
+        print(f"channel rules D={depth}: EXIT_1^= script {len(exact)} B (EXIT_1 {len(assemble(ls.exit_script(depth, 1, 'D')))} B)")
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
@@ -538,6 +601,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
         test_evict_subtree(d, h)
     for d in (4, 16):
         test_minimal(d)
+        test_channel_rules(d)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)

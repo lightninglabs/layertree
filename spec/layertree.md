@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.5.0
+Version:  0.6.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -27,6 +27,8 @@ License:  BSD-3-Clause
 13. [Extensions](#13-extensions)
 14. [Test Vectors and Reference Code](#14-test-vectors-and-reference-code)
 15. [References](#15-references)
+
+Appendix C. [Channel Leaves](channel-leaves.md) (separate file, normative)
 
 ## 1. Abstract
 
@@ -314,6 +316,8 @@ are interchangeable, with one numeric cap noted below.
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both |
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) |
+| Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only |
+| `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | n/a (no `CLAIM`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output |
 | Transaction shape | free (input 0, outputs 0..K constrained) | free | fixed per script: two inputs, outputs `[tree', payouts…, raw extras]` |
 | Spender work | none | none | grind a free field (fee input `nSequence`) until `e` ends in `0x00`: 256 hashes expected |
@@ -376,6 +380,8 @@ scripts in this document.
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
 | `LEAF_LEN` | 116 |
+| `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
+| `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/upd"`, `"LayerTree/chan/set"` (Appendix C) |
 
 `H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_pos` denote `H_tag` with the
 corresponding tag. The 64-byte tagged-hash prefixes are given in
@@ -409,10 +415,21 @@ Requirements:
   holds; a uniformly random 32-bit value is RECOMMENDED, and section 10.3
   explains why it matters for vouchers.
 * `leaf_hash = H_leaf(leaf_bytes)`; the leaf's node is `(leaf_hash, amount)`.
+* A leaf whose `seq` equals `SEQ_FINAL` for the tree's tier is
+  **non-claimable**: `CLAIM` (7.5) computes `seq + 1` and fails when the
+  result does not fit in four bytes, which is the case exactly for
+  `SEQ_FINAL`. Creators MUST set `seq = SEQ_FINAL` on any leaf whose
+  `amount` is not the owner's alone (channel leaves, Appendix C.6.5) and MAY
+  set it on any other leaf. `SEQ_FINAL` differs between tiers because MID
+  interprets `0xFFFFFFFF` as a negative `CScriptNum` whose successor still
+  fits; the reference tests check both values in both tiers.
+* `evict_after` is a *deferral* of the evictor's right, not a guarantee to
+  the evictor. A leaf that must be force-closable by its evictor at any time
+  (a routing channel leaf, Appendix C.6.4) SHALL set `evict_after = 0`.
 
 *(informative)* `exit_key` is deliberately distinct from `owner_key`, so a
 hot key can authorise while funds land on a cold key, and so that a channel
-leaf (section 9.8) can name its funding output key.
+leaf (section 9.8, Appendix C) can name its funding output key.
 
 ### 5.3 Nodes
 
@@ -634,6 +651,15 @@ Rules:
    * output 1's amount MUST equal `leaf.amount`.
 5. The recomputed total `S` equals input 0's amount, and output 0's amount
    equals `S − leaf.amount` (this follows from `fold` of `E_0`).
+6. **Exact-payout variant `EXIT_K^=`.** A tree MAY be created with `EXIT_K`
+   scripts in which rule 3's inequality is replaced by equality, so that
+   output `i`'s amount MUST equal `leaf.amount` for owner exits as well as
+   evictions and all fees are exogenous. The variant is a tree-creation
+   parameter; it changes the scripts and therefore `m`, so any party can
+   tell from the tree identifier which rule applies. MID and MIN trees are
+   always exact (4.5). A tree that hosts channel leaves SHOULD use the
+   exact variant (Appendix C.6.1). The reference generator exposes it as
+   `exit_script(…, exact=True)`; it is four bytes shorter than `EXIT_K`.
 
 ### 7.3 JOIN
 
@@ -712,8 +738,9 @@ Rules:
    new node is the leaf `source_leaf'` identical to `source_leaf` except
    `amount' = source_leaf.amount − claim_leaf.amount` (MUST NOT underflow)
    and `seq' = source_leaf.seq + 1` (the script fails if `seq'` does not
-   fit in 4 bytes); if `amount' = 0` the new node is `E_0` instead (the
-   position becomes empty). In the sparse profile the source position is
+   fit in 4 bytes, so a source leaf with `seq = SEQ_FINAL` can never be
+   claimed; section 5.2); if `amount' = 0` the new node is `E_0` instead
+   (the position becomes empty). In the sparse profile the source position is
    `pos(source_leaf)` and the claim position is `pos(claim_leaf)`. `fold` over the source path MUST yield
    `(r, S)` with `S` equal to input 0's amount; call the folded new root
    `(r_1, S_1)`.
@@ -838,8 +865,11 @@ in full for `D = 4` under `spec/scripts/`. All pushes of numbers are minimal.
 | `SEL_IN_AMOUNT` | `INPUT_AMOUNT \| INPUTSELECT_CURRENT` | `0x10800` | current input's amount (8 bytes LE) |
 | `SEL_IN_SPK` | `INPUT_SCRIPTPUBKEY \| INPUTSELECT_CURRENT` | `0x20800` | current input's scriptPubKey |
 | `SEL_OUT_SINGLE` | `OUTPUT_AMOUNT \| OUTPUT_SCRIPT \| OUTPUTSELECT_SINGLE` | `0x4300` | pops index; pushes amount (8 bytes LE) then scriptPubKey |
+| `SEL_CHAN_UPD` | `COLLATE \| VERSION \| LOCKTIME \| NUM_INPUTS \| INPUT_SEQUENCE(CURRENT) \| OUTPUT_AMOUNT \| OUTPUT_SCRIPT (all outputs)` | `0x0FC7` | one collated hash of the fields a rebindable channel signature covers (Appendix C.2) |
+| `SEL_CHAN_SET` | `SEL_CHAN_UPD \| INPUT_AMOUNT(CURRENT)` | `0x30FC7` | as above plus the current input's amount (settlement transactions, Appendix C.2) |
 
-Scripts MUST push selectors as constants. They never construct a selector at
+The last two are used only by the channel scripts of Appendix C, never by
+the tree scripts. Scripts MUST push selectors as constants. They never construct a selector at
 run time, so the `OP_TX` "unknown bit means success" rule cannot be
 triggered by a witness.
 
@@ -1301,22 +1331,45 @@ Operators SHOULD serve the full tree to participants on request.
 
 ### 9.8 Channel leaves
 
-*(informative)* A leaf whose `exit_key` is a MuSig2 aggregate of the owner
-and operator (optionally with a taptree) is a *channel leaf*: the two parties
-run a payment channel whose funding output does not yet exist on-chain. On
-`EXIT`, the funding output materialises at output 1 with an outpoint that
-depends on the exit transaction, so the channel's commitment transactions
-MUST be rebindable to an unknown funding outpoint. With this document's
-opcode set that is achieved LN-Symmetry style: the commitment script hashes
-the relevant fields with `OP_TX` (collated `VERSION | LOCKTIME | OUTPUT_*`
-for all outputs and the current input's `SEQUENCE`) and checks the channel
-key's signature over the hash with `OP_CHECKSIGFROMSTACK`. `evictor_key`
-set to the operator's key with a short `evict_after` gives the operator
-its ordinary right to force-close.
+Payment channels are layered on LayerTree as **channel leaves**: leaves
+whose `exit_key` is the taproot output key of a two-party channel between
+the owner and a counterparty (normally the operator). The channel exists
+off-chain while the leaf is in the tree and its funding output materialises
+at the payout output of the transaction that removes the leaf. Because that
+outpoint is unknown in advance, channel transactions MUST be authorised by
+signatures that do not commit to the prevout; the FULL and MID tiers provide
+this with `OP_TX` (collating version, lock time, the current input's
+sequence, and all outputs) and `OP_CHECKSIGFROMSTACK`, and the channel MUST
+use the update/settlement (LN-Symmetry) state machine rather than penalties.
+The MIN tier cannot host channel leaves.
 
-Routing between channel leaves through the operator, and between the tree
-and the public Lightning Network, is the "virtual network" of the design
-notes; it is outside this document's scope.
+The full specification is Appendix C, `spec/channel-leaves.md`, which
+covers the rebindable-signature construction with exact selector values,
+the state machine and its lock-time ranges, HTLCs and forwarding between
+channel leaves through the operator, opening, splicing (`UPDATE`), closing
+and eviction, tier applicability, comparison with Ark and factories, and
+security considerations. Rules from Appendix C that bind the tree layer:
+
+* a channel leaf's `amount` MUST equal the channel capacity and payouts to
+  it MUST be exact: the owner MUST NOT use the FULL-tier fee-from-payout
+  option of 7.2 rule 3, and a tree that hosts channel leaves SHOULD be
+  created with the exact-payout `EXIT_K^=` variant (7.2 rule 6) so that
+  the rule is enforced by script and visible in `m`;
+* a channel leaf MUST have `seq = SEQ_FINAL` (5.2), so that no voucher can
+  be redeemed against the capacity its signed states commit to;
+* `evictor_key` SHALL be the counterparty's tree key, so eviction is the
+  counterparty's force-close; a channel leaf that forwards or receives
+  HTLCs SHALL set `evict_after = 0`, since the counterparty cannot enforce
+  an HTLC on-chain before `evict_after`;
+* lease renewal and splicing are `UPDATE`s co-signed by owner and
+  operator; the channel identifier commits to the capacity epoch, so
+  states of an earlier capacity cannot be replayed after a splice.
+
+Intra-tree payments between channel leaves are ordinary HTLC or PTLC
+forwards through the operator and never touch the tree output; a tree of `N`
+channel leaves is a payment hub of `N` channels with one UTXO on-chain.
+Routing to and from the public Lightning Network needs no bridging
+construction. The "virtual network" of the design notes is this hub.
 
 ## 10. Security Considerations
 
@@ -1397,6 +1450,15 @@ exit requests promptly (removing the incentive), MAY chain several
 transitions off one confirmed output within mempool descendant limits, and
 SHOULD use anchor outputs so that either party can bump fees. Signatures
 cover outputs, so a third party cannot alter where an exit pays.
+
+Because every transition spends and recreates the one tree output,
+uncooperative exits are serialised through it: default mempool policy
+(25 descendants) bounds a tree to roughly 25 single-leaf exits per block,
+and `EXIT_K` raises that only for parties who cooperate. Operators SHOULD
+size each tree by this exit throughput rather than by depth, and SHOULD
+shard a deployment into several trees when the time to drain one at 25
+leaves per block would exceed the time-sensitive commitments its leaves
+carry (for channel leaves, Appendix C.9.5 gives the bound).
 
 ### 10.6 Integer encodings and truncation
 
@@ -1593,7 +1655,8 @@ sat) is never the binding constraint for `D ≥ 8`; the fee is.
 | Shared UTXO expiry | none; per-leaf leases | per round | per tree | per design |
 | Operator liquidity | none required (self-funded joins); optional for vouchers | must front the new round | must front | varies |
 | Batch join | `O(1)` tx for any subtree | per round | per tree | per tree |
-| Off-chain payments | channel leaves (LN) or vouchers | OOR + rounds | channels | varies |
+| Off-chain payments | channel leaves (LN, Appendix C) or vouchers | OOR + rounds | channels | varies |
+| Hosted channel: materialise funding | 1 tx, `O(1)` in `N` | unroll `O(log N)` txs | factory publish `O(log N)` txs | `O(log N)` txs |
 | Opcodes | GSR + OP_TX + CSFS + EC ops BIP | none (pre-signed) or CTV | none or CTV | CTV/CCV (+CAT) |
 
 Relative to the original LayerTree sketch: the exit no longer needs the
@@ -1641,6 +1704,14 @@ exits in a batch" as `EXIT_K` (section 13).
 8. **`OP_INTERNALKEY` fast path.** Where only `r` must be checked (never
    for output construction), `OP_INTERNALKEY` saves one `OP_TX` and one
    `TREE_SPK`; see the caveat in section 10.4.
+9. **Vouchers and channel HTLCs share a hash.** A hash-locked voucher
+   (item 6) and a channel-leaf HTLC (Appendix C.4) that use the same payment
+   hash give an atomic swap between the credit instrument and the
+   settlement instrument inside one tree, with no on-chain step.
+10. **`UPDATE` with `exit_key` consent.** An `UPDATE` variant that also
+   requires a signature by `old_leaf.exit_key` protects a leaf whose
+   `exit_key` is a shared key against an owner-plus-operator splice; it is
+   what makes user-to-user channel leaves trust-free (Appendix C.6.6).
 
 ## 14. Test Vectors and Reference Code
 
@@ -1660,7 +1731,9 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 28 and 7 checks respectively.
+  operands during development), 34 and 7 checks respectively; the MID
+  checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
+  *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not.
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, 88 checks including negative cases (forged leaf, stale
@@ -1676,7 +1749,10 @@ exits in a batch" as `EXIT_K` (section 13).
   joins (`JOINK_2`, including a stale second path and an underfunded batch)
   and cohort sweeps (`EVICT_SUBTREE_2/4/6`, including a sweep before lease
   expiry, a shortchanged leaf and a non-evictable leaf) are exercised as
-  well, 208 checks in total. Run:
+  well, together with the channel-leaf rules (a `CLAIM` against
+  `seq = SEQ_FINAL` fails while the two neighbouring values succeed; the
+  exact-payout `EXIT_1^=` variant rejects an owner shortfall and accepts an
+  exact owner exit and an eviction), 234 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, and the size table covering both
@@ -1684,6 +1760,11 @@ exits in a batch" as `EXIT_K` (section 13).
 * `spec/golden.json` — compiled scripts for every tier, the taptree root of
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
+* `spec/channel-leaves.md` — Appendix C: payment channels hosted in leaves
+  (normative for implementations that host channels; the tree layer is
+  unaffected by it).
+* `spec/fee-analysis.md`, `tools/fee_analysis.py` — exit and eviction cost
+  at fee rates from 1 to 250 sat/vB (section 11.1).
 * Go implementation (module `github.com/roasbeef/layertree`, packages
   `tree`, `script`, `txn`, `msg`): built on btcd, lnd and taproot-assets;
   every generated script is compared byte for byte with the Python output,

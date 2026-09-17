@@ -238,8 +238,12 @@ def final_output(depth):
              "OP_NUMEQUAL", "OP_ENDIF"])
 
 
-def exit_block(profile, depth, out_index):
-    """One exit. Stack: [path] leaf sig is_evict | ... -> T oh os nh ns (after levels)."""
+def exit_block(profile, depth, out_index, exact=False):
+    """One exit. Stack: [path] leaf sig is_evict | ... -> T oh os nh ns (after levels).
+
+    exact=True is the EXIT_K^= variant (spec 7.2 rule 6): the payout must
+    equal leaf.amount for owner exits as well as evictions, which trees
+    hosting channel leaves use (Appendix C.6.1)."""
     s = ["OP_DUP", "OP_TOALTSTACK",                     # | ... is_evict
          "OP_IF",
          "OP_OVER", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
@@ -254,9 +258,12 @@ def exit_block(profile, depth, out_index):
          P2TR_PREFIX, 3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
          "OP_EQUALVERIFY",                              # leaf out_amt
          "OP_OVER", 8, "OP_LEFT",                       # leaf out_amt leaf_amt
-         "OP_FROMALTSTACK",                             # ... is_evict
-         "OP_IF", "OP_NUMEQUALVERIFY",
-         "OP_ELSE", "OP_LESSTHANOREQUAL", "OP_VERIFY", "OP_ENDIF"]  # leaf
+         "OP_FROMALTSTACK"]                             # ... is_evict
+    if exact:
+        s += ["OP_DROP", "OP_NUMEQUALVERIFY"]           # leaf   (exact for both)
+    else:
+        s += ["OP_IF", "OP_NUMEQUALVERIFY",
+              "OP_ELSE", "OP_LESSTHANOREQUAL", "OP_VERIFY", "OP_ENDIF"]  # leaf
     if profile == "S":
         s += leaf_pos() + sparse_setup()                # leaf              | pos E_0
     s += leaf_acc() + [                                 # oh os
@@ -265,17 +272,18 @@ def exit_block(profile, depth, out_index):
     return s + levels(profile, depth)
 
 
-def exit_script(depth, k=1, profile="D"):
+def exit_script(depth, k=1, profile="D", exact=False):
     """EXIT_K: K sequential exits paying outputs 1..K.
 
     witness (bottom..top) = [block_K] ... [block_1] root m
     block_i = [dir sc]*D (dense) or [sc]*D (sparse), then leaf_i sig_i is_evict_i
+    exact=True selects the exact-payout variant (spec 7.2 rule 6).
     """
     s = prologue()
-    s += exit_block(profile, depth, 1) + check_old_root_from_alt(profile)   # T nh ns | m
+    s += exit_block(profile, depth, 1, exact) + check_old_root_from_alt(profile)   # T nh ns | m
     for i in range(2, k + 1):
         s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]  # | m nh ns
-        s += exit_block(profile, depth, i) + check_prev_root_from_alt(profile)
+        s += exit_block(profile, depth, i, exact) + check_prev_root_from_alt(profile)
     return s + final_output(depth)
 
 

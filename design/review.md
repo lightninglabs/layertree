@@ -303,6 +303,34 @@ message so this is tested end to end, and the same message is what
 `txscript.CalcTapscriptSignaturehash` produces, which the Go implementation
 uses for cross-checking.
 
+### F17. Channels in leaves need three tree-layer rules
+
+Layering Lightning channels on the tree (`spec/channel-leaves.md`) works
+in the FULL and MID tiers because `OP_TX` with `COLLATE` plus
+`OP_CHECKSIGFROMSTACK` gives a signature over everything except the prevout,
+so commitment transactions can be signed before the funding output exists
+and rebound to whichever payout index the exit lands on. Working it through
+exposed three places where the *tree* rules were too lenient for a leaf
+whose balance is not the owner's alone:
+
+* the FULL owner exit may pay less than `leaf.amount`; for a channel leaf
+  that is theft of the counterparty's balance, so 7.2 gained the
+  exact-payout variant `EXIT_K^=` (a tree-creation parameter, four bytes
+  shorter, visible in `m`);
+* `CLAIM` lets the owner carve value out of any leaf with a lone signature;
+  the `seq + 1` size check already makes one value of `seq` unclaimable, and
+  that is now the deliberate, tested `SEQ_FINAL` marker. It is
+  tier-specific (`0xFFFFFFFF` in FULL, `0x7FFFFFFF` in MID) because
+  `CScriptNum` reads `0xFFFFFFFF` as a negative number whose successor
+  fits, which the MID tests demonstrate;
+* `evict_after` was described as a lease, but for a channel it is the
+  height before which the counterparty cannot enforce anything on-chain, so
+  routing channel leaves need `evict_after = 0`.
+
+Two honest limits stand: MIN cannot host channels (its constructive sighash
+necessarily commits to the prevout), and the shared UTXO serialises
+force-closes at about 25 per block, which is now a sizing rule in 10.5.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):
@@ -310,8 +338,6 @@ uses for cross-checking.
 * Hash-locked vouchers and swap flows (spec 13.5): straightforward on top of
   `CLAIM`, but they belong with the liquidity-marketplace design in the
   notes, not the base protocol.
-* Channel-leaf commitment format (spec 9.8): only the requirement
-  (rebindable commitments) is stated.
 * MuSig2 adaptor signatures (from `design/layertree.md`): an off-chain
   concern for channel leaves and swaps; nothing in the base protocol needs
   them.
