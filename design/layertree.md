@@ -1,0 +1,17 @@
+- [ ] start on musig2 adapter sig impl #status/todo
+- [ ] give birds eye view of transfer over #status/todo
+	- hyper loop into self funded factory -- not much diff between them
+		- settlements stay in new channel created with coordinator
+			- first phase, indefinite
+			- creates new AS with set of exiting UTXOs
+		- flows
+			- loop in into channel, routes over virtual network
+				- on chain HTLC off-chain
+				- routes into initial entrance to public network them from there
+			- loop out from channel
+				- send off-chain from LN into LayerTree account
+	- unified liquidity marketplace
+		- enables other nodes to help contribute liquidity for loop
+		- never instance where system is unable to service swaps
+		- able to tap into both off-chain and on-chain liquidity
+-
