@@ -244,8 +244,59 @@ def test_mid(depth, sparse, verbose=True):
     return costs, w
 
 
+def test_update_x(depth, sparse, verbose=True):
+    """MID UPDATE^x (spec 7.4 rule 5): UPDATE plus a signature by old.ek.
+
+    The variant is a tree-creation parameter, so it is swapped into the
+    taptree under the name UPDATE_X and m is recomputed.
+    """
+    w = MidWorld(depth, sparse)
+    S = sparse
+    toks = M.update_script(depth, w.op_pk, sparse, exit_consent=True)
+    bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+    check(not bad, f"MID UPDATE_X: opcodes outside the MID set: {sorted(bad)}")
+    script = assemble(toks, mode="c0")
+    w.compiled = dict(w.compiled); w.compiled["UPDATE_X"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    # six leaves, as the sparse witness sizes elsewhere are measured
+    alice = mk_leaf("alice", 50_000, sparse=S)
+    oper = mk_leaf("operator", 1_000_000, sparse=S)
+    others = [mk_leaf(n, a, sparse=S) for n, a in (("bob", 125_000), ("carol", 30_000),
+                                                   ("dave", 70_000), ("erin", 15_000))]
+    s_a, s_o = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_a: alice, s_o: oper}
+    for i, lf in enumerate(others):
+        w.tree.leaves[w.slot(lf, i + 1)] = lf
+    root = w.tree.root()
+    upath = w.tree.path(s_a)
+    alice2 = alice.with_amount_seq(80_000, 1)
+    t1 = w.clone(); t1.leaves[s_a] = alice2; r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], (30_700, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    xsig = schnorr_sign(ctx.sighash(), sk("alice-exit"))
+    block = (list(M.pad(r1[1])) + w.pads_for(root[1]) +
+             M.w_levels(upath, alice.node(), alice2.node(), S) + w.pos(alice) +
+             M.w_leaf(alice) + M.w_leaf(alice2))
+    wit = block + [asig, osig, xsig, root[0], w.m]
+    it = w.run("UPDATE_X", wit, ctx)
+    check(True, "mid: UPDATE^x with owner, operator and exit signatures")
+    # negatives
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, asig, root[0], w.m], ctx), "mid: UPDATE^x exit_sig by the wrong key")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, bytes(64), root[0], w.m], ctx), "mid: UPDATE^x garbage exit_sig")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, root[0], w.m], ctx), "mid: UPDATE^x missing exit_sig")
+    expect_fail(lambda: w.run("UPDATE_X", block + [osig, osig, xsig, root[0], w.m], ctx), "mid: UPDATE^x without the owner signature")
+    if verbose:
+        plain = len(assemble(M.update_script(depth, w.op_pk, sparse), mode="c0"))
+        print(f"MID UPDATE^x {'S' if S else 'D'} D={depth}: script {len(script)} B "
+              f"(UPDATE {plain} B), witness {sum(len(x) for x in wit)} B")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
+    test_update_x(16, False)
+    test_update_x(31, True)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)

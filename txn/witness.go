@@ -147,6 +147,21 @@ func UpdateWitness(path [][]byte, oldLeaf, newLeaf *tree.Leaf,
 		operatorSig, rootHash[:], merkleRoot[:])
 }
 
+// UpdateXWitness is the UPDATE^x stack: path, old_leaf, new_leaf, owner_sig,
+// operator_sig, exit_sig, r, m (spec 7.4 rule 5, 8.5). exit_sig sits directly
+// above operator_sig, so the script consumes it first; it is a signature over
+// the same transaction by the exit key of the OLD leaf, as owner_sig is by
+// its owner key.
+func UpdateXWitness(path [][]byte, oldLeaf, newLeaf *tree.Leaf,
+	ownerSig, operatorSig, exitSig []byte,
+	rootHash, merkleRoot [32]byte) [][]byte {
+
+	out := make([][]byte, 0, len(path)+7)
+	out = append(out, path...)
+	return append(out, oldLeaf.Serialize(), newLeaf.Serialize(), ownerSig,
+		operatorSig, exitSig, rootHash[:], merkleRoot[:])
+}
+
 // ClaimWitness is the CLAIM stack: claim_path, source_path, source_leaf,
 // claim_leaf, voucher_sig, r, m (spec 7.5, 8.6). The claim path sits deeper
 // in the stack because the script consumes it second: the source path is

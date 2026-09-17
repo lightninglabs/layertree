@@ -134,6 +134,15 @@ func TestMidDirectGenerators(t *testing.T) {
 	midCheckScript(t, g, "MID/S/D8/UPDATE", MidUpdateScript(8, key, true))
 }
 
+// TestMidUpdateX checks the exit-consent UPDATE^x variant (spec 7.4 rule 5)
+// in both profiles. It is not part of MidAllScripts: a tree is created with
+// either UPDATE or UPDATE^x.
+func TestMidUpdateX(t *testing.T) {
+	g, key := midLoadGolden(t)
+	midCheckScript(t, g, "MID/D/D4/UPDATE_X", MidUpdateXScript(4, key, false))
+	midCheckScript(t, g, "MID/S/D8/UPDATE_X", MidUpdateXScript(8, key, true))
+}
+
 func midHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)

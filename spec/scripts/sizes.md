@@ -63,6 +63,8 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | S | 256 | CLAIM | 70824 | 688 | 129 | 71641 | 16458459 | 1 |
 | S | 256 | EXIT_2 | 70767 | 548 | 129 | 71444 | 16927207 | 2 |
 | S | 256 | EXIT_1 (terminal) | 35611 | 0 | 129 | 35740 | 8464248 | 1 |
+| D | 16 | UPDATE_X | 2144 | 1144 | 129 | 3417 | 3494028 | 3 |
+| S | 32 | UPDATE_X | 5354 | 611 | 129 | 6094 | 4096882 | 3 |
 | S/bitmap | 32 | EXIT_1 (owner) | 5423 | 330 | 129 | 5882 | 3080946 | 1 |
 | S/bitmap | 32 | JOIN_0 | 5407 | 371 | 129 | 5907 | 3079436 | 1 |
 | S/bitmap | 64 | EXIT_1 (owner) | 10063 | 334 | 129 | 10526 | 3979013 | 1 |
@@ -89,4 +91,6 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | JOINK_2 | 17985 | 1433 | 129 | 19547 | n/a (0xC0) | 1 |
 | MID/S | 31 | UPDATE | 9393 | 1002 | 129 | 10524 | n/a (0xC0) | 2 |
 | MID/S | 31 | CLAIM | 18241 | 1543 | 129 | 19913 | n/a (0xC0) | 1 |
+| MID/D | 16 | UPDATE_X | 3411 | 1225 | 129 | 4765 | n/a (0xC0) | 3 |
+| MID/S | 31 | UPDATE_X | 9397 | 1032 | 129 | 10558 | n/a (0xC0) | 3 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |

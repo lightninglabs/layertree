@@ -227,9 +227,17 @@ def join_script(depth, height, operator_key, sparse=False, k=1):
     return s + final(depth)
 
 
-def update_script(depth, operator_key, sparse=False):
-    """witness: [levels] [zi wi] [sparse: ok nonce plo phi] old(10) new(10) osig opsig r m"""
-    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY", 18, "OP_PICK", "OP_CHECKSIGVERIFY"]  # old(10) new(10)
+def update_script(depth, operator_key, sparse=False, exit_consent=False):
+    """witness: [levels] [zi wi] [sparse: ok nonce plo phi] old(10) new(10) osig opsig r m
+
+    exit_consent=True is the UPDATE^x variant (spec 7.4 rule 5): one more
+    signature sits directly above opsig and MUST be valid over the same
+    transaction by old.ek, the exit key of the old leaf.
+    """
+    s = prologue()
+    if exit_consent:
+        s += [21, "OP_PICK", "OP_CHECKSIGVERIFY"]        # old(10) new(10) osig opsig
+    s += [operator_key, "OP_CHECKSIGVERIFY", 18, "OP_PICK", "OP_CHECKSIGVERIFY"]  # old(10) new(10)
     if sparse:
         s += [8, "OP_PICK", 19, "OP_PICK", "OP_EQUALVERIFY",   # new.ok == old.ok
               5, "OP_PICK", 16, "OP_PICK", "OP_EQUALVERIFY"]   # new.nonce == old.nonce

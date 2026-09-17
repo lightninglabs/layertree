@@ -527,6 +527,52 @@ def test_evict_subtree(depth, height, verbose=True):
 
 
 
+def test_update_x(depth, profile, verbose=True):
+    """UPDATE^x (spec 7.4 rule 5): UPDATE plus a signature by old_leaf.exit_key.
+
+    The variant is a tree-creation parameter, so it is swapped into the
+    taptree under the name UPDATE_X and m is recomputed.
+    """
+    w = World(depth, profile)
+    toks = ls.update_script(depth, w.op_pk, profile, exit_consent=True)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"UPDATE_X uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled["UPDATE_X"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    # six leaves, as the sparse witness sizes elsewhere are measured
+    alice = mk_leaf("alice", 50_000)
+    oper = mk_leaf("operator", 1_000_000)
+    others = [mk_leaf(n, a) for n, a in (("bob", 125_000), ("carol", 30_000),
+                                         ("dave", 70_000), ("erin", 15_000))]
+    s_alice, s_oper = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_alice: alice, s_oper: oper}
+    for i, lf in enumerate(others):
+        w.tree.leaves[w.slot(lf, i + 1)] = lf
+    root = w.tree.root()
+    upath = w.tree.path(s_alice)
+    alice2 = alice.with_amount_seq(80_000, 1)
+    t1 = w.clone(); t1.leaves[s_alice] = alice2; r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(30_700, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    xsig = schnorr_sign(ctx.sighash(), sk("alice-exit"))
+    block = w.path_witness(upath) + w.bm(upath) + [alice.serialize(), alice2.serialize()]
+    wit = block + [asig, osig, xsig, root[0], w.m]
+    it = w.run("UPDATE_X", wit, ctx)
+    check(True, "UPDATE^x with owner, operator and exit signatures")
+    # negatives
+    wrong = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, wrong, root[0], w.m], ctx), "UPDATE^x exit_sig by the wrong key")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, bytes(64), root[0], w.m], ctx), "UPDATE^x garbage exit_sig")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, root[0], w.m], ctx), "UPDATE^x missing exit_sig")
+    expect_fail(lambda: w.run("UPDATE_X", block + [osig, osig, xsig, root[0], w.m], ctx), "UPDATE^x without the owner signature")
+    if verbose:
+        plain = len(assemble(ls.update_script(depth, w.op_pk, profile)))
+        print(f"UPDATE^x {profile} D={depth}: script {len(script)} B (UPDATE {plain} B), witness {sum(len(x) for x in wit)} B")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 def test_channel_rules(depth, verbose=True):
     """Tree-layer rules that channel leaves rely on (spec 5.2, 7.2 rule 6, 7.5; Appendix C.6).
 
@@ -602,6 +648,8 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
     for d in (4, 16):
         test_minimal(d)
         test_channel_rules(d)
+    for prof, d in (("D", 4), ("D", 16), ("S", 8)):
+        test_update_x(d, prof)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)

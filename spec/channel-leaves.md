@@ -4,7 +4,7 @@
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
 Version:  0.2.0
-Requires: spec/layertree.md 0.6.0, FULL or MID tier (section C.7)
+Requires: spec/layertree.md 0.6.1, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
 
@@ -586,6 +586,12 @@ Normatively, for a splice from `(C, epoch)` to `(C', epoch+1)`:
 3. the state number MAY restart at 1 for the new epoch, since no state of the
    old epoch verifies under `ctx_upd'`.
 
+In a tree created with `UPDATE^x` (7.4 rule 5) the splice additionally needs
+a signature over the transition transaction by `old_leaf.exit_key`, the
+funding output key of the old epoch, which the two channel parties produce
+with MuSig2 under `P_chan` (taptweaked as in C.3.2) in the same session in
+which they exchange the signatures of rule 2.
+
 Splices are atomic in a sense on-chain splicing is not: only one funding
 output can ever exist, so after the `UPDATE` confirms the *old* funding output
 can never come into being and the old states are unreachable — there is no
@@ -819,11 +825,20 @@ user's key. Two consequences:
   channel leaves outside cohort subtrees;
 * `UPDATE` requires `owner_key` and `OPERATOR_KEY` — **not** the
   counterparty's key. The owner and the operator can therefore, together,
-  splice the leaf down and strand the counterparty's channel balance. A
-  user-to-user channel leaf is consequently only as safe as the operator's
-  promise not to co-sign such an `UPDATE`. C.10 recommends an `UPDATE`
-  variant that also requires a signature by `old_leaf.exit_key`, which would
-  close this gap for all leaves whose `exit_key` is a shared key.
+  splice the leaf down and strand the counterparty's channel balance. A leaf
+  in a tree whose update transition is plain `UPDATE` is consequently only
+  as safe as the operator's promise not to co-sign such an `UPDATE`.
+
+  The exit-consent variant `UPDATE^x` (7.4 rule 5) closes this gap: it also
+  requires a signature by `old_leaf.exit_key`, which for a channel leaf is
+  the channel's funding output key, so producing it takes both parties (a
+  MuSig2 signature under `P_chan`, taptweaked as in C.3.2). A tree that hosts
+  user-to-user channel leaves SHOULD be created with `UPDATE^x`. Because the
+  variant changes the scripts and therefore `m`, a counterparty MUST verify
+  from `m` that the tree's update transition is `UPDATE^x` before it accepts
+  a user-to-user channel leaf; if it is not, the residual trust described
+  above stands and the counterparty MUST decide whether the operator's
+  promise is acceptable.
 
 ### C.6.7 Cohorts and lease renewal
 
@@ -983,18 +998,20 @@ The counterparty's channel balance inside a leaf rests on four properties
 that are outside the channel protocol and MUST be checked when the leaf is
 accepted: exact owner exit (C.6.1), a non-claimable `seq` or a `CLAIM`-free
 taptree (C.6.5), `evictor_key` correctly set (C.6.3), and — for user-to-user
-leaves only — the operator's promise not to co-sign a hostile `UPDATE`
-(C.6.6). The first two are verifiable from `m` and the leaf; the third from
-the leaf; the fourth is not verifiable at all, which is why C.10 recommends a
-protocol change.
+leaves only — protection against a hostile `UPDATE` (C.6.6). The first two
+are verifiable from `m` and the leaf; the third from the leaf; the fourth is
+now verifiable from `m` as well, since it is the presence of the `UPDATE^x`
+script of 7.4 rule 5 in the taptree. A tree that uses plain `UPDATE` instead
+leaves the fourth property resting on the operator's promise, which is not
+verifiable at all.
 
 ## C.10 Changes made to `spec/layertree.md` for this appendix
 
 *(informative)* Version 0.6.0 of the base specification adopts items 1, 2,
 3, 5, 6, 7 and 8 below (9.8, 5.1/5.2/7.5 `SEQ_FINAL`, 7.2 rule 6 `EXIT_K^=`,
 5.2 `evict_after = 0`, 10.5 exit throughput, 8.1 selectors and 5.1 tags,
-13.9). Item 4 is listed as extension 13.10 and is not yet specified or
-implemented; until it is, user-to-user channel leaves carry the residual
+13.9). Version 0.6.1 adopts item 4 as 7.4 rule 5, the exit-consent variant
+`UPDATE^x`; a tree created with plain `UPDATE` still carries the residual
 trust of C.6.6. The list is kept for the record.
 
 1. **9.8** should be replaced by a reference to this appendix.
@@ -1009,7 +1026,8 @@ trust of C.6.6. The list is kept for the record.
    (C.6.1).
 4. **7.4**: add an `UPDATE` variant that additionally requires a signature by
    `old_leaf.exit_key`, protecting any leaf whose `exit_key` is a shared key
-   against an owner-plus-operator splice (C.6.6).
+   against an owner-plus-operator splice (C.6.6). Adopted as 7.4 rule 5,
+   `UPDATE^x`.
 5. **5.2**: note that `evict_after = 0` is the correct setting for a routing
    channel leaf and why (C.6.4); the current text's framing of `evict_after`
    as a lease invites the unenforceable-HTLC bug.

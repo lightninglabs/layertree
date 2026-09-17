@@ -331,6 +331,29 @@ Two honest limits stand: MIN cannot host channels (its constructive sighash
 necessarily commits to the prevout), and the shared UTXO serialises
 force-closes at about 25 per block, which is now a sizing rule in 10.5.
 
+### F18. What the Lean model made precise
+
+Formalising sections 5, 7 and 10.2 in Lean (`formal/`) confirmed the
+security argument and sharpened three points:
+
+* The covenant conserves *sums* unconditionally (`Steps.sum` needs no
+  assumption about the nodes it is shown), but it guarantees *exits* only
+  under grounded nodes: a `JOIN_h` graft whose `(new_hash, new_sum)` has
+  no preimage tree freezes the grafted value forever. The covenant protects
+  the sum; the joiners' off-chain path check (9.2) protects membership.
+  That MUST was already in the spec; the proof shows it is load-bearing.
+* `CLAIM` requires the claim position to be empty *after* the source step,
+  not before, so a source drained to zero may serve as the claim position
+  in the same transaction. Harmless, and now stated.
+* The `SEQ_FINAL` split between tiers is a theorem, not a test artefact:
+  `minimalLE (2^32)` has five bytes while the `CScriptNum` of `−(2^31−1)`
+  is `ff ff ff ff` with a four-byte successor.
+
+The model is parametric in an idealised hash (injectivity plus tag
+separation) and a `TREE_SPK` injectivity hypothesis; the tapscript bytecode
+is deliberately outside it and stays covered by the simulator, the golden
+vectors and the Go cross-checks.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.4):

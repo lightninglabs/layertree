@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.6.0
+Version:  0.6.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -316,6 +316,7 @@ are interchangeable, with one numeric cap noted below.
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both |
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) |
+| `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | n/a (no `CLAIM`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output |
@@ -711,6 +712,23 @@ Rules:
    profile `pos(new_leaf)` MUST equal `pos(old_leaf)` (the script compares
    the two derived position hashes), so `owner_key` and `nonce` are in
    practice fixed; ownership transfer is done by `EXIT`+`JOIN` or `CLAIM`.
+5. **Exit-consent variant `UPDATE^x`.** A tree MAY be created with an
+   `UPDATE^x` script in place of `UPDATE`. `UPDATE^x` takes one further
+   witness input, `exit_sig`, directly above `operator_sig`, which MUST be a
+   valid BIP-340 signature over `tx` by `old_leaf.exit_key`, with the same
+   hash-type requirement as 7.2 rule 3. Rules 1 to 4 continue to apply, so
+   `UPDATE^x` requires three signatures where `UPDATE` requires two. The
+   variant is a tree-creation parameter; it changes the scripts and
+   therefore `m`, so any party can tell from the tree identifier which rule
+   applies. A tree that hosts leaves whose `exit_key` is a key shared with a
+   counterparty, in particular channel leaves, SHOULD use it: without it the
+   owner and the operator can together splice such a leaf down and strand
+   the counterparty's balance (Appendix C.6.6). The reference generators
+   expose it as `update_script(…, exit_consent=True)`. It costs 7 bytes over
+   `UPDATE` in the FULL tier (one `OP_PICK`, one `OP_SUBSTR` of the
+   `exit_key` field and one `OP_CHECKSIGVERIFY`) and 4 bytes in MID, where
+   the exit key already arrives as its own witness element; the witness
+   grows by the 64-byte signature in both tiers.
 
 ### 7.5 CLAIM
 
@@ -1111,6 +1129,19 @@ OP_ROT LEAF_ACC                                    # T oh os nh ns
 LEVEL × D
 CHECK_OLD FINAL
 ```
+
+`UPDATE^x` (7.4 rule 5) takes the witness
+`path(D)  old_leaf  new_leaf  owner_sig  operator_sig  exit_sig  r  m` and
+adds one line directly after `PROLOGUE`, so that `exit_sig` is the first
+witness element consumed:
+
+```
+OP_4 OP_PICK OP_8 32 OP_SUBSTR OP_CHECKSIGVERIFY   # exit_key of the OLD leaf
+```
+
+The rest of the script is byte for byte the `UPDATE` script above. In MID
+the same line is `21 OP_PICK OP_CHECKSIGVERIFY`, picking the `ek` element of
+the old leaf directly.
 
 ### 8.6 CLAIM
 
@@ -1708,10 +1739,8 @@ exits in a batch" as `EXIT_K` (section 13).
    (item 6) and a channel-leaf HTLC (Appendix C.4) that use the same payment
    hash give an atomic swap between the credit instrument and the
    settlement instrument inside one tree, with no on-chain step.
-10. **`UPDATE` with `exit_key` consent.** An `UPDATE` variant that also
-   requires a signature by `old_leaf.exit_key` protects a leaf whose
-   `exit_key` is a shared key against an owner-plus-operator splice; it is
-   what makes user-to-user channel leaves trust-free (Appendix C.6.6).
+10. **`UPDATE` with `exit_key` consent.** Now specified as 7.4 rule 5
+   (`UPDATE^x`); the entry is kept so the numbering stays stable.
 
 ## 14. Test Vectors and Reference Code
 
@@ -1731,9 +1760,10 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 34 and 7 checks respectively; the MID
+  operands during development), 59 and 7 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
-  *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not.
+  *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
+  exit-consent `UPDATE^x` variant of 7.4 rule 5 in both profiles.
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, 88 checks including negative cases (forged leaf, stale
@@ -1752,7 +1782,11 @@ exits in a batch" as `EXIT_K` (section 13).
   well, together with the channel-leaf rules (a `CLAIM` against
   `seq = SEQ_FINAL` fails while the two neighbouring values succeed; the
   exact-payout `EXIT_1^=` variant rejects an owner shortfall and accepts an
-  exact owner exit and an eviction), 234 checks in total. Run:
+  exact owner exit and an eviction) and the exit-consent `UPDATE^x` variant
+  of 7.4 rule 5 (dense at `D = 4` and `16`, sparse at `D = 8`: a spend
+  carrying all three signatures succeeds, and one whose `exit_sig` is by the
+  wrong key, is garbage, is absent, or that drops the owner signature,
+  fails), 272 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, and the size table covering both
@@ -1760,6 +1794,22 @@ exits in a batch" as `EXIT_K` (section 13).
 * `spec/golden.json` — compiled scripts for every tier, the taptree root of
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
+  `UPDATE^x` has its own keys, `FULL/D/D4/UPDATE_X`, `FULL/S/D8/UPDATE_X`,
+  `MID/D/D4/UPDATE_X` and `MID/S/D8/UPDATE_X`; being a tree-creation
+  parameter rather than a member of the reference script set, it is excluded
+  from the `FULL/D/D4` taptree root.
+* `formal/` — a Lean 4 model of sections 5, 7 and 10.2 (core library only,
+  `lake build`): the tree, `fold` and the transition rules as relations,
+  with machine-checked proofs of completeness (`fold_path`), update
+  correctness (`fold_setSub`), conservation (`Steps.sum`), binding
+  (`fold_sound`, `root_inj`), payability (`payable`), no inflation on exit,
+  and the soundness of `JOIN`, `UPDATE` and `CLAIM`, plus the encoding
+  lemmas behind `enc64` and `SEQ_FINAL`. `formal/README.md` maps spec
+  sections to theorem names and lists the hash assumptions. The tapscript
+  bytecode is not modelled; its correspondence to the rules rests on the
+  executable tests above.
+* `design/p-model.md` — a design note for model-checking the off-chain
+  protocol (sections 9, 10.5, Appendix C) in P.
 * `spec/channel-leaves.md` — Appendix C: payment channels hosted in leaves
   (normative for implementations that host channels; the tree layer is
   unaffected by it).

@@ -424,7 +424,27 @@ func MidJoinScript(depth, height int, operatorKey [32]byte, sparse bool, k int) 
 
 // MidUpdateScript is the MID-tier UPDATE script: a cooperative leaf rewrite.
 func MidUpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
+	return midUpdateScript(depth, operatorKey, sparse, false)
+}
+
+// MidUpdateXScript is the MID-tier UPDATE^x script (spec 7.4 rule 5): UPDATE
+// with one more signature, directly above opsig in the witness, that MUST be
+// valid over the same transaction by the old leaf's exit key. It is a
+// tree-creation parameter: a tree uses either UPDATE or UPDATE^x, never both.
+func MidUpdateXScript(depth int, operatorKey [32]byte, sparse bool) []Token {
+	return midUpdateScript(depth, operatorKey, sparse, true)
+}
+
+// midUpdateScript is the shared body of the MID UPDATE and UPDATE^x scripts.
+func midUpdateScript(depth int, operatorKey [32]byte, sparse,
+	exitConsent bool) []Token {
+
 	s := midPrologue()
+	if exitConsent {
+		// old.ek sits 21 elements below the exit signature.
+		s = append(s, Num(21), Op(txscript.OP_PICK),
+			Op(txscript.OP_CHECKSIGVERIFY))
+	}
 	s = append(s, Data(operatorKey[:]), Op(txscript.OP_CHECKSIGVERIFY),
 		Num(18), Op(txscript.OP_PICK), Op(txscript.OP_CHECKSIGVERIFY))
 	if sparse {

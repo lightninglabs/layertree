@@ -438,8 +438,31 @@ func FullJoinScript(depth, height int, operatorKey [32]byte, sparse bool,
 // FullUpdateScript is UPDATE (spec 8.6):
 // witness = [path] old_leaf new_leaf owner_sig op_sig root m.
 func FullUpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
-	s := fullCat(
-		fullPrologue(), // old new osig opsig | m r
+	return fullUpdateScript(depth, operatorKey, sparse, false)
+}
+
+// FullUpdateXScript is UPDATE^x, the exit-consent variant of UPDATE
+// (spec 7.4 rule 5, 8.5): witness =
+// [path] old_leaf new_leaf owner_sig op_sig exit_sig root m, with exit_sig a
+// signature over the same transaction by old_leaf.exit_key. It is a
+// tree-creation parameter: a tree uses either UPDATE or UPDATE^x, never both.
+func FullUpdateXScript(depth int, operatorKey [32]byte, sparse bool) []Token {
+	return fullUpdateScript(depth, operatorKey, sparse, true)
+}
+
+// fullUpdateScript is the shared body of UPDATE and UPDATE^x.
+func fullUpdateScript(depth int, operatorKey [32]byte, sparse,
+	exitConsent bool) []Token {
+
+	s := fullPrologue() // old new osig opsig [xsig] | m r
+	if exitConsent {
+		// exit_sig sits directly above op_sig and is consumed first.
+		s = fullCat(s, []Token{
+			Num(4), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32),
+			Op(OP_SUBSTR), Op(ts.OP_CHECKSIGVERIFY), // old new osig opsig
+		})
+	}
+	s = fullCat(s,
 		[]Token{
 			Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY), // old new osig
 			Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),

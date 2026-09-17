@@ -39,8 +39,17 @@ for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,)).ite
     add("MID", "S", 8, name, toks, "c0")
 add("MIN", "D", 4, "EXIT_1", N.exit_script(4), "c0")
 
+# UPDATE^x, the exit-consent UPDATE variant (spec 7.4 rule 5). It is a
+# tree-creation parameter, not part of the reference taptree, so it is added
+# after the sets above and excluded from taptree_full_d4 below.
+add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
+add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
+add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
+add("MID", "S", 8, "UPDATE_X", M.update_script(8, OP_KEY, True, exit_consent=True), "c0")
+
 # taptree root for the FULL/D/D4 script set, in insertion order
-scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items() if k.startswith("FULL/D/D4/")]
+scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()
+           if k.startswith("FULL/D/D4/") and not k.endswith("/UPDATE_X")]
 out["taptree_full_d4"] = {"leaf_hashes": [lt.tapleaf_hash(s).hex() for s in scripts],
                           "merkle_root": lt.taptree_root([lt.tapleaf_hash(s) for s in scripts]).hex()}
 

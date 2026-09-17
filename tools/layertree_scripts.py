@@ -322,9 +322,18 @@ def join_script(depth, height, operator_key, profile="D", k=1):
     return s + final_output(depth)
 
 
-def update_script(depth, operator_key, profile="D"):
-    """UPDATE: witness = [path] old_leaf new_leaf owner_sig op_sig root m"""
-    s = prologue()                                       # old new osig opsig | m r
+def update_script(depth, operator_key, profile="D", exit_consent=False):
+    """UPDATE: witness = [path] old_leaf new_leaf owner_sig op_sig root m
+
+    exit_consent=True is the UPDATE^x variant (spec 7.4 rule 5): the witness
+    carries one more signature directly above op_sig,
+    [path] old_leaf new_leaf owner_sig op_sig exit_sig root m,
+    which MUST be valid over the same transaction by old_leaf.exit_key.
+    """
+    s = prologue()                                       # old new osig opsig [xsig] | m r
+    if exit_consent:
+        s += [4, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR",
+              "OP_CHECKSIGVERIFY"]                       # old new osig opsig
     s += [operator_key, "OP_CHECKSIGVERIFY",             # old new osig
           2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY",  # old new
           "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",

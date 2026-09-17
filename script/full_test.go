@@ -57,6 +57,8 @@ func fullScriptFor(profile string, depth int, name string,
 	switch {
 	case name == "UPDATE":
 		return FullUpdateScript(depth, key, sparse), nil
+	case name == "UPDATE_X":
+		return FullUpdateXScript(depth, key, sparse), nil
 	case name == "CLAIM":
 		return FullClaimScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
