@@ -1546,8 +1546,9 @@ At `D = 16` (dense) an `EXIT_1` consumes about 2.48M varops against a
 budget of roughly 40M for a transaction of its weight (section 11): 1.64M
 for the two `TREE_SPK` evaluations (82 sigops units each), 0.5M for the
 signature, and about 0.3M for hashing and stack work. The sparse profile at
-`D = 32` uses 3.07M, and the 256-level tree 9.3M, still under a quarter of
-budget. Stack depth peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80)
+`D = 32` uses 3.07M against a budget of about 65M for its weight (4.7%),
+and the 256-level tree 9.3M against about 376M (2.5%): the fraction falls
+with depth because the budget scales with transaction weight. Stack depth peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80)
 against a limit of 32,768, and no element exceeds 40 bytes except the script
 itself.
 
@@ -1647,8 +1648,9 @@ leaf. This is why cohorts SHOULD be grafted into aligned subtrees with a
 common lease expiry: the operator can then both add and remove a cohort in
 one constant-shape transaction each.
 
-Varops usage is 6–8% of budget for the dense profile and 8–25% for the
-sparse profile; the EC operations (82 sigops units per `TREE_SPK`) and the
+Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
+`D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
+falling with depth because the BIP-440 budget is `10,000 × weight`; the EC operations (82 sigops units per `TREE_SPK`) and the
 signature dominate at small depths, hashing at large ones.
 
 ### 11.1 Exit economics at various fee rates

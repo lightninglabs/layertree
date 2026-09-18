@@ -1,0 +1,91 @@
+\section{Vouchers and Fee Tables}\label{app:eval}
+
+\subsection{Vouchers (\tr{CLAIM})}\label{app:claim}
+
+A voucher is a BIP-340 signature by the source leaf's owner over
+\[
+H_{\mathsf{voucher}}(m \,\|\, \ell_{\mathrm{src}} \,\|\, \ell_{\mathrm{claim}}),
+\]
+verified with \op{CHECKSIGFROMSTACK}. \tr{CLAIM} is two steps: the source
+leaf's amount is reduced by the claim amount and its $\mathsf{seq}$
+advanced by one (or the position emptied if drained), then the claim leaf
+is placed at an empty position. The total is unchanged. Replay is
+impossible because the first step changes the source leaf, so the signed
+message never again matches a leaf in the tree; $\mathsf{seq}$ prevents a
+balance that later returns to an earlier value from re-enabling an old
+voucher. Because a voucher lets an owner move value with a lone
+signature, leaves whose balance is not the owner's alone set
+$\mathsf{seq}$ to the tier's $\mathsf{SEQ\_FINAL}$ (\S\ref{sec:channels}),
+whose successor does not fit in four bytes, so the \tr{CLAIM} script
+rejects them. Vouchers are the mechanism for operator-to-member push
+payments without the operator's later participation, and with a payment
+hash added to the message they become HTLCs between the credit
+instrument and channel-leaf HTLCs.
+
+\subsection{Comparison Table}
+
+\begin{table}[h]
+\centering
+\caption{Comparison with shared-output constructions.}
+\label{tab:compare}
+\setlength{\tabcolsep}{3pt}\scriptsize
+\begin{tabular}{@{}p{2.2cm}p{2cm}p{1.6cm}p{1.8cm}p{1.6cm}p{1.5cm}@{}}
+\toprule
+ & LayerTree & CoinPool & Ark (covenant) & Timeout tree & Factory \\
+\midrule
+Unilateral exit & 1 tx, $O(D)$ B & $O(\log N)$ txs & $O(\log N)$ txs & $O(\log N)$ txs & $O(\log N)$ txs \\
+Evict one leaf & 1 tx after lease & no & tree expires & tree expires & no \\
+Interactive signing & none & all & none & none or all & all \\
+Shared output expiry & none & none & per round & per tree & none \\
+Batch add & 1 tx, any subtree & re-sign all & per round & per tree & re-sign all \\
+Opcodes & GSR, \op{TX}, CSFS, EC & CTV or APO & CTV / CCV & CTV & none \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Fee Tables}
+
+Fees for the measured sizes at fee rates from 1 to 250 sat/vB, FULL tier.
+The exogenous-fee skeleton is $946\WU$ for one payout plus $172\WU$ per
+additional payout; $\mathrm{vB} = \lceil \mathrm{WU}/4 \rceil$.
+
+\begin{center}\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+case & vB & 1 & 10 & 25 & 50 & 250 sat/vB \\
+\midrule
+dense \tr{EXIT}$_1$, $D=8$ & 762 & 762 & 7{,}620 & 19{,}050 & 38{,}100 & 190{,}500 \\
+dense \tr{EXIT}$_1$, $D=16$ & 1{,}020 & 1{,}020 & 10{,}200 & 25{,}500 & 51{,}000 & 255{,}000 \\
+dense \tr{EXIT}$_1$, $D=20$ & 1{,}149 & 1{,}149 & 11{,}490 & 28{,}725 & 57{,}450 & 287{,}250 \\
+sparse \tr{EXIT}$_1$, $D=32$, $N=6$ & 1{,}637 & 1{,}637 & 16{,}370 & 40{,}925 & 81{,}850 & 409{,}250 \\
+MID dense \tr{EXIT}$_1$, $D=16$ & 1{,}338 & 1{,}338 & 13{,}380 & 33{,}450 & 66{,}900 & 334{,}500 \\
+MIN dense \tr{EXIT}$_1$, $D=16$ & 1{,}456 & 1{,}456 & 14{,}560 & 36{,}400 & 72{,}800 & 364{,}000 \\
+second exit in \tr{EXIT}$_2$, marginal & 665 & 665 & 6{,}650 & 16{,}625 & 33{,}250 & 166{,}250 \\
+\tr{EVICT\_SUBTREE}$_4$, per leaf (13) & 203 & 203 & 2{,}029 & 5{,}073 & 10{,}146 & 50{,}731 \\
+\tr{EVICT\_SUBTREE}$_6$, per leaf (51) & 158 & 158 & 1{,}580 & 3{,}950 & 7{,}899 & 39{,}495 \\
+plain P2TR to P2TR & 111 & 111 & 1{,}110 & 2{,}775 & 5{,}550 & 27{,}750 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Break-even balances for the dense $D = 16$ exit, i.e.\ the leaf amount at
+which the fee is 1\%, 5\% or 10\% of the balance:
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+sat/vB & fee (sat) & balance at 1\% & at 5\% & at 10\% \\
+\midrule
+2 & 2{,}040 & 204{,}000 & 40{,}800 & 20{,}400 \\
+10 & 10{,}200 & 1{,}020{,}000 & 204{,}000 & 102{,}000 \\
+50 & 51{,}000 & 5{,}100{,}000 & 1{,}020{,}000 & 510{,}000 \\
+250 & 255{,}000 & 25{,}500{,}000 & 5{,}100{,}000 & 2{,}550{,}000 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Operators should size cohorts and minimum leaf amounts so that a sweep
+stays below about 10\% of the smallest leaf at the fee-rate tail they
+intend to survive; the FULL-tier fee-from-payout option saves a constant
+$99\vB$ and is unavailable to channel leaves.

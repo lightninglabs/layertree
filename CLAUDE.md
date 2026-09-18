@@ -133,7 +133,14 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   instead. `cryptocode` defines `\enc`, so the paper's macro is `\encs`.
   Without `cm-super` installed, `microtype` fails with a font-expansion
   error on the bitmap CM fonts. Never invent an ORCID or affiliation
-  detail; the author block carries only what the author supplied.
+  detail; the author block carries only what the author supplied. FC's
+  limit is 15 LNCS pages excluding references and appendices: check where
+  `References` lands with `pdftotext -layout` per page, not the total
+  page count. Low-resolution contact sheets misread full pages as half
+  empty; count `pdftotext` lines per page instead. `\anontrue` in the
+  preamble switches the author block for double-blind submission.
+  `paper/review.md` is a simulated PC review of the first draft and
+  `paper/review-response.md` records what each item changed.
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.

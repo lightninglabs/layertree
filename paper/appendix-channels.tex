@@ -1,0 +1,87 @@
+\section{Channel Leaves: Scripts and Costs}\label{app:channels}
+
+\paragraph{Selectors and context.} Two \op{TX} selectors are used, both
+with the collate flag so that one call leaves one blob:
+$\mathsf{SEL\_CHAN\_UPD}$ selects version, number of inputs, the current
+input's sequence, number of outputs, all output amounts and scripts, and
+lock time; $\mathsf{SEL\_CHAN\_SET}$ adds the current input's amount and
+scriptPubKey. The per-channel context is
+\begin{multline*}
+\mathsf{chan\_id} = H_{\mathsf{chanid}}(m \,\|\, \mathsf{owner\_key} \,\|\, \mathsf{le}_{32}(\mathsf{nonce}) \,\|\, x(P_{\mathsf{chan}}) \\
+\,\|\, \lesf(C) \,\|\, \mathsf{le}_{32}(\mathsf{epoch}) \,\|\, \mathsf{le}_{32}(\mathsf{csv\_delay})),
+\end{multline*}
+with $\mathsf{ctx}_{\mathsf{upd}}$ and $\mathsf{ctx}_{\mathsf{set}}$ two
+tagged hashes of it, so that an update signature never verifies where a
+settlement signature is required. The signed messages are
+$\mathsf{SHA256}(\mathsf{ctx} \,\|\, \op{TX}(\mathsf{SEL}))$.
+
+\paragraph{Update output scripts.} The update transaction for state $n$
+pays its whole input value to an output $U_n$ with internal key
+$P_{\mathsf{chan}}$ (a MuSig2~\cite{musig2,bip327} key of the two parties)
+and the two-leaf taptree of Figure~\ref{fig:chan}. A later update binds to
+$U_n$ through \textsf{REBIND}$_n$, whose lock-time check admits only
+states above $n$; the settlement of state $n$ binds through
+\textsf{SETTLE}$_n$ after $\mathsf{csv\_delay}$ blocks, and only to $U_n$
+because $\mathsf{SEL\_CHAN\_SET}$ commits the spent script, which embeds
+$n$.
+
+\begin{figure}[h]
+\centering\small
+\begin{pchstack}[center]
+\scalebox{0.85}{\procedure{$\mathsf{REBIND}_n$ \quad (tapleaf 0xC2, 81 B)}{
+  \langle S_0 + n + 1 \rangle\ \op{CHECKLOCKTIMEVERIFY}\ \op{DROP} \\
+  \langle \mathsf{SEL\_CHAN\_UPD} \rangle\ \op{TX} \pccomment{collated blob} \\
+  \langle \mathsf{ctx}_{\mathsf{upd}} \rangle\ \op{SWAP}\ \op{CAT}\ \op{SHA256} \\
+  \langle P_{\mathsf{chan}} \rangle\ \op{CHECKSIGFROMSTACK}
+}}
+\pchspace
+\scalebox{0.85}{\procedure{$\mathsf{SETTLE}_n$ \quad (tapleaf 0xC2, 80 B)}{
+  \langle \mathsf{csv\_delay} \rangle\ \op{CHECKSEQUENCEVERIFY}\ \op{DROP} \\
+  \langle \mathsf{SEL\_CHAN\_SET} \rangle\ \op{TX} \pccomment{$+$ input amount, spk} \\
+  \langle \mathsf{ctx}_{\mathsf{set}} \rangle\ \op{SWAP}\ \op{CAT}\ \op{SHA256} \\
+  \langle P_{\mathsf{chan}} \rangle\ \op{CHECKSIGFROMSTACK}
+}}
+\end{pchstack}
+\caption{The two leaves of a channel leaf's update output for state $n$.}
+\label{fig:chan}
+\end{figure}
+
+\paragraph{Transactions.} The update transaction is version 3, lock time
+$S_0 + n$, one input with sequence $\mathtt{0xFFFFFFFD}$, one output of the
+full capacity $C$ to $U_n$ and a zero-value pay-to-anchor output; it pays
+no fee and is valid whether bound to the funding output or to any earlier
+update output, both of value $C$. The settlement is version 3 with input
+sequence $\mathsf{csv\_delay}$, outputs for the two balances and each
+in-flight HTLC, and an anchor; $b_U + b_V + \sum \mathrm{htlc} = C$. Fees
+for both come from a child spending the anchor, so both parties need an
+on-chain fee reserve to close unilaterally. The signing order is
+settlement before update for each state, as in eltoo.
+
+\paragraph{Force-close cost.} At $D = 16$ dense, $\mathsf{csv\_delay} =
+144$ and no HTLCs in flight:
+
+\begin{center}\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+step & vB & earliest \\
+\midrule
+\tr{EXIT}$_1$ by owner or evictor, with fee input and change & $\approx 1{,}020$ & $t$ \\
+update$_n$ bound to the funding output & 153 & $t+1$ \\
+anchor child for update$_n$ & 152 & $t+1$ \\
+settlement$_n$ (two payouts, anchor) & 204 & $t + 1 + \mathsf{csv}$ \\
+anchor child for settlement$_n$ & 152 & $t + 1 + \mathsf{csv}$ \\
+total & $\approx 1{,}680$ & $\approx 146$ blocks \\
+\midrule
+contested rebind to an earlier update output & 161 & per contest \\
+settlement with $h$ HTLC outputs & $204 + 43h$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The lifetime on-chain footprint of a channel leaf that is force-closed is
+therefore about $1{,}680\vB$, against roughly $280\vB$ for a Lightning
+channel's funding transaction plus force close; cooperative closes,
+splices and lease renewals of a channel leaf cost one tree transition or
+nothing. The update transaction cannot be packaged with the exit because
+a version-3 transaction may not spend an unconfirmed version-2 parent, so
+$G_{\mathrm{exit}}$ in \S\ref{sec:channels} is measured to confirmation.

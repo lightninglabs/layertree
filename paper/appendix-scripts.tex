@@ -1,0 +1,122 @@
+\section{Script Listings}\label{app:scripts}
+
+Figure~\ref{fig:step} states the step every transition is built from; the listings below are taken from the reference generators and are what
+the size figures of \S\ref{sec:eval} measure. Stack comments show the
+main stack left to right with the top on the right, and the alt stack
+after a bar.
+
+\begin{figure}[h]
+\centering
+\begin{pcvstack}[center]
+\scalebox{0.9}{\procedure[linenumbering]{$\mathsf{Step}(\pi, n_{\mathrm{old}}, n_{\mathrm{new}}, (r, S))$}{
+  (r_0, S_0) \gets \fold(n_{\mathrm{old}}, \pi) \pccomment{$D-h$ unrolled levels} \\
+  \pcassert r_0 = r \wedge S_0 = S \pccomment{\tr{CHECK\_OLD}: $S$ is input 0's amount} \\
+  (r', S') \gets \fold(n_{\mathrm{new}}, \pi) \pccomment{same siblings, same sums} \\
+  \pcreturn (r', S')
+}}
+\pcvspace
+\scalebox{0.9}{\procedure[linenumbering]{$\mathsf{Final}((r', S'), m)$}{
+  \pcif (r', S') = \Emp_D \pcthen \pcreturn \pccomment{terminal: output 0 free} \\
+  (a_0, \spk_0) \gets \op{TX}(\text{output } 0) \\
+  \pcassert \spk_0 = \TreeSpk(r', m) \wedge a_0 = S'
+}}
+\end{pcvstack}
+\caption{The Merkle-sum step shared by all transitions, and the output rule. A transition is a sequence of steps, each proving its old node against the root the previous step produced (\tr{CHECK\_PREV}), followed by \textsf{Final}. Authorisation and payout checks are specific to each transition.}
+\label{fig:step}
+\end{figure}
+
+\paragraph{One level of the fold (FULL tier, 88 bytes).}
+\tr{LEVEL} advances both accumulators, the old node $(oh, os)$ and the
+new node $(nh, ns)$, by one level using the same direction bit and
+sibling $sc = h \,\|\, \encs(s)$ from the witness. $T$ is the
+64-byte tag prefix of $\Hnode$; \textsf{PAD8} is
+$\langle 2^{64}\rangle\ \op{ADD}$, which yields $\encs$ of the sum by
+Lemma~\ref{lem:enc}.
+
+\begin{lstlisting}
+OP_6 OP_ROLL OP_6 OP_ROLL             # T oh os nh ns dir sc
+OP_SIZE 41 OP_EQUALVERIFY             #   sc is exactly hash || enc64(sum)
+OP_DUP 32 OP_8 OP_SUBSTR              # ... dir sc ss8   (sibling sum, raw le64)
+OP_DUP OP_TOALTSTACK                  #                          | ss8
+OP_3 OP_ROLL OP_TUCK OP_ADD           # T oh os nh dir sc ns ns'
+OP_TOALTSTACK PAD8                    # T oh os nh dir sc ns9    | ss8 ns'
+OP_3 OP_ROLL OP_SWAP OP_CAT           # T oh os dir sc nc        (nc = nh || enc64(ns))
+OP_OVER OP_SWAP OP_3 OP_PICK          # T oh os dir sc sc nc dir
+OP_NOTIF OP_SWAP OP_ENDIF OP_CAT      # T oh os dir sc pre_n     (dir ? sc||nc : nc||sc)
+OP_5 OP_PICK OP_SWAP OP_CAT OP_SHA256 # T oh os dir sc nh'
+OP_TOALTSTACK                         #                          | ss8 ns' nh'
+OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK
+                                      # T oh os dir sc nh' ns' ss8
+OP_5 OP_ROLL OP_TUCK OP_ADD           # T oh dir sc nh' ns' os os'
+OP_TOALTSTACK PAD8                    # T oh dir sc nh' ns' os9  | os'
+OP_5 OP_ROLL OP_SWAP OP_CAT           # T dir sc nh' ns' oc      (oc = oh || enc64(os))
+OP_3 OP_ROLL OP_SWAP OP_4 OP_ROLL     # T nh' ns' sc oc dir
+OP_NOTIF OP_SWAP OP_ENDIF OP_CAT      # T nh' ns' pre_o
+OP_3 OP_PICK OP_SWAP OP_CAT OP_SHA256 # T nh' ns' oh'
+OP_FROMALTSTACK OP_2SWAP              # T oh' os' nh' ns'
+\end{lstlisting}
+
+\paragraph{Checking the old root and writing the new one.}
+After $D$ levels, \tr{CHECK\_OLD} compares the old accumulator with the
+committed state: the sum against input~0's amount and the hash against
+the witness root $r$ parked on the alt stack (itself bound to the input
+scriptPubKey by the prologue). \tr{FINAL} constrains output~0 unless the
+new root is the empty tree.
+
+\begin{lstlisting}
+# CHECK_OLD:  [T oh os nh ns] | ... r  ->  [T nh ns]
+OP_2SWAP <SEL_IN_AMOUNT> OP_TX OP_NUMEQUALVERIFY OP_FROMALTSTACK OP_EQUALVERIFY
+
+# FINAL:  [T nh ns] | m  ->  [1]
+OP_ROT OP_DROP                                   # nh ns
+OP_OVER <E_D.hash> OP_EQUAL
+OP_IF   OP_2DROP OP_FROMALTSTACK OP_DROP OP_1    # terminal: output 0 free
+OP_ELSE OP_SWAP OP_FROMALTSTACK TREE_SPK         # ns spk'
+        OP_0 <SEL_OUT_SINGLE> OP_TX              # ns spk' amt0 spk0
+        OP_ROT OP_EQUALVERIFY OP_NUMEQUAL        # 1
+OP_ENDIF
+\end{lstlisting}
+
+\paragraph{The MID gadget.}
+Under \texttt{0xC0} a computed 4-byte number $x$ is widened to 8 bytes by
+two witness elements $z, w$: the script checks
+$\mathsf{size}(x) + \mathsf{size}(z) = 4$ and $z \,\|\, w = \mathtt{00000000}$
+and uses $x \,\|\, z \,\|\, w$ as $\lesf(x)$. Two such gadgets per level
+and the per-field size checks account for almost all of MID's premium
+over FULL.
+
+\paragraph{The MIN message.}
+The MIN exit assembles the BIP-341 signature message for input~0 with
+hash type \texttt{SIGHASH\_DEFAULT} and checks it as described in
+\S\ref{sec:min}. Fields marked \emph{derived} are computed by the script
+from values it has verified; fields marked \emph{raw} are witness
+elements the script does not constrain but must be presented
+consistently, since the whole message is hashed and compared with the
+real one through \op{CHECKSIG}.
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}p{2.2cm}p{5.4cm}p{4cm}@{}}
+\toprule
+field & source & note \\
+\midrule
+epoch, hash type & constant $\mathtt{00\,00}$ & \texttt{SIGHASH\_DEFAULT} \\
+version, lock time & raw & free \\
+sha\_prevouts & raw & free \\
+sha\_amounts & derived: $\mathsf{SHA256}(\lesf(S) \,\|\, \mathit{amt}_1)$ & $S$ verified by \tr{CHECK\_OLD}; $\mathit{amt}_1$ raw; two inputs exactly \\
+sha\_scriptpubkeys & derived: $\mathsf{SHA256}(\mathtt{22} \,\|\, \TreeSpk(r,m) \,\|\, \mathit{spk}_1)$ & $\TreeSpk$ recomputed; $\mathit{spk}_1$ raw \\
+sha\_sequences & raw & the field the spender grinds \\
+sha\_outputs & derived: $\mathsf{SHA256}(\mathit{out}_0 \,\|\, \mathit{out}_1 \,\|\, \mathit{extra})$ & $\mathit{out}_0 = \lesf(S')\,\|\,\mathtt{22}\,\|\,\TreeSpk(r',m)$, $\mathit{out}_1$ the payout; $\mathit{extra}$ raw \\
+spend type, input index & constant $\mathtt{02\,00000000}$ & script path, no annex, input 0 \\
+tapleaf hash & raw & the leaf being executed \\
+key version, codesep & constant $\mathtt{00\,ffffffff}$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The message is tagged-hashed as $\mathsf{TapSighash}$ and the challenge
+$e = H_{\mathsf{challenge}}(G_x \,\|\, G_x \,\|\, \cdot)$ computed. The
+script verifies $e_{[0,31)} \,\|\, \mathtt{00} = e$ against the
+witness-supplied $e_{[0,31)}$ and finally executes
+\[
+\langle G_x \,\|\, e_{[0,31)} \,\|\, \mathtt{01}\rangle\ \ \langle G_x\rangle\ \ \op{CHECKSIG}.
+\]

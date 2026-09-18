@@ -7,7 +7,7 @@ It proves that the rules the scripts enforce have the properties the
 specification claims, and it makes explicit the cryptographic assumptions
 those properties rest on.
 
-It is deliberately small: about 900 lines of Lean, core library only, no
+It is deliberately small: about 1,300 lines of Lean, core library only, no
 Mathlib. It builds in a few seconds from a bare toolchain.
 
 The off-chain protocol (section 9, Appendix C) is a different kind of
@@ -27,7 +27,7 @@ installed, `lake` picks it up automatically. There are no dependencies to
 fetch.
 
 The build prints one line per headline theorem from `LayerTree/Axioms.lean`
-of the form `'LayerTree.payable' depends on axioms: [propext, Quot.sound]`.
+of the form `'LayerTree.payable' depends on axioms: [propext, Quot.sound]` (one theorem, `join_sound`, also lists `Classical.choice`).
 Any line naming `sorryAx` means an unfinished proof; there are none.
 
 ## What is modelled

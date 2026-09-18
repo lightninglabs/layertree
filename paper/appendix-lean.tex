@@ -4,7 +4,7 @@
 This appendix describes the mechanised model behind \S\ref{sec:security}
 in enough detail that a reader can judge what has been proved, under
 what assumptions, and what has not. The development is about 1{,}300
-lines of Lean~4~\cite{lean4} in six modules and depends on nothing but the
+lines of Lean~4~\cite{lean4} in seven modules and depends on nothing but the
 core library: no Mathlib, no external tactics. It builds in seconds and
 prints an axiom audit for every headline theorem; each depends only on
 \lean{propext}, \lean{Quot.sound} and, in one case, \lean{Classical.choice},
@@ -167,29 +167,68 @@ theorem claim_sound (t : Tree d) (hwf₁ : srcPath.length = d)
 \end{lstlisting}
 
 \lean{payable} is Theorem~\ref{thm:pay}. \lean{join\_sound} uses
-\lean{root\_inj} through \lean{eq\_empty\_of\_root}: since \tr{JOIN}$_h$
+\lean{root\_inj} (via \lean{eq\_empty\_of\_root}): since \tr{JOIN}$_h$
 hard-codes $\Emp_h$ as the old node, the slot it fills is provably the
 empty tree, and the theorem gives the successor root for every tree whose
 root is the grafted node. \lean{claim\_sound} exposes the drained-source
 case: the claim position must be empty in the tree \emph{after} the source
 step, which is why a source reduced to zero may host the claim.
 
-\subsection{How the Invariant Is Established and Maintained}
+\subsection{Assumption Ledger}
 
-The theorems are conditional on the current root being the root of a real
-tree. This invariant is established at creation: a tree is created by
-paying $\TreeSpk(r_0, m)$ with amount equal to the root sum of a tree the
-creator has built and, if it has members, whose members have verified
-their paths against $r_0$ before funding. It is maintained by
-\lean{Steps.sound} for every grounded transition. The one transition that
-is not grounded by construction is a \tr{JOIN} graft, and there the
-invariant is re-established by the joiners' off-chain check rather than by
-the covenant. \lean{Steps.sum} holds without the invariant, so even a tree
-with an ungrounded node cannot inflate; it can only freeze the value under
-that node. This is the precise form of the informal claim that ``the
-operator cannot steal'': it cannot take, and it cannot make provable
-leaves unprovable, but it can graft value that was never provable to begin
-with, and only members who skipped their own check will have paid for it.
+Every hypothesis outside Lean's logic, what it stands for in the
+deployment, and which theorems consume it.
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}p{3.6cm}p{4.2cm}p{3.6cm}@{}}
+\toprule
+hypothesis & stands for & used by \\
+\midrule
+\lean{hLeaf\_inj} & SHA-256 collision resistance + \lean{serializeLeaf\_inj} & \lean{leafNode\_inj}, \lean{root\_inj} \\
+\lean{hNode\_inj} & SHA-256 collision resistance + \lean{serializeNode\_inj} & \lean{root\_inj}, \lean{fold\_sound} \\
+\lean{hNode\_ne\_hLeaf}, \lean{hNode\_ne\_empty}, \lean{hLeaf\_ne\_empty} & distinct tags (random-oracle heuristic) & \lean{leafNode\_inj}, \lean{fold\_sound} \\
+\lean{treeSpk\_inj} & DL on secp256k1 + CR of $\Hstate$, TapTweak & \lean{witness\_root\_binds} \\
+real-tree invariant & creation check + grounded grafts (off-chain) & every theorem stated for a \lean{Tree} \\
+\midrule
+(none) & & \lean{Steps.sum}, \lean{ExitK.no\_inflation}, encodings \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The conservation results use no hypothesis at all, which is the formal
+content of ``the covenant conserves sums whatever it is shown''. The
+collision-resistance assumption on the TapSighash and challenge hashes
+that the MIN tier's constructive introspection adds (\S\ref{sec:min}) is
+outside the model, since the model does not include signature checking.
+
+\subsection{Modules and Effort}
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}lrp{7.5cm}@{}}
+\toprule
+module & lines & contents \\
+\midrule
+\lean{Hash.lean} & 60 & the \lean{HashModel} class \\
+\lean{Leaf.lean} & 100 & \lean{Leaf}, \lean{Leaf.WF}, \lean{Node}, \lean{leafNode}, \lean{leafNode\_inj} \\
+\lean{Tree.lean} & 330 & trees, positions, paths, \lean{fold}, all tree theorems \\
+\lean{Transitions.lean} & 460 & \lean{Step}, \lean{Steps}, the transitions and their theorems \\
+\lean{Binding.lean} & 60 & \lean{BindingModel} and the two binding theorems \\
+\lean{Encoding.lean} & 230 & encodings, serialisation injectivity, \lean{SEQ\_FINAL} \\
+\lean{Axioms.lean} & 35 & the axiom audit \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The only proofs that took real effort were \lean{fold\_sound}, where the
+two-index positions and the domain-separation case for a tip had to be
+found, and \lean{Steps.sound}, where the height of the grounding tree
+must be reconciled with the height the soundness lemma returns, which is
+why \lean{Step} carries its height explicitly. A verified interpreter for
+the tapscript subset would need a model of the stack machine, of
+BIP-441 numerics, of \op{TX}'s serialisations and of the BIP-341 message,
+and a proof that each generated script's execution relation equals the
+corresponding \lean{Step} relation; we estimate it at several thousand
+lines and regard it as the natural sequel.
 
 \subsection{Binding to the Output}
 
@@ -199,9 +238,17 @@ model. A structure \lean{BindingModel} carries an abstract
 injective in both arguments, and two one-line theorems conclude that a
 witness $(r', m')$ passing the scriptPubKey check equals the committed
 $(r, m)$, and that the successor output commits to the computed root under
-the same $m$. In the deployment, injectivity follows from the discrete
-logarithm assumption and collision resistance of $\Hstate$ and the
-taproot tweak hash. Making the hypothesis explicit is the point: it is
+the same $m$. In the deployment the map is
+$(r, m) \mapsto x\bigl(P_r + H_{\mathsf{TapTweak}}(x(P_r) \,\|\, m)\cdot G\bigr)$
+with $P_r = \mathsf{lift\_x}(x(\NUMS + \Hstate(r) G))$, and the two
+x-projections identify a point with its negation. A collision
+$(r, m) \ne (r', m')$ yields one of: $x(P_r) = x(P_{r'})$ with $r \ne r'$,
+which is a collision in $\Hstate$ or the relation
+$\NUMS + tG = -(\NUMS + t'G)$, solvable for the discrete logarithm of
+$\NUMS$; $x(P_r) = x(P_{r'})$ with $m \ne m'$, a collision in
+$H_{\mathsf{TapTweak}}$; or distinct internal keys with $Q = \pm Q'$,
+again a linear relation in $\NUMS$ and $G$ solvable for the discrete
+logarithm of $\NUMS$. Making the hypothesis explicit is the point: it is
 what a future script change must not break.
 
 \subsection{Encodings}
