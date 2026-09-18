@@ -113,10 +113,10 @@ key version, codesep & constant $\mathtt{00\,ffffffff}$ & \\
 \end{tabular}
 \end{center}
 
-The message is tagged-hashed as $\mathsf{TapSighash}$ and the challenge
-$e = H_{\mathsf{challenge}}(G_x \,\|\, G_x \,\|\, \cdot)$ computed. The
-script verifies $e_{[0,31)} \,\|\, \mathtt{00} = e$ against the
-witness-supplied $e_{[0,31)}$ and finally executes
+The message is hashed with the $\mathsf{TapSighash}$ tag and the
+challenge $e$ is computed from $G_x \,\|\, G_x \,\|\, \mathsf{msg}$ under
+the challenge tag. The script verifies $e_{[0,31)} \,\|\, \mathtt{00} = e$
+against the witness-supplied $e_{[0,31)}$ and finally executes
 \[
 \langle G_x \,\|\, e_{[0,31)} \,\|\, \mathtt{01}\rangle\ \ \langle G_x\rangle\ \ \op{CHECKSIG}.
 \]

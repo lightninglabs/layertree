@@ -140,7 +140,12 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   empty; count `pdftotext` lines per page instead. `\anontrue` in the
   preamble switches the author block for double-blind submission.
   `paper/review.md` is a simulated PC review of the first draft and
-  `paper/review-response.md` records what each item changed.
+  `paper/review-response.md` records what each item changed. Appendix E
+  of the paper includes every generated script verbatim from
+  `paper/listings/`, which `paper/reflow_listings.py` derives from
+  `spec/scripts/`; after `python3 tools/gen_listings.py`, run
+  `make listings` (or the script) in `paper/` before building, or the
+  paper's listings go stale.
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.
