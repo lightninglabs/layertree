@@ -16,6 +16,14 @@
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \usepackage[n,operators,sets,adversary,landau,probability,notions,logic,ff,mm,primitives,events,complexity,asymptotics,keys]{cryptocode}
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
+  breaklines=true, breakatwhitespace=true, frame=none, xleftmargin=1em,
+  aboveskip=4pt, belowskip=4pt, extendedchars=true,
+  literate={→}{{$\rightarrow$}}1 {∀}{{$\forall$}}1 {∃}{{$\exists$}}1
+    {∧}{{$\wedge$}}1 {∨}{{$\vee$}}1 {≠}{{$\neq$}}1 {≤}{{$\le$}}1 {×}{{$\times$}}1
+    {π}{{$\pi$}}1 {₁}{{$_1$}}1 {₂}{{$_2$}}1 {′}{{$'$}}1 {⟨}{{$\langle$}}1 {⟩}{{$\rangle$}}1
+    {∈}{{$\in$}}1 {¬}{{$\neg$}}1 {ₙ}{{$_n$}}1}
 \usepackage[hidelinks]{hyperref}
 \usepackage{url}
 
@@ -826,7 +834,7 @@ nearly constant in $D$ because empty siblings are elided.
 \begin{minipage}[b]{0.58\linewidth}\centering
 \begin{tikzpicture}
 \begin{axis}[
-  width=\linewidth, height=5.6cm,
+  width=0.94\linewidth, height=5.6cm,
   xlabel={depth $D$ ($\log_2$ positions)}, ylabel={unilateral exit (vB)},
   xmin=7, xmax=21, ymin=0, ymax=3400,
   xtick={8,12,16,20}, grid=major, grid style={black!12},
@@ -844,10 +852,10 @@ nearly constant in $D$ because empty siblings are elided.
 \end{axis}
 \end{tikzpicture}
 \end{minipage}\hfill
-\begin{minipage}[b]{0.36\linewidth}\centering
+\begin{minipage}[b]{0.38\linewidth}\centering
 \begin{tikzpicture}
 \begin{axis}[
-  width=\linewidth, height=5.6cm,
+  width=0.94\linewidth, height=5.6cm,
   ybar, bar width=7pt,
   symbolic x coords={EXIT$_1$, EXIT$_2$/2, ES$_4$, ES$_6$},
   xtick=data, ylabel={vB per leaf removed}, ymin=0, ymax=1150,
@@ -1003,5 +1011,8 @@ approach and the parameter operators must design around.
 
 \bibliographystyle{splncs04}
 \bibliography{refs}
+
+\appendix
+\input{appendix-lean}
 
 \end{document}

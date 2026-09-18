@@ -1,0 +1,231 @@
+% Appendix: the Lean formalisation. Input from main.tex after \appendix.
+\section{The Lean Formalisation}\label{app:lean}
+
+This appendix describes the mechanised model behind \S\ref{sec:security}
+in enough detail that a reader can judge what has been proved, under
+what assumptions, and what has not. The development is about 1{,}300
+lines of Lean~4~\cite{lean4} in six modules and depends on nothing but the
+core library: no Mathlib, no external tactics. It builds in seconds and
+prints an axiom audit for every headline theorem; each depends only on
+\lean{propext}, \lean{Quot.sound} and, in one case, \lean{Classical.choice},
+and none on \lean{sorryAx}. The code is in the artefact~\cite{layertreerepo}.
+
+\subsection{Design of the Model}
+
+The model states the \emph{rules} of \S\ref{sec:transitions} as
+relations over the objects the scripts manipulate: nodes, paths, amounts.
+It does not model tapscript bytecode, signatures, keys or lock times.
+Authorisation is carried as an opaque proposition, and the input and
+output amounts the scripts read with \op{TX} are parameters. Three
+choices keep the proofs short.
+
+\paragraph{Depth as a type index.} A tree of depth $d$ is
+\lean{Tree d}, a perfect binary tree whose tips are \lean{Option Leaf}.
+Positions are \lean{Pos d h}, paths from depth $d$ down to a subtree of
+height $h$, so that \lean{Pos d 0} addresses a leaf and \lean{Pos d h}
+addresses the slot a \tr{JOIN}$_h$ fills. Indexing by both endpoints
+avoids all arithmetic on depths: the recursions on \lean{getSub},
+\lean{setSub} and \lean{pathSub} pattern-match on the position and the
+tree simultaneously, and the one impossible case (a \lean{cons} step below
+height~$0$) is dismissed by \lean{Pos.height\_le}.
+
+\begin{lstlisting}
+inductive Tree : Nat → Type
+  | tip : Option Leaf → Tree 0
+  | bin {d : Nat} : Tree d → Tree d → Tree (d + 1)
+
+inductive Pos : Nat → Nat → Type
+  | nil {h : Nat} : Pos h h
+  | cons {d h : Nat} : Bool → Pos d h → Pos (d + 1) h
+
+def parent (a b : Node H) : Node H :=
+  ⟨M.hNode a.hash a.sum b.hash b.sum, a.sum + b.sum⟩
+
+def combine (n : Node H) (x : Bool × Node H) : Node H :=
+  if x.1 then parent x.2 n else parent n x.2
+
+def fold (n : Node H) : List (Bool × Node H) → Node H
+  | [] => n
+  | x :: rest => combine (fold n rest) x
+\end{lstlisting}
+
+\paragraph{Root-first paths.} The model orders a sibling path from the
+root down, so \lean{fold} is a structural recursion on the list and the
+soundness proof is a plain induction. The witness of \S\ref{sec:scripts}
+supplies the same pairs leaf-first, because the script consumes the
+deepest level first; nothing in the theorems depends on the order.
+
+\paragraph{Hashes as parameters.} Everything is parametric in a class
+\lean{HashModel} whose fields are the two hash functions, the zero digest,
+and the assumptions the argument uses:
+
+\begin{lstlisting}
+class HashModel (Leaf : Type) (H : outParam Type) where
+  hLeaf : Leaf → H
+  hNode : H → Nat → H → Nat → H
+  empty0 : H
+  hLeaf_inj : ∀ {l₁ l₂}, hLeaf l₁ = hLeaf l₂ → l₁ = l₂
+  hNode_inj : ∀ {a₁ b₁ a₂ b₂ sa₁ sb₁ sa₂ sb₂},
+    hNode a₁ sa₁ b₁ sb₁ = hNode a₂ sa₂ b₂ sb₂ →
+      a₁ = a₂ ∧ sa₁ = sa₂ ∧ b₁ = b₂ ∧ sb₁ = sb₂
+  hNode_ne_hLeaf : ∀ a sa b sb l, hNode a sa b sb ≠ hLeaf l
+  hNode_ne_empty : ∀ a sa b sb, hNode a sa b sb ≠ empty0
+  hLeaf_ne_empty : ∀ l, hLeaf l ≠ empty0
+\end{lstlisting}
+
+Injectivity is collision resistance idealised; the three inequalities are
+the tag separation that distinct BIP-340 tags provide. The encodings
+module discharges the serialisation half of each injectivity field
+(Lemma~\ref{lem:enc}): given SHA-256 collision resistance,
+\lean{serializeLeaf\_inj} and \lean{serializeNode\_inj} are what remains.
+Nothing quantifies the adversary's advantage; a proof under injectivity
+transfers to any adversary that cannot exhibit a collision.
+
+\subsection{Theorem Statements}
+
+The statements below are verbatim from the development. \lean{t.root} is
+the root node of a tree, \lean{t.getSub p} the subtree at position
+\lean{p}, \lean{t.setSub p u} the tree with that subtree replaced by
+\lean{u}, \lean{t.pathSub p} the honest sibling path, and \lean{t.get},
+\lean{t.set}, \lean{t.path} their leaf-level specialisations.
+
+\begin{lstlisting}
+theorem fold_pathSub (t : Tree d) (p : Pos d h) :
+    fold (t.getSub p).root (t.pathSub p) = t.root
+
+theorem fold_setSub (t : Tree d) (p : Pos d h) (s : Tree h) :
+    fold s.root (t.pathSub p) = (t.setSub p s).root
+
+theorem root_inj (t₁ t₂ : Tree d) : t₁.root = t₂.root → t₁ = t₂
+
+theorem fold_sound (t : Tree d) (m : Node H) (π : List (Bool × Node H)) :
+    fold m π = t.root →
+    ∃ (h : Nat) (p : Pos d h), m = (t.getSub p).root ∧ π = t.pathSub p
+\end{lstlisting}
+
+\lean{fold\_sound} is Theorem~\ref{thm:binding}. Its proof is the only
+place the hash axioms are used: a non-empty path claims an internal node,
+so the tree is not a tip by tag separation, and injectivity of
+\lean{hNode} equates both children's hashes and sums with the claimed
+ones. Note that the conclusion equates \emph{nodes}, so the sum the
+prover presented is the true sum of the subtree.
+
+A \lean{Step} is a path, a height, an old node and a new node; it is
+valid for roots $r, r'$ when the old node folds to $r$ and the new node to
+$r'$, and well formed for depth $d$ when the path has $d - h$ entries.
+\lean{Steps} chains steps, each against the root the previous one produced.
+
+\begin{lstlisting}
+theorem Step.sound (t : Tree d) (s : Step H) (r' : Node H)
+    (hwf : s.WF d) (hv : s.valid t.root r') :
+    ∃ p : Pos d s.height, s.old = (t.getSub p).root ∧
+      ∀ (u : Tree s.height), u.root = s.new → r' = (t.setSub p u).root
+
+theorem Steps.sum (h : Steps r ss r') :
+    r'.sum + oldSum ss = r.sum + newSum ss
+
+theorem Steps.sound (t : Tree d) (h : Steps t.root ss r')
+    (hwf : ∀ s ∈ ss, s.WF d) (hg : ∀ s ∈ ss, s.Grounded) :
+    ∃ t' : Tree d, t'.root = r'
+\end{lstlisting}
+
+\lean{Steps.sum} is Theorem~\ref{thm:cons} and needs no hash assumption.
+\lean{Steps.sound} is Theorem~\ref{thm:ground}; \lean{s.Grounded} says
+the new node is the root of some tree of the step's height, which
+leaf-level steps satisfy by construction (\lean{grounded\_of\_leaf}) and
+which a \tr{JOIN} graft must be given.
+
+The transitions are structures bundling the steps with the output rule
+and an opaque authorisation. Their theorems:
+
+\begin{lstlisting}
+theorem payable (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = some l) :
+    (leafStep (t.path p) (some l) none).valid t.root (t.set p none).root ∧
+    (t.set p none).root.sum + l.amount = t.root.sum ∧
+    ∀ q, q ≠ p → (t.set p none).get q = t.get q
+
+theorem ExitK.no_inflation (h : ExitK exact r blocks r' out0) :
+    out0 + payoutSum blocks ≤ r.sum
+
+theorem ExitK.exact_conservation (h : ExitK true r blocks r' out0) :
+    out0 + payoutSum blocks = r.sum
+
+theorem join_sound (t : Tree d) (hwf : path.length + h = d)
+    (hj : Join auth h t.root path new r' out0) :
+    ∃ p : Pos d h, t.getSub p = Tree.empty h ∧
+      out0 = t.root.sum + new.sum ∧
+      ∀ u : Tree h, u.root = new → r' = (t.setSub p u).root
+
+theorem claim_sound (t : Tree d) (hwf₁ : srcPath.length = d)
+    (hwf₂ : claimPath.length = d)
+    (hc : Claim auth t.root srcPath claimPath src claim r' out0) :
+    out0 = t.root.sum ∧
+    ∃ (p₁ p₂ : Pos d 0), t.get p₁ = some src ∧
+      (t.set p₁ (claimedSource src claim.amount)).get p₂ = none ∧
+      r' = ((t.set p₁ (claimedSource src claim.amount))
+              .set p₂ (some claim)).root
+\end{lstlisting}
+
+\lean{payable} is Theorem~\ref{thm:pay}. \lean{join\_sound} uses
+\lean{root\_inj} through \lean{eq\_empty\_of\_root}: since \tr{JOIN}$_h$
+hard-codes $\Emp_h$ as the old node, the slot it fills is provably the
+empty tree, and the theorem gives the successor root for every tree whose
+root is the grafted node. \lean{claim\_sound} exposes the drained-source
+case: the claim position must be empty in the tree \emph{after} the source
+step, which is why a source reduced to zero may host the claim.
+
+\subsection{How the Invariant Is Established and Maintained}
+
+The theorems are conditional on the current root being the root of a real
+tree. This invariant is established at creation: a tree is created by
+paying $\TreeSpk(r_0, m)$ with amount equal to the root sum of a tree the
+creator has built and, if it has members, whose members have verified
+their paths against $r_0$ before funding. It is maintained by
+\lean{Steps.sound} for every grounded transition. The one transition that
+is not grounded by construction is a \tr{JOIN} graft, and there the
+invariant is re-established by the joiners' off-chain check rather than by
+the covenant. \lean{Steps.sum} holds without the invariant, so even a tree
+with an ungrounded node cannot inflate; it can only freeze the value under
+that node. This is the precise form of the informal claim that ``the
+operator cannot steal'': it cannot take, and it cannot make provable
+leaves unprovable, but it can graft value that was never provable to begin
+with, and only members who skipped their own check will have paid for it.
+
+\subsection{Binding to the Output}
+
+\lean{Binding.lean} records the one cryptographic step outside the hash
+model. A structure \lean{BindingModel} carries an abstract
+\lean{treeSpk : H → TapRoot → Spk} with the hypothesis that it is
+injective in both arguments, and two one-line theorems conclude that a
+witness $(r', m')$ passing the scriptPubKey check equals the committed
+$(r, m)$, and that the successor output commits to the computed root under
+the same $m$. In the deployment, injectivity follows from the discrete
+logarithm assumption and collision resistance of $\Hstate$ and the
+taproot tweak hash. Making the hypothesis explicit is the point: it is
+what a future script change must not break.
+
+\subsection{Encodings}
+
+\lean{Encoding.lean} proves the byte-level facts the design leans on, over
+natural-number bytes so that every proof stays within linear arithmetic:
+fixed-width little-endian encodings are injective on their range;
+\lean{minimalLE (n + 2\^{}(8k)) = leBytes k n ++ [1]} for $n < 2^{8k}$,
+which with $k = 8$ is $\encs$ and justifies producing it with one
+addition; the 116-byte leaf and the 82-byte node preimage are injective;
+and the \lean{SEQ\_FINAL} facts of Lemma~\ref{lem:enc}, computed by
+\lean{decide} on a bounded-recursion model of \texttt{CScriptNum}.
+
+\subsection{What Is Not Proved}
+
+The tapscript bytecode is outside the model. That the scripts of
+\S\ref{sec:scripts} implement the relations above is established by
+execution: every script of every tier runs in the simulator against a
+reference tree with positive and negative cases, and the Go generators are
+compared byte for byte with the Python output. A verified interpreter for
+the tapscript subset (BIP-441 numerics, \op{TX}, \op{CHECKSIGFROMSTACK})
+would close this gap and is a project of a different size. Signatures,
+lock times and the transaction structure beyond amounts are
+authorisation-side facts and are deliberately opaque. Concurrency,
+mempool policy, reorganisations and the off-chain protocol are not
+theorems about hash trees and belong to a model checker; a design for a
+P~\cite{plang} model is in the artefact.
