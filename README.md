@@ -20,6 +20,7 @@ test suite fails if a script uses anything else.
 | [`spec/fee-analysis.md`](spec/fee-analysis.md) | Exit and eviction costs at fee rates from 1 to 250 sat/vB |
 | [`spec/test-vectors.json`](spec/test-vectors.json) | Generated test vectors |
 | [`spec/scripts/`](spec/scripts/) | Annotated script listings and the measured size table |
+| [`paper/`](paper/) | LaTeX paper (LNCS format) presenting the construction, tiers, channel leaves, security analysis and measurements; `paper/main.pdf` is the built copy |
 | [`formal/`](formal/README.md) | Lean 4 formalisation of the tree and covenant rules: conservation, proof soundness, payability, encodings (core library only, `lake build`) |
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
@@ -60,6 +61,15 @@ python3 tools/gen_golden.py        # regenerate spec/golden.json for the Go test
 ```
 
 No dependencies beyond the Python 3 standard library.
+
+## Paper
+
+`paper/main.tex` is a conference-style write-up in Springer LNCS format
+(the Financial Cryptography template) using `cryptocode`, `tikz` and
+`pgfplots`. Build with `cd paper && latexmk -pdf main.tex`; it needs a
+TeX Live with `llncs` (bundled in the directory), `cryptocode`, `pgfplots`
+and the `cm-super` fonts. Every number in the paper is taken from
+`spec/scripts/sizes.md` and `spec/fee-analysis.md`.
 
 ## Formal model
 

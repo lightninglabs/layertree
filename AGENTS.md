@@ -23,6 +23,7 @@ opcodes it relies on are proposals, not consensus.
 | Golden vectors linking Python and Go | `spec/test-vectors.json`, `spec/golden.json` | `python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json` |
 | Formal model (Lean 4, core only) | `formal/` | `cd formal && lake build` (prints the axiom audit) |
 | Design history and findings | `design/review.md` (F1..F18), `design/p-model.md`, `notes.md` | none |
+| Paper (LNCS) | `paper/main.tex`, `paper/refs.bib`, built `paper/main.pdf` | `cd paper && latexmk -pdf main.tex` (TeX Live with `cryptocode`, `pgfplots`, `cm-super`; `llncs.cls` and `splncs04.bst` are bundled) |
 
 The Python tools are the executable reference; the Go code is cross-checked
 against them byte for byte. The Lean model proves the *rules* of spec
@@ -79,6 +80,12 @@ section 7 are right; the tests show the *scripts* implement the rules.
 `spec/test-vectors.json` with `python3 tools/layertree_ref.py`, and expect
 every golden vector to change.
 
+**Changing a measured number** (sizes, vbytes, fees, check counts): the
+same figure appears in spec 4.5/8.8/11, `spec/scripts/sizes.md`,
+`spec/fee-analysis.md`, `formal/README.md` where relevant, and the paper
+(`paper/main.tex` tables and prose). Grep for the old value across all of
+them. The paper's Figure 4 coordinates are literal numbers, not generated.
+
 **Changing Appendix C**: keep the "rules that bind the tree layer" list in
 spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
@@ -121,6 +128,12 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   edit, check `lake build`'s exit code, not a grep over its output: a
   failed module silently skips everything downstream, including the axiom
   audit in `Axioms.lean`, so a filtered log can look empty and green.
+* **LaTeX**: `cryptocode`'s `pchstack`/`pcvstack` cannot sit inside
+  `\resizebox`; scale the individual `\procedure` boxes with `\scalebox`
+  instead. `cryptocode` defines `\enc`, so the paper's macro is `\encs`.
+  Without `cm-super` installed, `microtype` fails with a font-expansion
+  error on the bitmap CM fonts. Never invent an ORCID or affiliation
+  detail; the author block carries only what the author supplied.
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.
