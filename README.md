@@ -20,7 +20,7 @@ test suite fails if a script uses anything else.
 | [`spec/fee-analysis.md`](spec/fee-analysis.md) | Exit and eviction costs at fee rates from 1 to 250 sat/vB |
 | [`spec/test-vectors.json`](spec/test-vectors.json) | Generated test vectors |
 | [`spec/scripts/`](spec/scripts/) | Annotated script listings and the measured size table |
-| [`paper/`](paper/) | LaTeX paper (LNCS format) presenting the construction, tiers, channel leaves, security analysis and measurements; `paper/main.pdf` is the built copy |
+| [`paper/`](paper/) | LaTeX paper (LNCS format): ideal functionality, abstract protocol, opcode tiers, UC security theorem with Lean-cited lemmas, channel composition, measurements; `paper/main.pdf` is the built copy, stamped with its git revision |
 | [`formal/`](formal/README.md) | Lean 4 formalisation of the tree and covenant rules: conservation, proof soundness, payability, encodings (core library only, `lake build`) |
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
@@ -67,10 +67,17 @@ No dependencies beyond the Python 3 standard library.
 
 `paper/main.tex` is a conference-style write-up in Springer LNCS format
 (the Financial Cryptography template) using `cryptocode`, `tikz` and
-`pgfplots`. Build with `cd paper && latexmk -pdf main.tex`; it needs a
-TeX Live with `llncs` (bundled in the directory), `cryptocode`, `pgfplots`
-and the `cm-super` fonts. Every number in the paper is taken from
-`spec/scripts/sizes.md` and `spec/fee-analysis.md`.
+`pgfplots`. It presents the system interface first: the ideal
+functionality (section 3), the abstract protocol and its covenant
+predicates (4), the three opcode tiers as realisations (5), a UC security
+theorem whose lemmas cite the Lean theorems inline (6, proof in
+Appendix A), and channel leaves as a composition result (7). Build with
+`cd paper && make`, which stamps the PDF with the git revision it was
+built from (`paper/version.tex`, shown in the title footnote and the
+running footer); it needs a TeX Live with `llncs` (bundled in the
+directory), `cryptocode`, `pgfplots` and the `cm-super` fonts. Every
+number in the paper is taken from `spec/scripts/sizes.md` and
+`spec/fee-analysis.md`.
 
 ## Formal model
 

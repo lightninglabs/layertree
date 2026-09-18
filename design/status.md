@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-09-17 (spec 0.6.1, Appendix C 0.2.0).
+Last updated 2026-09-18 (spec 0.6.1, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 
@@ -13,6 +13,7 @@ Last updated 2026-09-17 (spec 0.6.1, Appendix C 0.2.0).
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 30 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
+| Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). Further realisations (CCV tier, native Merkle-sum opcode) are issue #3. |
 
 ## Decision log
 
@@ -49,6 +50,13 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
    claims are theorems about hash trees), P for the off-chain protocol (the
    failures are interleavings). Tapscript bytecode is verified by
    execution, not proof.
+10. **Paper is functionality first** (issue #4). The reader meets the
+    ideal functionality (interfaces, adversarial influence, the liveness
+    bound as a function of tree size), then the covenant predicates, then
+    the tiers as realisations, then one UC theorem whose lemmas cite the
+    Lean theorems inline. The tree-output binding stays in the abstract
+    protocol because every tier needs it; how it is recomputed is per
+    tier. The PDF is stamped with the git revision it describes.
 
 ## Assumptions that could change the design
 
