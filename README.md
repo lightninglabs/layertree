@@ -57,6 +57,7 @@ python3 tools/test_scripts.py      # execute all scripts, both profiles
 python3 tools/test_mid.py          # MID tier (0xC0 numerics), both profiles
 python3 tools/test_min.py          # MIN tier EXIT_1 with sighash grinding
 python3 tools/gen_listings.py      # regenerate spec/scripts/
+python3 tools/gen_structured.py    # regenerate spec/scripts/structured/ (macro-collapsed)
 python3 tools/gen_golden.py        # regenerate spec/golden.json for the Go tests
 ```
 

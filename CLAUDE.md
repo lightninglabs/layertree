@@ -141,11 +141,11 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   preamble switches the author block for double-blind submission.
   `paper/review.md` is a simulated PC review of the first draft and
   `paper/review-response.md` records what each item changed. Appendix E
-  of the paper includes every generated script verbatim from
-  `paper/listings/`, which `paper/reflow_listings.py` derives from
-  `spec/scripts/`; after `python3 tools/gen_listings.py`, run
-  `make listings` (or the script) in `paper/` before building, or the
-  paper's listings go stale.
+  of the paper includes every script from `spec/scripts/structured/`,
+  which `tools/gen_structured.py` produces by collapsing the compiled
+  scripts back into named macro calls (round-trip verified against the
+  bytes); run it after any generator change, together with
+  `tools/gen_listings.py`, or the paper's listings go stale.
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.
@@ -157,7 +157,8 @@ python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
 python3 tools/test_scripts.py      # FULL tier, both profiles (272 checks)
 python3 tools/test_mid.py          # MID tier (59 checks)
 python3 tools/test_min.py          # MIN tier (7 checks)
-python3 tools/gen_listings.py      # spec/scripts/
+python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
+python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
 python3 tools/gen_golden.py        # spec/golden.json
 python3 tools/fee_analysis.py      # spec/fee-analysis.md tables
 GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./... && gofmt -l .

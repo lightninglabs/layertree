@@ -1,6 +1,6 @@
 all: main.pdf
-listings: reflow_listings.py ../spec/scripts/*.txt
-	python3 reflow_listings.py
+listings: ../tools/gen_structured.py ../tools/layertree_scripts.py ../tools/layertree_mid.py ../tools/layertree_min.py
+	python3 ../tools/gen_structured.py
 main.pdf: main.tex refs.bib appendix-*.tex listings
 	latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
 clean:

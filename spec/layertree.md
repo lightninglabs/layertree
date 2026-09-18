@@ -1793,6 +1793,10 @@ exits in a batch" as `EXIT_K` (section 13).
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, and the size table covering both
   profiles, both compression encodings and all tiers.
+  `spec/scripts/structured/` holds the same scripts collapsed into the
+  named macros of section 8 (one call per line, with `MACROS_*.txt`
+  defining each macro per tier), produced by `tools/gen_structured.py`
+  and verified to expand to the same bytes.
 * `spec/golden.json` — compiled scripts for every tier, the taptree root of
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.

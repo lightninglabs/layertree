@@ -1,0 +1,12 @@
+# JOIN_0 (sparse, D=8): 1876 bytes
+# macros in CAPITALS are defined in MACROS_FULL.txt; raw opcodes are wrapped and indented
+
+PROLOGUE
+<OPERATOR_KEY> OP_CHECKSIGVERIFY OP_SIZE 116 OP_EQUALVERIFY
+LEAF_POS
+SPARSE_SETUP
+LEAF_ACC
+<TAG_NODE> OP_ROT OP_ROT <EMPTY_0> OP_0 OP_2SWAP
+LEVEL_S(k)  for k = 0 to 7
+CHECK_OLD_S
+FINAL
