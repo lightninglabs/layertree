@@ -309,14 +309,158 @@ def evict_subtree_script_ccv(depth, height, operator_key):
     return s + check_old_ccv("D") + final_ccv(depth)
 
 
+# ------------------------------------------------------- 0xC0 numerics --
+# The c0 variant is MID's machinery (tools/layertree_mid.py) with the
+# three key-binding regions replaced by CCV calls; the fold, the PADZ
+# padding, the seven-element leaf and the sparse position accumulator are
+# MID's, reused verbatim. Sparse c0 trees are limited to D <= 31, as MID
+# is (the teardown compares the folded accumulator with the 32-bit
+# pos_lo; spec 4.5).
+import layertree_mid as M  # noqa: E402  (imported here to keep c2 imports lean)
+
+
+def _check_old_ccv0(sparse):
+    """MID's check_old with the root comparison replaced by CHECK_INPUT.
+
+    MID's check_old leaves [.., nh, ns, oh] with oh bare on top after the
+    input-amount equality (and the sparse teardown); its trailing
+    FROMALTSTACK/EQUALVERIFY compared a parked witness root, which the
+    CCV tier does not carry. The four CCV operands go on top of oh, and
+    the call consumes all five.
+    """
+    return M.check_old(sparse)[:-2] + ccv_check_input()
+
+
+def _final_ccv0(depth):
+    """MID's final with output 0's spk check replaced by the CCV assign
+    call and the amount compared as bytes (le64(ns) vs the OP_TX amount).
+
+    Entry [zf wf T nh ns] (zf wf: the final pads, as in MID). Terminal
+    exits drop the pads; the assign-mode floor plus the byte equality
+    keep rule 5 exactly as in the c2 tier.
+    """
+    e_d = lt.empty_node(depth)[0]
+    return (["OP_ROT", "OP_DROP",
+             "OP_OVER", e_d, "OP_EQUAL",
+             "OP_IF", "OP_2DROP", "OP_2DROP", "OP_1",
+             "OP_ELSE"] + M.roll(3, 2) + M.le64() +    # nh le64(ns)
+            ["OP_TOALTSTACK",                          # nh            | le64(ns)
+             # CCV: data = nh, index 0, pk empty, taptree -1, mode assign.
+             "OP_0", b"", MINUS1, 0, CCV,
+             "OP_FROMALTSTACK",                        # le64(ns)
+             "OP_0", SEL_OUT_SINGLE, "OP_TX", "OP_DROP", "OP_EQUALVERIFY",
+             "OP_1", "OP_ENDIF"])
+
+
+def _pay_ccv0(out_index):
+    """The exit-block payout under c0: replaces MID's 13-token spk check
+    (OP_TX read + P2TR_PREFIX CAT EQUALVERIFY) with the CCV DEDUCT call
+    on the leaf's exit-key element (MID's leaf travels as ten elements
+    with ek seven deep under the OP_TX pair) plus the exact amount
+    compare. is_evict is parked by the block's opening DUP/TOALTSTACK and
+    is popped by the trailing FROMALTSTACK/DROP as in MID.
+    """
+    return [out_index, SEL_OUT_SINGLE, "OP_TX", "OP_DROP",   # leaf10 amt1
+            "OP_TOALTSTACK",                                  # leaf10 | amt1
+            b"", out_index,                                   # data index
+            10, "OP_PICK",                                   # ek element (pk slot)
+            b"", 2, CCV,                                      # taptree, mode DEDUCT
+            "OP_FROMALTSTACK",                                # leaf10 amt1
+            10, "OP_PICK", "OP_EQUALVERIFY",                  # amt1 == leaf amt8
+            "OP_FROMALTSTACK", "OP_DROP"]                     # leaf10 (is_evict gone)
+
+
+def _exit_block_ccv0(sparse, depth, out_index):
+    """MID's exit block with the payout spk check replaced by _pay_ccv0.
+    Exact payouts only, as in the whole tier."""
+    s = ["OP_DUP", "OP_TOALTSTACK", "OP_IF",
+         3, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
+         10, "OP_PICK", "OP_CHECKSIGVERIFY"] + M.padz() + [
+         6, "OP_PICK", "OP_EQUALVERIFY",
+         "OP_ELSE", 11, "OP_PICK", "OP_CHECKSIGVERIFY", "OP_2DROP", "OP_DROP",
+         "OP_ENDIF"]                                          # leaf(10)
+    s += _pay_ccv0(out_index)                                 # leaf(10)
+    s += M.leaf_join() + M.tagged(F.LEAF_PREFIX) + ["OP_FROMALTSTACK"]  # oh os
+    if sparse:
+        s += M.roll(5, 4) + M.sparse_setup()
+    s += [F.NODE_PREFIX, "OP_ROT", "OP_ROT", lt.EMPTY_LEAF_HASH, "OP_0"]
+    return s + M.levels(sparse, depth)
+
+
+def _exit_script_ccv0(depth, k=1, sparse=False):
+    """EXIT_K under c0: MID's chained-block structure, first block checked
+    by _check_old_ccv0, chained blocks by M.check_prev, then _final_ccv0.
+
+    Witness layout: MID's minus r and m, i.e. bottom..top
+    [zf wf] + [chained blocks: levels + leaf10 + ea_num ze we sig is_evict]
+    + [first block: zi wi + levels + leaf10 + ea_num ze we sig is_evict].
+    """
+    s = _exit_block_ccv0(sparse, depth, 1) + _check_old_ccv0(sparse)
+    for i in range(2, k + 1):
+        s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]
+        s += _exit_block_ccv0(sparse, depth, i) + M.check_prev(sparse)
+    return s + _final_ccv0(depth)
+
+
+def _join_script_ccv0(depth, height, operator_key, sparse=False, k=1):
+    s = [operator_key, "OP_CHECKSIGVERIFY"]
+    s += M.join_block(sparse, depth, height) + _check_old_ccv0(sparse)
+    for _ in range(2, k + 1):
+        s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]
+        s += M.join_block(sparse, depth, height) + M.check_prev(sparse)
+    return s + _final_ccv0(depth)
+
+
+def _update_script_ccv0(depth, operator_key, sparse=False, exit_consent=False):
+    """UPDATE / UPDATE^x under c0: MID's update with the same two checks
+    replaced. MID's witness order minus r and m."""
+    s = []
+    if exit_consent:
+        s += [21, "OP_PICK", "OP_CHECKSIGVERIFY"]
+    s += [operator_key, "OP_CHECKSIGVERIFY", 18, "OP_PICK", "OP_CHECKSIGVERIFY"]
+    if sparse:
+        s += [8, "OP_PICK", 19, "OP_PICK", "OP_EQUALVERIFY",
+              5, "OP_PICK", 16, "OP_PICK", "OP_EQUALVERIFY"]
+    s += M.leaf_join() + ["OP_TOALTSTACK"]
+    s += M.leaf_join() + M.tagged(F.LEAF_PREFIX)
+    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK",
+          "OP_SWAP"] + M.tagged(F.LEAF_PREFIX) + ["OP_SWAP"]
+    if sparse:
+        s += M.roll(7, 4) + M.sparse_setup()
+    s += [F.NODE_PREFIX] + M.roll(4, 4)
+    s += M.levels(sparse, depth)
+    return s + _check_old_ccv0(sparse) + _final_ccv0(depth)
+
+
+def _evict_subtree_script_ccv0(depth, height, operator_key):
+    """EVICT_SUBTREE_h (dense) under c0: the c2 tier's fixed post-order
+    program adapted to MID's element leaves. Each leaf slot's witness is
+    the ten leaf elements plus the eviction pads; empty slots contribute
+    one empty element. The payout reuses _pay_ccv0 with the dynamic
+    output index taken from the altstack."""
+    raise NotImplementedError(
+        "EVICT_SUBTREE under c0 needs an element-based leaf step; see the "
+        "tier's follow-up (the c2 tier covers the sweep shape)")
+
+
 def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
-                    profile="D", join_ks=(2,)):
+                    profile="D", join_ks=(2,), numeric="c2"):
     """Ordered dict name -> token list for a CCV-tier tree's taptree.
 
     CLAIM is not generated (spec 4.6): the FULL-tier voucher message binds
     `m`, which no longer exists in the CCV-tier witness; vouchers would
     need a redefined message and are left as the tier's documented follow-up.
     """
+    c0 = numeric == "c0"
+    if c0:
+        sparse = profile == "S"
+        out = {f"EXIT_{k}": _exit_script_ccv0(depth, k, sparse) for k in exit_ks}
+        for h in (join_heights if profile == "D" else (0,)):
+            out[f"JOIN_{h}"] = _join_script_ccv0(depth, h, operator_key, sparse)
+        for k in join_ks:
+            out[f"JOINK_{k}"] = _join_script_ccv0(depth, 0, operator_key, sparse, k)
+        out["UPDATE"] = _update_script_ccv0(depth, operator_key, sparse)
+        return out
     out = {f"EXIT_{k}": exit_script_ccv(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):
         out[f"JOIN_{h}"] = join_script_ccv(depth, h, operator_key, profile)

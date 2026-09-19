@@ -427,9 +427,15 @@ transition are unchanged.
 
 The tier needs one introspection read per constrained amount (the three
 `OP_TX` calls above), so it does not remove `OP_TX`; it removes the EC ops
-draft and `OP_TWEAKADD` from the dependency list. Reference:
-`tools/layertree_ccv.py` (both profiles, dense and sparse), tests in
-`tools/test_ccv.py`, Go mirror in `script/ccv.go`.
+draft and `OP_TWEAKADD` from the dependency list. It comes in both
+numerics: `0xC2` (BIP-441, the sizes above) and, with the MID tier's
+encoding (seven-element leaves, `PADZ`, sums below 2^31 sat, sparse
+`D ≤ 31`), `0xC0`; the CCV binding itself is numerics-independent. In
+`0xC0` the tier covers `EXIT_K`, `JOIN_h`, `JOINK_K` and `UPDATE`
+(`EVICT_SUBTREE_h` needs an element-based leaf step and is left as the
+tier's follow-up there). Reference: `tools/layertree_ccv.py` (both
+profiles, both numerics), tests in `tools/test_ccv.py`, Go mirror in
+`script/ccv.go`.
 
 ### 4.7 Policy assumptions
 
@@ -2186,7 +2192,9 @@ exits in a batch" as `EXIT_K` (section 13).
   occupied position, or against a stale root all fail), 422 checks in
   total. Run: `python3 tools/test_scripts.py`.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
-  (dense at `D = 4` and `16`, sparse at `D = 8` and `32`), 102 checks:
+  and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`
+  (102 checks), and `0xC0` at dense `D = 4`/`16` and sparse `D = 31`
+  (the MID tier's `D ≤ 31` limit applies, 4.5), 139 checks in total:
   the positive owner, evictor and terminal exits, subtree and
   single-leaf joins, batched joins, `UPDATE` and `EXIT_2`, cohort sweeps
   (`EVICT_SUBTREE_1`), and negatives for the CCV-specific failure modes

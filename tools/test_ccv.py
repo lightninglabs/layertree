@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import layertree_ref as lt  # noqa: E402
 import layertree_scripts as ls  # noqa: E402
 import layertree_ccv as C  # noqa: E402
+import layertree_mid as M  # noqa: E402
 from script_sim import (Interp, ScriptError, TxContext, assemble, pubkey_x,  # noqa: E402
                         schnorr_sign)
 
@@ -468,13 +469,227 @@ def test_all(depth, profile, verbose=True):
     return costs
 
 
+# ----------------------------------------------------------- 0xC0 numerics --
+
+C0_OPCODES = (BIP342_OPS | BIP441_OPS - {"OP_SUBSTR", "OP_LEFT", "OP_RIGHT", "OP_AND", "OP_DOWNSHIFT"}
+              | OPTX_OPS | CCV_OPS | {"OP_CAT"})
+
+
+class WorldC0:
+    """The CCV tier under tapleaf 0xC0 numerics: MID's witness shapes minus
+    r and m, the same CCV binding as the c2 tier."""
+
+    def __init__(self, depth, profile):
+        self.depth, self.sparse = depth, profile == "S"
+        self.op_sk = sk("operator"); self.op_pk = pubkey_x(self.op_sk)
+        self.scripts = C.all_scripts_ccv(depth, self.op_pk, (0, 2), (1, 2), profile, (2,),
+                                         numeric="c0")
+        for name, toks in self.scripts.items():
+            bad = {t for t in toks if isinstance(t, str)} - C0_OPCODES
+            check(not bad, f"c0 {name}: opcodes outside the c0 CCV set: {sorted(bad)}")
+        self.compiled = {k: assemble(v, mode="c0") for k, v in self.scripts.items()}
+        self.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in self.compiled.values()])
+        self.tree = lt.Tree(depth)
+
+    def slot(self, leaf, want=None):
+        return M.position(leaf, self.depth) if self.sparse else want
+
+    def pos(self, leaf):
+        return M.w_pos(leaf) if self.sparse else []
+
+    def pads_for(self, total):
+        return list(M.pad(total))
+
+    def spk(self, root):
+        return lt.tree_spk_ccv(root[0], self.m)
+
+    def ctx(self, outputs, extra_in, locktime=0):
+        root = self.tree.root()
+        return TxContext([(root[1], self.spk(root)), extra_in], outputs, locktime=locktime,
+                         internal_key=lt.ccv_internal_key(root[0]), taptree_root=self.m)
+
+    def run(self, name, wit, ctx):
+        it = Interp(ctx, mode="c0")
+        it.run(self.compiled[name], wit)
+        return it
+
+    def clone(self):
+        t = lt.Tree(self.depth); t.leaves = dict(self.tree.leaves); return t
+
+
+def test_c0(depth, profile):
+    """The c0-numerics CCV suite: the c2 scenarios over MID's witnesses."""
+    S = profile == "S"
+    w = WorldC0(depth, profile)
+    costs = {}
+
+    def mk(label, amount, evictor=None, evict_after=0, nonce=None, seq=0):
+        if nonce is None:
+            nonce = int.from_bytes(lt.sha256(label.encode())[:4], "little")
+        lf = lt.Leaf(amount, pubkey_x(sk(label + "-exit")), pubkey_x(sk(label + "-owner")),
+                     evictor if evictor else lt.NUMS_X, evict_after, nonce, seq)
+        while S and not M.pos_ok(lf):
+            lf.nonce = (lf.nonce + 1) & 0xffffffff
+        return lf
+
+    def exit_witness(leaf, slot, sig, is_evict, root, new_total):
+        path = w.tree.path(slot)
+        # bottom..top: [zf wf] [zi wi] [levels] [pos] leaf(10)+pads sig is_evict
+        return (list(M.pad(new_total)) + w.pads_for(root[1]) +
+                M.w_levels(path, leaf.node(), lt.empty_node(0), S) +
+                w.pos(leaf) + M.w_leaf_exit(leaf) + [sig, is_evict])
+
+    alice = mk("alice", 50_000)
+    bob = mk("bob", 125_000, w.op_pk, 800_000)
+    oper = mk("operator", 1_000_000)
+    s_a, s_b, s_o = w.slot(alice, 0), w.slot(bob, 5), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_a: alice, s_b: bob, s_o: oper}
+
+    # EXIT_1 owner (exact payout)
+    root = w.tree.root()
+    t1 = w.clone(); del t1.leaves[s_b]; r1 = t1.root()
+    outputs = [(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key)), (400, P2WPKH)]
+    ctx = w.ctx(outputs, (5_000, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+    wit = exit_witness(bob, s_b, sig, b"", root, r1[1])
+    it = w.run("EXIT_1", wit, ctx)
+    costs["EXIT_1 (owner, c0)"] = (it, len(w.compiled["EXIT_1"]), sum(len(x) for x in wit))
+    # negatives: inexact payout, forged leaf, wrong taptree on output 0.
+    bad = list(outputs); bad[1] = (bob.amount - 1, lt.p2tr_spk(bob.exit_key))
+    ctxb = w.ctx(bad, (5_000, P2WPKH)); sigb = schnorr_sign(ctxb.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", exit_witness(bob, s_b, sigb, b"", root, r1[1]), ctxb),
+                "c0: inexact payout")
+    fake = bob.with_amount_seq(bob.amount + 1, 0)
+    expect_fail(lambda: w.run("EXIT_1", exit_witness(fake, s_b, sig, b"", root, r1[1]), ctx),
+                "c0: forged leaf")
+    badt = list(outputs); badt[0] = (r1[1], lt.tree_spk_ccv(r1[0], lt.sha256(b"other-tree")))
+    ctxt = w.ctx(badt, (5_000, P2WPKH)); sigt = schnorr_sign(ctxt.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", exit_witness(bob, s_b, sigt, b"", root, r1[1]), ctxt),
+                "c0: output 0 under a wrong taptree")
+
+    # EXIT_1 evict
+    ctx_e = w.ctx(outputs[:2], (5_000, P2WPKH), locktime=800_000)
+    esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
+    wit_e = exit_witness(bob, s_b, esig, b"\x01", root, r1[1])
+    it = w.run("EXIT_1", wit_e, ctx_e)
+    costs["EXIT_1 (evict, c0)"] = (it, len(w.compiled["EXIT_1"]), sum(len(x) for x in wit_e))
+    ctx_early = w.ctx(outputs[:2], (5_000, P2WPKH), locktime=799_999)
+    esig2 = schnorr_sign(ctx_early.sighash(), w.op_sk)
+    expect_fail(lambda: w.run("EXIT_1", exit_witness(bob, s_b, esig2, b"\x01", root, r1[1]), ctx_early),
+                "c0: early evict")
+    w.tree = t1
+
+    # terminal exit on a solo tree
+    solo = mk("solo", 77_000)
+    main_tree = w.clone()
+    w.tree = lt.Tree(depth); w.tree.leaves = {w.slot(solo, 2): solo}
+    root = w.tree.root()
+    spath = w.tree.path(w.slot(solo, 2))
+    outputs = [(600, P2WPKH), (solo.amount, lt.p2tr_spk(solo.exit_key))]
+    ctx = w.ctx(outputs, (1_000, P2WPKH))
+    ssig = schnorr_sign(ctx.sighash(), sk("solo-owner"))
+    wit = (list(M.pad(solo.amount)) + w.pads_for(root[1]) +
+           M.w_levels(spath, solo.node(), lt.empty_node(0), S) +
+           w.pos(solo) + M.w_leaf_exit(solo) + [ssig, b""])
+    it = w.run("EXIT_1", wit, ctx)
+    costs["EXIT_1 (terminal, c0)"] = (it, len(w.compiled["EXIT_1"]), sum(len(x) for x in wit))
+    w.tree = main_tree
+    root = w.tree.root()
+
+    # JOIN (dense: subtree h=2; sparse: single leaf)
+    carol = mk("carol", 60_000, w.op_pk, 900_000)
+    dave = mk("dave", 45_000, w.op_pk, 900_000)
+    if not S and depth >= 4:
+        h, idx = 2, 2
+        jpath = w.tree.path(idx << h, height=h)
+        t2 = w.clone(); lt.apply_join(t2, h, idx, {0: carol, 3: dave})
+        new_node, r2 = t2.subtree(h, idx), t2.root()
+        ctx = w.ctx([(r2[1], w.spk(r2)), (900, P2WPKH)], (new_node[1] + 2_000, P2WPKH))
+        osig = schnorr_sign(ctx.sighash(), w.op_sk)
+        wit = (list(M.pad(r2[1])) + w.pads_for(root[1]) +
+               M.w_levels(jpath, lt.empty_node(h), new_node, False, h) +
+               [new_node[0], M.scriptnum(new_node[1]), osig])
+        it = w.run("JOIN_2", wit, ctx)
+        costs["JOIN_2 (c0)"] = (it, len(w.compiled["JOIN_2"]), sum(len(x) for x in wit))
+        usig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+        expect_fail(lambda: w.run("JOIN_2", wit[:-1] + [usig], ctx), "c0: join without operator")
+        w.tree = t2
+        s_carol, s_dave = (idx << h), (idx << h) + 3
+    else:
+        for lf in (carol, dave):
+            root = w.tree.root()
+            slot = w.slot(lf, 3)
+            jpath = w.tree.path(slot)
+            t2 = w.clone(); t2.leaves[slot] = lf
+            r2 = t2.root()
+            ctx = w.ctx([(r2[1], w.spk(r2))], (lf.amount + 500, P2WPKH))
+            osig = schnorr_sign(ctx.sighash(), w.op_sk)
+            wit = (list(M.pad(r2[1])) + w.pads_for(root[1]) +
+                   M.w_levels(jpath, lt.empty_node(0), lf.node(), True) +
+                   w.pos(lf) + M.w_leaf(lf) + [osig])
+            it = w.run("JOIN_0", wit, ctx)
+            costs["JOIN_0 (c0)"] = (it, len(w.compiled["JOIN_0"]), sum(len(x) for x in wit))
+            w.tree = t2
+        s_carol, s_dave = w.slot(carol), w.slot(dave)
+
+    # UPDATE
+    root = w.tree.root()
+    upath = w.tree.path(s_a)
+    alice2 = alice.with_amount_seq(80_000, 1)
+    t4 = w.clone(); t4.leaves[s_a] = alice2
+    r4 = t4.root()
+    ctx = w.ctx([(r4[1], w.spk(r4))], (30_700, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    wit = (list(M.pad(r4[1])) + w.pads_for(root[1]) +
+           M.w_levels(upath, alice.node(), alice2.node(), S) +
+           w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice2) + [asig, osig])
+    it = w.run("UPDATE", wit, ctx)
+    costs["UPDATE (c0)"] = (it, len(w.compiled["UPDATE"]), sum(len(x) for x in wit))
+    expect_fail(lambda: w.run("UPDATE", wit[:-1] + [osig], ctx), "c0: update without owner")
+    w.tree = t4
+
+    # EXIT_2 (carol owner + dave evict)
+    if "EXIT_2" in w.compiled:
+        root = w.tree.root()
+        t7 = w.clone()
+        path_c = t7.path(s_carol); del t7.leaves[s_carol]
+        path_d = t7.path(s_dave); del t7.leaves[s_dave]
+        r7 = t7.root()
+        outputs = [(r7[1], w.spk(r7)), (carol.amount, lt.p2tr_spk(carol.exit_key)),
+                   (dave.amount, lt.p2tr_spk(dave.exit_key))]
+        ctx = w.ctx(outputs, (5_000, P2WPKH), locktime=900_000)
+        csig = schnorr_sign(ctx.sighash(), sk("carol-owner"))
+        dsig = schnorr_sign(ctx.sighash(), w.op_sk)
+        b2 = (M.w_levels(path_d, dave.node(), lt.empty_node(0), S) +
+              w.pos(dave) + M.w_leaf_exit(dave) + [dsig, b"\x01"])
+        b1 = (w.pads_for(root[1]) + M.w_levels(path_c, carol.node(), lt.empty_node(0), S) +
+              w.pos(carol) + M.w_leaf_exit(carol) + [csig, b""])
+        wit = list(M.pad(r7[1])) + b2 + b1
+        it = w.run("EXIT_2", wit, ctx)
+        costs["EXIT_2 (c0)"] = (it, len(w.compiled["EXIT_2"]), sum(len(x) for x in wit))
+        stale = (M.w_levels(w.tree.path(s_dave), dave.node(), lt.empty_node(0), S) +
+                 w.pos(dave) + M.w_leaf_exit(dave) + [dsig, b"\x01"])
+        expect_fail(lambda: w.run("EXIT_2", list(M.pad(r7[1])) + stale + b1, ctx),
+                    "c0: EXIT_2 stale second path")
+    return costs
+
+
 def main():
     global FAILS, CHECKS
     print("CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY)")
     for depth, profile in ((4, "D"), (16, "D"), (8, "S"), (32, "S")):
         before = CHECKS
         test_all(depth, profile)
-        print(f"  {profile}/{depth}: {CHECKS - before} checks")
+        print(f"  {profile}/{depth} (c2): {CHECKS - before} checks")
+    # 0xC0 numerics: dense D=4/16; sparse D=31 (MID's D <= 31 limit, spec 4.5).
+    for depth, profile in ((4, "D"), (16, "D"), (31, "S")):
+        before = CHECKS
+        try:
+            test_c0(depth, profile)
+        except Exception as e:
+            check(False, f"c0 {profile}/{depth}: {str(e)[:80]}")
+        print(f"  {profile}/{depth} (c0): {CHECKS - before} checks")
     print(f"\n{CHECKS} checks, {FAILS} failures")
     return 1 if FAILS else 0
 
