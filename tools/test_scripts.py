@@ -707,6 +707,89 @@ def test_claim_h(depth, profile, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_swap(depth, verbose=True):
+    """One payment hash settling both legs of a swap (spec 13.9).
+
+    The tree leg is a hash-locked voucher (7.5.1) redeemed with `CLAIM^h`;
+    the channel leg is an `HTLC_SUCCESS` output of a channel-leaf settlement
+    transaction (Appendix C.4.1). The point of the test is that a single
+    32-byte preimage satisfies both, which is what makes the exchange
+    atomic: whichever leg is resolved first publishes the preimage, and the
+    other leg can then be resolved with it.
+    """
+    w = World(depth, "D")
+    toks = ls.claim_script(depth, "D", hashlock=True)
+    w.compiled = dict(w.compiled); w.compiled["CLAIM_H"] = assemble(toks)
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    oper = mk_leaf("operator", 1_000_000)
+    alice = mk_leaf("alice", 50_000)
+    s_oper, s_alice = w.slot(oper, (1 << depth) - 1), w.slot(alice, 0)
+    w.tree.leaves = {s_oper: oper, s_alice: alice}
+
+    # One secret for both legs.
+    preimage = lt.sha256(b"swap-preimage")
+    payment_hash = lt.sha256(preimage)
+
+    # ---- channel leg: HTLC_SUCCESS and HTLC_TIMEOUT (C.4.1) ----
+    y_sk, y_pk = sk("htlc-claim"), pubkey_x(sk("htlc-claim"))
+    x_sk, x_pk = sk("htlc-offer"), pubkey_x(sk("htlc-offer"))
+    cltv = 900_000
+    succ = ls.htlc_success_script(payment_hash, y_pk)
+    tmo = ls.htlc_timeout_script(cltv, x_pk)
+    for name, t in (("HTLC_SUCCESS", succ), ("HTLC_TIMEOUT", tmo)):
+        bad = {x for x in t if isinstance(x, str)} - ALLOWED_OPCODES
+        check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    succ_c, tmo_c = assemble(succ), assemble(tmo)
+    check(len(succ_c) == 73, f"HTLC_SUCCESS is 73 bytes (C.4.1), got {len(succ_c)}")
+    check(len(tmo_c) == 40, f"HTLC_TIMEOUT is 40 bytes (C.4.1), got {len(tmo_c)}")
+
+    # a settlement-spending transaction; the HTLC output is input 0
+    htlc_ctx = TxContext([(30_000, lt.p2tr_spk(y_pk))], [(29_000, lt.p2tr_spk(y_pk))])
+    ysig = schnorr_sign(htlc_ctx.sighash(), y_sk)
+    Interp(htlc_ctx).run(succ_c, [ysig, preimage])
+    check(True, "HTLC_SUCCESS resolved with the shared preimage")
+    expect_fail(lambda: Interp(htlc_ctx).run(succ_c, [ysig, lt.sha256(b"wrong")]),
+                "HTLC_SUCCESS wrong preimage")
+    expect_fail(lambda: Interp(htlc_ctx).run(succ_c, [ysig, preimage[:31]]),
+                "HTLC_SUCCESS preimage not 32 bytes")
+    expect_fail(lambda: Interp(htlc_ctx).run(succ_c, [schnorr_sign(htlc_ctx.sighash(), x_sk), preimage]),
+                "HTLC_SUCCESS claimed by the offerer")
+    early = TxContext([(30_000, lt.p2tr_spk(x_pk))], [(29_000, lt.p2tr_spk(x_pk))], locktime=cltv - 1)
+    expect_fail(lambda: Interp(early).run(tmo_c, [schnorr_sign(early.sighash(), x_sk)]),
+                "HTLC_TIMEOUT before cltv_expiry")
+    late = TxContext([(30_000, lt.p2tr_spk(x_pk))], [(29_000, lt.p2tr_spk(x_pk))], locktime=cltv)
+    Interp(late).run(tmo_c, [schnorr_sign(late.sighash(), x_sk)])
+    check(True, "HTLC_TIMEOUT at cltv_expiry")
+    expect_fail(lambda: Interp(late).run(tmo_c, [schnorr_sign(late.sighash(), y_sk)]),
+                "HTLC_TIMEOUT claimed by the recipient")
+
+    # ---- tree leg: the same preimage redeems the voucher ----
+    root = w.tree.root()
+    src = w.tree.leaves[s_oper]
+    bought = mk_leaf("bought", 40_000, w.op_pk, 900_000)
+    s_bought = w.slot(bought, 3)
+    spath = w.tree.path(s_oper)
+    t1 = w.clone(); lt.apply_claim(t1, s_oper, s_bought, bought)
+    cpath = t1.path(s_bought); r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    hsig = schnorr_sign(lt.voucher_h_msg(w.m, src, bought, payment_hash), sk("operator-owner"))
+    head = (w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] +
+            w.bm(cpath) + [bought.serialize()])
+    w.run("CLAIM_H", head + [hsig, preimage, root[0], w.m], ctx)
+    check(True, "CLAIM^h redeemed with the same preimage")
+    expect_fail(lambda: w.run("CLAIM_H", head + [hsig, lt.sha256(b"wrong"), root[0], w.m], ctx),
+                "CLAIM^h rejects the preimage of a different hash")
+
+    # ---- the property the swap rests on ----
+    check(lt.sha256(preimage) == payment_hash,
+          "one 32-byte preimage hashes to the payment hash both legs name")
+    check(succ_c[succ_c.index(payment_hash):][:32] == payment_hash,
+          "HTLC_SUCCESS commits to the same payment hash the voucher signed")
+    if verbose:
+        print(f"swap D={depth}: HTLC_SUCCESS {len(succ_c)} B, HTLC_TIMEOUT {len(tmo_c)} B, "
+              f"CLAIM^h script {len(w.compiled['CLAIM_H'])} B; one preimage settles both legs")
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
@@ -719,6 +802,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
     for d in (4, 16):
         test_minimal(d)
         test_channel_rules(d)
+        test_swap(d)
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
         test_claim_h(d, prof)

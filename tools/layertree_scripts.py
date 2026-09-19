@@ -405,6 +405,34 @@ def claim_script(depth, profile="D", hashlock=False):
     return s + final_output(depth)
 
 
+# ---------------------------------------------------------------------------
+# Channel-leaf HTLC outputs (Appendix C.4.1). These are not covenants and not
+# part of a tree's taptree: they are the two leaves of an HTLC output in a
+# settlement transaction, resolved by one ordinary transaction at spend time
+# (C.4.2). They live here because spec 13.9 composes an HTLC_SUCCESS with a
+# hash-locked voucher (7.5.1) over one payment hash, and the preimage
+# discipline has to be identical on both legs for that to work.
+# ---------------------------------------------------------------------------
+
+def htlc_success_script(payment_hash, claim_key):
+    """HTLC_SUCCESS (C.4.1). Witness: <claim_sig> <preimage>.
+
+    The 32-byte size check is the same one CLAIM^h applies (7.5.1), which is
+    what lets one preimage settle both legs of a swap.
+    """
+    assert len(payment_hash) == 32 and len(claim_key) == 32
+    return ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+            payment_hash, "OP_EQUALVERIFY",
+            claim_key, "OP_CHECKSIG"]
+
+
+def htlc_timeout_script(cltv_expiry, claim_key):
+    """HTLC_TIMEOUT (C.4.1). Witness: <claim_sig>."""
+    assert len(claim_key) == 32
+    return [cltv_expiry, "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
+            claim_key, "OP_CHECKSIG"]
+
+
 def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,), profile="D", join_ks=(2,)):
     """Return ordered dict name -> token list for a tree's taptree."""
     out = {f"EXIT_{k}": exit_script(depth, k, profile) for k in exit_ks}
