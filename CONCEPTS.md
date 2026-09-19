@@ -121,6 +121,7 @@ Everything the shared output can do fits on one page:
 | `EVICT` | evictor, after the lease height | Removes an expired leaf, paying the owner exactly |
 | `UPDATE` | owner and operator | Rewrites a leaf in place: resize, renew the lease, rotate keys |
 | `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one |
+| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher |
 | `SWEEP` | evictor | Removes a whole expired cohort in one transaction |
 
 They are all the same machine underneath. Every one of them is a sequence
@@ -307,7 +308,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 462 executable checks across three tiers, positive and negative |
+| Compiled scripts | 542 executable checks across three tiers, positive and negative |
 | Python against Go | 34 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 

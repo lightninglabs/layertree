@@ -477,7 +477,7 @@ func midUpdateScript(depth int, operatorKey [32]byte, sparse,
 // MidClaimScript is the MID-tier CLAIM script: a voucher redemption that
 // drains a source leaf into a new claim leaf.
 func MidClaimScript(depth int, sparse bool) []Token {
-	return midClaimScript(depth, sparse, false)
+	return midCarveScript(depth, sparse, authVoucher)
 }
 
 // MidClaimHScript is the MID-tier CLAIM^h script (spec 7.5.1): CLAIM with a
@@ -487,11 +487,22 @@ func MidClaimScript(depth int, sparse bool) []Token {
 // signature. It is a tree-creation parameter: a tree uses either CLAIM or
 // CLAIM^h, never both.
 func MidClaimHScript(depth int, sparse bool) []Token {
-	return midClaimScript(depth, sparse, true)
+	return midCarveScript(depth, sparse, authHashlock)
 }
 
-// midClaimScript is the shared body of the MID CLAIM and CLAIM^h scripts.
-func midClaimScript(depth int, sparse, hashlock bool) []Token {
+// MidSplitScript is the MID-tier SPLIT script (spec 7.5.2): CLAIM with the
+// owner's transaction signature in place of the voucher, so the witness
+// carries no preimage and no voucher message is rebuilt. It needs no
+// OP_CHECKSIGFROMSTACK. Like CLAIM^h it is a tree-creation parameter and
+// stays out of MidAllScripts.
+func MidSplitScript(depth int, sparse bool) []Token {
+	return midCarveScript(depth, sparse, authOwner)
+}
+
+// midCarveScript is the shared body of the MID CLAIM, CLAIM^h and SPLIT
+// scripts: auth selects the authorisation and nothing else.
+func midCarveScript(depth int, sparse bool, auth string) []Token {
+	hashlock := auth == authHashlock
 	s := []Token{
 		Num(SelCurrInput), Op(OP_TX), Op(txscript.OP_0),
 		Op(txscript.OP_NUMEQUALVERIFY), Op(txscript.OP_2DUP),
@@ -500,30 +511,40 @@ func midClaimScript(depth int, sparse, hashlock bool) []Token {
 	s = append(s, Num(SelInSpk), Op(OP_TX), Op(txscript.OP_EQUALVERIFY),
 		Op(txscript.OP_DUP), Op(txscript.OP_TOALTSTACK),
 		Op(txscript.OP_SWAP), Op(txscript.OP_TOALTSTACK))
-	if hashlock {
-		// Park SHA256(preimage) on the altstack: every pick depth below is
-		// exactly as in CLAIM.
-		s = append(s, Op(txscript.OP_SWAP), Op(txscript.OP_SIZE), Num(32),
-			Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_SHA256),
-			Op(txscript.OP_TOALTSTACK))
+	if auth == authOwner {
+		// SPLIT (7.5.2): the owner signs the transaction, so no message is
+		// rebuilt. Drop the spare m; src.ok then sits 25 deep, since the
+		// witness holds src(10) claim(10) extras(7) below the signature and
+		// the owner key is the third field of the source leaf block.
+		s = append(s, Op(txscript.OP_DROP), // ... extras(7) osig
+			Num(25), Op(txscript.OP_PICK), // ... osig src.ok
+			Op(txscript.OP_CHECKSIGVERIFY)) // src(10) claim(10) extras(7)
+	} else {
+		if hashlock {
+			// Park SHA256(preimage) on the altstack: every pick depth below
+			// is exactly as in CLAIM.
+			s = append(s, Op(txscript.OP_SWAP), Op(txscript.OP_SIZE), Num(32),
+				Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_SHA256),
+				Op(txscript.OP_TOALTSTACK))
+		}
+		// voucher message m || src_leaf || claim_leaf [|| phash]
+		s = append(s, midRepeat([]Token{Num(28), Op(txscript.OP_PICK)}, 7)...)
+		s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+		s = append(s, midRepeat([]Token{Num(19), Op(txscript.OP_PICK)}, 7)...)
+		s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+		s = append(s, Num(2), Op(txscript.OP_PICK), Op(txscript.OP_ROT),
+			Op(txscript.OP_ROT), Op(txscript.OP_CAT), Op(txscript.OP_CAT))
+		voucherPrefix := midVoucherPrefix
+		if hashlock {
+			s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_CAT))
+			voucherPrefix = midVoucherHPrefix
+		}
+		s = append(s, midTagged(voucherPrefix)...)
+		s = append(s, Op(txscript.OP_ROT), Op(txscript.OP_SWAP),
+			Num(27), Op(txscript.OP_PICK),
+			Op(OP_CHECKSIGFROMSTACK), Op(txscript.OP_VERIFY),
+			Op(txscript.OP_DROP))
 	}
-	// voucher message m || src_leaf || claim_leaf [|| phash]
-	s = append(s, midRepeat([]Token{Num(28), Op(txscript.OP_PICK)}, 7)...)
-	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
-	s = append(s, midRepeat([]Token{Num(19), Op(txscript.OP_PICK)}, 7)...)
-	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
-	s = append(s, Num(2), Op(txscript.OP_PICK), Op(txscript.OP_ROT),
-		Op(txscript.OP_ROT), Op(txscript.OP_CAT), Op(txscript.OP_CAT))
-	voucherPrefix := midVoucherPrefix
-	if hashlock {
-		s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_CAT))
-		voucherPrefix = midVoucherHPrefix
-	}
-	s = append(s, midTagged(voucherPrefix)...)
-	s = append(s, Op(txscript.OP_ROT), Op(txscript.OP_SWAP),
-		Num(27), Op(txscript.OP_PICK),
-		Op(OP_CHECKSIGFROMSTACK), Op(txscript.OP_VERIFY),
-		Op(txscript.OP_DROP))
 	// seq consistency: le32(seq_num) == src.seq
 	s = append(s, Num(20), Op(txscript.OP_PICK), Num(7), Op(txscript.OP_PICK))
 	s = append(s, midRoll(7, 2)...)

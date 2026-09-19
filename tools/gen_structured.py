@@ -265,6 +265,8 @@ open(os.path.join(OUT, f"UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (exit-key consent, dense, D={D})", F.update_script(D, OP_KEY, "D", exit_consent=True), "c2", FULL))
 open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w").write(
     structured(f"CLAIM_H (hash-locked voucher, dense, D={D})", F.claim_script(D, "D", hashlock=True), "c2", FULL))
+open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w").write(
+    structured(f"SPLIT (owner-authorised carve, dense, D={D})", F.split_script(D, "D"), "c2", FULL))
 for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
     open(os.path.join(OUT, f"{name}_S8.txt"), "w").write(structured(f"{name} (sparse, D=8)", toks, "c2", FULL))
 open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w").write(
@@ -278,6 +280,8 @@ open(os.path.join(OUT, f"MID_UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (MID tier, exit-key consent, dense, D={D})", M.update_script(D, OP_KEY, False, exit_consent=True), "c0", MID))
 open(os.path.join(OUT, f"MID_CLAIM_H_D{D}.txt"), "w").write(
     structured(f"CLAIM_H (MID tier, hash-locked voucher, dense, D={D})", M.claim_script(D, False, hashlock=True), "c0", MID))
+open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
+    structured(f"SPLIT (MID tier, owner-authorised carve, dense, D={D})", M.split_script(D, False), "c0", MID))
 open(os.path.join(OUT, f"MIN_EXIT_1_D{D}.txt"), "w").write(
     structured(f"EXIT_1 (MIN tier, dense, D={D})", N.exit_script(D), "c0", MIN))
 print("wrote", len(os.listdir(OUT)), "structured listings to", os.path.relpath(OUT))

@@ -40,10 +40,10 @@ for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,)).ite
 add("MIN", "D", 4, "EXIT_1", N.exit_script(4), "c0")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
-# and CLAIM^h, the hash-locked voucher (spec 7.5.1). Neither is part of the
-# reference taptree, so both are added after the sets above and excluded from
-# taptree_full_d4 below.
-VARIANTS = ("UPDATE_X", "CLAIM_H")
+# CLAIM^h the hash-locked voucher (7.5.1), and SPLIT the owner-authorised
+# carve (7.5.2). None is part of the reference taptree, so all are added
+# after the sets above and excluded from taptree_full_d4 below.
+VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT")
 add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
@@ -52,6 +52,10 @@ add("FULL", "D", 4, "CLAIM_H", F.claim_script(4, "D", hashlock=True), "c2")
 add("FULL", "S", 8, "CLAIM_H", F.claim_script(8, "S", hashlock=True), "c2")
 add("MID", "D", 4, "CLAIM_H", M.claim_script(4, False, hashlock=True), "c0")
 add("MID", "S", 8, "CLAIM_H", M.claim_script(8, True, hashlock=True), "c0")
+add("FULL", "D", 4, "SPLIT", F.split_script(4, "D"), "c2")
+add("FULL", "S", 8, "SPLIT", F.split_script(8, "S"), "c2")
+add("MID", "D", 4, "SPLIT", M.split_script(4, False), "c0")
+add("MID", "S", 8, "SPLIT", M.split_script(8, True), "c0")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

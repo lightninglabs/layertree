@@ -63,6 +63,8 @@ func fullScriptFor(profile string, depth int, name string,
 		return FullClaimScript(depth, sparse), nil
 	case name == "CLAIM_H":
 		return FullClaimHScript(depth, sparse), nil
+	case name == "SPLIT":
+		return FullSplitScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err
@@ -295,6 +297,36 @@ func TestFullClaimH(t *testing.T) {
 		[]int{2})["CLAIM_H"]; ok {
 
 		t.Error("CLAIM_H must stay out of FullAllScripts")
+	}
+}
+
+// TestFullSplit checks SPLIT (spec 7.5.2), the carve authorised by the
+// owner's transaction signature, in both profiles. Like CLAIM^h it is a
+// tree-creation parameter and stays out of FullAllScripts.
+func TestFullSplit(t *testing.T) {
+	g, key := loadGolden(t)
+
+	fullCheckScript(t, g, "FULL/D/D4/SPLIT", FullSplitScript(4, false))
+	fullCheckScript(t, g, "FULL/S/D8/SPLIT", FullSplitScript(8, true))
+
+	// Replacing the voucher message and OP_CHECKSIGFROMSTACK with an
+	// OP_CHECKSIGVERIFY over src.owner_key saves exactly 74 bytes.
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		claim := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
+		split := MustAssemble(FullSplitScript(tc.depth, tc.sparse), ModeC2)
+		if len(claim)-len(split) != 74 {
+			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
+				"want 74", tc.depth, tc.sparse, len(claim)-len(split))
+		}
+	}
+
+	if _, ok := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2},
+		[]int{2})["SPLIT"]; ok {
+
+		t.Error("SPLIT must stay out of FullAllScripts")
 	}
 }
 

@@ -52,6 +52,9 @@ with open(os.path.join(OUT, f"UPDATE_X_D{D}.txt"), "w") as f:
 with open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w") as f:
     f.write(listing(f"CLAIM_H (hash-locked voucher, dense, D={D})",
                     ls.claim_script(D, "D", hashlock=True)))
+with open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w") as f:
+    f.write(listing(f"SPLIT (owner-authorised carve, dense, D={D})",
+                    ls.split_script(D, "D")))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:
     f.write(listing("LEVEL (dense): one merkle-sum level, both accumulators", ls.level_dense()))
     f.write("\n")
@@ -72,6 +75,9 @@ for prof, d in (("D", 16), ("S", 32)):
 for prof, d in (("D", 16), ("S", 32)):
     it, sl, wl = test_scripts.test_claim_h(d, prof, verbose=False)
     rows.append((prof, d, "CLAIM_H", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+for prof, d in (("D", 16), ("S", 32)):
+    it, sl, wl = test_scripts.test_split(d, prof, verbose=False)
+    rows.append((prof, d, "SPLIT", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 ls.COMPRESSION["S"] = "bitmap"
 for d in (32, 64):
     costs, w = test_scripts.test_all(d, "S", verbose=False)
@@ -113,6 +119,10 @@ for d, sparse in ((16, False), (31, True)):
     it, sl, wl = test_mid.test_claim_h(d, sparse, verbose=False)
     rows.append(("MID/" + ("S" if sparse else "D"), d, "CLAIM_H", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for d, sparse in ((16, False), (31, True)):
+    it, sl, wl = test_mid.test_split(d, sparse, verbose=False)
+    rows.append(("MID/" + ("S" if sparse else "D"), d, "SPLIT", sl, wl, 129,
+                 sl + wl + 129, "n/a (0xC0)", it.sigchecks))
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
@@ -125,6 +135,9 @@ with open(os.path.join(OUT, "MID_UPDATE_X_D4.txt"), "w") as f:
 with open(os.path.join(OUT, "MID_CLAIM_H_D4.txt"), "w") as f:
     f.write(listing("CLAIM_H (MID tier, hash-locked voucher, dense, D=4)",
                     LM.claim_script(4, False, hashlock=True)))
+with open(os.path.join(OUT, "MID_SPLIT_D4.txt"), "w") as f:
+    f.write(listing("SPLIT (MID tier, owner-authorised carve, dense, D=4)",
+                    LM.split_script(4, False)))
 with open(os.path.join(OUT, "MIN_EXIT_1_D4.txt"), "w") as f:
     f.write(listing("EXIT_1 (MIN tier, dense, D=4)", LN.exit_script(4)))
 with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:

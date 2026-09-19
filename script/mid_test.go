@@ -171,6 +171,35 @@ func TestMidClaimH(t *testing.T) {
 	}
 }
 
+// TestMidSplit checks SPLIT (spec 7.5.2) in both profiles: CLAIM with the
+// owner's transaction signature in place of the voucher. Like CLAIM^h it is a
+// tree-creation parameter and stays out of MidAllScripts.
+func TestMidSplit(t *testing.T) {
+	g, key := midLoadGolden(t)
+	midCheckScript(t, g, "MID/D/D4/SPLIT", MidSplitScript(4, false))
+	midCheckScript(t, g, "MID/S/D8/SPLIT", MidSplitScript(8, true))
+
+	// Dropping the voucher message reconstruction and the
+	// OP_CHECKSIGFROMSTACK saves exactly 131 bytes.
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		claim := MustAssemble(MidClaimScript(tc.depth, tc.sparse), ModeC0)
+		split := MustAssemble(MidSplitScript(tc.depth, tc.sparse), ModeC0)
+		if len(claim)-len(split) != 131 {
+			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
+				"want 131", tc.depth, tc.sparse, len(claim)-len(split))
+		}
+	}
+
+	if _, ok := MidAllScripts(4, key, false, []int{0, 2}, []int{1},
+		[]int{2})["SPLIT"]; ok {
+
+		t.Error("SPLIT must stay out of MidAllScripts")
+	}
+}
+
 func midHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)

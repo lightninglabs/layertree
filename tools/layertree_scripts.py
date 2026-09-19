@@ -353,18 +353,46 @@ def update_script(depth, operator_key, profile="D", exit_consent=False):
 
 
 def claim_script(depth, profile="D", hashlock=False):
-    """CLAIM: witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m
+    """CLAIM (spec 7.5), or CLAIM^h (7.5.1) with hashlock=True.
 
-    With hashlock=True this is CLAIM^h (spec 7.5.1): the witness carries a
-    32-byte preimage below root (... voucher_sig preimage root m) and the
-    signed message gains SHA256(preimage) as a fourth field under a separate
-    tag. The script never compares the payment hash to a witness copy: it
-    computes it from the preimage and feeds it to the message, so a wrong
-    preimage fails as a bad signature.
+    Witness: [claim path] [source path] src_leaf claim_leaf voucher_sig
+    [preimage] root m. With hashlock=True the witness carries a 32-byte
+    preimage below root and the signed message gains SHA256(preimage) as a
+    fourth field under a separate tag. The script never compares the payment
+    hash to a witness copy: it computes it from the preimage and feeds it to
+    the message, so a wrong preimage fails as a bad signature.
     """
+    return _carve_script(depth, profile, "hashlock" if hashlock else "voucher")
+
+
+def split_script(depth, profile="D"):
+    """SPLIT (spec 7.5.2): CLAIM authorised by the owner's transaction
+    signature instead of a voucher.
+
+    Witness: [claim path] [source path] src_leaf new_leaf owner_sig root m.
+    The steps, the seq increment, the drained-source rule and conservation
+    are exactly CLAIM's; only the authorisation differs, which is why this
+    shares CLAIM's body. It needs no OP_CHECKSIGFROMSTACK, so unlike CLAIM
+    it is not barred from the MIN tier on opcode grounds.
+    """
+    return _carve_script(depth, profile, "owner")
+
+
+def _carve_script(depth, profile, auth):
+    """Shared body of CLAIM, CLAIM^h and SPLIT: carve a new leaf out of an
+    existing one. `auth` selects the authorisation and nothing else."""
+    assert auth in ("voucher", "hashlock", "owner")
+    hashlock = auth == "hashlock"
     s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
          "OP_2DUP"] + tree_spk() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim vsig [pre] m | m r
+         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim sig [pre] m | m r
+    if auth == "owner":
+        # the owner signs the transaction, so no message is rebuilt; drop the
+        # spare copy of m and check the signature against src.owner_key
+        s += ["OP_DROP",                                         # src claim sig
+              2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",      # src claim sig owner_key
+              "OP_CHECKSIGVERIFY"]                               # src claim
+        return s + _carve_body(depth, profile)
     if hashlock:
         # park SHA256(preimage) on the altstack so every depth below is as in CLAIM
         s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
@@ -374,8 +402,14 @@ def claim_script(depth, profile="D", hashlock=False):
         s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (m||src||claim||phash)
     s += tagged(VOUCHER_H_PREFIX if hashlock else VOUCHER_PREFIX)  # src claim vsig msg
     s += [3, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
-          "OP_CHECKSIGFROMSTACK", "OP_VERIFY",                   # src claim
-          "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+          "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]                   # src claim
+    return s + _carve_body(depth, profile)
+
+
+def _carve_body(depth, profile):
+    """Everything after the authorisation check: both steps and FINAL.
+    Stack on entry: src claim ; altstack: m r."""
+    s = ["OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
           "OP_SWAP", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",  # src claim
           # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
           "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB"] + LE64 + [

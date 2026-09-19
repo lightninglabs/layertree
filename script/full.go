@@ -493,10 +493,19 @@ func fullUpdateScript(depth int, operatorKey [32]byte, sparse,
 	return s
 }
 
+// Authorisation selectors for the carve body shared by CLAIM, CLAIM^h and
+// SPLIT. They pick the authorisation check and nothing else: everything from
+// the leaf size check onward is identical in all three.
+const (
+	authVoucher  = "voucher"  // CLAIM: a voucher signature over m||src||claim
+	authHashlock = "hashlock" // CLAIM^h: the same, plus SHA256(preimage)
+	authOwner    = "owner"    // SPLIT: the owner's transaction signature
+)
+
 // FullClaimScript is CLAIM (spec 8.7):
 // witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m.
 func FullClaimScript(depth int, sparse bool) []Token {
-	return fullClaimScript(depth, sparse, false)
+	return fullCarveScript(depth, sparse, authVoucher)
 }
 
 // FullClaimHScript is CLAIM^h, the hash-locked voucher variant of CLAIM
@@ -508,11 +517,25 @@ func FullClaimScript(depth int, sparse bool) []Token {
 // wrong preimage fails as a bad signature. It is a tree-creation parameter: a
 // tree uses either CLAIM or CLAIM^h, never both.
 func FullClaimHScript(depth int, sparse bool) []Token {
-	return fullClaimScript(depth, sparse, true)
+	return fullCarveScript(depth, sparse, authHashlock)
 }
 
-// fullClaimScript is the shared body of CLAIM and CLAIM^h.
-func fullClaimScript(depth int, sparse, hashlock bool) []Token {
+// FullSplitScript is SPLIT (spec 7.5.2): CLAIM authorised by the owner's
+// transaction signature instead of a voucher. Witness =
+// [claim path] [source path] src_leaf new_leaf owner_sig root m. The steps,
+// the seq increment, the drained-source rule and conservation are exactly
+// CLAIM's; only the authorisation differs, which is why it shares CLAIM's
+// body. Like CLAIM^h it is a tree-creation parameter and stays out of the
+// reference taptree.
+func FullSplitScript(depth int, sparse bool) []Token {
+	return fullCarveScript(depth, sparse, authOwner)
+}
+
+// fullCarveScript is the shared body of CLAIM, CLAIM^h and SPLIT: carve a new
+// leaf out of an existing one. auth selects the authorisation and nothing
+// else.
+func fullCarveScript(depth int, sparse bool, auth string) []Token {
+	hashlock := auth == authHashlock
 	s := fullCat(
 		[]Token{
 			Num(SelCurrInput), Op(OP_TX), Op(ts.OP_0), Op(ts.OP_NUMEQUALVERIFY),
@@ -525,32 +548,50 @@ func fullClaimScript(depth int, sparse, hashlock bool) []Token {
 			Op(ts.OP_TOALTSTACK), // src claim vsig [pre] m | m r
 		},
 	)
-	if hashlock {
-		// Park SHA256(preimage) on the altstack so that every stack depth
-		// below is exactly as in CLAIM.
+	if auth == authOwner {
+		// SPLIT: the owner signs the transaction, so no message is rebuilt.
+		// Drop the spare copy of m, which only the voucher message needed,
+		// and check the signature against src.owner_key.
 		s = fullCat(s, []Token{
-			Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
-			Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK), // src claim vsig m | m r phash
+			Op(ts.OP_DROP), // src claim sig
+			Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32),
+			Op(OP_SUBSTR),            // src claim sig owner_key
+			Op(ts.OP_CHECKSIGVERIFY), // src claim
 		})
+	} else {
+		if hashlock {
+			// Park SHA256(preimage) on the altstack so that every stack depth
+			// below is exactly as in CLAIM.
+			s = fullCat(s, []Token{
+				Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
+				Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK), // src claim vsig m | m r phash
+			})
+		}
+		s = fullCat(s,
+			[]Token{
+				Num(3), Op(ts.OP_PICK), Num(3), Op(ts.OP_PICK), Op(OP_CAT), Op(OP_CAT),
+			},
+		)
+		if hashlock {
+			// msg = m || src || claim || phash
+			s = fullCat(s, []Token{Op(ts.OP_FROMALTSTACK), Op(OP_CAT)})
+		}
+		voucherPrefix := fullVoucherPrefix
+		if hashlock {
+			voucherPrefix = fullVoucherHPrefix
+		}
+		s = fullCat(s,
+			fullTagged(voucherPrefix), // src claim vsig msg
+			[]Token{
+				Num(3), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
+				Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // src claim
+			},
+		)
 	}
+	// Everything below is the shared carve body: both steps and FINAL.
+	// Stack on entry: src claim ; altstack: m r.
 	s = fullCat(s,
 		[]Token{
-			Num(3), Op(ts.OP_PICK), Num(3), Op(ts.OP_PICK), Op(OP_CAT), Op(OP_CAT),
-		},
-	)
-	if hashlock {
-		// msg = m || src || claim || phash
-		s = fullCat(s, []Token{Op(ts.OP_FROMALTSTACK), Op(OP_CAT)})
-	}
-	voucherPrefix := fullVoucherPrefix
-	if hashlock {
-		voucherPrefix = fullVoucherHPrefix
-	}
-	s = fullCat(s,
-		fullTagged(voucherPrefix), // src claim vsig msg
-		[]Token{
-			Num(3), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
-			Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // src claim
 			Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_SWAP), // src claim
