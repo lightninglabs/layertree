@@ -983,7 +983,13 @@ should be sized by exit throughput and sharded. The design is hostage to proposa
 restored string opcodes or at least \op{CAT}, \op{TX} in \texttt{0xC0},
 the EC opcodes' drafts); every selector and opcode number is a named
 constant, and a Liquid prototype of the MID tier is the obvious next
-experiment. Future work: a verified compiler from
+experiment. As a thought experiment we also measured (in the simulator
+only, never a proposal) a hypothetical native Merkle-sum update opcode
+that folds one root-to-leaf path inside consensus: with \op{CCV} for
+the key bindings it takes \tr{EXIT}$_1$ to 252 bytes of script at every
+depth and profile, with the sparse and dense profiles converging and no
+arithmetic anywhere, at the price of baking the tree format into
+consensus. The measurement lives in the repository's design notes. Future work: a verified compiler from
 Table~\ref{tab:pred} to bytecode, closing the gap Theorem~\ref{thm:uc}
 leaves; a full proof of Theorem~\ref{thm:chan}; a P model~\cite{plang} of
 the off-chain protocol; and completing the MIN tier.
