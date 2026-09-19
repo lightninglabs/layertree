@@ -47,7 +47,7 @@ Any line naming `sorryAx` means an unfinished proof; there are none.
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. |
 | 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it. |
-| 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. |
+| 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. The CCV tier's `TREE_SPK_CCV` (spec 4.6, 6.3) satisfies the same `BindingModel`: injectivity of the BIP-443 data tweak (discrete log plus collision resistance of the untagged `sha256(pk‖data)`) plays the role `H_state`'s tagged hash plays in FULL; the theorems apply unchanged. |
 | 5.3 `enc64`, 8.2 `PAD8` | `Encoding.enc64_eq_minimal` (`Encoding.lean`) | `le64 n ‖ 01` is the minimal BIP-441 encoding of `n + 2^64`. |
 | 5.2 serialisation | `Encoding.serializeLeaf_inj`, `serializeNode_inj` | Fixed-width concatenation is injective under `WF`. |
 | 5.1 `SEQ_FINAL` | `minimalLE_two_pow_32_length`, `scriptNum_two_pow_31_length`, `scriptNum_neg_max31_succ` | Why the marker is `0xFFFFFFFF` in FULL and `0x7FFFFFFF` in MID, and why `0xFFFFFFFF` is *claimable* in MID. |

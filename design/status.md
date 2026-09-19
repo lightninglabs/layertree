@@ -13,7 +13,8 @@ Last updated 2026-09-20 (spec 0.8.1, Appendix C 0.2.0, paper v0.1).
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 38 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
-| Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). Further realisations (CCV tier, native Merkle-sum opcode) are issue #3. |
+| Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). The CCV tier of issue #3 is measured in the paper's tier table and section 5; the native Merkle-sum opcode remains issue #3's open half. |
+| CCV tier (issue #3, part 1) | Complete: simulator `OP_CHECKCONTRACTVERIFY` per BIP-443 ([A-6]), `tools/layertree_ccv.py` both profiles (exact payouts, no CLAIM pending a voucher-message redefinition), `tools/test_ccv.py` 102 checks, Go mirror `script/ccv.go` byte-exact against 15 new golden keys, spec 0.7.0 (section 4.6, 6.3 `TREE_SPK_CCV`, 10.4 note, 11 cost rows, 14 tests), F19. Measured dense D=16 EXIT_1: 1,716 / 838 B script / witness vs FULL's 2,101 / 902, no EC-ops dependency. The 0xC0-numerics variant is in progress. |
 
 ## Decision log
 
