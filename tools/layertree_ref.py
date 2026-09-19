@@ -315,6 +315,29 @@ def tree_spk(root_hash, merkle_root):
     return bytes([0x51, 0x20]) + q_x
 
 
+def ccv_internal_key(root_hash):
+    """CCV-tier state key (spec section 6.1 alternative): the BIP-443 data
+    tweak of the BIP-341 NUMS point by the root hash, i.e. the x-only key
+    NUMS + sha256(NUMS || root_hash)*G. Note this is NOT H_state(root_hash):
+    the data tweak is an untagged sha256 over (pk || data), so a CCV tree and
+    a FULL tree with the same root have different scriptPubKeys, and the tier
+    is a tree-creation parameter."""
+    t = int.from_bytes(sha256(NUMS_X + root_hash), "big")
+    assert 0 < t < N
+    return xonly(point_add(NUMS, point_mul(G, t)))
+
+
+def tree_spk_ccv(root_hash, merkle_root):
+    """Tree output scriptPubKey for the CCV tier: the output key a
+    CHECKCONTRACTVERIFY call with pk=empty (NUMS), data=root_hash and
+    taptree=merkle_root verifies (BIP-443: data tweak, then TapTweak)."""
+    p_x = ccv_internal_key(root_hash)
+    t2 = int.from_bytes(tagged_hash(TAG_TAPTWEAK, p_x + merkle_root), "big")
+    assert t2 < N
+    q = point_add(lift_x(int.from_bytes(p_x, "big")), point_mul(G, t2))
+    return bytes([0x51, 0x20]) + xonly(q)
+
+
 def p2tr_spk(xonly_key):
     return bytes([0x51, 0x20]) + xonly_key
 

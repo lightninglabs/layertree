@@ -233,6 +233,22 @@ design does not.
    BIP-443 also claims `0xbb`. The final numbering is out of scope here and
    does not affect the design; the reference simulator parks `OP_TX` at
    `0xbf` as a placeholder.
+7. **`OP_CHECKCONTRACTVERIFY`** as in BIP-443: redefining
+   `OP_SUCCESS187` (0xbb), popping `<data> <index> <pk> <taptree>
+   <mode>` (bottom to top). The CCV tier (section 4.7) uses only the
+   following values: modes `-1` (`CHECK_INPUT`, no amount check), `0`
+   (`CHECK_OUTPUT`, assign the input's residual amount), `2` (`DEDUCT`,
+   subtract the checked output's amount from the residual); the empty
+   buffer for `pk` stands for the BIP-341 `NUMS` point and `0x81` (the
+   minimal encoding of `-1`) for the current input's taptree; `<data>` is
+   the 32-byte root hash. **[A-6]** The BIP's sigops accounting is still
+   TODO upstream; the reference simulator charges one signature check
+   (500,000 varops, the cost of the taproot tweaks it performs) per call,
+   and parks the opcode at `0xc1` to keep it apart from the `0xbb` the EC
+   ops draft claims ([A-4]). A BIP-443 call with empty `<data>` applies
+   no data tweak at all (the naked key is used as the internal key);
+   LayerTree scripts always supply a non-empty `<data>`, and `CHECK_INPUT`
+   with `taptree = -1` binds both the root and the taptree in one call.
 
 ### 4.2 Not required
 
@@ -240,9 +256,11 @@ design does not.
   scriptPubKey instead (section 6.4), which also binds the taptree root.
 * `OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV`, `OP_EC_POINT_NEGATE` are not
   used. Section 13 notes optimisations that would use them if they ship.
-* No `OP_CHECKTEMPLATEVERIFY`, `OP_TEMPLATEHASH`, `OP_CHECKCONTRACTVERIFY`
-  or `SIGHASH_ANYPREVOUT` is required by the tree itself. Section 9.8 notes
-  where rebindable signatures help *leaf-level* constructions.
+* No `OP_CHECKTEMPLATEVERIFY`, `OP_TEMPLATEHASH` or `SIGHASH_ANYPREVOUT`
+  is required by the tree itself. `OP_CHECKCONTRACTVERIFY` is not required
+  by the three tiers of section 4.5; the CCV tier of section 4.7 is built
+  on it. Section 9.8 notes where rebindable signatures help *leaf-level*
+  constructions.
 
 ### 4.3 Opcode inventory
 
@@ -261,8 +279,8 @@ others. The "source" column names the document that defines each one.
 `OP_AND` and `OP_DOWNSHIFT` are used only by the sparse profile (to read
 one bit of the position hash). `OP_EC_POINT_NEGATE`, `OP_INTERNALKEY`,
 `OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV`, `OP_CHECKTEMPLATEVERIFY`,
-`OP_TEMPLATEHASH`, `OP_CHECKCONTRACTVERIFY` and `OP_PAIRCOMMIT` are not
-required.
+`OP_TEMPLATEHASH` and `OP_PAIRCOMMIT` are not required by any tier;
+`OP_CHECKCONTRACTVERIFY` is used by the CCV tier only (section 4.7).
 
 ### 4.4 Minimal opcode set
 
