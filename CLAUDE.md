@@ -154,8 +154,8 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   simulator is Appendix A. Keep the Lean signature blocks in sync with
   `formal/LayerTree/*.lean` when a theorem statement changes. Build with
   `make`, not bare `latexmk`: `make` writes `paper/version.tex` (hash,
-  date, `git describe --dirty`, clean/dirty) which the title footnote and
-  running footer show. Commit sources first, then `make`, then commit
+  date, `git describe --dirty`, clean/dirty); the author block shows
+  "Draft (commit <hash>)" and the running footer the describe string. Commit sources first, then `make`, then commit
   `main.pdf` with `version.tex` so the stamp names the content commit and
   reads clean. `cryptocode`'s `\procedure` body is math mode, so prose
   with `$..$` inside it fails with "Missing } inserted"; the functionality

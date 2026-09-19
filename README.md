@@ -73,7 +73,7 @@ predicates (4), the three opcode tiers as realisations (5), a UC security
 theorem whose lemmas cite the Lean theorems inline (6, proof in
 Appendix A), and channel leaves as a composition result (7). Build with
 `cd paper && make`, which stamps the PDF with the git revision it was
-built from (`paper/version.tex`, shown in the title footnote and the
+built from (`paper/version.tex`, shown under the author name and in the
 running footer); it needs a TeX Live with `llncs` (bundled in the
 directory), `cryptocode`, `pgfplots` and the `cm-super` fonts. Every
 number in the paper is taken from `spec/scripts/sizes.md` and

@@ -32,8 +32,8 @@
 \usepackage[hidelinks]{hyperref}
 \usepackage{url}
 
-% Git revision of the build, written by `make` (see Makefile). The title
-% footnote and the running footer both carry it.
+% Git revision of the build, written by `make` (see Makefile). The
+% institute block and the running footer both carry it.
 \input{version.tex}
 \makeatletter
 \let\lt@headings\ps@headings
@@ -45,6 +45,10 @@
 
 \newif\ifanon
 \anonfalse
+
+% Build date and "DRAFT (commit <abbreviated hash>)" under the affiliation;
+% \GitHash is the Makefile's equivalent of gitinfo2's \gitAbbrevHash.
+\newcommand{\draftline}{\GitDate\\ \textsc{Draft} (commit \texttt{\GitHash})}
 
 \newcommand{\Hleaf}{\ensuremath{H_{\mathsf{leaf}}}}
 \newcommand{\Hnode}{\ensuremath{H_{\mathsf{node}}}}
@@ -78,16 +82,16 @@
 
 \begin{document}
 
-\title{LayerTree: A Shared Bitcoin UTXO as an Ideal Functionality,\\ and Its Realisation with Covenants\thanks{Draft \GitDescribe{} (commit \GitHash, \GitDate; tree \GitState). The revision identifies the specification, code and proofs this text describes.}}
+\title{LayerTree: A Shared Bitcoin UTXO as an Ideal Functionality,\\ and Its Realisation with Covenants}
 \titlerunning{LayerTree}
 \ifanon
 \author{Anonymous Submission}
 \authorrunning{Anonymous}
-\institute{}
+\institute{\draftline}
 \else
 \author{Olaoluwa Osuntokun}
 \authorrunning{O. Osuntokun}
-\institute{Lightning Labs\\ \email{laolu@lightning.engineering}}
+\institute{Lightning Labs\\ \email{laolu@lightning.engineering}\\[4pt] \draftline}
 \fi
 
 \maketitle
