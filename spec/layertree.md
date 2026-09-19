@@ -365,6 +365,14 @@ script / witness data:
 | `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | no (not implemented, see 4.6) | 9,905 / 515 | 18,250 / 1,438 | no (not implemented, see 4.6) |
 | `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | open | no (not implemented, see 4.6) | 9,822 / 483 | 18,110 / 1,412 | no (not implemented, see 4.6) |
 
+The same transitions under the CCV tier's `0xC0` numerics (the MID
+encoding: seven-element leaves, `PADZ`): dense `D = 16` — `EXIT_1`
+2,934 / 914, `JOIN_2` 2,456 / 730, `UPDATE` 3,039 / 1,092; sparse
+`D = 31` — `EXIT_1` 8,909 / 732, `JOIN_0` 8,886 / 719, `UPDATE`
+9,025 / 905. The CCV call saves about 360 bytes of script over MID at
+either profile (MID `EXIT_1` at `D = 16`: 3,299 / 978), because the
+`TREE_SPK_MIN` recomputation and the spk introspection read drop out.
+
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
 level) and the per-field size checks. MIN adds the sighash reconstruction
