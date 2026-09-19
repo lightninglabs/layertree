@@ -37,13 +37,16 @@ What is NOT replaced: the LEVEL x D fold, the chained-step consistency
 checks (nh_prev == oh, ns_prev == os), sparse position derivation, and the
 authorization (CHECKSIG / CLTV).
 
-Amount semantics overall (spec 10.2 note): the CCV tier drops the
-os == input-amount equality. Residual bookkeeping gives
-out0 + payouts <= input amount, and the per-output equalities give
-out0 == ns and payout <= leaf.amount, so the invariant weakens from "the
-tree output's amount equals the committed sum" to "at least the committed
-sum", which is all payability needs; conservation of the committed sums
-across a transition is unchanged (7.1 rules 3-5).
+Amount semantics: identical to the other tiers. The input-amount
+equality (os == the tree input's amount) stays, output 0 is checked by
+the CCV assign mode (its floor: output 0 receives at least the input's
+residual) plus the numeric equality out0 == ns, and payouts are exact and
+deducted from the residual. Assign rather than the DEDUCT mode for
+output 0 is what makes value-adding transitions (JOIN, funded UPDATE)
+spendable: the joiner's funds arrive through other inputs, above the
+floor. The exact-payout restriction follows: with assign-on-out0 a
+payout short of leaf.amount would strand its difference in the residual
+and force output 0 above ns.
 """
 import os
 import sys
@@ -51,7 +54,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import layertree_ref as lt  # noqa: E402
 import layertree_scripts as F  # noqa: E402
-from script_sim import SEL_OUT_SINGLE  # noqa: E402
+from script_sim import SEL_IN_AMOUNT, SEL_OUT_SINGLE  # noqa: E402
 
 MINUS1 = b"\x81"
 CCV = "OP_CHECKCONTRACTVERIFY"
@@ -110,23 +113,25 @@ def prologue_ccv():
 
 
 def check_old_ccv(profile):
-    """[T oh os nh ns] -> [T nh ns]. CHECK_INPUT on `oh`; `os` dropped
-    (the input-amount equality is gone; see module docstring).
+    """[T oh os nh ns] -> [T nh ns]. As FULL's check_old_root_from_alt with
+    the root comparison replaced by the CCV input check: os == the input
+    amount stays (one OP_TX read; the tree output's amount keeps equaling
+    the committed sum exactly, as in every other tier), then `oh` becomes
+    the CCV data operand and CHECK_INPUT binds it to the input.
 
-    Parks ns then nh (alt LIFO: restored nh first, then ns), drops os,
-    leaving [T oh]: oh is the data slot with nothing above it, the four
-    fixed operands go on top, one CCV call, then nh and ns come back.
+    Stack: OP_2SWAP + the amount check give [T nh ns oh]; the sparse
+    bookkeeping is torn down (it sits below what follows); two OP_ROTs
+    roll oh below nh and ns, then ns and nh are parked (nh on the alt
+    top, so it restores first), leaving [T oh]: the bare data slot. The
+    four fixed operands go on top, one CCV call, and nh, ns come back.
     """
+    s = ["OP_2SWAP", SEL_IN_AMOUNT, "OP_TX", "OP_NUMEQUALVERIFY"]  # T nh ns oh
     if profile == "S":
-        # The sparse bookkeeping (pos, E_k) sits on the altstack BELOW the
-        # fold's ns; tear it down first, then park ns and nh.
-        s = F.sparse_teardown()
-    else:
-        s = []
-    s += ["OP_TOALTSTACK",              # T oh os nh      | [.. ns]
-          "OP_TOALTSTACK",              # T oh os         | [.. ns nh]
-          "OP_DROP"]                    # T oh            | [.. ns nh]
-    s += ccv_check_input()             # T               | [.. ns nh]
+        s += F.sparse_teardown()
+    s += ["OP_ROT", "OP_ROT",            # T oh nh ns   (oh rolled to the front)
+          "OP_TOALTSTACK",               # T oh nh       | [.. ns]
+          "OP_TOALTSTACK"]               # T oh          | [.. ns nh  (nh on top)
+    s += ccv_check_input()               # T             | [.. ns nh]
     s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]   # T nh ns
     return s
 
