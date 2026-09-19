@@ -24,6 +24,7 @@ import layertree_ref as lt  # noqa: E402
 import layertree_scripts as F  # noqa: E402
 import layertree_mid as M  # noqa: E402
 import layertree_min as N  # noqa: E402
+import layertree_ccv as CV  # noqa: E402
 from script_sim import assemble, disassemble, pubkey_x  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "spec", "scripts", "structured")
@@ -82,6 +83,26 @@ def mid_macros():
           ("LEAF_JOIN", M.leaf_join())]
     t += [("FINAL", M.final(d)) for d in (4, 8, 16, 31, 32)]
     return [(n, words(x, "c0")) for n, x in t]
+
+
+def ccv_macros():
+    t = []
+    for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("POS", F.POS_PREFIX),
+                     ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
+        t.append((f"TAGGED({tag})", F.tagged(pre)))
+    t += [("CCV_CHECK_INPUT", CV.ccv_check_input()),
+          ("CCV_PAYOUT(1)", CV.ccv_payout_fixed(1)),
+          ("CCV_PAYOUT(2)", CV.ccv_payout_fixed(2)),
+          ("LEAF_ACC", F.leaf_acc()), ("LEAF_POS", F.leaf_pos()),
+          ("LEVEL", F.level_dense()),
+          ("SPARSE_SETUP", F.sparse_setup()), ("SPARSE_TEARDOWN", F.sparse_teardown()),
+          ("CHECK_PREV", F.check_prev_root_from_alt("D")), ("CHECK_PREV_S", F.check_prev_root_from_alt("S")),
+          ("CHECK_OLD", CV.check_old_ccv("D")), ("CHECK_OLD_S", CV.check_old_ccv("S")),
+          ("PROLOGUE_CCV", CV.prologue_ccv())]
+    t += [(f"LEVEL_S({k})", F.level_sparse(k)) for k in range(0, 64)]
+    t += [("FINAL", CV.final_ccv(d)) for d in (4, 8, 12, 16, 20, 32)]
+    t += [("LEVEL_MIN", F.level_min()), ("LEAF_STEP", CV.leaf_step_ccv(OP_KEY))]
+    return [(n, words(x, "c2")) for n, x in t]
 
 
 def min_macros():
@@ -176,7 +197,9 @@ def structured(title, tokens, mode, macros):
     items = collapse(ws, macros)
     assert expand(items, macros) == ws, f"collapse does not round-trip: {title}"
     size = len(assemble(tokens, mode))
-    tier = "FULL" if mode == "c2" else ("MIN" if "MIN tier" in title else "MID")
+    tier = ("CCV" if "CCV tier" in title else
+            "FULL" if mode == "c2" else
+            ("MIN" if "MIN tier" in title else "MID"))
     head = [f"# {title}: {size} bytes",
             f"# macros in CAPITALS are defined in MACROS_{tier}.txt; raw opcodes are wrapped and indented", ""]
     return "\n".join(head + render(items)) + "\n"
@@ -251,10 +274,20 @@ NOTES_MID = {
     "LEAF_JOIN": "[amt8 ek ok evk ea nonce seq amt_num za wa] -> [leaf] | amt_num",
 }
 
+CCV = ccv_macros()
+NOTES_CCV = {
+    "CCV_CHECK_INPUT": "BIP-443 CHECK_INPUT: [data] -> [], binds the old root to the current input under its own taptree",
+    "CCV_PAYOUT": "BIP-443 CHECK_OUTPUT|DEDUCT: bare P2TR to leaf.exit_key, deducts from the residual",
+    "CHECK_OLD": "the input-amount equality plus one CCV_CHECK_INPUT on the folded old root",
+    "FINAL": "output 0 is the CCV assign-mode tree output with amount == ns, unless nh == E_D",
+    "PROLOGUE_CCV": "empty: CCV's -1 index binds the current input without OP_TX",
+}
 with open(os.path.join(OUT, "MACROS_FULL.txt"), "w") as f:
     f.write(macro_file("FULL", FULL, NOTES_FULL))
 with open(os.path.join(OUT, "MACROS_MID.txt"), "w") as f:
     f.write(macro_file("MID", MID, NOTES_MID))
+with open(os.path.join(OUT, "MACROS_CCV.txt"), "w") as f:
+    f.write(macro_file("CCV", CCV, NOTES_CCV))
 with open(os.path.join(OUT, "MACROS_MIN.txt"), "w") as f:
     f.write(macro_file("MIN", MIN, {k: v for k, v in NOTES_MID.items() if k in dict(MIN) or k in ("TAGGED",)}))
 
@@ -284,4 +317,10 @@ open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (MID tier, owner-authorised carve, dense, D={D})", M.split_script(D, False), "c0", MID))
 open(os.path.join(OUT, f"MIN_EXIT_1_D{D}.txt"), "w").write(
     structured(f"EXIT_1 (MIN tier, dense, D={D})", N.exit_script(D), "c0", MIN))
+for name, toks in CV.all_scripts_ccv(D, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
+    open(os.path.join(OUT, f"CCV_{name}_D{D}.txt"), "w").write(structured(f"{name} (CCV tier, dense, D={D})", toks, "c2", CCV))
+open(os.path.join(OUT, f"CCV_UPDATE_X_D{D}.txt"), "w").write(
+    structured(f"UPDATE_X (CCV tier, exit-key consent, dense, D={D})", CV.update_script_ccv(D, OP_KEY, "D", exit_consent=True), "c2", CCV))
+for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
+    open(os.path.join(OUT, f"CCV_{name}_S8.txt"), "w").write(structured(f"{name} (CCV tier, sparse, D=8)", toks, "c2", CCV))
 print("wrote", len(os.listdir(OUT)), "structured listings to", os.path.relpath(OUT))

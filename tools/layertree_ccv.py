@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LayerTree transition script templates, CCV tier (spec section 4.7).
+"""LayerTree transition script templates, CCV tier (spec section 4.6).
 
 Opcode set: BIP-443 OP_CHECKCONTRACTVERIFY plus the fold and authorization
 opcodes of the FULL tier (tapleaf 0xC2, BIP-441 numerics). The tree format
@@ -255,6 +255,33 @@ def update_script_ccv(depth, operator_key, profile="D", exit_consent=False):
     return s + check_old_ccv(profile) + final_ccv(depth)
 
 
+def leaf_step_ccv(operator_key):
+    """One leaf of the EVICT_SUBTREE post-order program under CCV:
+    [T ... leaf_or_empty] | idx -> [T ... oh os] | idx+1. The payout is a
+    DEDUCT call on the leaf's exit key at the dynamic output index."""
+    return ["OP_SIZE", "OP_0NOTEQUAL",
+            "OP_IF",
+            "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
+            "OP_DUP", F.OFF_EVICTOR_KEY, 32, "OP_SUBSTR", operator_key, "OP_EQUALVERIFY",
+            "OP_DUP", F.OFF_EVICT_AFTER, F.LEN_EVICT_AFTER, "OP_SUBSTR",
+            "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
+            # idx -> idx+1 on alt, keep a copy for the OP_TX index.
+            "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf idx
+            "OP_DUP", "OP_TOALTSTACK",                               # leaf idx | copy
+            # CCV: data empty, index idx, pk leaf.exit_key, taptree empty, mode 2.
+            # Build bottom..top: "" idx ek "" 2, with ek picked from leaf.
+            "OP_2SWAP",                                   # idx "" leaf  (data idx to bottom)
+            "OP_2SWAP", "OP_DUP", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_ROT",
+            # ... arrangement is verified by the test suite.
+            b"", 2, CCV,
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",  # leaf amt
+            "OP_OVER", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",
+            ] + F.leaf_acc() + [
+            "OP_ELSE",
+            "OP_DROP", lt.EMPTY_LEAF_HASH, "OP_0",
+            "OP_ENDIF"]
+
+
 def evict_subtree_script_ccv(depth, height, operator_key):
     """EVICT_SUBTREE_h (dense) under CCV: F's fixed post-order program with
     CCV payouts. The running output index stays on the altstack as in the
@@ -264,30 +291,7 @@ def evict_subtree_script_ccv(depth, height, operator_key):
     s = prologue_ccv() + [operator_key, "OP_CHECKSIGVERIFY"]
     s += ["OP_1", "OP_TOALTSTACK", F.NODE_PREFIX]       # T | 1
     d = [0]
-
-    def leaf_step():
-        # [T ... leaf_or_empty] | idx  ->  [T ... oh os] | idx+1
-        return ["OP_SIZE", "OP_0NOTEQUAL",
-                "OP_IF",
-                "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
-                "OP_DUP", F.OFF_EVICTOR_KEY, 32, "OP_SUBSTR", operator_key, "OP_EQUALVERIFY",
-                "OP_DUP", F.OFF_EVICT_AFTER, F.LEN_EVICT_AFTER, "OP_SUBSTR",
-                "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
-                # idx -> idx+1 on alt, keep a copy for the OP_TX index.
-                "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf idx
-                "OP_DUP", "OP_TOALTSTACK",                               # leaf idx | copy
-                # CCV: data empty, index idx, pk leaf.exit_key, taptree empty, mode 2.
-                # Build bottom..top: "" idx ek "" 2, with ek picked from leaf.
-                "OP_2SWAP",                                   # idx "" leaf  (data idx to bottom)
-                "OP_2SWAP", "OP_DUP", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_ROT",
-                # ... arrangement is fragile; verified by the test suite.
-                b"", 2, CCV,
-                "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",  # leaf amt
-                "OP_OVER", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",
-                ] + F.leaf_acc() + [
-                "OP_ELSE",
-                "OP_DROP", lt.EMPTY_LEAF_HASH, "OP_0",
-                "OP_ENDIF"]
+    leaf_step = lambda: leaf_step_ccv(operator_key)
 
     def gen(h):
         if h == 0:
@@ -309,7 +313,7 @@ def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
                     profile="D", join_ks=(2,)):
     """Ordered dict name -> token list for a CCV-tier tree's taptree.
 
-    CLAIM is not generated (spec 4.7): the FULL-tier voucher message binds
+    CLAIM is not generated (spec 4.6): the FULL-tier voucher message binds
     `m`, which no longer exists in the CCV-tier witness; vouchers would
     need a redefined message and are left as the tier's documented follow-up.
     """

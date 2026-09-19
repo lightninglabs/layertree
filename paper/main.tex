@@ -495,38 +495,38 @@ evicts or sweeps expired leaves.
 \section{Realisations by Opcode Tier}\label{sec:scripts}
 
 Each predicate of Table~\ref{tab:pred} is compiled to tapscript against
-three opcode sets (Table~\ref{tab:tiers}), so that the design's dependence
+four opcode sets (Table~\ref{tab:tiers}), so that the design's dependence
 on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. Coverage is not uniform:
 FULL compiles every predicate in both profiles, MID everything but the
 cohort sweep, and MIN the dense single-leaf exit only, the other
 predicates following the same construction but being argued, not
-measured. A tier built on \op{CHECKCONTRACTVERIFY}~\cite{bip443}, whose
-data-tweaked key is the mechanism of \S\ref{sec:output}, would replace the
-key recomputation and the output check by two opcode calls and leave the
-fold unchanged, and a native Merkle-sum update opcode would absorb the
-fold as well; neither is implemented, and the repository tracks both.
+measured. The CCV tier replaces the key recomputation and the output
+check of FULL with \op{CHECKCONTRACTVERIFY}~\cite{bip443} calls, whose
+data-tweaked key is the mechanism of \S\ref{sec:output}: measured below.
+A native Merkle-sum update opcode would absorb the fold as well; it is
+not implemented, and the repository tracks it as future work.
 
 \begin{table}[tbp]
 \centering
-\caption{The three opcode tiers. Sizes are bytes of script / witness data for \tr{EXIT}$_1$ in the dense profile at $D=16$; the last row is the transaction size.}
+\caption{The four opcode tiers. Sizes are bytes of script / witness data for \tr{EXIT}$_1$ in the dense profile at $D=16$; the last row is the transaction size.}
 \label{tab:tiers}
 \setlength{\tabcolsep}{1.5pt}\scriptsize
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
- & \textbf{FULL} & \textbf{MID} & \textbf{MIN} \\
+ & \textbf{FULL} & \textbf{MID} & \textbf{MIN} & \textbf{CCV} \\
 \midrule
-Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} \\
-Beyond BIP-342 & \op{CAT}, splice, bit ops, & \op{CAT}, \op{TX}, CSFS, & \op{CAT}, \\
- & \op{TX}, CSFS, EC ops & \op{TWEAKADD} & \op{TWEAKADD} \\
-Introspection & \op{TX} & \op{TX} & constructive (\S\ref{sec:min}) \\
-Numerics, sum cap & any length, none & 4-byte, $2^{31}$ sat & 4-byte, $2^{31}$ sat \\
-Owner payout & $\le$ amount (fee option) & exact & exact \\
-Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense \\
-Executable checks & 422 & 113 & 7 \\
-Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed \\
-\tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 \\
-\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 \\
+Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} & \texttt{0xC2} \\
+Beyond BIP-342 & \op{CAT}, splice, bit ops, & \op{CAT}, \op{TX}, CSFS, & \op{CAT}, & \op{CAT}, splice, bit ops, \\
+ & \op{TX}, CSFS, EC ops & \op{TWEAKADD} & \op{TWEAKADD} & \op{TX}, \op{CCV} \\
+Introspection & \op{TX} & \op{TX} & constructive (\S\ref{sec:min}) & \op{TX} \\
+Numerics, sum cap & any length, none & 4-byte, $2^{31}$ sat & 4-byte, $2^{31}$ sat & any length, none \\
+Owner payout & $\le$ amount (fee option) & exact & exact & exact \\
+Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense & all but \tr{CLAIM}, \tr{CLAIM}$^h$, \tr{SPLIT} \\
+Executable checks & 422 & 113 & 7 & 139 \\
+Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed & no / yes / free \\
+\tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 & 1{,}716 / 838 \\
+\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 & $\approx$925 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -578,6 +578,29 @@ vouchers and channel leaves need a signature over stack data and are out
 of reach. The result is an upper bound: BIP-342 tapscript, \op{CAT} and
 one point-tweak opcode realise the exit predicate; whether a 64-leaf sweep
 (16 kB in FULL) fits MIN is open.
+
+\paragraph{CCV: binding by opcode.}\label{sec:ccv}
+\op{CHECKCONTRACTVERIFY}~\cite{bip443} replaces every taproot-key
+recomputation of the FULL tier with a native check: one call binds the
+old root to the input under the input's own taptree, one commits output
+0 to the new root with the input's residual amount assigned to it, and
+one per payout asserts a bare P2TR to the leaf's exit key while
+deducting its amount. The state key becomes the BIP-443 data tweak of
+the NUMS point by the root, so a CCV tree and a FULL tree with the same
+root are different outputs and the tier is a tree-creation parameter.
+The fold, the position derivation and the authorisation are FULL's,
+unchanged; the EC-ops draft drops out of the dependency list and $r$
+and $m$ leave every witness. What the opcode cannot do is read amounts
+into the script: one \op{TX} read per constrained amount survives
+(\tr{EXIT}$_1$ makes three), and with the residual assigned to output
+0 the tier takes the exact-payout rule of MID and MIN, fees exogenous.
+Vouchers are the predicate the tier cannot carry as is: their message
+binds $m$, which no witness holds any more. \tr{CLAIM}$^h$ shares that
+message and \tr{SPLIT} is simply not yet implemented for this tier. Measured at dense
+$D=16$: \tr{EXIT}$_1$ 1{,}716 B of script and 838 B of witness against
+FULL's 2{,}101 / 902, i.e.\ the binding machinery that cost a third of
+every script becomes three opcode calls, and 139 executable checks
+cover both profiles.
 
 \section{Security}\label{sec:security}
 

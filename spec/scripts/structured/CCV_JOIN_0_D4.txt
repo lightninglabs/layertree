@@ -1,0 +1,8 @@
+# JOIN_0 (CCV tier, dense, D=4): 576 bytes
+# macros in CAPITALS are defined in MACROS_CCV.txt; raw opcodes are wrapped and indented
+
+<OPERATOR_KEY> OP_CHECKSIGVERIFY OP_SIZE OP_8 OP_EQUALVERIFY OP_OVER OP_SIZE
+  32 OP_EQUALVERIFY OP_DROP <TAG_NODE> OP_ROT OP_ROT <EMPTY_0> OP_0 OP_2SWAP
+LEVEL  x4
+CHECK_OLD
+FINAL

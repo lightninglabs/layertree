@@ -186,6 +186,7 @@ python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
 python3 tools/test_scripts.py      # FULL tier, both profiles (422 checks)
 python3 tools/test_mid.py          # MID tier (113 checks)
 python3 tools/test_min.py          # MIN tier (7 checks)
+python3 tools/test_ccv.py          # CCV tier, both profiles (139 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
 python3 tools/gen_golden.py        # spec/golden.json

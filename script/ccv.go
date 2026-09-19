@@ -7,7 +7,7 @@ import (
 )
 
 // This file is a direct port of tools/layertree_ccv.py: the CCV tier
-// (spec 4.7), i.e. the FULL tier's fold and authorization with every
+// (spec 4.6), i.e. the FULL tier's fold and authorization with every
 // taproot-key binding replaced by BIP-443 OP_CHECKCONTRACTVERIFY calls.
 // Scripts are assembled with ModeC2 (BIP-441 numerics).
 //
@@ -145,7 +145,7 @@ func ccvExitBlock(sparse bool, depth, outIndex int) []Token {
 
 // CCVExitScript is EXIT_K under the CCV tier: k sequential exits paying
 // outputs 1..K. Witness (bottom..top) = [block_K] ... [block_1] with no
-// root and no m (spec 4.7); block_i = [dir sc]*D (dense) or [sc]*D
+// root and no m (spec 4.6); block_i = [dir sc]*D (dense) or [sc]*D
 // (sparse), then leaf_i sig_i is_evict_i.
 func CCVExitScript(depth, k int, sparse bool) []Token {
 	s := fullCat(ccvExitBlock(sparse, depth, 1), ccvCheckOld(sparse))
@@ -286,7 +286,7 @@ func CCVEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 // sequential exits, the join heights (dense) or JOIN_0 (sparse), the
 // JOINK batch sizes, UPDATE and the EVICT_SUBTREE heights. CLAIM is not
 // part of the tier: the FULL-tier voucher message binds m, which no
-// longer exists in the CCV witness (spec 4.7).
+// longer exists in the CCV witness (spec 4.6).
 func CCVAllScripts(depth int, operatorKey [32]byte, sparse bool,
 	joinHeights []int, exitKs []int, joinKs []int, evictHeights []int) map[string][]Token {
 

@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.8.1
+Version:  0.8.2
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -235,7 +235,7 @@ design does not.
    `0xbf` as a placeholder.
 7. **`OP_CHECKCONTRACTVERIFY`** as in BIP-443: redefining
    `OP_SUCCESS187` (0xbb), popping `<data> <index> <pk> <taptree>
-   <mode>` (bottom to top). The CCV tier (section 4.7) uses only the
+   <mode>` (bottom to top). The CCV tier (section 4.6) uses only the
    following values: modes `-1` (`CHECK_INPUT`, no amount check), `0`
    (`CHECK_OUTPUT`, assign the input's residual amount), `2` (`DEDUCT`,
    subtract the checked output's amount from the residual); the empty
@@ -258,7 +258,7 @@ design does not.
   used. Section 13 notes optimisations that would use them if they ship.
 * No `OP_CHECKTEMPLATEVERIFY`, `OP_TEMPLATEHASH` or `SIGHASH_ANYPREVOUT`
   is required by the tree itself. `OP_CHECKCONTRACTVERIFY` is not required
-  by the three tiers of section 4.5; the CCV tier of section 4.7 is built
+  by the three tiers of section 4.5; the CCV tier of section 4.6 is built
   on it. Section 9.8 notes where rebindable signatures help *leaf-level*
   constructions.
 
@@ -280,7 +280,7 @@ others. The "source" column names the document that defines each one.
 one bit of the position hash). `OP_EC_POINT_NEGATE`, `OP_INTERNALKEY`,
 `OP_MULTI`, `OP_SEGMENT`, `OP_BYTEREV`, `OP_CHECKTEMPLATEVERIFY`,
 `OP_TEMPLATEHASH` and `OP_PAIRCOMMIT` are not required by any tier;
-`OP_CHECKCONTRACTVERIFY` is used by the CCV tier only (section 4.7).
+`OP_CHECKCONTRACTVERIFY` is used by the CCV tier only (section 4.6).
 
 ### 4.4 Minimal opcode set
 
@@ -354,16 +354,16 @@ introspection and keeps `OP_CHECKSIGFROMSTACK` for vouchers.
 Measured sizes at `D = 16` (dense) and `D = 31/32` (sparse), bytes of
 script / witness data:
 
-| transition | FULL D | MID D | MIN D | FULL S (32) | MID S (31) |
-|---|---|---|---|---|---|
-| `EXIT_1` | 2,101 / 902 | 3,299 / 978 | 3,572 / 1,175 | 5,147 / 326 | 9,274 / 796 |
-| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,824 / 794 | — | 5,131 / 367 | 9,254 / 783 |
-| `JOINK_2` | 3,545 / 1,525 | 5,749 / 1,637 | — | 9,773 / 606 | 17,985 / 1,433 |
-| `UPDATE` | 2,137 / 1,080 | 3,407 / 1,156 | — | 5,347 / 547 | 9,393 / 1,002 |
-| `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | 5,354 / 611 | 9,397 / 1,032 |
-| `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | 9,896 / 688 | 18,241 / 1,543 |
-| `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | 9,905 / 515 | 18,250 / 1,438 |
-| `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | open | 9,822 / 483 | 18,110 / 1,412 |
+| transition | FULL D | MID D | MIN D | CCV D | FULL S (32) | MID S (31) | CCV S (32) |
+|---|---|---|---|---|---|---|---|
+| `EXIT_1` | 2,101 / 902 | 3,299 / 978 | 3,572 / 1,175 | 1,716 / 838 | 5,147 / 326 | 9,274 / 796 | 4,762 / 262 |
+| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,824 / 794 | — | 1,456 / 679 | 5,131 / 367 | 9,254 / 783 | 4,746 / 303 |
+| `JOINK_2` | 3,545 / 1,525 | 5,749 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 17,985 / 1,433 | 9,388 / 542 |
+| `UPDATE` | 2,137 / 1,080 | 3,407 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,393 / 1,002 | 4,962 / 483 |
+| `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | not measured (4.6) | 5,354 / 611 | 9,397 / 1,032 | not measured (4.6) |
+| `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | n/a (4.6) | 9,896 / 688 | 18,241 / 1,543 | n/a (4.6) |
+| `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | no (not implemented, see 4.6) | 9,905 / 515 | 18,250 / 1,438 | no (not implemented, see 4.6) |
+| `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | open | no (not implemented, see 4.6) | 9,822 / 483 | 18,110 / 1,412 | no (not implemented, see 4.6) |
 
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
@@ -374,17 +374,64 @@ including `EXIT_K`, `EVICT_SUBTREE_h`, both compression encodings and the
 `spec/scripts/sizes.md`; per-tier listings for `D = 4` are under
 `spec/scripts/`.
 
-*(informative)* The tiers answer three different deployment questions.
-FULL is what the Great Script Restoration plus the introspection, CSFS and
-EC-ops candidates make possible, and is the recommended target. MID is what
-a `0xC0`-only soft fork of the LNhance flavour plus `OP_CAT`, `OP_TX` and
+*(informative)* The tiers answer different deployment questions. FULL is
+what the Great Script Restoration plus the introspection, CSFS and EC-ops
+candidates make possible, and is the recommended target. MID is what a
+`0xC0`-only soft fork of the LNhance flavour plus `OP_CAT`, `OP_TX` and
 `OP_TWEAKADD` would give: everything in this document at roughly 1.6× the
 size, with a 21.47 BTC cap per tree. MIN is the existence proof that
 `OP_CAT` and one tweak opcode suffice for the covenant itself, at the cost
 of vouchers, terminal exits, a fixed transaction shape and a small grinding
-step.
+step. CCV (section 4.6) is what BIP-443 adds on top of either numeric
+flavour: the same transitions at a smaller script than FULL (1,716 vs
+2,101 bytes for `EXIT_1` at `D = 16`) with no EC-ops dependency, `r` and
+`m` gone from every witness, and vouchers left out pending a redefined
+message.
 
-### 4.6 Policy assumptions
+### 4.6 The CCV tier
+
+The CCV tier realises the same transitions as FULL with BIP-443
+`OP_CHECKCONTRACTVERIFY` replacing every taproot-key binding. It is a
+fourth tree-creation choice, not a replacement: a CCV tree's output key
+is the BIP-443 data tweak of `NUMS` by the root hash rather than
+`NUMS + H_state(r)·G`, so a CCV tree and a FULL tree with the same root
+have different scriptPubKeys (section 6.3).
+
+Three CCV calls per transition, in place of the scripts' key arithmetic:
+
+* **Authenticate the current state.** After the fold produces the old
+  root `oh`, one call `<oh> <-1> <> <-1> <-1> CCV` (data, index, pk,
+  taptree, mode; empty pk = `NUMS`, `-1` taptree = the current input's)
+  asserts the input commits to `oh` under the same taptree. The
+  `os == input amount` equality of the other tiers stays.
+* **Commit the next state.** `<nh> <0> <> <-1> <0> CCV` asserts output 0
+  carries the new root under the same taptree and assigns the input's
+  residual amount to it; `out0.amount == ns` remains one `OP_TX` read
+  (rule 5 unchanged).
+* **Constrain a payout.** `<> <k> <exit_key> <> <2> CCV` asserts output
+  `k` is a bare P2TR to the leaf's exit key and deducts its amount from
+  the residual; the exact-payout comparison remains one `OP_TX` read.
+
+Two consequences follow from the assign mode on output 0 and are normative
+for the tier. Payouts MUST be exact (spec 7.2 rule 6) for owner exits as
+well as evictions: a short payout would strand its difference in the
+residual and force output 0 above `ns`, breaking rule 5's equality; fees
+are exogenous, as in MID and MIN. And `CLAIM` is not part of the tier: the
+voucher message of section 7.6 binds `m`, which the CCV witness does not
+carry (the taptree is bound by the opcode's own same-taptree semantics),
+so vouchers require a redefined message and are left as the tier's
+follow-up. `CLAIM^h` uses the same voucher message and is left out for
+the same reason; `SPLIT` (7.5.2) needs no voucher but has not been
+implemented for this tier. `UPDATE^x`, terminal exits and every other
+transition are unchanged.
+
+The tier needs one introspection read per constrained amount (the three
+`OP_TX` calls above), so it does not remove `OP_TX`; it removes the EC ops
+draft and `OP_TWEAKADD` from the dependency list. Reference:
+`tools/layertree_ccv.py` (both profiles, dense and sparse), tests in
+`tools/test_ccv.py`, Go mirror in `script/ccv.go`.
+
+### 4.7 Policy assumptions
 
 *(informative)* Relay of `0xC2` script-path spends with witnesses of a few
 kilobytes is assumed to be standard once BIP-441 activates. Transitions use
@@ -593,6 +640,20 @@ TREE_SPK(r, m) = P2TR( x( lift_x(x(NUMS + H_state(r)·G)) + H_TapTweak(x(P) || m
 i.e. the ordinary BIP-341 output key for internal key `x(P)` and Merkle root
 `m`. A **tree output** for state `r` is any output with scriptPubKey
 `TREE_SPK(r, m)` and amount equal to the root's sum.
+
+For a CCV-tier tree (section 4.6) the state key is instead the BIP-443
+data tweak of `NUMS` by the root hash,
+
+```
+TREE_SPK_CCV(r, m) = P2TR( x( lift_x( x(NUMS + sha256(NUMS || r)·G) ) + H_TapTweak(x(P) || m)·G ) )
+```
+
+i.e. the output key a `CHECKCONTRACTVERIFY` call with pk = empty (NUMS),
+data = `r` and taptree = `m` verifies. The data tweak is an untagged
+`sha256(pk || data)` (BIP-443), not `H_state`, so a CCV tree and a FULL
+tree with the same root have different scriptPubKeys: the tier is a
+tree-creation parameter like the profile and the depth, and the two
+encodings MUST NOT be mixed within one tree.
 
 ### 6.4 Verifying the current state in script
 
@@ -1723,6 +1784,13 @@ verified `m` for output 0. Implementations that replace `PROLOGUE` MUST
 preserve this property; using `OP_INTERNALKEY` to check only `r` is
 insufficient.
 
+The CCV tier has no `PROLOGUE`: its `CHECK_INPUT` call binds the old root
+to the input under the input's *own* taptree (the `-1` special value), so
+the script set is authenticated natively and the witness carries neither
+`r` nor `m`. The property is preserved by construction; a CCV-tier
+implementation MUST NOT add a witness-supplied taptree operand anywhere
+the input or output 0 is checked.
+
 ### 10.5 Concurrency and pinning
 
 All transitions spend the same UTXO, so at most one confirms per tree per
@@ -1841,6 +1909,16 @@ larger set.
 | sparse | 32 | 2^32 | 5,147 | 326 + 41·log2 N | ≈ 6,260 (N = 65k) | ≈ 7,210 | ≈ 1,800 |
 | sparse | 64 | 2^64 | 9,499 | 326 + 41·log2 N | ≈ 10,610 (N = 65k) | ≈ 11,560 | ≈ 2,890 |
 | sparse | 256 | 2^256 | 35,611 | 285 + 41·log2 N | ≈ 36,680 (N = 65k) | ≈ 37,630 | ≈ 9,410 |
+| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,741 | ≈ 3,690 | ≈ 925 |
+| sparse, CCV tier | 32 | 2^32 | 4,762 | 262 + 41·log2 N | ≈ 5,190 (N = 65k) | ≈ 6,150 | ≈ 1,540 |
+
+The CCV-tier rows (section 4.6) replace the `TREE_SPK` recomputations
+with `OP_CHECKCONTRACTVERIFY` calls: about 390 script bytes and 64
+witness bytes saved per `EXIT_1` against FULL at `D = 16`, and no EC-ops
+dependency. The `r` and `m` witness elements are gone entirely. Each CCV
+call charges one sigcheck-equivalent (500,000 varops, [A-6]); an
+`EXIT_1` makes two calls, within the same budget headroom as the FULL
+tier's two `TREE_SPK` recomputations.
 
 The transaction weight column adds a fee input (P2WPKH), a change output
 and non-witness overhead (≈ 950 WU). In the dense profile each level costs
@@ -2066,6 +2144,9 @@ exits in a batch" as `EXIT_K` (section 13).
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
   7.5.2 in both profiles.
+* `tools/layertree_ccv.py` — the CCV-tier generators (section 4.6) for
+  both profiles; `tools/test_ccv.py` executes them end to end (see its
+  bullet below).
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, including negative cases (forged leaf, stale
@@ -2104,6 +2185,18 @@ exits in a batch" as `EXIT_K` (section 13).
   signature in place of a transaction signature, over-splitting, into an
   occupied position, or against a stale root all fail), 422 checks in
   total. Run: `python3 tools/test_scripts.py`.
+* `tools/test_ccv.py` — executes every CCV-tier script in both profiles
+  (dense at `D = 4` and `16`, sparse at `D = 8` and `32`), 102 checks:
+  the positive owner, evictor and terminal exits, subtree and
+  single-leaf joins, batched joins, `UPDATE` and `EXIT_2`, cohort sweeps
+  (`EVICT_SUBTREE_1`), and negatives for the CCV-specific failure modes
+  (output 0 under a wrong taptree, output 0 with the FULL-tier key, a
+  payout to a tweaked rather than bare exit key, output 0 underfunded and
+  overfunded, a payout above the leaf caught by the exact-payout equality
+  and one above the tree total caught by the CCV residual check) and the
+  shared failure modes (forged leaf, wrong-root proofs, early eviction,
+  evictor shortchange, missing operator or owner signatures, stale second
+  paths). Run: `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, and the size table covering both
   profiles, both compression encodings and all tiers.
