@@ -49,6 +49,12 @@ OPS = {
     # keep the two apart inside the simulator. The real opcode number does not
     # affect the design (any single byte works identically).
     "OP_CHECKCONTRACTVERIFY": 0xc1,
+    # HYPOTHETICAL OP_MERKLESUMUPDATE (design note design/native-opcodes.md,
+    # issue #3 part 2): NOT a candidate opcode, NOT part of any tier, and
+    # deliberately NOT in any tier's allowed-opcode set (tools/test_scripts.py
+    # fails any real-tier script that uses it). It exists in the simulator to
+    # measure what a native state-machine opcode would buy. Parked at 0xc2.
+    "OP_MERKLESUMUPDATE": 0xc2,
 }
 for i in range(1, 17):
     OPS[f"OP_{i}"] = 0x50 + i
@@ -348,14 +354,22 @@ def scriptnum_decode(b, max_size=4):
 class Interp:
     MAX_ELEM = 4_000_000
 
-    def __init__(self, ctx, budget=None, mode="c2"):
-        """mode: "c2" = tapleaf 0xC2 (BIP-441 numerics), "c0" = tapleaf 0xC0 (CScriptNum)."""
+    def __init__(self, ctx, budget=None, mode="c2", hypothetical=False):
+        """mode: "c2" = tapleaf 0xC2 (BIP-441 numerics), "c0" = tapleaf 0xC0 (CScriptNum).
+
+        hypothetical=True additionally enables the HYPOTHETICAL
+        OP_MERKLESUMUPDATE (design/native-opcodes.md): a measurement
+        instrument only, never part of a tier. The flag must be passed
+        explicitly by a caller that means it, so ordinary scripts fail
+        loudly if they reach the opcode.
+        """
         self.ctx = ctx
         self.cost = 0
         self.budget = budget
         self.sigchecks = 0
         self.max_depth = 0
         self.mode = mode
+        self.hypothetical = hypothetical
         if mode == "c0":
             self.MAX_ELEM = 520
 
@@ -703,6 +717,13 @@ class Interp:
                 self.op_tx(st, pop, popn, pushv)
             elif name == "OP_CHECKCONTRACTVERIFY":
                 self.op_ccv(st, pop, pushv)
+            elif name == "OP_MERKLESUMUPDATE":
+                if not self.hypothetical:
+                    raise ScriptError(
+                        "OP_MERKLESUMUPDATE is a HYPOTHETICAL measurement "
+                        "opcode (design/native-opcodes.md); pass "
+                        "hypothetical=True to the Interp to use it")
+                self.op_msu(pop, pushv)
             else:
                 raise ScriptError(f"unimplemented {name}")
         if cond:
@@ -912,3 +933,92 @@ class Interp:
             # CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT: no amount bookkeeping.
         if target != target_spk:
             raise ScriptError("CCV: target scriptPubKey mismatch")
+
+    def op_msu(self, pop, pushv):
+        """OP_MERKLESUMUPDATE (HYPOTHETICAL; design/native-opcodes.md).
+
+        Stack: ... <proof> <old_node> <new_node>  ->  ... <old_root> <new_root>
+
+        node  := hash(32) || sum(le64)                40 bytes (the spec's sc)
+        proof := depth(u8) || position(ceil(d/8) bytes, big-endian, MSB =
+                 the side at the top level; bit 0 = the leaf level)
+                 || bitmap(ceil(d/8), bit k set = the sibling at level k
+                 is supplied) || siblings (one 40-byte node per set bit,
+                 deepest level first)
+
+        Per level k, leaf up: the sibling is the next supplied node if
+        bitmap bit k is set, else E_k (E_0 = (0^32, 0), E_{k+1} the parent
+        of E_k with itself, precomputable by consensus); the position bit
+        gives the side; the parent is the spec's node_hash with sums
+        added. Fails on sum overflow, depth > 64, malformed proof or
+        leftover sibling bytes. The old and new nodes fold in one pass
+        over the same path; new_node == old_node degenerates to
+        verification. Cost: 2*depth node hashes, charged as BIP-440
+        varops (wordspan of an 82-byte preimage per hash).
+        """
+        ctx_dummy = None  # the opcode reads no transaction data
+        new_node = pop()
+        old_node = pop()
+        proof = pop()
+        # node decode
+        def node_of(b):
+            if len(b) != 40:
+                raise ScriptError("MSU: node must be 40 bytes")
+            return b[:32], int.from_bytes(b[32:], "little")
+        onh, ons = node_of(old_node)
+        nnh, nns = node_of(new_node)
+        # proof decode
+        if len(proof) < 1:
+            raise ScriptError("MSU: empty proof")
+        d = proof[0]
+        if d == 0 or d > 64:
+            raise ScriptError("MSU: depth out of range")
+        pos_len = (d + 7) // 8
+        bm_len = (d + 7) // 8
+        if len(proof) != 1 + pos_len + bm_len and len(proof) < 1 + pos_len + bm_len:
+            raise ScriptError("MSU: proof too short")
+        pos_bytes = proof[1:1 + pos_len]
+        bm_bytes = proof[1 + pos_len:1 + pos_len + bm_len]
+        rest = proof[1 + pos_len + bm_len:]
+        # Position, MSB first = the TOP level is the most significant
+        # bit: bit (d-1) of the big-endian integer is the side at the top
+        # level, bit 0 the side at the leaf level (level k's bit is k).
+        pos_int = int.from_bytes(pos_bytes, "big")
+        # Bitmap: bit k set = the sibling at level k (k = 0 the leaf
+        # level) is supplied. The sibling list runs deepest level first,
+        # so the bytes are consumed from the highest set k downward.
+        bm_int = int.from_bytes(bm_bytes, "big")
+        set_levels = [k for k in range(d - 1, -1, -1) if (bm_int >> k) & 1]
+        if len(rest) != 40 * len(set_levels):
+            raise ScriptError("MSU: sibling count mismatch")
+        sibs = {}
+        for lvl in set_levels:
+            sibs[lvl] = node_of(rest[:40])
+            rest = rest[40:]
+        # empty-node chain (E_0 up)
+        empties = [None] * d
+        e = (bytes(32), 0)
+        for k in range(d):
+            empties[k] = e
+            e = (lt.node_hash(e, e), e[1] + e[1])
+        # fold both nodes in one pass
+        ohash, osum = onh, ons
+        nhash, nsum = nnh, nns
+        for k in range(d):
+            side = (pos_int >> k) & 1
+            if k in sibs:
+                s = sibs[k]
+            else:
+                s = empties[k]
+            sh, ss = s
+            if osum + ss >= 1 << 64 or nsum + ss >= 1 << 64:
+                raise ScriptError("MSU: sum overflow")
+            if side == 0:
+                ohash, osum = lt.node_hash((ohash, osum), s), osum + ss
+                nhash, nsum = lt.node_hash((nhash, nsum), s), nsum + ss
+            else:
+                ohash, osum = lt.node_hash(s, (ohash, osum)), osum + ss
+                nhash, nsum = lt.node_hash(s, (nhash, nsum)), nsum + ss
+            self.charge(wordspan(82) * 2)
+        pushv(ohash + osum.to_bytes(8, "little"))
+        pushv(nhash + nsum.to_bytes(8, "little"))
