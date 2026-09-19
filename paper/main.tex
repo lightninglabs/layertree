@@ -499,13 +499,10 @@ four opcode sets (Table~\ref{tab:tiers}), so that the design's dependence
 on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. Coverage is not uniform:
 FULL compiles every predicate in both profiles, MID everything but the
-cohort sweep, and MIN the dense single-leaf exit only, the other
-predicates following the same construction but being argued, not
-measured. The CCV tier replaces the key recomputation and the output
-check of FULL with \op{CHECKCONTRACTVERIFY}~\cite{bip443} calls, whose
-data-tweaked key is the mechanism of \S\ref{sec:output}: measured below.
-A native Merkle-sum update opcode would absorb the fold as well; it is
-not implemented, and the repository tracks it as future work.
+cohort sweep, MIN the dense single-leaf exit only. The CCV tier replaces
+FULL's key recomputation with \op{CHECKCONTRACTVERIFY}~\cite{bip443}
+calls; a native Merkle-sum update opcode would absorb the fold as well
+(hypothetical, \S\ref{sec:discussion}).
 
 \begin{table}[tbp]
 \centering
@@ -519,11 +516,9 @@ not implemented, and the repository tracks it as future work.
 Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} & \texttt{0xC2} \\
 Beyond BIP-342 & \op{CAT}, splice, bit ops, & \op{CAT}, \op{TX}, CSFS, & \op{CAT}, & \op{CAT}, splice, bit ops, \\
  & \op{TX}, CSFS, EC ops & \op{TWEAKADD} & \op{TWEAKADD} & \op{TX}, \op{CCV} \\
-Introspection & \op{TX} & \op{TX} & constructive (\S\ref{sec:min}) & \op{TX} \\
-Numerics, sum cap & any length, none & 4-byte, $2^{31}$ sat & 4-byte, $2^{31}$ sat & any length, none \\
+Introspection / numerics & \op{TX}, any length & \op{TX}, 4-byte, $2^{31}$ & constructive (\S\ref{sec:min}), 4-byte & \op{TX}, any length \\
 Owner payout & $\le$ amount (fee option) & exact & exact & exact \\
-Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense & all but \tr{CLAIM}, \tr{CLAIM}$^h$, \tr{SPLIT} \\
-Executable checks & 422 & 113 & 7 & 139 \\
+Predicates / executable checks & all, both, 422 & all but sweeps, 113 & \tr{EXIT}$_1$ dense, 7 & no vouchers or \tr{SPLIT}, 139 \\
 Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed & no / yes / free \\
 \tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 & 1{,}716 / 838 \\
 \tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 & $\approx$925 \\
@@ -581,26 +576,19 @@ one point-tweak opcode realise the exit predicate; whether a 64-leaf sweep
 
 \paragraph{CCV: binding by opcode.}\label{sec:ccv}
 \op{CHECKCONTRACTVERIFY}~\cite{bip443} replaces every taproot-key
-recomputation of the FULL tier with a native check: one call binds the
-old root to the input under the input's own taptree, one commits output
-0 to the new root with the input's residual amount assigned to it, and
-one per payout asserts a bare P2TR to the leaf's exit key while
-deducting its amount. The state key becomes the BIP-443 data tweak of
-the NUMS point by the root, so a CCV tree and a FULL tree with the same
-root are different outputs and the tier is a tree-creation parameter.
-The fold, the position derivation and the authorisation are FULL's,
-unchanged; the EC-ops draft drops out of the dependency list and $r$
-and $m$ leave every witness. What the opcode cannot do is read amounts
-into the script: one \op{TX} read per constrained amount survives
-(\tr{EXIT}$_1$ makes three), and with the residual assigned to output
-0 the tier takes the exact-payout rule of MID and MIN, fees exogenous.
-Vouchers are the predicate the tier cannot carry as is: their message
-binds $m$, which no witness holds any more. \tr{CLAIM}$^h$ shares that
-message and \tr{SPLIT} is simply not yet implemented for this tier. Measured at dense
-$D=16$: \tr{EXIT}$_1$ 1{,}716 B of script and 838 B of witness against
-FULL's 2{,}101 / 902, i.e.\ the binding machinery that cost a third of
-every script becomes three opcode calls, and 139 executable checks
-cover both profiles.
+recomputation of FULL with a native check: one call binds the old root
+to the input under the input's own taptree, one commits output 0 to the
+new root with the residual assigned, one per payout asserts a bare P2TR
+of the leaf's exit key and deducts its amount. The state key becomes
+the BIP-443 data tweak of NUMS by the root, so the tier is a
+tree-creation parameter. The fold and the authorisation are FULL's
+unchanged; the EC-ops draft drops out and $r$ and $m$ leave every
+witness. One \op{TX} read per constrained amount survives, so the tier
+takes MID/MIN's exact-payout rule with exogenous fees; vouchers and
+\tr{CLAIM}$^h$, whose message binds $m$, are not carried, and \tr{SPLIT}
+is not yet implemented for this tier. Measured at
+dense $D=16$: \tr{EXIT}$_1$ 1{,}716 / 838 B of script / witness against
+FULL's 2{,}101 / 902.
 
 \section{Security}\label{sec:security}
 
@@ -979,20 +967,16 @@ mandatory and the Lean development shows they are load-bearing. Stating
 the design this way made visible that opacity is a state of the
 functionality rather than a failure of the protocol, and that $\lat(N)$
 is a consequence of the single-UTXO design rather than a tunable: trees
-should be sized by exit throughput and sharded. The design is hostage to proposals (a tapleaf version with
-restored string opcodes or at least \op{CAT}, \op{TX} in \texttt{0xC0},
-the EC opcodes' drafts); every selector and opcode number is a named
-constant, and a Liquid prototype of the MID tier is the obvious next
-experiment. As a thought experiment we also measured (in the simulator
-only, never a proposal) a hypothetical native Merkle-sum update opcode
-that folds one root-to-leaf path inside consensus: with \op{CCV} for
-the key bindings it takes \tr{EXIT}$_1$ to 252 bytes of script at every
-depth and profile, with the sparse and dense profiles converging and no
-arithmetic anywhere, at the price of baking the tree format into
-consensus. The measurement lives in the repository's design notes. Future work: a verified compiler from
-Table~\ref{tab:pred} to bytecode, closing the gap Theorem~\ref{thm:uc}
-leaves; a full proof of Theorem~\ref{thm:chan}; a P model~\cite{plang} of
-the off-chain protocol; and completing the MIN tier.
+should be sized by exit throughput and sharded. The design is hostage
+to proposals (a tapleaf version with restored string opcodes or at
+least \op{CAT}, \op{TX} in \texttt{0xC0}, the EC opcodes' drafts);
+every selector and opcode number is a named constant, and a Liquid
+prototype of the MID tier is the obvious next experiment. As a thought
+experiment (simulator only, never a proposal), a hypothetical native
+Merkle-sum update opcode that folds the path inside consensus takes
+\tr{EXIT}$_1$ to 252 B of script at every depth and profile, sparse and
+dense converging, at the price of baking the tree format into consensus
+(design notes).
 
 \section{Conclusion}
 
@@ -1004,7 +988,11 @@ transactions: a one-transaction exit of about a kilobyte, eviction and
 cohort sweeps, no pre-signing, no expiry, only opcodes already on the
 table. Its guarantees are a simulation argument over mechanically checked
 lemmas, its costs are measured, and its price is that all activity funnels
-through one UTXO, which bounds how fast a tree can be dissolved.
+through one UTXO, which bounds how fast a tree can be dissolved. Future
+work: a verified compiler from Table~\ref{tab:pred} to bytecode, closing
+the gap Theorem~\ref{thm:uc} leaves; a full proof of
+Theorem~\ref{thm:chan}; a P model~\cite{plang} of the off-chain
+protocol; and completing the MIN tier.
 
 \bibliographystyle{splncs04}
 \bibliography{refs}
