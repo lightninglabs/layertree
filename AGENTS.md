@@ -23,7 +23,7 @@ opcodes it relies on are proposals, not consensus.
 | Golden vectors linking Python and Go | `spec/test-vectors.json`, `spec/golden.json` | `python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json` |
 | Formal model (Lean 4, core only) | `formal/` | `cd formal && lake build` (prints the axiom audit) |
 | Design history and findings | `design/review.md` (F1..F18), `design/p-model.md`, `notes.md` | none |
-| Paper (LNCS) | `paper/main.tex`, `paper/refs.bib`, built `paper/main.pdf` | `cd paper && latexmk -pdf main.tex` (TeX Live with `cryptocode`, `pgfplots`, `cm-super`; `llncs.cls` and `splncs04.bst` are bundled) |
+| Paper (LNCS) | `paper/main.tex`, `paper/appendix-*.tex`, `paper/refs.bib`, built `paper/main.pdf`, generated `paper/version.tex` | `cd paper && make` (regenerates `version.tex` from git, then `latexmk`; TeX Live with `cryptocode`, `pgfplots`, `cm-super`; `llncs.cls` and `splncs04.bst` are bundled) |
 
 The Python tools are the executable reference; the Go code is cross-checked
 against them byte for byte. The Lean model proves the *rules* of spec
@@ -84,7 +84,7 @@ every golden vector to change.
 same figure appears in spec 4.5/8.8/11, `spec/scripts/sizes.md`,
 `spec/fee-analysis.md`, `formal/README.md` where relevant, and the paper
 (`paper/main.tex` tables and prose). Grep for the old value across all of
-them. The paper's Figure 4 coordinates are literal numbers, not generated.
+them. The paper's Figure 3 coordinates are literal numbers, not generated.
 
 **Changing Appendix C**: keep the "rules that bind the tree layer" list in
 spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
@@ -140,12 +140,30 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   empty; count `pdftotext` lines per page instead. `\anontrue` in the
   preamble switches the author block for double-blind submission.
   `paper/review.md` is a simulated PC review of the first draft and
-  `paper/review-response.md` records what each item changed. Appendix E
+  `paper/review-response.md` records what each item changed, including
+  the functionality-first restructure (issue #4). Appendix F
   of the paper includes every script from `spec/scripts/structured/`,
   which `tools/gen_structured.py` produces by collapsing the compiled
   scripts back into named macro calls (round-trip verified against the
   bytes); run it after any generator change, together with
   `tools/gen_listings.py`, or the paper's listings go stale.
+* **Paper structure and versioning**: the body is functionality first
+  (section 3 the ideal functionality, 4 the abstract protocol and its
+  covenant predicates, 5 the tiers, 6 the UC theorem with inline Lean
+  signatures in `leansig` listings, 7 channel composition); the full
+  simulator is Appendix A. Keep the Lean signature blocks in sync with
+  `formal/LayerTree/*.lean` when a theorem statement changes. Build with
+  `make`, not bare `latexmk`: `make` writes `paper/version.tex` (hash,
+  date, `git describe --dirty`, clean/dirty) which the title footnote and
+  running footer show. Commit sources first, then `make`, then commit
+  `main.pdf` with `version.tex` so the stamp names the content commit and
+  reads clean. `cryptocode`'s `\procedure` body is math mode, so prose
+  with `$..$` inside it fails with "Missing } inserted"; the functionality
+  figure is a framed `\parbox` for that reason. A `\item[...]` label
+  containing `]` must be braced. llncs's `headings` page style has an
+  empty footer; the preamble patches `\ps@headings` and re-issues
+  `\pagestyle{headings}` (the class runs it at load time, so a patch
+  alone does nothing).
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.

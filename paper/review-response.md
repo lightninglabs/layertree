@@ -22,3 +22,21 @@ item, so the two can be read together.
 | N. Presentation | Body is 15 pages plus references and appendices. The fold direction and the meaning of the direction bit are defined in section 4.1; le64/le32, S_0, csv_delay and E_D are defined before use; MID and MIN points on Figure 4 are labelled; an anonymity switch (`\anontrue`) is in the preamble. |
 
 Not adopted: implementing further MIN-tier transitions (stated as open work instead), and the empirical fee-rate distribution.
+
+## The functionality-first restructure (issue #4)
+
+The second revision reorders the paper around an ideal functionality and
+a UC theorem; it changes no measured number. Section numbers below are
+the new ones.
+
+| Topic | Change |
+|---|---|
+| Presentation order | Section 3 is now the ideal functionality F_LT[D, profile, pk_op, exact, Delta] (Figure 1): state, the interfaces CREATE, JOIN, EXIT, EVICT, UPDATE, CLAIM, SWEEP and READ with caller, preconditions and effects, what the adversary may influence (scheduling within Delta(N), refusing joins, grafting opaque subtrees), and G1 to G5 restated as readings of the figure. Section 4 is the abstract protocol: tree, tree output, the step predicate and one covenant predicate per interface (Table 1), and the behaviour of honest parties. Section 5 realises the predicates per tier and points at the CCV tier and a native Merkle-sum opcode as further realisations. |
+| Opaque subtrees | The real-tree invariant's failure case is now a state of the functionality (an opaque slot whose value is frozen, never stolen) rather than a caveat on a theorem; the honest member's pre-funding check is the party behaviour that keeps an honest member out of that state. |
+| Delta(N) | The contention bound (25-descendant package limit) is stated in section 3 as the liveness parameter of the functionality, Delta(N) = Delta_L (ceil(N / kappa) + 1), and reused by the UC theorem and the HTLC budget. Pinning is stated as outside the ledger model. |
+| Security | Section 6.1 keeps the tree-level theorems (binding, conservation, payability, real-tree invariant) and shows the Lean statement of each inline in a `leansig` block, so a reader can go from the lemma to `formal/LayerTree/*.lean` without the appendix. Section 6.2 states Theorem 5: for each tier, Pi_tau UC-realises F_LT restricted to the interfaces the tier compiles, in the hybrid model with G_ledger[Pred_tau], G_clock and F_sig, in the idealised hash model, with the simulator sketched in the body and the hybrids in Appendix A. The paragraph "What the theorem leaves out" names the bytecode gap, pinning and cheap eviction. |
+| Channel leaves | Section 7 states the channel protocol in the F_LT-hybrid model, the three tree-layer rules as composition preconditions, and Theorem 6 as a sketch following Generalized Channels; the HTLC deadline argument under Delta(N) is left open. |
+| Appendices | A is the UC proof (hybrid world, simulator, hybrids, per-tier remarks, composition for channel leaves); B Lean; C script listings; D channel scripts and costs; E measurements (Table 3, moved from the body), vouchers and fee tables; F complete structured listings. |
+| Versioning | `paper/Makefile` writes `version.tex` from git before every build (hash, commit date, `git describe --dirty`, clean/dirty against `paper/`, `spec/`, `formal/`, `tools/` excluding the PDF itself); the title footnote and the running footer show it. `version.tex` is committed alongside `main.pdf`. |
+| Bibliography | Added Canetti (UC), GUC, Badertscher et al. (composable ledger), Katz et al. (clock), Canetti (F_sig), Generalized Channels, PERUN state channels, Kiayias and Litos. |
+| Length | Body 15 pages (References at the top of page 16); the size table moved to Appendix E and the MIN tier's grinding details to Appendix C to make room. |

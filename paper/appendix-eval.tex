@@ -1,4 +1,31 @@
-\section{Vouchers and Fee Tables}\label{app:eval}
+\section{Measurements, Vouchers and Fee Tables}\label{app:eval}
+
+\subsection{Measured Sizes}
+
+Table~\ref{tab:sizes} gives the script, witness and transaction sizes
+behind Figure~\ref{fig:plot} and Table~\ref{tab:tiers}.
+
+\begin{table}[htbp]
+\centering
+\caption{Measured \tr{EXIT}$_1$ cost (FULL). WU include a 129-byte control block for a five-leaf taptree (each doubling of the script set adds 8 vB); the transaction adds a fee input, change and overhead ($\approx 950\WU$). Sparse witness is $326 + 41\log_2 N$ bytes, tabulated at $N = 2^{16}$. Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
+\label{tab:sizes}
+\setlength{\tabcolsep}{3.5pt}\scriptsize
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+profile & $D$ & script (B) & witness (B) & total (WU) & tx (vB) & radix-2 tx tree (vB) \\
+\midrule
+dense & 8 & 1{,}397 & 574 & 2{,}100 & 762 & 1{,}311 \\
+dense & 12 & 1{,}749 & 738 & 2{,}616 & 891 & 1{,}911 \\
+dense & 16 & 2{,}101 & 902 & 3{,}132 & 1{,}020 & 2{,}511 \\
+dense & 20 & 2{,}453 & 1{,}066 & 3{,}648 & 1{,}149 & 3{,}111 \\
+sparse & 32 & 5{,}147 & $326 + 41\log_2 N$ & $\approx 6{,}260$ & $\approx 1{,}800$ & n/a \\
+sparse & 64 & 9{,}499 & $326 + 41\log_2 N$ & $\approx 10{,}610$ & $\approx 2{,}890$ & n/a \\
+\midrule
+MID dense & 16 & 3{,}299 & 978 & 4{,}406 & 1{,}338 & \\
+MIN dense & 16 & 3{,}572 & 1{,}175 & 4{,}876 & 1{,}456 & \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Vouchers (\tr{CLAIM})}\label{app:claim}
 
