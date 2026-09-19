@@ -356,16 +356,22 @@ vectors and the Go cross-checks.
 
 ## 3. Things deliberately left out
 
-* Aggregate per-node keys for cooperative subtree replacement (spec 13.4):
+* Aggregate per-node keys for cooperative subtree replacement (spec 13.5):
   reintroduces the interactive signing round the design is trying to avoid.
-* Hash-locked vouchers and swap flows (spec 13.5): straightforward on top of
-  `CLAIM`, but they belong with the liquidity-marketplace design in the
-  notes, not the base protocol.
+* Hash-locked vouchers and swap flows (spec 13.6): judged at the time to
+  belong with the liquidity-marketplace design in the notes rather than the
+  base protocol. Reversed later: they are now specified and implemented as
+  `CLAIM^h` (spec 7.5.1, 9.6.1, 10.3), which cost 9 bytes of script over
+  `CLAIM` and no new opcode.
 * MuSig2 adaptor signatures (from `design/layertree.md`): an off-chain
   concern for channel leaves and swaps; nothing in the base protocol needs
   them.
 
 ## 4. Validation
+
+*This section records the state at the time of the review. The suites have
+grown since; `design/status.md` and spec section 14 carry the current
+counts, and the check totals below are historical.*
 
 `tools/test_scripts.py` executes all four scripts against a reference tree
 at depths 4 and 16 (dense) and 8 and 32 (sparse) in a simulator of the required opcode subset, with 208

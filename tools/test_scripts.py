@@ -636,6 +636,77 @@ def test_channel_rules(depth, verbose=True):
         print(f"channel rules D={depth}: EXIT_1^= script {len(exact)} B (EXIT_1 {len(assemble(ls.exit_script(depth, 1, 'D')))} B)")
 
 
+def test_claim_h(depth, profile, verbose=True):
+    """CLAIM^h (spec 7.5.1): CLAIM whose voucher also commits to a payment hash.
+
+    The redeemer supplies a 32-byte preimage; the script hashes it into the
+    signed message, so a wrong preimage fails as a bad signature. The variant
+    is a tree-creation parameter, so it is swapped into the taptree under the
+    name CLAIM_H and m is recomputed.
+    """
+    w = World(depth, profile)
+    toks = ls.claim_script(depth, profile, hashlock=True)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"CLAIM_H uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled["CLAIM_H"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    oper = mk_leaf("operator", 1_000_000)
+    alice = mk_leaf("alice", 50_000)
+    s_oper, s_alice = w.slot(oper, (1 << depth) - 1), w.slot(alice, 0)
+    w.tree.leaves = {s_oper: oper, s_alice: alice}
+    root = w.tree.root()
+    src = w.tree.leaves[s_oper]
+
+    preimage = lt.sha256(b"payment-preimage")
+    payment_hash = lt.sha256(preimage)
+    hodl = mk_leaf("hodl", 40_000, w.op_pk, 900_000)
+    s_hodl = w.slot(hodl, 3)
+    spath = w.tree.path(s_oper)
+    t1 = w.clone(); lt.apply_claim(t1, s_oper, s_hodl, hodl)
+    cpath = t1.path(s_hodl); r1 = t1.root()
+    check(r1[1] == root[1], "CLAIM^h conserves sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    hmsg = lt.voucher_h_msg(w.m, src, hodl, payment_hash)
+    hsig = schnorr_sign(hmsg, sk("operator-owner"))
+    head = w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [hodl.serialize()]
+    wit = head + [hsig, preimage, root[0], w.m]
+    it = w.run("CLAIM_H", wit, ctx)
+    check(True, "CLAIM^h redeemed with the correct preimage")
+
+    # negatives
+    expect_fail(lambda: w.run("CLAIM_H", head + [hsig, lt.sha256(b"wrong"), root[0], w.m], ctx),
+                "CLAIM^h wrong preimage")
+    expect_fail(lambda: w.run("CLAIM_H", head + [hsig, preimage[:31], root[0], w.m], ctx),
+                "CLAIM^h preimage not 32 bytes")
+    expect_fail(lambda: w.run("CLAIM_H", head + [hsig, root[0], w.m], ctx),
+                "CLAIM^h missing preimage")
+    # a plain voucher for the same carve must not redeem under the hash lock,
+    # and the hash-locked voucher must not redeem as a plain CLAIM: separate tags
+    plain_sig = schnorr_sign(lt.voucher_msg(w.m, src, hodl), sk("operator-owner"))
+    expect_fail(lambda: w.run("CLAIM_H", head + [plain_sig, preimage, root[0], w.m], ctx),
+                "CLAIM^h with a plain voucher signature")
+    expect_fail(lambda: w.run("CLAIM", head + [hsig, root[0], w.m], ctx),
+                "plain CLAIM with a hash-locked voucher signature")
+    # the payment hash is bound to this carve: another claim leaf needs its own voucher
+    other = mk_leaf("other", 40_000, w.op_pk, 900_000)
+    expect_fail(lambda: w.run("CLAIM_H", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
+                              [src.serialize()] + w.bm(cpath) + [other.serialize(), hsig, preimage, root[0], w.m], ctx),
+                "CLAIM^h voucher reused for a different claim leaf")
+    greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000)
+    gsig = schnorr_sign(lt.voucher_h_msg(w.m, src, greedy, payment_hash), sk("operator-owner"))
+    expect_fail(lambda: w.run("CLAIM_H", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
+                              [src.serialize()] + w.bm(cpath) + [greedy.serialize(), gsig, preimage, root[0], w.m], ctx),
+                "CLAIM^h over-claim underflow")
+    bsig = schnorr_sign(hmsg, sk("bob-owner"))
+    expect_fail(lambda: w.run("CLAIM_H", head + [bsig, preimage, root[0], w.m], ctx),
+                "CLAIM^h voucher wrong signer")
+    if verbose:
+        plain = len(assemble(ls.claim_script(depth, profile)))
+        print(f"CLAIM^h {profile} D={depth}: script {len(script)} B (CLAIM {plain} B), witness {sum(len(x) for x in wit)} B, varops {it.cost}")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
@@ -650,6 +721,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
         test_channel_rules(d)
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
+        test_claim_h(d, prof)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)

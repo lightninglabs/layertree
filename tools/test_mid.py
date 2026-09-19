@@ -293,10 +293,70 @@ def test_update_x(depth, sparse, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_claim_h(depth, sparse, verbose=True):
+    """MID CLAIM^h (spec 7.5.1): CLAIM whose voucher also commits to a payment hash.
+
+    Swapped into the taptree as CLAIM_H, like UPDATE_X: it is a tree-creation
+    parameter, not part of the reference script set.
+    """
+    w = MidWorld(depth, sparse)
+    S = sparse
+    toks = M.claim_script(depth, sparse, hashlock=True)
+    bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+    check(not bad, f"MID CLAIM_H: opcodes outside the MID set: {sorted(bad)}")
+    script = assemble(toks, mode="c0")
+    w.compiled = dict(w.compiled); w.compiled["CLAIM_H"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 50_000, sparse=S)
+    oper = mk_leaf("operator", 1_000_000, sparse=S)
+    s_a, s_o = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_a: alice, s_o: oper}
+    root = w.tree.root()
+    src = w.tree.leaves[s_o]
+
+    preimage = lt.sha256(b"payment-preimage")
+    payment_hash = lt.sha256(preimage)
+    hodl = mk_leaf("hodl", 40_000, w.op_pk, 900_000, sparse=S)
+    s_h = w.slot(hodl, 3)
+    spath = w.tree.path(s_o)
+    t1 = w.clone(); lt.apply_claim(t1, s_o, s_h, hodl)
+    src2 = t1.leaves[s_o]
+    cpath = t1.path(s_h); r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+    hsig = schnorr_sign(lt.voucher_h_msg(w.m, src, hodl, payment_hash), sk("operator-owner"))
+    extras = [M.scriptnum(src.seq)] + list(M.pad(src.seq)) + list(M.pad(src.seq + 1)) + list(M.pad(src.amount - hodl.amount))
+    head = (list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, hodl.node(), S) + w.pos(hodl) +
+            w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
+            M.w_leaf(src) + M.w_leaf(hodl) + extras)
+    wit = head + [hsig, preimage, root[0], w.m]
+    it = w.run("CLAIM_H", wit, ctx)
+    check(True, "mid: CLAIM^h redeemed with the correct preimage")
+    # negatives
+    expect_fail(lambda: w.run("CLAIM_H", head + [hsig, lt.sha256(b"wrong"), root[0], w.m], ctx),
+                "mid: CLAIM^h wrong preimage")
+    expect_fail(lambda: w.run("CLAIM_H", head + [hsig, preimage[:31], root[0], w.m], ctx),
+                "mid: CLAIM^h preimage not 32 bytes")
+    plain_sig = schnorr_sign(lt.voucher_msg(w.m, src, hodl), sk("operator-owner"))
+    expect_fail(lambda: w.run("CLAIM_H", head + [plain_sig, preimage, root[0], w.m], ctx),
+                "mid: CLAIM^h with a plain voucher signature")
+    expect_fail(lambda: w.run("CLAIM", head + [hsig, root[0], w.m], ctx),
+                "mid: plain CLAIM with a hash-locked voucher signature")
+    bsig = schnorr_sign(lt.voucher_h_msg(w.m, src, hodl, payment_hash), sk("alice-owner"))
+    expect_fail(lambda: w.run("CLAIM_H", head + [bsig, preimage, root[0], w.m], ctx),
+                "mid: CLAIM^h voucher wrong signer")
+    if verbose:
+        plain = len(assemble(M.claim_script(depth, sparse), mode="c0"))
+        print(f"MID CLAIM^h {'S' if S else 'D'} D={depth}: script {len(script)} B "
+              f"(CLAIM {plain} B), witness {sum(len(x) for x in wit)} B")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
     test_update_x(16, False)
     test_update_x(31, True)
+    test_claim_h(16, False)
+    test_claim_h(31, True)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)

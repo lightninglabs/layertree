@@ -44,10 +44,30 @@ voucher. Because a voucher lets an owner move value with a lone
 signature, leaves whose balance is not the owner's alone set
 $\mathsf{seq}$ to the tier's $\mathsf{SEQ\_FINAL}$ (\S\ref{sec:channels}),
 whose successor does not fit in four bytes, so the \tr{CLAIM} script
-rejects them. Vouchers are the mechanism for operator-to-member push
-payments without the operator's later participation, and with a payment
-hash added to the message they become HTLCs between the credit
-instrument and channel-leaf HTLCs.
+rejects them. Vouchers are the mechanism for
+operator-to-member push payments without the operator's later
+participation.
+
+\paragraph{Hash-locked vouchers (\tr{CLAIM}$^{h}$).} Adding a payment hash
+to the signed message, under its own tag, and requiring the preimage at
+redemption turns a voucher into an HTLC and makes it composable with a
+channel-leaf HTLC or a Lightning invoice carrying the same hash. The
+script does not compare a witness-supplied hash against the preimage: it
+computes $\mathrm{SHA256}(\mathsf{preimage})$ and feeds it into the signed
+message, so a wrong preimage fails as an invalid signature. That costs one
+hash opcode, nine bytes of script in both tiers that realise \tr{CLAIM},
+and no opcode beyond those \tr{CLAIM} already needs. The separate tag is
+load-bearing: reusing $H_{\mathsf{voucher}}$ for both forms would let a
+redeemer strip the hash lock.
+
+The variant adds ordering, not security. It cannot create an on-chain
+deadline, because script can require that a spend not happen before a
+height but not that it happen before one, and the value backing a voucher
+never leaves the source leaf, so there is nothing to refund; deadlines live
+in the other leg of the swap, and an issuer retires an unredeemed voucher
+by advancing the source leaf's $\mathsf{seq}$. Redemption publishes the
+preimage, which is what settles the other leg and also what obliges a
+redeemer to secure its own leg first.
 
 \subsection{Comparison Table}
 

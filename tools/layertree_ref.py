@@ -94,6 +94,7 @@ TAG_LEAF = "LayerTree/leaf"
 TAG_NODE = "LayerTree/node"
 TAG_STATE = "LayerTree/state"
 TAG_VOUCHER = "LayerTree/voucher"
+TAG_VOUCHER_H = "LayerTree/voucher-hashlock"
 TAG_POS = "LayerTree/pos"
 TAG_TAPTWEAK = "TapTweak"
 TAG_TAPLEAF = "TapLeaf"
@@ -376,6 +377,17 @@ def voucher_msg(merkle_root, source_leaf, claim_leaf):
     return tagged_hash(TAG_VOUCHER, merkle_root + source_leaf.serialize() + claim_leaf.serialize())
 
 
+def voucher_h_msg(merkle_root, source_leaf, claim_leaf, payment_hash):
+    """Hash-locked voucher message (spec 7.5.1).
+
+    A separate tag keeps the two voucher forms disjoint: a plain voucher can
+    never be redeemed by CLAIM_H and vice versa, whatever the payload.
+    """
+    assert len(payment_hash) == 32
+    return tagged_hash(TAG_VOUCHER_H,
+                       merkle_root + source_leaf.serialize() + claim_leaf.serialize() + payment_hash)
+
+
 def apply_claim(tree, source_slot, claim_slot, claim_leaf):
     src = tree.leaves[source_slot]
     assert claim_slot not in tree.leaves
@@ -412,7 +424,7 @@ def det_key(label):
 
 def build_vectors():
     vec = {"description": "LayerTree reference test vectors; see spec/layertree.md",
-           "tags": {t: hx(tag_prefix(t)) for t in (TAG_LEAF, TAG_NODE, TAG_STATE, TAG_VOUCHER)},
+           "tags": {t: hx(tag_prefix(t)) for t in (TAG_LEAF, TAG_NODE, TAG_STATE, TAG_VOUCHER, TAG_VOUCHER_H)},
            "nums_x": hx(NUMS_X), "nums_compressed": hx(compress(NUMS)),
            "empty_leaf_hash": hx(EMPTY_LEAF_HASH),
            "empty_nodes": [node_json(empty_node(h)) for h in range(0, 33)]}
@@ -500,6 +512,13 @@ def build_vectors():
         "voucher_msg": hx(voucher_msg(merkle_root, src_before, erin)),
         "old_root": node_json(r3), "new_root": node_json(r4),
     }
+    # Hash-locked form of the same carve (7.5.1): same steps, different
+    # message. preimage is fixed so the vector is reproducible.
+    claim_preimage = sha256(b"LayerTree/test/preimage")
+    vec["transition_claim"]["preimage"] = hx(claim_preimage)
+    vec["transition_claim"]["payment_hash"] = hx(sha256(claim_preimage))
+    vec["transition_claim"]["voucher_h_msg"] = hx(
+        voucher_h_msg(merkle_root, src_before, erin, sha256(claim_preimage)))
     # Sparse profile example: positions derived from (owner_key, nonce).
     SD = 32
     sp = Tree(SD)

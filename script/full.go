@@ -41,6 +41,7 @@ var (
 	fullNodePrefix     = fullTagPrefix(tree.TagNode)
 	fullStatePrefix    = fullTagPrefix(tree.TagState)
 	fullVoucherPrefix  = fullTagPrefix(tree.TagVoucher)
+	fullVoucherHPrefix = fullTagPrefix(tree.TagVoucherH)
 	fullPosPrefix      = fullTagPrefix(tree.TagPos)
 	fullTapTweakPrefix = fullTagPrefix("TapTweak")
 
@@ -495,6 +496,23 @@ func fullUpdateScript(depth int, operatorKey [32]byte, sparse,
 // FullClaimScript is CLAIM (spec 8.7):
 // witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m.
 func FullClaimScript(depth int, sparse bool) []Token {
+	return fullClaimScript(depth, sparse, false)
+}
+
+// FullClaimHScript is CLAIM^h, the hash-locked voucher variant of CLAIM
+// (spec 7.5.1): witness =
+// [claim path] [source path] src_leaf claim_leaf voucher_sig preimage root m,
+// with the signed message gaining SHA256(preimage) as a fourth field under a
+// separate tag. The script never compares the payment hash against a witness
+// copy; it computes it from the preimage and feeds it to the message, so a
+// wrong preimage fails as a bad signature. It is a tree-creation parameter: a
+// tree uses either CLAIM or CLAIM^h, never both.
+func FullClaimHScript(depth int, sparse bool) []Token {
+	return fullClaimScript(depth, sparse, true)
+}
+
+// fullClaimScript is the shared body of CLAIM and CLAIM^h.
+func fullClaimScript(depth int, sparse, hashlock bool) []Token {
 	s := fullCat(
 		[]Token{
 			Num(SelCurrInput), Op(OP_TX), Op(ts.OP_0), Op(ts.OP_NUMEQUALVERIFY),
@@ -504,10 +522,32 @@ func FullClaimScript(depth int, sparse bool) []Token {
 		[]Token{
 			Num(SelInSpk), Op(OP_TX), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), Op(ts.OP_SWAP),
-			Op(ts.OP_TOALTSTACK), // src claim vsig m | m r
+			Op(ts.OP_TOALTSTACK), // src claim vsig [pre] m | m r
+		},
+	)
+	if hashlock {
+		// Park SHA256(preimage) on the altstack so that every stack depth
+		// below is exactly as in CLAIM.
+		s = fullCat(s, []Token{
+			Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK), // src claim vsig m | m r phash
+		})
+	}
+	s = fullCat(s,
+		[]Token{
 			Num(3), Op(ts.OP_PICK), Num(3), Op(ts.OP_PICK), Op(OP_CAT), Op(OP_CAT),
 		},
-		fullTagged(fullVoucherPrefix), // src claim vsig msg
+	)
+	if hashlock {
+		// msg = m || src || claim || phash
+		s = fullCat(s, []Token{Op(ts.OP_FROMALTSTACK), Op(OP_CAT)})
+	}
+	voucherPrefix := fullVoucherPrefix
+	if hashlock {
+		voucherPrefix = fullVoucherHPrefix
+	}
+	s = fullCat(s,
+		fullTagged(voucherPrefix), // src claim vsig msg
 		[]Token{
 			Num(3), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
 			Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // src claim

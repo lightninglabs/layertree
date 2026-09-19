@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.6.1
+Version:  0.7.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -281,6 +281,7 @@ at all, using ordinary script tricks in place of convenience opcodes.
 | Taproot output key recomputation | `OP_EC_POINT_MUL`, `OP_EC_POINT_ADD`, `OP_EC_POINT_X_COORD` | BIP-449 `OP_TWEAKADD` (`[tweak32 pubkey32] → x(P + t·G)`), applied twice: once with `NUMS` and the state tweak, once with the resulting key and the TapTweak | −12 bytes per `TREE_SPK`; cost 50 sigops units per use vs 41 |
 | Transaction introspection | `OP_TX` | `OP_CHECKSIG` with the generator as public key and a signature whose `s` equals `e + 1`, so that the script must reconstruct the BIP-341 signature message from witness-supplied serialisations of prevouts, amounts, scriptPubKeys and outputs, hash it, and pick the fields it needs from those serialisations with `OP_CAT` and `OP_SIZE` | several hundred witness bytes and about a dozen hashes per introspection; grinding the transaction until `e` has no carry into `s` |
 | Signature over an arbitrary message (`CLAIM` vouchers) | `OP_CHECKSIGFROMSTACK` | none; a voucher is not a transaction signature. Drop `CLAIM` if `OP_CHECKSIGFROMSTACK` is unavailable | — |
+| Hash lock on a voucher (`CLAIM^h`, 7.5.1) | `OP_SHA256` | already in BIP-342; the hash lock needs no opcode beyond those `CLAIM` uses | — |
 | Owner/evictor/operator authorisation, lock time, hashing, stack work | BIP-342 | — | — |
 
 Hence the irreducible core is **BIP-342 tapscript, the BIP-441 numeric
@@ -316,6 +317,7 @@ are interchangeable, with one numeric cap noted below.
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both |
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) |
+| `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | n/a (no `CLAIM`) |
@@ -335,10 +337,12 @@ script / witness data:
 | transition | FULL D | MID D | MIN D | FULL S (32) | MID S (31) |
 |---|---|---|---|---|---|
 | `EXIT_1` | 2,101 / 902 | 3,299 / 978 | 3,572 / 1,175 | 5,147 / 326 | 9,274 / 796 |
-| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 745 | 2,824 / 794 | — | 5,131 / 367 | 9,254 / 783 |
+| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,824 / 794 | — | 5,131 / 367 | 9,254 / 783 |
 | `JOINK_2` | 3,545 / 1,525 | 5,749 / 1,637 | — | 9,773 / 606 | 17,985 / 1,433 |
-| `UPDATE` | 2,137 / 1,064 | 3,407 / 1,156 | — | 5,283 / 504 | 9,393 / 1,002 |
-| `CLAIM` | 3,801 / 1,658 | 6,291 / 1,832 | n/a | 9,767 / 600 | 18,241 / 1,543 |
+| `UPDATE` | 2,137 / 1,080 | 3,407 / 1,156 | — | 5,347 / 547 | 9,393 / 1,002 |
+| `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | 5,354 / 611 | 9,397 / 1,032 |
+| `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | 9,896 / 688 | 18,241 / 1,543 |
+| `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | 9,905 / 515 | 18,250 / 1,438 |
 
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
@@ -377,6 +381,7 @@ scripts in this document.
 | `TAG_NODE` | `"LayerTree/node"` |
 | `TAG_STATE` | `"LayerTree/state"` |
 | `TAG_VOUCHER` | `"LayerTree/voucher"` |
+| `TAG_VOUCHER_H` | `"LayerTree/voucher-hashlock"` (hash-locked vouchers, 7.5.1) |
 | `TAG_POS` | `"LayerTree/pos"` (sparse profile positions) |
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
@@ -384,7 +389,8 @@ scripts in this document.
 | `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
 | `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/upd"`, `"LayerTree/chan/set"` (Appendix C) |
 
-`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_pos` denote `H_tag` with the
+`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_pos` denote
+`H_tag` with the
 corresponding tag. The 64-byte tagged-hash prefixes are given in
 `spec/test-vectors.json` under `tags`.
 
@@ -780,6 +786,55 @@ as liabilities until the source leaf's `seq` has advanced past them
 which is why section 5.2 forbids two leaves with the same
 `(owner_key, nonce)`: two identical leaves would let one voucher be redeemed
 against each. In the sparse profile this cannot occur.
+
+#### 7.5.1 CLAIM^h (hash-locked voucher)
+
+`CLAIM^h` is `CLAIM` whose voucher additionally commits to a **payment
+hash**, and whose redemption requires the preimage. It is a tree-creation
+parameter: a taptree MAY include `CLAIM`, `CLAIM^h`, both or neither, and
+the choice is visible in `m`.
+
+Voucher: `voucher_sig` is a BIP-340 signature by `source_leaf.owner_key`
+over
+
+```
+H_voucher_h( m || source_leaf || claim_leaf || payment_hash )
+```
+
+where `payment_hash` is 32 bytes. The tag differs from `TAG_VOUCHER`, so a
+plain voucher and a hash-locked voucher are disjoint instruments: neither
+can be redeemed by the other's script whatever the payload.
+
+Witness inputs: as `CLAIM`, with a 32-byte `preimage` inserted between
+`voucher_sig` and `r`.
+
+Rules: as 7.5, with rule 1 replaced by
+
+1. `preimage` MUST be exactly 32 bytes, and `voucher_sig` MUST verify (via
+   `OP_CHECKSIGFROMSTACK`) under `source_leaf.owner_key` over
+   `H_voucher_h( m || source_leaf || claim_leaf || SHA256(preimage) )`.
+
+Rules 2 to 4 of 7.5 are unchanged, so `CLAIM^h` conserves the total, is
+single-use, and empties a drained source position exactly as `CLAIM` does.
+
+*(informative)* The script does not compare a witness-supplied payment hash
+against the preimage. It computes `SHA256(preimage)` and feeds the result
+into the signed message, so a wrong preimage produces a different message
+and fails as an invalid signature. This costs one `OP_SHA256` and removes
+an equality check and 32 witness bytes. The 32-byte length requirement is
+not needed for soundness; it bounds the hashed input and matches BOLT-3
+payment preimages, so the same hash can be shared with a channel-leaf HTLC
+(Appendix C.4) or with a Lightning invoice.
+
+There is **no on-chain expiry**. Bitcoin script can require that a spend not
+happen before a height, not that it happen before one, and the value backing
+a voucher never leaves the source leaf, so there is nothing to refund. An
+issuer who wants an outstanding voucher, plain or hash-locked, to become
+void MUST advance the source leaf's `seq`, which any `UPDATE` or `CLAIM` on
+that leaf does. Deadlines in a swap therefore live in the other leg: the
+Lightning HTLC's `cltv_expiry` or the channel-leaf HTLC of Appendix C.4.1.
+Section 9.6.1 states the resulting protocol requirements and 10.3 the
+residual risks.
 
 ### 7.6 Composition and variants
 
@@ -1181,6 +1236,29 @@ OP_FROMALTSTACK OP_NUMEQUALVERIFY                   # T nh2 ns2       (os2 == S1
 FINAL
 ```
 
+#### 8.6.1 CLAIM^h
+
+Witness: as 8.6 with a 32-byte `preimage` between `voucher_sig` and `r`.
+The preimage is hashed and parked on the altstack immediately, so every
+stack depth in the rest of the script is as in `CLAIM`:
+
+```
+<SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
+OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim vsig pre r m
+OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim vsig pre m   | m r
+OP_SWAP OP_SIZE 32 OP_EQUALVERIFY OP_SHA256
+OP_TOALTSTACK                                       # src claim vsig m       | m r phash
+OP_3 OP_PICK OP_3 OP_PICK OP_CAT OP_CAT             # src claim vsig (m||src||claim)
+OP_FROMALTSTACK OP_CAT                              # src claim vsig (m||src||claim||phash)
+TAGGED(TAG_VOUCHER_H)                               # src claim vsig msg
+OP_3 OP_PICK 40 32 OP_SUBSTR                        # src claim vsig msg src.owner_key
+OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
+... as 8.6 from the OP_SIZE 116 check onwards, unchanged ...
+```
+
+The MID tier applies the same two insertions to 8.6's MID form. In both
+tiers the variant costs 9 bytes of script over `CLAIM` (section 8.8).
+
 ### 8.7 EVICT_SUBTREE_h
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  leaf_{2^h−1} … leaf_0  sig  r  m`
@@ -1339,6 +1417,45 @@ payments and of the original sketch's signed vouchers: an operator that
 keeps a funded bond leaf can pay recipients instantly with a voucher that is
 independently redeemable if the operator later disappears.
 
+#### 9.6.1 Hash-locked vouchers and swaps
+
+A hash-locked voucher (7.5.1) carries the obligations of 9.6 and three more.
+
+An issuer MUST treat a hash-locked voucher as an outstanding liability from
+the moment it is signed, exactly as a plain one, and MUST NOT assume it is
+dead because a deadline in another protocol has passed: the covenant
+enforces no deadline. To retire one, the issuer MUST advance the source
+leaf's `seq` (7.5.1) and MUST NOT reuse the same `payment_hash` for a new
+voucher against the same leaf until it has.
+
+A recipient MUST NOT treat a hash-locked voucher as payment until it holds
+both the voucher and a preimage, and SHOULD redeem promptly once it does,
+because the issuer can invalidate the voucher at any time by advancing
+`seq`.
+
+Redeeming a hash-locked voucher publishes the preimage on-chain. A party
+that holds the same `payment_hash` in another contract (a Lightning HTLC, a
+channel-leaf HTLC of Appendix C.4.1, a voucher in another tree) MUST assume
+the counterparty in that contract learns the preimage as soon as the
+`CLAIM^h` transaction is in a block, and MUST size its own deadlines
+accordingly. This is what makes the swap atomic, and it is also why a
+redeemer SHOULD settle or secure its own leg before broadcasting.
+
+*(informative)* The canonical flow buys a leaf with off-chain funds, for a
+recipient holding no on-chain Bitcoin. `A` owns a funded leaf and wants
+Lightning liquidity; `B` wants a leaf. `A` draws a preimage `R`, sets
+`payment_hash = SHA256(R)`, issues `B` a hash-locked voucher for the leaf,
+and offers a Lightning invoice with the same hash. `B` pays the invoice; to
+settle it `A` releases `R`, which reaches `B` through the payment. `B` now
+redeems the voucher. `B` cannot obtain the leaf without paying, and `A`
+cannot take the payment without releasing `R`. `A` keeps the credit risk of
+9.6 in the window between issuing and redemption, and `B` keeps the risk
+that `A` advances `seq` first; neither is removed by the hash lock, which
+orders the exchange rather than securing it. Reversing the roles (`B`
+generating `R` and being paid over Lightning) swaps which side carries
+which risk. Section 13 item 9 composes the same hash with a channel-leaf
+HTLC, giving a swap with no on-chain step on the channel side.
+
 ### 9.7 Data retention and proof maintenance
 
 Every transition publishes, in its witness, the full sibling path(s) it
@@ -1448,6 +1565,17 @@ source leaf changes after each redemption) but cannot prevent an issuer from
 credit to the issuer until settlement (section 9.6). This is the same trust
 profile as an Ark out-of-round payment and strictly better than an unsecured
 IOU: the first redeemer is paid by consensus.
+
+A hash-locked voucher (7.5.1) adds ordering, not security. It guarantees
+that the holder cannot carve the leaf without the preimage, which is what
+makes an exchange against an off-chain leg atomic, and it leaves both risks
+of the preceding paragraph exactly where they were: the issuer can still
+over-issue, and can still invalidate an unredeemed voucher by advancing
+`seq`. Because the two forms use different tags, a plain voucher cannot be
+redeemed under the hash lock and a hash-locked voucher cannot be redeemed
+without one; an implementation that reused `TAG_VOUCHER` for both would let
+a redeemer strip the hash lock. Redemption publishes the preimage, which
+9.6.1 requires holders of the same hash elsewhere to account for.
 
 A voucher commits to `m`, so it cannot be replayed in another tree; it
 commits to the full source leaf including `seq`, so it cannot be replayed
@@ -1725,22 +1853,23 @@ exits in a batch" as `EXIT_K` (section 13).
    by one aggregate signature, giving Ark-style cooperative round updates
    for whole cohorts in one signature. This reintroduces interactive nonce
    coordination and is left for a separate document.
-6. **Hash-locked vouchers.** Including a payment hash in the voucher message
-   and requiring the preimage in `CLAIM` turns a voucher into an HTLC,
-   enabling atomic swaps between trees, into Lightning, or with on-chain
-   funds (the "loop in / loop out" flows of the design notes) and
-   third-party liquidity provision: any leaf owner can service a swap by
-   issuing a voucher.
+6. **Hash-locked vouchers.** Now specified as 7.5.1 (`CLAIM^h`), with the
+   protocol in 9.6.1 and the security analysis in 10.3; the entry is kept so
+   the numbering stays stable. It enables atomic swaps between trees, into
+   Lightning, or with on-chain funds, and third-party liquidity provision:
+   any leaf owner can service a swap by issuing a voucher.
 7. **Nesting.** A leaf's `exit_key` may be the output key of another
    LayerTree, giving hierarchical trees with constant-size exit at each
    level.
 8. **`OP_INTERNALKEY` fast path.** Where only `r` must be checked (never
    for output construction), `OP_INTERNALKEY` saves one `OP_TX` and one
    `TREE_SPK`; see the caveat in section 10.4.
-9. **Vouchers and channel HTLCs share a hash.** A hash-locked voucher
-   (item 6) and a channel-leaf HTLC (Appendix C.4) that use the same payment
-   hash give an atomic swap between the credit instrument and the
-   settlement instrument inside one tree, with no on-chain step.
+9. **Vouchers and channel HTLCs share a hash.** A `CLAIM^h` voucher (7.5.1)
+   and a channel-leaf HTLC (Appendix C.4) that use the same payment hash
+   give an atomic swap between the credit instrument and the settlement
+   instrument inside one tree. Only the voucher leg touches the chain, and
+   only if it is redeemed rather than settled off-chain by the issuer. Both
+   legs are specified; the combination is not separately tested.
 10. **`UPDATE` with `exit_key` consent.** Now specified as 7.4 rule 5
    (`UPDATE^x`); the entry is kept so the numbering stays stable.
 
@@ -1762,10 +1891,11 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 59 and 7 checks respectively; the MID
+  operands during development), 86 and 7 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
-  exit-consent `UPDATE^x` variant of 7.4 rule 5 in both profiles.
+  exit-consent `UPDATE^x` variant of 7.4 rule 5 and the hash-locked
+  `CLAIM^h` variant of 7.5.1 in both profiles.
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, 88 checks including negative cases (forged leaf, stale
@@ -1788,7 +1918,12 @@ exits in a batch" as `EXIT_K` (section 13).
   of 7.4 rule 5 (dense at `D = 4` and `16`, sparse at `D = 8`: a spend
   carrying all three signatures succeeds, and one whose `exit_sig` is by the
   wrong key, is garbage, is absent, or that drops the owner signature,
-  fails), 272 checks in total. Run:
+  fails) and the hash-locked `CLAIM^h` variant of 7.5.1 (dense at `D = 4` and
+  `16`, sparse at `D = 8`: redemption with the correct preimage succeeds,
+  and a wrong preimage, a preimage that is not 32 bytes, an absent preimage,
+  a plain voucher signature under the hash lock, a hash-locked signature
+  under plain `CLAIM`, a voucher reused for a different claim leaf, an
+  over-claim and a wrong signer all fail), 325 checks in total. Run:
   `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, and the size table covering both
@@ -1800,10 +1935,11 @@ exits in a batch" as `EXIT_K` (section 13).
 * `spec/golden.json` — compiled scripts for every tier, the taptree root of
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
-  `UPDATE^x` has its own keys, `FULL/D/D4/UPDATE_X`, `FULL/S/D8/UPDATE_X`,
-  `MID/D/D4/UPDATE_X` and `MID/S/D8/UPDATE_X`; being a tree-creation
-  parameter rather than a member of the reference script set, it is excluded
-  from the `FULL/D/D4` taptree root.
+  The tree-creation variants have their own keys, `UPDATE_X` and `CLAIM_H`
+  under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`; being
+  parameters rather than members of the reference script set, both are
+  excluded from the `FULL/D/D4` taptree root, which therefore does not move
+  when a variant is added.
 * `formal/` — a Lean 4 model of sections 5, 7 and 10.2 (core library only,
   `lake build`): the tree, `fold` and the transition rules as relations,
   with machine-checked proofs of completeness (`fold_path`), update

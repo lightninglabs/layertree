@@ -1,7 +1,7 @@
 Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);
 add 40 bytes per additional non-empty sibling (about log2 N in total).
 
-| profile | D | transition | script (WU) | witness data (WU) | control block (WU) | total witness (WU) | varops used | sigops |
+| profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |
 |---|---|---|---|---|---|---|---|---|
 | D | 8 | EXIT_1 (owner) | 1397 | 574 | 129 | 2100 | 2330849 | 1 |
 | D | 8 | EXIT_1 (evict) | 1397 | 575 | 129 | 2101 | 2331244 | 1 |
@@ -65,6 +65,8 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | S | 256 | EXIT_1 (terminal) | 35611 | 0 | 129 | 35740 | 8464248 | 1 |
 | D | 16 | UPDATE_X | 2144 | 1144 | 129 | 3417 | 3494028 | 3 |
 | S | 32 | UPDATE_X | 5354 | 611 | 129 | 6094 | 4096882 | 3 |
+| D | 16 | CLAIM_H | 3811 | 1722 | 129 | 5662 | 2838271 | 1 |
+| S | 32 | CLAIM_H | 9905 | 515 | 129 | 10549 | 4019479 | 1 |
 | S/bitmap | 32 | EXIT_1 (owner) | 5423 | 330 | 129 | 5882 | 3080946 | 1 |
 | S/bitmap | 32 | JOIN_0 | 5407 | 371 | 129 | 5907 | 3079436 | 1 |
 | S/bitmap | 64 | EXIT_1 (owner) | 10063 | 334 | 129 | 10526 | 3979013 | 1 |
@@ -93,4 +95,6 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | CLAIM | 18241 | 1543 | 129 | 19913 | n/a (0xC0) | 1 |
 | MID/D | 16 | UPDATE_X | 3411 | 1225 | 129 | 4765 | n/a (0xC0) | 3 |
 | MID/S | 31 | UPDATE_X | 9397 | 1032 | 129 | 10558 | n/a (0xC0) | 3 |
+| MID/D | 16 | CLAIM_H | 6300 | 1861 | 129 | 8290 | n/a (0xC0) | 1 |
+| MID/S | 31 | CLAIM_H | 18250 | 1438 | 129 | 19817 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |

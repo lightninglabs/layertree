@@ -46,7 +46,7 @@ Any line naming `sorryAx` means an unfinished proof; there are none.
 | 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=` | `ExitBlock`, `ExitK exact …` | `exact = true` is the exact-payout variant. |
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. |
-| 7.5 `CLAIM` | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. |
+| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it. |
 | 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. |
 | 5.3 `enc64`, 8.2 `PAD8` | `Encoding.enc64_eq_minimal` (`Encoding.lean`) | `le64 n ‖ 01` is the minimal BIP-441 encoding of `n + 2^64`. |
 | 5.2 serialisation | `Encoding.serializeLeaf_inj`, `serializeNode_inj` | Fixed-width concatenation is injective under `WF`. |
@@ -177,7 +177,12 @@ out. The model does not quantify the adversary's advantage.
   would close this gap; it is a separate project of a different size.
 * **Signatures, keys, lock times.** Authorisation decides *who* may perform
   a transition, not *what* it does to the tree, so it appears as an opaque
-  proposition. Nothing about conservation depends on it.
+  proposition. Nothing about conservation depends on it. This is why the
+  authorisation variants of the spec (`UPDATE^x`, `CLAIM^h`) need no new
+  Lean development: they instantiate the same `Prop` differently, and the
+  soundness theorems apply to them verbatim. It is also the boundary of the
+  model: that the *script* enforces the authorisation it claims to is shown
+  by execution in `tools/test_scripts.py`, not proved here.
 * **Transaction structure beyond amounts.** The theorems take the input
   amount and output amounts as parameters, as the script reads them with
   `OP_TX`. The output *scripts* (payouts to `P2TR(exit_key)`) are

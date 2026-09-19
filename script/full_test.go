@@ -61,6 +61,8 @@ func fullScriptFor(profile string, depth int, name string,
 		return FullUpdateXScript(depth, key, sparse), nil
 	case name == "CLAIM":
 		return FullClaimScript(depth, sparse), nil
+	case name == "CLAIM_H":
+		return FullClaimHScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err
@@ -237,6 +239,63 @@ func TestFullScriptsMatchGolden(t *testing.T) {
 		t.Fatal("no FULL golden vectors found")
 	}
 	t.Logf("checked %d FULL golden scripts", checked)
+}
+
+// fullCheckScript compares one generated script against its golden vector,
+// both the compiled bytes and the tapleaf hash.
+func fullCheckScript(t *testing.T, g *goldenFile, key string, toks []Token) {
+	t.Helper()
+
+	want, ok := g.Scripts[key]
+	if !ok {
+		t.Fatalf("no golden vector for %s", key)
+	}
+	got, err := Assemble(toks, ModeC2)
+	if err != nil {
+		t.Fatalf("%s: assemble: %v", key, err)
+	}
+	wantBytes, err := hex.DecodeString(want.Hex)
+	if err != nil {
+		t.Fatalf("%s: bad golden hex: %v", key, err)
+	}
+	if string(got) != string(wantBytes) {
+		reportMismatch(t, key, toks, got, wantBytes)
+		return
+	}
+	lh := TapLeafHash(got, byte(want.LeafVersion))
+	if hex.EncodeToString(lh[:]) != want.TapleafHash {
+		t.Fatalf("%s: tapleaf hash %x, want %s", key, lh, want.TapleafHash)
+	}
+}
+
+// TestFullClaimH checks the hash-locked voucher variant CLAIM^h (spec 7.5.1)
+// in both profiles. Like UPDATE^x it is not part of FullAllScripts: a tree is
+// created with either CLAIM or CLAIM^h, so it stays out of the reference
+// taptree.
+func TestFullClaimH(t *testing.T) {
+	g, key := loadGolden(t)
+
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_H", FullClaimHScript(4, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_H", FullClaimHScript(8, true))
+
+	// The two insertions and the tag swap cost exactly nine bytes.
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		plain := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
+		hl := MustAssemble(FullClaimHScript(tc.depth, tc.sparse), ModeC2)
+		if len(hl)-len(plain) != 9 {
+			t.Errorf("depth %d sparse %v: CLAIM^h is %d bytes over CLAIM, "+
+				"want 9", tc.depth, tc.sparse, len(hl)-len(plain))
+		}
+	}
+
+	if _, ok := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2},
+		[]int{2})["CLAIM_H"]; ok {
+
+		t.Error("CLAIM_H must stay out of FullAllScripts")
+	}
 }
 
 // fullD4Order is the insertion order gen_golden.py uses for the FULL/D/D4

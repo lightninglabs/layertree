@@ -143,6 +143,34 @@ func TestMidUpdateX(t *testing.T) {
 	midCheckScript(t, g, "MID/S/D8/UPDATE_X", MidUpdateXScript(8, key, true))
 }
 
+// TestMidClaimH checks the hash-locked voucher variant CLAIM^h (spec 7.5.1)
+// in both profiles. Like UPDATE^x it is not part of MidAllScripts: a tree is
+// created with either CLAIM or CLAIM^h, so it stays out of the taptree.
+func TestMidClaimH(t *testing.T) {
+	g, key := midLoadGolden(t)
+	midCheckScript(t, g, "MID/D/D4/CLAIM_H", MidClaimHScript(4, false))
+	midCheckScript(t, g, "MID/S/D8/CLAIM_H", MidClaimHScript(8, true))
+
+	// The two insertions and the tag swap cost exactly nine bytes.
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		plain := MustAssemble(MidClaimScript(tc.depth, tc.sparse), ModeC0)
+		hl := MustAssemble(MidClaimHScript(tc.depth, tc.sparse), ModeC0)
+		if len(hl)-len(plain) != 9 {
+			t.Errorf("depth %d sparse %v: CLAIM^h is %d bytes over CLAIM, "+
+				"want 9", tc.depth, tc.sparse, len(hl)-len(plain))
+		}
+	}
+
+	if _, ok := MidAllScripts(4, key, false, []int{0, 2}, []int{1},
+		[]int{2})["CLAIM_H"]; ok {
+
+		t.Error("CLAIM_H must stay out of MidAllScripts")
+	}
+}
+
 func midHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)

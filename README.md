@@ -16,6 +16,7 @@ test suite fails if a script uses anything else.
 | Path | What |
 |---|---|
 | [`spec/layertree.md`](spec/layertree.md) | The specification (RFC 2119 language) |
+| [`CONCEPTS.md`](CONCEPTS.md) | High-level explainer: the problem, the core ideas, what the design does and does not promise, how payments work, and what is proved versus tested. Start here. |
 | [`spec/channel-leaves.md`](spec/channel-leaves.md) | Appendix C: payment channels hosted in leaves (rebindable `OP_TX` + CSFS commitments, LN-Symmetry state machine, HTLC routing) |
 | [`spec/fee-analysis.md`](spec/fee-analysis.md) | Exit and eviction costs at fee rates from 1 to 250 sat/vB |
 | [`spec/test-vectors.json`](spec/test-vectors.json) | Generated test vectors |

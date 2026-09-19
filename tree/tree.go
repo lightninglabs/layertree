@@ -20,6 +20,12 @@ const (
 	TagState   = "LayerTree/state"
 	TagVoucher = "LayerTree/voucher"
 	TagPos     = "LayerTree/pos"
+
+	// TagVoucherH tags the hash-locked voucher message (spec 7.5.1). It is
+	// deliberately distinct from TagVoucher: the two voucher forms must be
+	// disjoint, or a redeemer could strip the hash lock off a plain
+	// voucher, or replay a hash-locked one without the preimage.
+	TagVoucherH = "LayerTree/voucher-hashlock"
 )
 
 // LeafLen is the serialized leaf size.
@@ -179,6 +185,17 @@ func (l *Leaf) PosLoMinimal() bool {
 // VoucherMsg is H_voucher(m || source_leaf || claim_leaf) (spec 7.5).
 func VoucherMsg(merkleRoot [32]byte, source, claim *Leaf) [32]byte {
 	return TaggedHash(TagVoucher, merkleRoot[:], source.Serialize(), claim.Serialize())
+}
+
+// VoucherHMsg is H_voucher_h(m || source_leaf || claim_leaf || payment_hash),
+// the message a CLAIM^h voucher signs (spec 7.5.1). The redeemer supplies the
+// preimage and the script recomputes the payment hash from it, so a wrong
+// preimage fails as an invalid signature rather than as a failed comparison.
+func VoucherHMsg(merkleRoot [32]byte, source, claim *Leaf,
+	paymentHash [32]byte) [32]byte {
+
+	return TaggedHash(TagVoucherH, merkleRoot[:], source.Serialize(),
+		claim.Serialize(), paymentHash[:])
 }
 
 // PathStep is one level of a sibling path.

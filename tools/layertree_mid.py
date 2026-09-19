@@ -252,20 +252,31 @@ def update_script(depth, operator_key, sparse=False, exit_consent=False):
     return s + check_old(sparse) + final(depth)
 
 
-def claim_script(depth, sparse=False):
+def claim_script(depth, sparse=False, hashlock=False):
     """witness (bottom..top):
        [claim levels] [zi2 wi2? no] [sparse claim: ck cnonce cplo cphi]
        [src levels] [zi wi] [sparse src: sk snonce splo sphi]
-       src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 vsig r m
-       ... final pad zf wf sits below the claim levels."""
+       src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 vsig [preimage] r m
+       ... final pad zf wf sits below the claim levels.
+
+    hashlock=True is CLAIM^h (spec 7.5.1): a 32-byte preimage sits between
+    vsig and r, and SHA256(preimage) is appended to the signed message under
+    a separate tag. The preimage is hashed straight into the message, so a
+    wrong one fails as a bad signature."""
     s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
          "OP_2DUP"] + F.tree_spk_min() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]       # ... extras(7) vsig m   | m r
-    # voucher message m || src_leaf || claim_leaf
+         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]       # ... extras(7) vsig [pre] m | m r
+    if hashlock:
+        # park SHA256(preimage) on the altstack: every pick depth below is as in CLAIM
+        s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+              "OP_TOALTSTACK"]                                        # ... vsig m | m r phash
+    # voucher message m || src_leaf || claim_leaf [|| phash]
     s += [28, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig m src_leaf
     s += [19, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig m src_leaf claim_leaf
     s += [2, "OP_PICK", "OP_ROT", "OP_ROT", "OP_CAT", "OP_CAT"]      # ... vsig m (m||src||claim)
-    s += tagged(F.VOUCHER_PREFIX)                                    # ... vsig m msg
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                           # ... (m||src||claim||phash)
+    s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)  # ... vsig m msg
     s += ["OP_ROT", "OP_SWAP",                                       # ... m vsig msg
           27, "OP_PICK",                                             # ... m vsig msg src.ok
           "OP_CHECKSIGFROMSTACK", "OP_VERIFY", "OP_DROP"]            # src(10) claim(10) extras(7)

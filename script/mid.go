@@ -37,6 +37,7 @@ var (
 	midNodePrefix     = midTagPrefix(tree.TagNode)
 	midStatePrefix    = midTagPrefix(tree.TagState)
 	midVoucherPrefix  = midTagPrefix(tree.TagVoucher)
+	midVoucherHPrefix = midTagPrefix(tree.TagVoucherH)
 	midPosPrefix      = midTagPrefix(tree.TagPos)
 	midTaptweakPrefix = midTagPrefix("TapTweak")
 
@@ -476,6 +477,21 @@ func midUpdateScript(depth int, operatorKey [32]byte, sparse,
 // MidClaimScript is the MID-tier CLAIM script: a voucher redemption that
 // drains a source leaf into a new claim leaf.
 func MidClaimScript(depth int, sparse bool) []Token {
+	return midClaimScript(depth, sparse, false)
+}
+
+// MidClaimHScript is the MID-tier CLAIM^h script (spec 7.5.1): CLAIM with a
+// 32-byte preimage in the witness between vsig and r, whose SHA256 is
+// appended to the signed voucher message under a separate tag. The preimage
+// is hashed straight into the message, so a wrong one fails as a bad
+// signature. It is a tree-creation parameter: a tree uses either CLAIM or
+// CLAIM^h, never both.
+func MidClaimHScript(depth int, sparse bool) []Token {
+	return midClaimScript(depth, sparse, true)
+}
+
+// midClaimScript is the shared body of the MID CLAIM and CLAIM^h scripts.
+func midClaimScript(depth int, sparse, hashlock bool) []Token {
 	s := []Token{
 		Num(SelCurrInput), Op(OP_TX), Op(txscript.OP_0),
 		Op(txscript.OP_NUMEQUALVERIFY), Op(txscript.OP_2DUP),
@@ -484,14 +500,26 @@ func MidClaimScript(depth int, sparse bool) []Token {
 	s = append(s, Num(SelInSpk), Op(OP_TX), Op(txscript.OP_EQUALVERIFY),
 		Op(txscript.OP_DUP), Op(txscript.OP_TOALTSTACK),
 		Op(txscript.OP_SWAP), Op(txscript.OP_TOALTSTACK))
-	// voucher message m || src_leaf || claim_leaf
+	if hashlock {
+		// Park SHA256(preimage) on the altstack: every pick depth below is
+		// exactly as in CLAIM.
+		s = append(s, Op(txscript.OP_SWAP), Op(txscript.OP_SIZE), Num(32),
+			Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_SHA256),
+			Op(txscript.OP_TOALTSTACK))
+	}
+	// voucher message m || src_leaf || claim_leaf [|| phash]
 	s = append(s, midRepeat([]Token{Num(28), Op(txscript.OP_PICK)}, 7)...)
 	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
 	s = append(s, midRepeat([]Token{Num(19), Op(txscript.OP_PICK)}, 7)...)
 	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
 	s = append(s, Num(2), Op(txscript.OP_PICK), Op(txscript.OP_ROT),
 		Op(txscript.OP_ROT), Op(txscript.OP_CAT), Op(txscript.OP_CAT))
-	s = append(s, midTagged(midVoucherPrefix)...)
+	voucherPrefix := midVoucherPrefix
+	if hashlock {
+		s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_CAT))
+		voucherPrefix = midVoucherHPrefix
+	}
+	s = append(s, midTagged(voucherPrefix)...)
 	s = append(s, Op(txscript.OP_ROT), Op(txscript.OP_SWAP),
 		Num(27), Op(txscript.OP_PICK),
 		Op(OP_CHECKSIGFROMSTACK), Op(txscript.OP_VERIFY),

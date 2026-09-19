@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -45,10 +46,13 @@ type vectors struct {
 		NewRoot vecNode `json:"new_root"`
 	} `json:"transition_exit"`
 	TransitionClaim struct {
-		SourceSlot uint64  `json:"source_slot"`
-		ClaimSlot  uint64  `json:"claim_slot"`
-		ClaimLeaf  vecLeaf `json:"claim_leaf"`
-		VoucherMsg string  `json:"voucher_msg"`
+		SourceSlot  uint64  `json:"source_slot"`
+		ClaimSlot   uint64  `json:"claim_slot"`
+		ClaimLeaf   vecLeaf `json:"claim_leaf"`
+		VoucherMsg  string  `json:"voucher_msg"`
+		Preimage    string  `json:"preimage"`
+		PaymentHash string  `json:"payment_hash"`
+		VoucherHMsg string  `json:"voucher_h_msg"`
 	} `json:"transition_claim"`
 	SparseExample struct {
 		Depth     int               `json:"depth"`
@@ -164,6 +168,21 @@ func TestLeafAndTreeVectors(t *testing.T) {
 	vm := VoucherMsg(mustHex32(t, ex.MerkleRoot), src, claim)
 	if hex.EncodeToString(vm[:]) != v.TransitionClaim.VoucherMsg {
 		t.Fatalf("voucher msg mismatch")
+	}
+	// hash-locked voucher message (spec 7.5.1): the payment hash in the
+	// vector must be SHA256 of the vector's preimage, and the message must
+	// match the reference implementation's.
+	pre := mustHex32(t, v.TransitionClaim.Preimage)
+	ph := sha256.Sum256(pre[:])
+	if hex.EncodeToString(ph[:]) != v.TransitionClaim.PaymentHash {
+		t.Fatalf("payment hash is not SHA256(preimage)")
+	}
+	vmh := VoucherHMsg(mustHex32(t, ex.MerkleRoot), src, claim, ph)
+	if hex.EncodeToString(vmh[:]) != v.TransitionClaim.VoucherHMsg {
+		t.Fatalf("hash-locked voucher msg mismatch")
+	}
+	if vmh == vm {
+		t.Fatalf("voucher tags collide: plain and hash-locked messages are equal")
 	}
 	// sparse positions
 	for _, lv := range ex.Leaves {

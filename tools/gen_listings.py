@@ -45,11 +45,13 @@ for name, toks in ls.all_scripts(D, OP_KEY, (0, 2), (1, 2), "D").items():
 for name, toks in ls.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
     with open(os.path.join(OUT, f"{name}_S8.txt"), "w") as f:
         f.write(listing(f"{name} (sparse, D=8)", toks))
-# UPDATE^x, the exit-consent variant (spec 7.4 rule 5); a tree-creation
-# parameter, so it is not part of all_scripts().
+# Tree-creation variants (spec 7.4 rule 5, 7.5.1); not part of all_scripts().
 with open(os.path.join(OUT, f"UPDATE_X_D{D}.txt"), "w") as f:
     f.write(listing(f"UPDATE_X (exit-key consent, dense, D={D})",
                     ls.update_script(D, OP_KEY, "D", exit_consent=True)))
+with open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w") as f:
+    f.write(listing(f"CLAIM_H (hash-locked voucher, dense, D={D})",
+                    ls.claim_script(D, "D", hashlock=True)))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:
     f.write(listing("LEVEL (dense): one merkle-sum level, both accumulators", ls.level_dense()))
     f.write("\n")
@@ -67,6 +69,9 @@ for prof, depths in (("D", (8, 12, 16, 20)), ("S", (32, 64, 256))):
 for prof, d in (("D", 16), ("S", 32)):
     it, sl, wl = test_scripts.test_update_x(d, prof, verbose=False)
     rows.append((prof, d, "UPDATE_X", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+for prof, d in (("D", 16), ("S", 32)):
+    it, sl, wl = test_scripts.test_claim_h(d, prof, verbose=False)
+    rows.append((prof, d, "CLAIM_H", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 ls.COMPRESSION["S"] = "bitmap"
 for d in (32, 64):
     costs, w = test_scripts.test_all(d, "S", verbose=False)
@@ -104,6 +109,10 @@ for d, sparse in ((16, False), (31, True)):
     it, sl, wl = test_mid.test_update_x(d, sparse, verbose=False)
     rows.append(("MID/" + ("S" if sparse else "D"), d, "UPDATE_X", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for d, sparse in ((16, False), (31, True)):
+    it, sl, wl = test_mid.test_claim_h(d, sparse, verbose=False)
+    rows.append(("MID/" + ("S" if sparse else "D"), d, "CLAIM_H", sl, wl, 129,
+                 sl + wl + 129, "n/a (0xC0)", it.sigchecks))
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
@@ -113,6 +122,9 @@ for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=
 with open(os.path.join(OUT, "MID_UPDATE_X_D4.txt"), "w") as f:
     f.write(listing("UPDATE_X (MID tier, dense, D=4)",
                     LM.update_script(4, OP_KEY, False, exit_consent=True)))
+with open(os.path.join(OUT, "MID_CLAIM_H_D4.txt"), "w") as f:
+    f.write(listing("CLAIM_H (MID tier, hash-locked voucher, dense, D=4)",
+                    LM.claim_script(4, False, hashlock=True)))
 with open(os.path.join(OUT, "MIN_EXIT_1_D4.txt"), "w") as f:
     f.write(listing("EXIT_1 (MIN tier, dense, D=4)", LN.exit_script(4)))
 with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
@@ -124,7 +136,7 @@ with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
     f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")
-    f.write("| profile | D | transition | script (WU) | witness data (WU) | control block (WU) | total witness (WU) | varops used | sigops |\n")
+    f.write("| profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |\n")
     f.write("|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:
         f.write("| " + " | ".join(str(x) for x in r) + " |\n")

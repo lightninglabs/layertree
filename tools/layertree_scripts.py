@@ -27,6 +27,7 @@ LEAF_PREFIX = lt.tag_prefix(lt.TAG_LEAF)
 NODE_PREFIX = lt.tag_prefix(lt.TAG_NODE)
 STATE_PREFIX = lt.tag_prefix(lt.TAG_STATE)
 VOUCHER_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER)
+VOUCHER_H_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER_H)
 POS_PREFIX = lt.tag_prefix(lt.TAG_POS)
 TAPTWEAK_PREFIX = lt.tag_prefix(lt.TAG_TAPTWEAK)
 NUMS33 = lt.compress(lt.NUMS)
@@ -46,7 +47,8 @@ LEAF_LEN = lt.LEAF_LEN
 
 CONST_NAMES = {
     LEAF_PREFIX: "<TAG_LEAF>", NODE_PREFIX: "<TAG_NODE>", STATE_PREFIX: "<TAG_STATE>",
-    VOUCHER_PREFIX: "<TAG_VOUCHER>", POS_PREFIX: "<TAG_POS>",
+    VOUCHER_PREFIX: "<TAG_VOUCHER>", VOUCHER_H_PREFIX: "<TAG_VOUCHER_H>",
+    POS_PREFIX: "<TAG_POS>",
     TAPTWEAK_PREFIX: "<TAG_TAPTWEAK>", NUMS33: "<NUMS>", ZERO8: "<ZERO8>",
     ZERO4: "<ZERO4>", P2TR_PREFIX: "<0x5120>", lt.EMPTY_LEAF_HASH: "<EMPTY_LEAF>",
     (1 << 64).to_bytes(9, "little"): "<2^64>", lt.enc64(0): "<ENC0>",
@@ -350,13 +352,27 @@ def update_script(depth, operator_key, profile="D", exit_consent=False):
     return s + check_old_root_from_alt(profile) + final_output(depth)
 
 
-def claim_script(depth, profile="D"):
-    """CLAIM: witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m"""
+def claim_script(depth, profile="D", hashlock=False):
+    """CLAIM: witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m
+
+    With hashlock=True this is CLAIM^h (spec 7.5.1): the witness carries a
+    32-byte preimage below root (... voucher_sig preimage root m) and the
+    signed message gains SHA256(preimage) as a fourth field under a separate
+    tag. The script never compares the payment hash to a witness copy: it
+    computes it from the preimage and feeds it to the message, so a wrong
+    preimage fails as a bad signature.
+    """
     s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
          "OP_2DUP"] + tree_spk() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim vsig m | m r
+         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim vsig [pre] m | m r
+    if hashlock:
+        # park SHA256(preimage) on the altstack so every depth below is as in CLAIM
+        s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+              "OP_TOALTSTACK"]                                   # src claim vsig m | m r phash
     s += [3, "OP_PICK", 3, "OP_PICK", "OP_CAT", "OP_CAT"]        # src claim vsig (m||src||claim)
-    s += tagged(VOUCHER_PREFIX)                                  # src claim vsig msg
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (m||src||claim||phash)
+    s += tagged(VOUCHER_H_PREFIX if hashlock else VOUCHER_PREFIX)  # src claim vsig msg
     s += [3, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
           "OP_CHECKSIGFROMSTACK", "OP_VERIFY",                   # src claim
           "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
