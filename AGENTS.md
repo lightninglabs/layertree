@@ -46,8 +46,19 @@ section 7 are right; the tests show the *scripts* implement the rules.
 3. **Spec language.** RFC 2119 keywords in capitals only where normative;
    paragraphs marked *(informative)* carry no requirements. No em-dashes in
    prose. Section numbers are referenced as bare numbers ("7.2 rule 3").
-4. **Push incrementally**, on the working branch only, with the commit
-   attribution lines the session provides. Do not open PRs unless asked.
+4. **Commit and push to `main` frequently.** Land each coherent piece of
+   work as its own commit and push it, rather than batching a session's
+   output into one drop; the author wants `main` to move as the work
+   happens. Push the session's working branch too, so the two stay level.
+   Commits are authored solely by the repository owner, with no agent
+   attribution lines. Do not open PRs unless asked.
+
+   Frequently does not mean carelessly: a commit still has to leave the
+   tree consistent. Run the checks that cover what you touched before each
+   push (the matrix under "Running everything"), and keep generated files
+   in the same commit as the generator change that moved them. For the
+   paper, commit the sources first, then `make`, then commit the PDF with
+   `version.tex`, so the stamp names the content commit and reads clean.
 
 ## Change checklists
 
