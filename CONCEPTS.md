@@ -133,6 +133,17 @@ chained, each proving against the root the last one produced. The script
 for a five-way exit is the script for a one-way exit with the loop body
 repeated, because tapscript has no loops and everything is unrolled.
 
+That unrolling happens twice over, and the second one is easy to miss.
+Inside a script, the fold over the tree's depth is one copy of the level
+macro per level, which is why script size grows linearly with depth. Across
+scripts, every batch size is *different bytes* and therefore a different
+leaf of the taptree: a tree that supports exits of one and two, joins at
+two heights and a cohort sweep is carrying six scripts, not three. Revealing
+one leaf costs a Merkle path to it, so each doubling of the script set adds
+eight virtual bytes to every spend of every kind. That is cheap against a
+1,020 vB exit, and it is the reason the set is chosen at creation rather
+than grown later: the taptree root is the tree's identity.
+
 ### 5. Removal can be cheaper in bulk than one at a time
 
 Because the covenant is verifying *data* rather than executing

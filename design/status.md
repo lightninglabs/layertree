@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-09-19 (spec 0.8.0, Appendix C 0.2.0, paper v0.1).
+Last updated 2026-09-20 (spec 0.8.1, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 

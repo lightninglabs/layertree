@@ -67,7 +67,7 @@ for prof, depths in (("D", (8, 12, 16, 20)), ("S", (32, 64, 256))):
     for d in depths:
         costs, w = test_scripts.test_all(d, prof, verbose=False)
         for k, (it, sl, wl) in costs.items():
-            cb = 33 + 32 * 3  # control block for a 5-6 leaf taptree (depth 3)
+            cb = 33 + 32 * 3  # control block for the 8-leaf reference set (depth 3)
             rows.append((prof, d, k, sl, wl, cb, sl + wl + cb, it.cost, it.sigchecks))
 for prof, d in (("D", 16), ("S", 32)):
     it, sl, wl = test_scripts.test_update_x(d, prof, verbose=False)
