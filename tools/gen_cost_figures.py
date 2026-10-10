@@ -54,11 +54,14 @@ TREE_EXIT_VB = 2511
 
 # Exit amortisation, vB per leaf removed in one transaction against the
 # batch size. "Owner exits" is measured (spec/fee-analysis.md, one and two
-# leaves); the owner multiproof is the spec 13.4 estimate, not built;
+# leaves); the owner multiproof is the spec 13.4 estimate, not built: the
+# EVICT_SUBTREE_2/4/6 measured sizes plus 64 witness bytes and about 10
+# script bytes per exiting leaf for a CHECKSIGVERIFY in place of the
+# evictor-key check, at the measured occupancies 4, 13 and 51;
 # the operator sweeps are the measured EVICT_SUBTREE_4/6/8 sizes divided
 # by the leaves they remove (13, 51 and 206), spec/scripts/sizes.md.
 OWNER_EXITS = [(1, 1020), (2, 842)]
-OWNER_MULTIPROOF = [(4, 350), (16, 194)]
+OWNER_MULTIPROOF = [(4, 353), (13, 222), (51, 177)]
 OPERATOR_SWEEPS = [(13, 203), (51, 158), (206, 147)]
 BATCH_OUTPUT_VB = 43  # one P2TR output inside a batch transaction.
 
@@ -311,7 +314,7 @@ def fig_exit_amortisation(png_dir):
     series(ax, OWNER_EXITS, BLUE)
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 2, 842, "842", 10, 0)
-    label(ax, 13, 203, "203", -10, 8, ha="right")
+    label(ax, 13, 203, "203", -10, -9, ha="right")
     label(ax, 206, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA)],
@@ -581,6 +584,64 @@ def fig_radix(png_dir):
     f.save("radix.svg", png_dir)
 
 
+# ---------------------------------------------------------------------------
+# Figure 8: batching shapes.
+# ---------------------------------------------------------------------------
+
+# The batching shapes share the axes of the exit-amortisation figure. The
+# cohort rewrite (REWRITE_h, per changed leaf) and the detach-then-exit
+# point are estimates from the spec; the other series reuse the constants
+# above.
+COHORT_REWRITE = [(64, 121)]
+DETACH_EXIT = [(256, 765)]
+VIOLET = "#4a3aa7"
+
+
+def fig_batching_shapes(png_dir):
+    top, bottom = 178, 416
+    f = Fig(bottom + 56, "Batch shapes: measured, specified but unbuilt, "
+            "and proposed", "vbytes per leaf against leaves handled in "
+            "one transaction, dense D=16, fee analysis model")
+    ax = f.axes(64, top, 590, bottom)
+    log_x(ax, [1, 2, 4, 8, 16, 32, 64, 128, 256], 1, 300)
+    ax.set_ylim(0, 1100)
+    ax.set_yticks(range(0, 1001, 200))
+    ax.set_yticklabels([fmt(t) for t in range(0, 1001, 200)])
+    ax.spines["left"].set_visible(False)
+    vgrid(ax)
+    hgrid(ax)
+    for v, s in ((BARE_SPEND_VB, "bare P2TR spend 111"),
+                 (BATCH_OUTPUT_VB, "one output in a batch tx 43")):
+        ax.axhline(v, color=BASE, lw=1 * PX, zorder=2)
+        ax.annotate(s, (1, v), xycoords=("axes fraction", "data"),
+                    xytext=(8, 0), textcoords="offset points", va="center",
+                    fontsize=11 * PX, color=INK3, annotation_clip=False)
+    series(ax, OPERATOR_SWEEPS, AQUA)
+    series(ax, OWNER_MULTIPROOF, BLUE, hollow=True, line=False)
+    series(ax, OWNER_EXITS, BLUE)
+    series(ax, COHORT_REWRITE, ORANGE, hollow=True, line=False)
+    series(ax, DETACH_EXIT, VIOLET, hollow=True, line=False)
+    label(ax, 1, 1020, "1,020", 10, 0)
+    label(ax, 51, 177, "177", 0, 12, ha="center")
+    label(ax, 64, 121, "121", 10, -4)
+    label(ax, 256, 765, "765", 0, 12, ha="center")
+    label(ax, 206, 147, "147", 0, 12, ha="center")
+    f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
+              line_handle(AQUA),
+              line_handle(ORANGE, hollow=True, marker=True),
+              line_handle(VIOLET, hollow=True)],
+             ["Owner exits EXIT_K, measured",
+              "Owner multiproof EXIT_SUBTREE_h, estimate",
+              "Operator sweep EVICT_SUBTREE_h, measured",
+              "Cohort rewrite REWRITE_h, per changed leaf, estimate",
+              "Detach a height-8 subtree, then exit alone at depth 8, "
+              "estimate"], 68)
+    f.text(590, bottom + 36, "leaves handled in one transaction", 11,
+           INK3, ha="right")
+    f.text(64, top - 10, "vB per leaf", 11, INK3)
+    f.save("batching-shapes.svg", png_dir)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--png-dir", help="also write 2x PNG twins here")
@@ -594,6 +655,7 @@ def main():
     fig_exit_profiles(args.png_dir)
     fig_level_cost(args.png_dir)
     fig_radix(args.png_dir)
+    fig_batching_shapes(args.png_dir)
 
 
 if __name__ == "__main__":
