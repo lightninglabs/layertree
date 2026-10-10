@@ -1888,7 +1888,7 @@ exits in a batch" as `EXIT_K` (section 13).
    script and 123 of witness against 88 and 41, so at `D = 16` an exit
    saves about 240 bytes of script and adds about 330 of witness, a net
    loss; radix 8 is worse. The sparse profile may gain from radix 4
-   because most of its siblings are empty; `design/profiles.md` has the
+   because most of its siblings are empty; `design/tree-comparison.md` has the
    analysis.
 3. **Smaller `LEVEL`.** With `OP_MULTI OP_CAT` the four concatenations per
    level collapse to two; keeping `ZERO8` on the stack replaces the 9-byte
