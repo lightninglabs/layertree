@@ -186,6 +186,15 @@ with numbers.
   weights.md is regenerated: fee-analysis.md:38, spec 11 measured rows
   (MID 1,381/1,338), CONCEPTS.md MID 1,338. The rule worker was told to
   merge main first and recompute golden/counts once.
+  Matrix green on the merged tree (1,017/250/47/886/149/61, Go, Lean
+  60); weights.md regenerated (MID EXIT_1 1,355 model / 1,398 measured,
+  MIN 1,473 / 1,518); spec 11, fee-analysis, CONCEPTS and the paper
+  carry the new MID/MIN sizes; PDFs rebuilt at ab41a93 (532a9a6).
+  Still in flight: the A1/A2 rule worker (spec 0.11.0 DUST_MIN and the
+  REWRITE SEQ_FINAL exclusion; also carries 7.5.3/7.9 rule 7/5.2
+  wording and receive.md's floor). Started: a channel-leaf audit
+  (Appendix C, swaps, receive, DETACH/REWRITE with channels) writing
+  design/audit/channels.md only.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
