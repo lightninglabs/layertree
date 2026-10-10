@@ -148,3 +148,11 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23761 | 7397 | 129 | 31287 | n/a (0xC0) | 1 |
 | CCV-c0/D | 16 | SPLIT | 5787 | 1749 | 129 | 7665 | n/a (0xC0) | 1 |
 | CCV-c0/S | 31 | SPLIT | 17737 | 1348 | 129 | 19214 | n/a (0xC0) | 1 |
+| CCV/D | 16 | CLAIM | 3447 | 1626 | 129 | 5202 | 2168807 | 1 |
+| CCV/D | 16 | CLAIM_H | 3455 | 1658 | 129 | 5242 | 2172993 | 1 |
+| CCV/S | 32 | CLAIM | 9541 | 419 | 129 | 10089 | 3350042 | 1 |
+| CCV/S | 32 | CLAIM_H | 9549 | 451 | 129 | 10129 | 3354228 | 1 |
+| CCV-c0/D | 16 | CLAIM | 5946 | 1765 | 129 | 7840 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | CLAIM_H | 5954 | 1797 | 129 | 7880 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | CLAIM | 17896 | 1342 | 129 | 19367 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | CLAIM_H | 17904 | 1374 | 129 | 19407 | n/a (0xC0) | 1 |

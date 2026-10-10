@@ -2,7 +2,9 @@ package script
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -64,6 +66,10 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 		}
 		if strings.HasSuffix(k, "/UPDATE_X") {
 			wantUpdateX[k] = want
+			continue
+		}
+		if strings.HasSuffix(k, "/CLAIM") || strings.HasSuffix(k, "/CLAIM_H") {
+			// Parametrised by tree_id; checked in TestCCVClaim.
 			continue
 		}
 		k, want := k, want
@@ -128,4 +134,59 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 		}
 	}
 	t.Logf("checked %d CCV golden scripts", checked)
+}
+
+// TestCCVClaim checks the CCV tier's CLAIM and CLAIM^h ports (spec 4.6) in
+// both numerics against their golden keys, and the RECOMMENDED tree_id
+// derivation against the ccv_tree_id vector the scripts were built with.
+func TestCCVClaim(t *testing.T) {
+	raw, err := os.ReadFile("../spec/golden.json")
+	if err != nil {
+		t.Fatalf("read golden.json: %v", err)
+	}
+	var v struct {
+		CCVTreeID struct {
+			Txid   string `json:"txid"`
+			Vout   uint32 `json:"vout"`
+			TreeID string `json:"tree_id"`
+		} `json:"ccv_tree_id"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("parse golden.json: %v", err)
+	}
+	var txid [32]byte
+	copy(txid[:], midHex(t, v.CCVTreeID.Txid))
+	treeID := CCVTreeID(txid, v.CCVTreeID.Vout)
+	if hex.EncodeToString(treeID[:]) != v.CCVTreeID.TreeID {
+		t.Fatalf("tree_id %x, want %s", treeID, v.CCVTreeID.TreeID)
+	}
+
+	g, _ := midLoadGolden(t)
+	for _, hl := range []bool{false, true} {
+		name := "CLAIM"
+		if hl {
+			name = "CLAIM_H"
+		}
+		ccvCheckC2(t, g, "CCV/D/D4/"+name, CCVClaimScript(4, treeID, false, hl))
+		ccvCheckC2(t, g, "CCV/S/D8/"+name, CCVClaimScript(8, treeID, true, hl))
+		midCheckScript(t, g, "CCV0/D/D4/"+name, CCV0ClaimScript(4, treeID, false, hl))
+		midCheckScript(t, g, "CCV0/S/D8/"+name, CCV0ClaimScript(8, treeID, true, hl))
+	}
+}
+
+// ccvCheckC2 asserts that 0xC2 tokens assemble to the golden bytes.
+func ccvCheckC2(t *testing.T, g *midGolden, key string, toks []Token) {
+	t.Helper()
+	want, ok := g.Scripts[key]
+	if !ok {
+		t.Fatalf("golden key %q missing", key)
+	}
+	got, err := Assemble(toks, ModeC2)
+	if err != nil {
+		t.Fatalf("%s: assemble: %v", key, err)
+	}
+	if hex.EncodeToString(got) != want.Hex {
+		t.Fatalf("%s: script mismatch (got %d bytes, want %d)", key,
+			len(got), len(want.Hex)/2)
+	}
 }

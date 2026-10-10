@@ -165,7 +165,7 @@ chained calls; `EVICT_SUBTREE_h` needs the subtree root from its
 
 ```
 python3 tools/test_msu.py      # 61 checks: opcode units, quarantine, scripts
-python3 tools/test_ccv.py      # the CCV tier (part 1), 529 checks
+python3 tools/test_ccv.py      # the CCV tier (part 1), 798 checks
 ```
 
 The MSU scripts are excluded from the tier matrix (spec 4.5), from

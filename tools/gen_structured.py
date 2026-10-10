@@ -92,7 +92,8 @@ def mid_macros():
 def ccv_macros():
     t = []
     for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("POS", F.POS_PREFIX),
-                     ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
+                     ("TAPTWEAK", F.TAPTWEAK_PREFIX), ("VOUCHER", F.VOUCHER_PREFIX),
+                     ("VOUCHER_H", F.VOUCHER_H_PREFIX)):
         t.append((f"TAGGED({tag})", F.tagged(pre)))
     t += [("CCV_CHECK_INPUT", CV.ccv_check_input()),
           ("CCV_PAYOUT(1)", CV.ccv_payout_fixed(1)),
@@ -335,6 +336,15 @@ open(os.path.join(OUT, f"CCV_UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (CCV tier, exit-key consent, dense, D={D})", CV.update_script_ccv(D, OP_KEY, "D", exit_consent=True), "c2", CCV))
 open(os.path.join(OUT, f"CCV_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV tier, owner-authorised carve, dense, D={D})", CV.split_script_ccv(D, "D"), "c2", CCV))
+CCV_TREE_ID = CV.tree_id(lt.sha256(b"creation-txid"), 0)
+NAMES[CCV_TREE_ID] = "<TREE_ID>"
+for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
+    open(os.path.join(OUT, f"CCV_{nm}_D{D}.txt"), "w").write(
+        structured(f"{nm} (CCV tier, tree_id voucher, dense, D={D})",
+                   CV.claim_script_ccv(D, CCV_TREE_ID, "D", hl), "c2", CCV))
+    open(os.path.join(OUT, f"CCV0_{nm}_D{D}.txt"), "w").write(
+        structured(f"{nm} (CCV with 0xC0 numerics, in MID macros, tree_id voucher, dense, D={D})",
+                   CV._claim_script_ccv0(D, CCV_TREE_ID, False, hl), "c0", MID))
 open(os.path.join(OUT, f"CCV0_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
                CV._split_script_ccv0(D, False), "c0", MID))

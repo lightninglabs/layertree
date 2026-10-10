@@ -54,6 +54,16 @@ for h in (1, 2):
     add("CCV0", "D", 4, f"EVICT_SUBTREE_{h}", CV._evict_subtree_script_ccv0(4, h, OP_KEY), "c0")
 add("CCV0", "D", 4, "SPLIT", CV._split_script_ccv0(4, False), "c0")
 add("CCV0", "S", 8, "SPLIT", CV._split_script_ccv0(8, True), "c0")
+# CCV vouchers bind a per-tree tree_id (spec 4.6, 6.2, 9.6), a constant of
+# the CLAIM scripts; the vector fixes the RECOMMENDED derivation.
+CCV_TXID = lt.sha256(b"creation-txid")
+CCV_TREE_ID = CV.tree_id(CCV_TXID, 0)
+out["ccv_tree_id"] = {"txid": CCV_TXID.hex(), "vout": 0, "tree_id": CCV_TREE_ID.hex()}
+for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
+    add("CCV", "D", 4, nm, CV.claim_script_ccv(4, CCV_TREE_ID, "D", hl), "c2")
+    add("CCV", "S", 8, nm, CV.claim_script_ccv(8, CCV_TREE_ID, "S", hl), "c2")
+    add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, CCV_TREE_ID, False, hl), "c0")
+    add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, CCV_TREE_ID, True, hl), "c0")
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),

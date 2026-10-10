@@ -20,6 +20,8 @@ OP_KEY = pubkey_x(lt.sha256(b"operator"))
 names = dict(ls.CONST_NAMES)
 names[OP_KEY] = "<OPERATOR_KEY>"
 names[LM.E0_SC] = "<E_0.sc>"
+import layertree_ccv as _CV  # noqa: E402
+names[_CV.tree_id(lt.sha256(b"creation-txid"), 0)] = "<TREE_ID>"
 for h in range(0, 33):
     names[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
 
@@ -184,6 +186,19 @@ for numeric in ("c2", "c0"):
 for d, prof in ((16, "D"), (31, "S")):
     it, sl, wl = test_ccv.test_split_ccv0(d, prof)
     rows.append(("CCV-c0/" + prof, d, "SPLIT", sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31, "S", "c0")):
+    for hl in (False, True):
+        it, sl, wl = test_ccv.test_claim_ccv(d, prof, numeric, hl)
+        tierp = ("CCV/" if numeric == "c2" else "CCV-c0/") + prof
+        rows.append((tierp, d, "CLAIM_H" if hl else "CLAIM", sl, wl, 129, sl + wl + 129,
+                     it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
+    with open(os.path.join(OUT, f"CCV_{nm}_D4.txt"), "w") as f:
+        f.write(listing(f"{nm} (CCV tier, tree_id voucher, dense, D=4)",
+                        CV.claim_script_ccv(4, test_ccv.TREE_ID, "D", hl)))
+    with open(os.path.join(OUT, f"CCV0_{nm}_D4.txt"), "w") as f:
+        f.write(listing(f"{nm} (CCV tier, 0xC0 numerics, tree_id voucher, dense, D=4)",
+                        CV._claim_script_ccv0(4, test_ccv.TREE_ID, False, hl)))
 with open(os.path.join(OUT, "CCV0_SPLIT_D4.txt"), "w") as f:
     f.write(listing("SPLIT (CCV tier, 0xC0 numerics, owner-authorised carve, dense, D=4)",
                     CV._split_script_ccv0(4, False)))

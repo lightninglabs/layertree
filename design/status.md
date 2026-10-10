@@ -9,12 +9,12 @@ Last updated 2026-10-09 (spec 0.8.5, Appendix C 0.2.0, paper v0.1).
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 425 + 198 + 31 + 529 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
+| Python reference and simulator | 425 + 198 + 31 + 798 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). The CCV tier of issue #3 is measured in the paper's tier table and section 5; the hypothetical native Merkle-sum opcode of issue #3 part 2 has one clearly labelled paragraph in the discussion. |
-| CCV tier (issue #3, part 1) | Complete: simulator `OP_CHECKCONTRACTVERIFY` per BIP-443 ([A-6], amount rules pinned to bips commit `24e96e87` and tested one by one), `tools/layertree_ccv.py` both profiles and both numerics (exact payouts; `UPDATE^x`, `SPLIT` and `EVICT_SUBTREE_h` in both numerics, the `0xC0` sweep being MID's element-based one; no `CLAIM` / `CLAIM^h` pending a voucher-message redefinition), `tools/test_ccv.py` 529 checks including two tree inputs in one transaction, Go mirror `script/ccv.go` byte-exact against 17 golden keys, Lean `CCVTweak.binding` (a second `BindingModel`), spec 0.8.4 (4.3 inventory row, 4.5 CCV column, 4.6, 6.3 `TREE_SPK_CCV`, 10.4 note, 11 cost rows, 14 tests), F19. Measured dense D=16 EXIT_1: 1,716 / 838 B script / witness vs FULL's 2,101 / 902, no EC-ops dependency; 0xC0 dense EXIT_1 2,934 / 914. The `0xC2` sweep's leaf step passed the whole leaf to CCV as its key; the old test swept only empty positions, and real cohorts now exercise it in both numerics. Open: `CLAIM` under CCV. |
+| CCV tier (issue #3, part 1) | Complete: simulator `OP_CHECKCONTRACTVERIFY` per BIP-443 ([A-6], amount rules pinned to bips commit `24e96e87` and tested one by one), `tools/layertree_ccv.py` both profiles and both numerics (exact payouts; `UPDATE^x`, `SPLIT`, `EVICT_SUBTREE_h`, `CLAIM` and `CLAIM^h` in both numerics, the `0xC0` sweep being MID's element-based one; vouchers bind a per-tree `tree_id` constant in place of `m`, 4.6 / 9.6, and `CLAIM` is the tier's only `OP_CHECKSIGFROMSTACK` user), `tools/test_ccv.py` 798 checks including two tree inputs in one transaction, Go mirror `script/ccv.go` byte-exact against the CCV and CCV0 golden keys, Lean `CCVTweak.binding` (a second `BindingModel`), spec 0.8.4 (4.3 inventory row, 4.5 CCV column, 4.6, 6.3 `TREE_SPK_CCV`, 10.4 note, 11 cost rows, 14 tests), F19. Measured dense D=16 EXIT_1: 1,716 / 838 B script / witness vs FULL's 2,101 / 902, no EC-ops dependency; 0xC0 dense EXIT_1 2,934 / 914. The `0xC2` sweep's leaf step passed the whole leaf to CCV as its key; the old test swept only empty positions, and real cohorts now exercise it in both numerics. Measured `CLAIM` dense D=16: 3,447 / 1,626 (`0xC2`), 5,946 / 1,765 (`0xC0`). Open: whether to adopt `tree_id` in every tier (open work item 8). |
 | Hypothetical `OP_MERKLESUMUPDATE` (issue #3, part 2) | Measurement only, never a tier: `design/native-opcodes.md`, simulator `op_msu` behind `hypothetical=True` (canonical proofs: siblings leaf-first, explicitly supplied empty siblings and bits above the depth rejected), `tools/layertree_msu.py` (CCV + MSU, `EXIT_K`, `JOIN_0`), `tools/test_msu.py` 61 checks including a quarantine test (absent from every tier's allowed set, every tier generator and every golden script). Measured `EXIT_1` 252 B of script at every depth and profile. |
 
 ## Decision log
@@ -137,6 +137,19 @@ ones most likely to move:
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
    swaps, tracked here only so the note in `notes.md` has a home.
+8. **`tree_id` for every tier?** The CCV tier binds vouchers to a per-tree
+   `tree_id` (4.6, 9.6) because its witness has no `m`. Adopting it in
+   FULL and MID too would let a voucher survive a change of script set
+   (`DETACH_h`, `design/batching.md` Shape 3) and drop the `m` copy from
+   the voucher message. For the detach case the child tree must inherit
+   the parent's `tree_id`, so the rule becomes "unique per lineage",
+   which is safe because a detach moves each leaf into exactly one of the
+   two outputs (the parent keeps `E_h` there), so a voucher's source leaf
+   exists in only one of them. Cost: every FULL and MID `CLAIM`/`CLAIM^h` script
+   gains a 33-byte constant and changes bytes, so the FULL/MID CLAIM
+   golden keys and `taptree_full_d4.merkle_root` move, along with
+   `test-vectors.json`'s voucher vector, the Go voucher helpers and
+   Appendix C's voucher wording. The owner's call.
 
 ## How to resume
 
