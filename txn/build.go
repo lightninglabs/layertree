@@ -99,6 +99,13 @@ type Builder struct {
 
 	// ExtraOutputs are outputs K+1...
 	ExtraOutputs []*wire.TxOut
+
+	// Terminal, when non-nil, is output 0 in place of the recreated tree
+	// output. It is only valid for a transition whose new root is E_D
+	// (spec 7.8): the scripts then leave output 0 unconstrained, but it
+	// must still exist so that the payouts are numbered from 1. NewRoot
+	// and NewAmount are ignored.
+	Terminal *wire.TxOut
 }
 
 // AddExtraInput appends a fee or funding input.
@@ -138,7 +145,7 @@ func (b *Builder) NewTreeOut() (*wire.TxOut, error) {
 // Tx assembles the unsigned transaction. Witnesses are attached afterwards
 // with TapscriptSpend.
 func (b *Builder) Tx() (*wire.MsgTx, error) {
-	if b.NewAmount < 0 {
+	if b.Terminal == nil && b.NewAmount < 0 {
 		return nil, errors.New("txn: negative tree output amount")
 	}
 	tx := wire.NewMsgTx(b.version())
@@ -156,10 +163,16 @@ func (b *Builder) Tx() (*wire.MsgTx, error) {
 		})
 	}
 
-	// Output 0 recreates the tree (rule 2), outputs 1..K pay out (rule 6).
-	treeOut, err := b.NewTreeOut()
-	if err != nil {
-		return nil, err
+	// Output 0 recreates the tree (rule 2), or is the caller's output
+	// after a terminal transition (spec 7.8); outputs 1..K pay out
+	// (rule 6).
+	treeOut := b.Terminal
+	if treeOut == nil {
+		var err error
+		treeOut, err = b.NewTreeOut()
+		if err != nil {
+			return nil, err
+		}
 	}
 	tx.AddTxOut(treeOut)
 	for i := range b.Payouts {
