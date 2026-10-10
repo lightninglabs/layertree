@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"sync"
@@ -372,6 +373,84 @@ func updateCases(depth int, sparse bool) []txCase {
 	}}
 }
 
+// carveCases are CLAIM (partial and draining the source), CLAIM^h and
+// SPLIT.
+func carveCases(depth int, sparse bool) []txCase {
+	return []txCase{{
+		name: "CLAIM", depth: depth, sparse: sparse,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			_, _, oper, _, _, sOper := w.base()
+			opKey := w.st.OperatorKey
+			frank := w.mkLeaf("frank", 40_000, &opKey, 900_000)
+			sFrank := w.slot(frank, 3, w.st.Tree)
+			vsig, err := SignVoucher(
+				sk("operator-owner"), w.st.TapTree.Root(), oper,
+				frank,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			return BuildClaim(w.st, sOper, sFrank, frank, vsig,
+				&TxOpts{Inputs: w.fee(600)})
+		},
+	}, {
+		name: "CLAIM drain", depth: depth, sparse: sparse,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			w.base()
+			opKey := w.st.OperatorKey
+			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
+			sErin := w.slot(erin, 9, w.st.Tree)
+			w.st.Tree.Leaves[sErin] = erin
+			gina := w.mkLeaf("gina", erin.Amount, &opKey, 900_000)
+			sGina := w.slot(gina, 6, w.st.Tree)
+			vsig, err := SignVoucher(
+				sk("erin-owner"), w.st.TapTree.Root(), erin, gina,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			return BuildClaim(w.st, sErin, sGina, gina, vsig,
+				&TxOpts{Inputs: w.fee(600)})
+		},
+	}, {
+		name: "CLAIM_H", depth: depth, sparse: sparse,
+		variants: []string{"CLAIM_H"},
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			_, _, oper, _, _, sOper := w.base()
+			opKey := w.st.OperatorKey
+			hodl := w.mkLeaf("hodl", 40_000, &opKey, 900_000)
+			sHodl := w.slot(hodl, 3, w.st.Tree)
+			preimage := sha256.Sum256([]byte("payment-preimage"))
+			vsig, err := SignVoucherH(
+				sk("operator-owner"), w.st.TapTree.Root(), oper,
+				hodl, sha256.Sum256(preimage[:]),
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			return BuildClaimH(w.st, sOper, sHodl, hodl, vsig,
+				preimage, &TxOpts{Inputs: w.fee(600)})
+		},
+	}, {
+		name: "SPLIT", depth: depth, sparse: sparse,
+		variants: []string{"SPLIT"},
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			opKey := w.st.OperatorKey
+			alice := w.mkLeaf("alice", 500_000, nil, 0)
+			oper := w.mkLeaf("operator", 1_000_000, nil, 0)
+			tr := w.st.Tree
+			sAlice := w.slot(alice, 0, tr)
+			tr.Leaves[sAlice] = alice
+			sOper := w.slot(oper, uint64(1)<<w.depth-1, tr)
+			tr.Leaves[sOper] = oper
+			bob := w.mkLeaf("bob", 200_000, &opKey, 900_000)
+			sBob := w.slot(bob, 3, tr)
+			return BuildSplit(w.st, sAlice, sBob, bob,
+				&TxOpts{Inputs: w.fee(600)})
+		},
+	}}
+}
+
 // allCases is every transition at every depth and profile covered.
 func allCases() []txCase {
 	var cases []txCase
@@ -382,6 +461,7 @@ func allCases() []txCase {
 		cases = append(cases, exitCases(p.depth, p.sparse)...)
 		cases = append(cases, joinCases(p.depth, p.sparse)...)
 		cases = append(cases, updateCases(p.depth, p.sparse)...)
+		cases = append(cases, carveCases(p.depth, p.sparse)...)
 	}
 	return cases
 }
@@ -389,6 +469,9 @@ func allCases() []txCase {
 // pythonSighash is the BIP-341 digest tools/script_sim.py computes for each
 // case's transaction; see the comment at the top of this file.
 var pythonSighash = map[string]string{
+	"FULL/D/D16/CLAIM":              "eacaf8f177b01e2db2e053e2481d416ccd6d15193cf33a8248d12dd87cca2f2f",
+	"FULL/D/D16/CLAIM drain":        "ed4083e32dd00dcc66e1dae7af59833bb73d66e3650c3adf6d287f43ac37728a",
+	"FULL/D/D16/CLAIM_H":            "723e2ce77c867263b8ea36a7891d3ba06693734f4128e3019875d42f1a3c05dd",
 	"FULL/D/D16/EXIT_1 evict":       "ce37c829f9498e3d573df2c8d0e4860b520d5b21f6855518ee0c320c44d5ca82",
 	"FULL/D/D16/EXIT_1 owner":       "a7c7b2851d3a8d3d20d396daa027cd1e7256ba7f3ecd03097bdcd373ab02808f",
 	"FULL/D/D16/EXIT_1 terminal":    "e625212bcdb29d2b2974496203fa5a33644c5cfe47bfe59ebd7bd61818094b51",
@@ -396,8 +479,12 @@ var pythonSighash = map[string]string{
 	"FULL/D/D16/JOINK_2":            "21255b80d08dc94ba44a9c224a49702db0e08ecfebfb42607c80568f69bc87d4",
 	"FULL/D/D16/JOIN_0":             "0262562a1214a0335dda0ee74470d80ba9993c92ab23bfcdc78e000d5d88d732",
 	"FULL/D/D16/JOIN_2":             "e9335a1d92ebed3017335a2f3aaf050f29fd0d382e1ff05b78a44519a136c295",
+	"FULL/D/D16/SPLIT":              "742886f99faa08b580e8d49a2e307944c9e13ebc8ec2a3391993b2179649ad68",
 	"FULL/D/D16/UPDATE":             "cb13ed17059bb73f2f8ed6cb234ddb030010c961cfdd9ca6ddd2e6bb6e999b64",
 	"FULL/D/D16/UPDATE_X":           "56bf2aa99754a67139c025c1a6a60e4982fa9d8d97c839ed5d83fb138e8d6603",
+	"FULL/D/D4/CLAIM":               "ff76e8556d3ff933c75a3e2d761b2b53bec5d6dc9b330997cfba03e3b0361d9d",
+	"FULL/D/D4/CLAIM drain":         "6dab711202fce1c41b43edfb62c4d080f61a4c1bbaa289e8f40b7d14466e6f3b",
+	"FULL/D/D4/CLAIM_H":             "d3a6fdc92ecb95a596b3555ca41c8cd5273045fdf01da4ed3355bcaca3988fbf",
 	"FULL/D/D4/EXIT_1 evict":        "e0e0e3cb177cf844cd8469b459ec1d9ac94dc0502f3f454b6352a715eda54e6c",
 	"FULL/D/D4/EXIT_1 owner":        "510bd24c7d848faa9172be058fb018ecce260ce4cb0795470c50ecb9ab6dec23",
 	"FULL/D/D4/EXIT_1 terminal":     "ea05448dd87f911ea0d2d705f4c8b882b6eeb3d1f30db2fd955dbb9bc76733d8",
@@ -405,14 +492,19 @@ var pythonSighash = map[string]string{
 	"FULL/D/D4/JOINK_2":             "db5dd9c44b0d28171080ecb7d5d69d1374bc10152016203f64530be9dec75f4b",
 	"FULL/D/D4/JOIN_0":              "aebb00edb4dd482df4715a61c64a3aa01c11b45176b6f61f6b0cac45b5756377",
 	"FULL/D/D4/JOIN_2":              "8a71422e21bb636a9738821d265df2c9c466d7f3ecc10b5c45fd9bf339d3c147",
+	"FULL/D/D4/SPLIT":               "659e4c14ef3d6c140551c90e344f8102a3ba62f7252b252c4a1846b0fa8c07e7",
 	"FULL/D/D4/UPDATE":              "42d9710a0fc094c3f0017806a7527beb63c65c1e241875deffc8c10cfca1d54f",
 	"FULL/D/D4/UPDATE_X":            "d4a147a9e9f5bd1130b61bf95a10fec51b818c036e2eb5ce10a1bd1375916c07",
+	"FULL/S/D8/CLAIM":               "a36a31d719e58ce7629e15b4069133c99c9e930e30e128ebce722cb8e825a0a3",
+	"FULL/S/D8/CLAIM drain":         "1f2e88f776f1694fc00b9454b723040c1624917dc1156cb2acfd26904af8583e",
+	"FULL/S/D8/CLAIM_H":             "5f0c0b357b15579ae8d692e4050e7d9830ad1ca5ebeb361b9d33edce318c967a",
 	"FULL/S/D8/EXIT_1 evict":        "10fdfcec310f6b26c5df5a677d2b22cbd1cd3fa9e8501965b2c4acbf18cad9f2",
 	"FULL/S/D8/EXIT_1 owner":        "15e749e2dc8452e4ea8afe76c4fe9f3e66f17ff1396a90629b69084c27807f64",
 	"FULL/S/D8/EXIT_1 terminal":     "d24aec9d575201584c1348dc3e027b201eef60f27e7886e8615aa374593c352e",
 	"FULL/S/D8/EXIT_2 owner+evict":  "2d7b226c2a86f89d53be35e62327fc40ae5b67b963eae05dd4770efe3ebd99ed",
 	"FULL/S/D8/JOINK_2":             "d42bb153448e06826b82079beb096239f59f67d5ae4cf215f3a014b9025cb9dd",
 	"FULL/S/D8/JOIN_0":              "0492b7c416f5175d3b2e10a0c93504f7fc3efe5f22626606c95975b237dcef11",
+	"FULL/S/D8/SPLIT":               "63b580884156b3ecea88613b075cbf198b10f58b589fad8a5840f1dbd5c237d1",
 	"FULL/S/D8/UPDATE":              "a1f4a14400dc49036b986eafb8d409a110a84d8673ef75bee8ce2b446a21b82d",
 	"FULL/S/D8/UPDATE_X":            "8356821d3d5fc60b0ea3093978a74d02e453152db71f740f1e76bec24abad399",
 }
@@ -710,6 +802,35 @@ func TestBuilderRejects(t *testing.T) {
 			_, _, err := BuildJoinK(w.st, []PlacedLeaf{
 				{Pos: 12, Leaf: hank}, {Pos: 12, Leaf: ivy},
 			}, &TxOpts{Inputs: w.fee(30_000)})
+			return err
+		},
+	}, {
+		name: "claim larger than the source",
+		build: func(w *world) error {
+			alice, _, _, sAlice, _, _ := w.base()
+			greedy := w.mkLeaf("greedy", alice.Amount+1, nil, 0)
+			_, _, err := BuildClaim(w.st, sAlice, 3, greedy,
+				make([]byte, 64), &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		name: "claim against a SEQ_FINAL source",
+		build: func(w *world) error {
+			src := w.mkLeaf("chan-src", 1_000_000, nil, 0)
+			src.Seq = math.MaxUint32
+			w.st.Tree.Leaves[15] = src
+			claim := w.mkLeaf("claimant", 40_000, nil, 0)
+			_, _, err := BuildClaim(w.st, 15, 3, claim,
+				make([]byte, 64), &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		name: "split into an occupied position",
+		build: func(w *world) error {
+			_, _, _, sAlice, sBob, _ := w.base()
+			carol := w.mkLeaf("carol", 10_000, nil, 0)
+			_, _, err := BuildSplit(w.st, sAlice, sBob, carol,
+				&TxOpts{Inputs: w.fee(600)})
 			return err
 		},
 	}, {

@@ -3,7 +3,9 @@ package txn
 import (
 	"errors"
 	"fmt"
+	"math"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 
 	"github.com/roasbeef/layertree/tree"
@@ -418,6 +420,142 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 		})
 	}
 
+	spend, err := finish(st, next, name, nil, stack, sigs, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return spend, next, nil
+}
+
+// SignVoucher is the source owner's voucher for a CLAIM (spec 7.5): a
+// BIP-340 signature over H_voucher(m || source || claim). It commits to no
+// transaction, so it is made off-chain, before any CLAIM is built.
+func SignVoucher(ownerKey *btcec.PrivateKey, merkleRoot [32]byte, source,
+	claim *tree.Leaf) ([]byte, error) {
+
+	msg := tree.VoucherMsg(merkleRoot, source, claim)
+	return SignSchnorr(ownerKey, msg[:])
+}
+
+// SignVoucherH is the voucher for a CLAIM^h (spec 7.5.1): a signature over
+// H_voucher_h(m || source || claim || payment_hash).
+func SignVoucherH(ownerKey *btcec.PrivateKey, merkleRoot [32]byte, source,
+	claim *tree.Leaf, paymentHash [32]byte) ([]byte, error) {
+
+	msg := tree.VoucherHMsg(merkleRoot, source, claim, paymentHash)
+	return SignSchnorr(ownerKey, msg[:])
+}
+
+// BuildClaim builds CLAIM (spec 7.5): carve claim out of the leaf at
+// srcPos into the empty position claimPos, on the authority of a voucher
+// from SignVoucher. Nobody signs the transaction, so the spend has no
+// signature slots; fees come from opts.Inputs.
+func BuildClaim(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	voucherSig []byte, opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	return buildCarve(st, srcPos, claimPos, claim, "CLAIM",
+		func(cPath, sPath [][]byte, src *tree.Leaf, r,
+			m [32]byte) ([][]byte, []SigSlot) {
+
+			return ClaimWitness(
+				cPath, sPath, src, claim, voucherSig, r, m,
+			), nil
+		}, opts)
+}
+
+// BuildClaimH builds CLAIM^h (spec 7.5.1): CLAIM under a hash-locked
+// voucher from SignVoucherH, redeemed with the payment hash's preimage.
+func BuildClaimH(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	voucherSig []byte, preimage [32]byte, opts *TxOpts) (*Spend,
+	*tree.Tree, error) {
+
+	return buildCarve(st, srcPos, claimPos, claim, "CLAIM_H",
+		func(cPath, sPath [][]byte, src *tree.Leaf, r,
+			m [32]byte) ([][]byte, []SigSlot) {
+
+			return ClaimHWitness(
+				cPath, sPath, src, claim, voucherSig, preimage,
+				r, m,
+			), nil
+		}, opts)
+}
+
+// BuildSplit builds SPLIT (spec 7.5.2): CLAIM's two steps authorised by the
+// source owner's signature over the transaction, which takes the voucher's
+// place in the stack.
+func BuildSplit(st *TreeState, srcPos, newPos uint64, newLeaf *tree.Leaf,
+	opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	return buildCarve(st, srcPos, newPos, newLeaf, "SPLIT",
+		func(cPath, sPath [][]byte, src *tree.Leaf, r,
+			m [32]byte) ([][]byte, []SigSlot) {
+
+			stack := ClaimWitness(
+				cPath, sPath, src, newLeaf, sigPlaceholder(),
+				r, m,
+			)
+			return stack, []SigSlot{{
+				Index: len(stack) - 3, Key: src.OwnerKey,
+				Role: "owner",
+			}}
+		}, opts)
+}
+
+// carveStack assembles a carve's stack from the rendered claim and source
+// paths, the source leaf, r and m.
+type carveStack func(claimPath, sourcePath [][]byte, source *tree.Leaf,
+	rootHash, merkleRoot [32]byte) ([][]byte, []SigSlot)
+
+// buildCarve is the shared body of CLAIM, CLAIM^h and SPLIT (spec 7.5 rules
+// 2 to 4). Step 1 lowers the source leaf by the claim's amount and advances
+// its seq, emptying the position if nothing is left; step 2 places the
+// claim leaf at a position that is empty after step 1. The total is
+// conserved.
+func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	name string, assemble carveStack, opts *TxOpts) (*Spend, *tree.Tree,
+	error) {
+
+	src := st.Tree.Leaves[srcPos]
+	switch {
+	case src == nil:
+		return nil, nil, fmt.Errorf("txn: no source leaf at position "+
+			"%d", srcPos)
+	case claim.Amount > src.Amount:
+		return nil, nil, fmt.Errorf("txn: claim of %d exceeds the "+
+			"source's %d", claim.Amount, src.Amount)
+	case src.Seq == math.MaxUint32:
+		return nil, nil, errors.New("txn: the source leaf's seq is " +
+			"final, so it cannot be carved (spec 5.2)")
+	}
+	if err := st.checkPos(claimPos, claim); err != nil {
+		return nil, nil, err
+	}
+
+	// Step 1: the source leaf.
+	mid := st.Tree.Clone()
+	newSrc := *src
+	newSrc.Amount -= claim.Amount
+	newSrc.Seq++
+	if newSrc.Amount == 0 {
+		delete(mid.Leaves, srcPos)
+	} else {
+		mid.Leaves[srcPos] = &newSrc
+	}
+
+	// Step 2: the claim leaf, proven against the root step 1 left.
+	if _, ok := mid.Leaves[claimPos]; ok {
+		return nil, nil, fmt.Errorf("txn: claim position %d is "+
+			"occupied", claimPos)
+	}
+	next := mid.Clone()
+	next.Leaves[claimPos] = claim
+
+	in := st.Input()
+	stack, sigs := assemble(
+		st.pathWitness(mid.Path(claimPos, 0), 0),
+		st.pathWitness(st.Tree.Path(srcPos, 0), 0),
+		src, in.RootHash, in.MerkleRoot,
+	)
 	spend, err := finish(st, next, name, nil, stack, sigs, opts)
 	if err != nil {
 		return nil, nil, err

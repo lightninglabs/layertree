@@ -180,6 +180,21 @@ func ClaimWitness(claimPath, sourcePath [][]byte, sourceLeaf, claimLeaf *tree.Le
 		voucherSig, rootHash[:], merkleRoot[:])
 }
 
+// ClaimHWitness is the CLAIM^h stack: claim_path, source_path, source_leaf,
+// claim_leaf, voucher_sig, preimage, r, m (spec 7.5.1, 8.6.1): CLAIM's
+// stack with the 32-byte preimage between voucher_sig and r.
+func ClaimHWitness(claimPath, sourcePath [][]byte, sourceLeaf,
+	claimLeaf *tree.Leaf, voucherSig []byte, preimage [32]byte,
+	rootHash, merkleRoot [32]byte) [][]byte {
+
+	out := ClaimWitness(
+		claimPath, sourcePath, sourceLeaf, claimLeaf, voucherSig,
+		rootHash, merkleRoot,
+	)
+	n := len(out)
+	return append(out[:n-2:n-2], preimage[:], rootHash[:], merkleRoot[:])
+}
+
 // EvictSubtreeWitness is the EVICT_SUBTREE_h stack: path (from height h),
 // leaf_{2^h-1} … leaf_0, operator_sig, r, m (spec 7.7, 8.7). leaves are given
 // in slot order (slot 0 first) and emitted in reverse, so that leaf_0 ends up
