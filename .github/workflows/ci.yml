@@ -14,12 +14,15 @@ jobs:
       - run: python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json
   go:
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.24" }
       - run: go build ./... && go vet ./...
       - run: go test ./...
+      - run: test -z "$(gofmt -l .)"
   lean:
     runs-on: ubuntu-latest
     steps:
