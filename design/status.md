@@ -10,7 +10,7 @@ Last updated 2026-10-09 (spec 0.8.5, Appendix C 0.2.0, paper v0.1).
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
 | Python reference and simulator | 425 + 125 + 31 + 309 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 42 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). The CCV tier of issue #3 is measured in the paper's tier table and section 5; the hypothetical native Merkle-sum opcode of issue #3 part 2 has one clearly labelled paragraph in the discussion. |
@@ -120,9 +120,18 @@ ones most likely to move:
    C.9.5) and the TRUC anchor assumptions should be confirmed against a
    node once the opcodes exist in a test build (e.g. an Inquisition or
    custom signet).
-4. **Go: transaction builders for every transition.** `txn/` builds and
-   signs EXIT_1 end to end; JOIN, UPDATE, CLAIM and EVICT_SUBTREE have
-   witness assemblers but no end-to-end sign-and-verify test yet.
+4. **Go: what the FULL builders still lack.** `txn/` has one builder per
+   FULL transition and a shared signer (`txn/transitions.go`,
+   `txn/spend.go`). Still open: `EXIT_K^=` has no Go generator
+   (`script/full.go` lacks the `exact` flag of `exit_script`): `BuildExit`
+   with zero fees produces its transaction, but the script it reveals
+   cannot be generated, so it has no end-to-end case; the MID, MIN
+   and CCV tiers have no builders (their witness layouts differ from
+   FULL's, with leaf fields passed separately and `PADZ` pads under the
+   `0xC0` numerics); and Go cannot execute the covenant, so the run of
+   each Go-built witness through `script_sim.Interp` is a one-off. A
+   `tools/` script that replays `LAYERTREE_TXN_DUMP` output in CI would
+   make it a standing check.
 5. **Off-chain message set.** `msg/` covers proofs, vouchers and join
    offers; channel-leaf messages (C.2, C.3 signing rounds) are unspecified
    as TLV.
