@@ -1,0 +1,82 @@
+/* LayerTree identity: "approachable". Replace this file to swap identities. */
+:root {
+  /* Surfaces and ink: warm cream paper, deep brown ink. */
+  --surface: #FBF6EE;
+  --surface-2: #F3EADB;
+  --ink: #2B2118;
+  --ink-2: #5C4E40;
+  --ink-3: #7A6B5B;
+
+  /* One strong accent: persimmon. Also the proof path. */
+  --accent: #C8401F;
+  --accent-ink: #FFFFFF;
+
+  /* Picture roles. node, path, leaf, leaf-exit and chain are the validated
+     categorical set (see README). node-sum is a soft tint for sum labels. */
+  --node: #2C72B8;
+  --node-sum: #DCE8F5;
+  --path: #C8401F;
+  --leaf: #23916B;
+  --leaf-exit: #8A4FB0;
+  --chain: #9A6B12;
+
+  /* Status. */
+  --ok: #2E7D4F;
+  --warn: #9A5B00;
+
+  /* Type. Nunito (rounded, OFL) for display; Atkinson Hyperlegible (OFL) for
+     body; both fall back to system faces with no download. */
+  --font-display: "Nunito", "Varela Round", ui-rounded, "SF Pro Rounded",
+    "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+    monospace;
+
+  /* Type scale. */
+  --size-1: 0.875rem;
+  --size-2: 1.0625rem;
+  --size-3: 1.3125rem;
+  --size-4: 1.75rem;
+  --size-5: 2.375rem;
+  --size-6: clamp(2.5rem, 7.5vw, 4.25rem);
+
+  /* Spacing (roughly 1.6x steps from 8 px). */
+  --space-1: 0.5rem;
+  --space-2: 0.75rem;
+  --space-3: 1.25rem;
+  --space-4: 2rem;
+  --space-5: 3.25rem;
+  --space-6: 5.25rem;
+
+  --radius: 16px;
+
+  /* Motion. */
+  --dur-fast: 120ms;
+  --dur: 240ms;
+  --dur-slow: 520ms;
+  --ease: cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1E1914;
+    --surface-2: #2A231B;
+    --ink: #F6EBDD;
+    --ink-2: #CDBFAE;
+    --ink-3: #A39484;
+
+    --accent: #EC5F38;
+    --accent-ink: #1E1914;
+
+    --node: #4A8FD8;
+    --node-sum: #263548;
+    --path: #EC5F38;
+    --leaf: #2BA880;
+    --leaf-exit: #AE76D4;
+    --chain: #BF8519;
+
+    --ok: #5CC48A;
+    --warn: #F0B64A;
+  }
+}

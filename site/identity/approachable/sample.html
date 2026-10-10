@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>LayerTree, approachable identity sample</title>
+<style>
+@import url("tokens.css");
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--size-2);
+  line-height: 1.6;
+}
+a { color: inherit; }
+.wrap { max-width: 64rem; margin: 0 auto; padding: 0 var(--space-3); }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 800; line-height: 1.1; margin: 0; letter-spacing: -0.01em; }
+
+/* Header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; }
+.brand { display: inline-flex; align-items: center; gap: var(--space-2); text-decoration: none; color: var(--ink); }
+.brand svg { width: 40px; height: 40px; flex: none; }
+.brand span { font-family: var(--font-display); font-weight: 800; font-size: var(--size-3); letter-spacing: -0.01em; }
+.nav { display: flex; gap: var(--space-3); font-size: var(--size-1); color: var(--ink-2); }
+.nav a { text-decoration: none; padding: var(--space-1) 0; }
+.nav a:hover { color: var(--accent); }
+@media (max-width: 30rem) { .nav { display: none; } }
+
+/* Hero */
+.hero { padding: var(--space-5) 0 var(--space-4); }
+.eyebrow { display: inline-block; font-size: var(--size-1); font-weight: 700; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); padding: 0.25rem 0.875rem; border-radius: 999px; margin-bottom: var(--space-3); }
+.hero h1 { font-size: var(--size-6); max-width: 15ch; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.takeaway { font-size: var(--size-3); color: var(--ink-2); max-width: 36rem; margin: var(--space-3) 0 0; line-height: 1.5; }
+.takeaway strong { color: var(--ink); }
+
+/* Figure */
+.figure { background: var(--surface-2); border-radius: calc(var(--radius) * 1.5); padding: var(--space-3); margin: var(--space-4) 0; }
+.figure svg { display: block; width: 100%; height: auto; max-width: 44rem; margin: 0 auto; }
+.figure figcaption { font-size: var(--size-1); color: var(--ink-2); margin-top: var(--space-2); max-width: 44rem; margin-left: auto; margin-right: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); list-style: none; padding: 0; margin: var(--space-2) auto 0; max-width: 44rem; font-size: var(--size-1); color: var(--ink-2); }
+.legend li { display: inline-flex; align-items: center; gap: 0.5rem; }
+.legend i { width: 14px; height: 14px; border-radius: 5px; border: 2px solid; display: inline-block; }
+
+.t-edge { stroke: var(--ink-3); stroke-width: 2; stroke-linecap: round; fill: none; }
+.t-edge.p { stroke: var(--path); stroke-width: 4; }
+.t-node { fill: color-mix(in srgb, var(--node) 16%, var(--surface-2)); stroke: var(--node); stroke-width: 2; }
+.t-leaf { fill: color-mix(in srgb, var(--leaf) 18%, var(--surface-2)); stroke: var(--leaf); stroke-width: 2; }
+.t-exit { fill: color-mix(in srgb, var(--leaf-exit) 20%, var(--surface-2)); stroke: var(--leaf-exit); stroke-width: 3; }
+.t-path { fill: color-mix(in srgb, var(--path) 18%, var(--surface-2)); stroke: var(--path); stroke-width: 3; }
+.t-sib { stroke-dasharray: 4 3; }
+.t-root { fill: var(--node); stroke: var(--path); stroke-width: 3; }
+.t-chain { fill: color-mix(in srgb, var(--chain) 18%, var(--surface-2)); stroke: var(--chain); stroke-width: 2; }
+.t-txt { font-family: var(--font-display); font-weight: 800; font-size: 13px; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+.t-txt.root { fill: var(--surface); font-size: 15px; }
+.t-lbl { font-family: var(--font-body); font-size: 11px; fill: var(--ink-2); }
+.t-lbl.b { font-weight: 700; }
+.t-lbl.chain { fill: var(--ink); }
+.t-drop { stroke: var(--chain); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; }
+.t-arrow { stroke: var(--leaf-exit); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .t-edge.p { stroke-dasharray: 200; stroke-dashoffset: 200; animation: draw var(--dur-slow) var(--ease) 300ms forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+}
+
+/* Cards */
+.section-h { font-size: var(--size-5); margin: var(--space-5) 0 var(--space-2); }
+.lede { color: var(--ink-2); max-width: 36rem; margin: 0 0 var(--space-4); }
+.grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.card { background: var(--surface-2); border-radius: var(--radius); padding: var(--space-3); border: 2px solid transparent; transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.card:hover { transform: translateY(-3px); border-color: var(--accent); }
+.card .ico { width: 48px; height: 48px; border-radius: 14px; background: var(--surface); color: var(--accent); display: grid; place-items: center; margin-bottom: var(--space-2); }
+.card .ico svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.card h3 { font-size: var(--size-3); margin-bottom: 0.25rem; }
+.card p { margin: 0; color: var(--ink-2); font-size: var(--size-1); line-height: 1.55; }
+.card .who { display: inline-block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: 0.8125rem; color: var(--ink-3); }
+
+.cta { display: inline-block; margin-top: var(--space-4); background: var(--accent); color: var(--accent-ink); font-family: var(--font-display); font-weight: 800; padding: 0.875rem 1.5rem; border-radius: 999px; text-decoration: none; transition: transform var(--dur-fast) var(--ease); }
+.cta:hover { transform: translateY(-2px); }
+.cta:focus-visible, .card:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+/* Footer */
+footer { margin-top: var(--space-6); border-top: 2px solid var(--surface-2); padding: var(--space-4) 0 var(--space-5); color: var(--ink-2); font-size: var(--size-1); }
+footer .row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; }
+footer .brand span { font-size: var(--size-2); }
+footer .brand svg { width: 28px; height: 28px; }
+footer .status { display: inline-flex; align-items: center; gap: 0.5rem; }
+footer .status b { color: var(--warn); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 64 64">
+    <path d="M32 54 L16 32 M32 54 L48 32 M16 32 L8 10 M16 32 L24 10 M48 32 L40 10" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="currentColor">
+      <circle cx="32" cy="54" r="7"/><circle cx="16" cy="32" r="5.5"/><circle cx="48" cy="32" r="5.5"/>
+      <circle cx="8" cy="10" r="4.5"/><circle cx="24" cy="10" r="4.5"/><circle cx="40" cy="10" r="4.5"/>
+      <circle cx="59" cy="20" r="4.5"/>
+    </g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#" aria-label="LayerTree home">
+      <svg aria-hidden="true"><use href="#mark"/></svg>
+      <span>LayerTree</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#parts">The parts</a>
+      <a href="#spec">Spec</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <span class="eyebrow">One coin, many owners</span>
+      <h1>Share one output. <em>Leave in one step.</em></h1>
+      <p class="takeaway">
+        Many people's balances live in a single Bitcoin output. An off-chain tree
+        keeps the sums, and the output's script checks your proof against the
+        committed root. So you can leave in <strong>one transaction</strong>,
+        with <strong>no waiting period</strong>, and the operator can never take or
+        freeze your money.
+      </p>
+    </section>
+
+    <figure class="figure" id="how">
+      <svg viewBox="0 0 400 345" role="img" aria-labelledby="fig-t fig-d">
+        <title id="fig-t">A Merkle-sum tree with eight leaves and one highlighted proof path</title>
+        <desc id="fig-d">Leaves hold 12, 8, 20, 5, 9, 14, 6 and 10. Each parent holds the sum of its children, up to a root of 84. The leaf holding 20 is leaving; its path to the root is highlighted, and its siblings 5, 20 and 39 are outlined as the proof. The root is committed by one on-chain output of 84.</desc>
+
+        <!-- edges, child to parent -->
+        <g class="t-edge-group">
+          <path class="t-edge" d="M28 52 L52 118 M76 52 L52 118 M172 52 L148 118 M220 52 L244 118 M268 52 L244 118 M316 52 L340 118 M364 52 L340 118"/>
+          <path class="t-edge" d="M52 118 L100 184 M244 118 L292 184 M292 184 L196 250"/>
+          <path class="t-edge p" d="M124 52 L148 118 L100 184 L196 250"/>
+        </g>
+
+        <!-- leaves (y 52) -->
+        <g>
+          <rect class="t-leaf" x="9" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="28" y="52">12</text>
+          <rect class="t-leaf" x="57" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="76" y="52">8</text>
+          <rect class="t-exit" x="105" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="124" y="52">20</text>
+          <rect class="t-leaf t-path t-sib" x="153" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="172" y="52">5</text>
+          <rect class="t-leaf" x="201" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="220" y="52">9</text>
+          <rect class="t-leaf" x="249" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="268" y="52">14</text>
+          <rect class="t-leaf" x="297" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="316" y="52">6</text>
+          <rect class="t-leaf" x="345" y="38" width="38" height="28" rx="10"/><text class="t-txt" x="364" y="52">10</text>
+        </g>
+
+        <!-- exit arrow -->
+        <path class="t-arrow" d="M124 30 L124 10 M117 17 L124 9 L131 17"/>
+        <text class="t-lbl b" x="137" y="17" style="fill:var(--leaf-exit)">leaf leaves</text>
+
+        <!-- level 1 (y 118) -->
+        <g>
+          <rect class="t-node t-path t-sib" x="33" y="104" width="38" height="28" rx="10"/><text class="t-txt" x="52" y="118">20</text>
+          <rect class="t-node t-path" x="129" y="104" width="38" height="28" rx="10" style="stroke-dasharray:none"/><text class="t-txt" x="148" y="118">25</text>
+          <rect class="t-node" x="225" y="104" width="38" height="28" rx="10"/><text class="t-txt" x="244" y="118">23</text>
+          <rect class="t-node" x="321" y="104" width="38" height="28" rx="10"/><text class="t-txt" x="340" y="118">16</text>
+        </g>
+
+        <!-- level 2 (y 184) -->
+        <g>
+          <rect class="t-node t-path" x="81" y="170" width="38" height="28" rx="10"/><text class="t-txt" x="100" y="184">45</text>
+          <rect class="t-node t-path t-sib" x="273" y="170" width="38" height="28" rx="10"/><text class="t-txt" x="292" y="184">39</text>
+        </g>
+
+        <!-- root (y 250) -->
+        <rect class="t-root" x="170" y="234" width="52" height="32" rx="12"/>
+        <text class="t-txt root" x="196" y="250">84</text>
+        <text class="t-lbl b" x="230" y="246">root</text>
+        <text class="t-lbl" x="230" y="260">sum of everyone</text>
+
+        <!-- on-chain strip -->
+        <path class="t-drop" d="M196 268 L196 292"/>
+        <rect class="t-chain" x="12" y="294" width="376" height="40" rx="14"/>
+        <text class="t-lbl b chain" x="28" y="311">On-chain</text>
+        <text class="t-lbl chain" x="28" y="325">one output, 84, address commits to the root</text>
+      </svg>
+      <ul class="legend" aria-label="Legend">
+        <li><i style="border-color:var(--node);background:color-mix(in srgb,var(--node) 16%,var(--surface-2))"></i>Node (hash and sum)</li>
+        <li><i style="border-color:var(--path);background:color-mix(in srgb,var(--path) 18%,var(--surface-2))"></i>Proof path</li>
+        <li><i style="border-color:var(--leaf-exit);background:color-mix(in srgb,var(--leaf-exit) 20%,var(--surface-2))"></i>Leaf leaving</li>
+        <li><i style="border-color:var(--chain);background:color-mix(in srgb,var(--chain) 18%,var(--surface-2))"></i>On-chain output</li>
+      </ul>
+      <figcaption>To leave, the owner of the 20 shows the dashed siblings (5, 20, 39). The script rebuilds the root 84, checks it against the output, then recreates the output under the new root.</figcaption>
+    </figure>
+
+    <section id="parts">
+      <h2 class="section-h">Six things the output can do</h2>
+      <p class="lede">All of them are one machine: prove a node against the current root, then fold a new node up the same path.</p>
+      <div class="grid">
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="14" r="4"/><path d="M17 5v8M13 9h8"/></svg></div>
+          <h3>Join</h3>
+          <p>Graft a new member, or a whole prebuilt group, into an empty slot.</p>
+          <span class="who">operator</span>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="16" r="4"/><path d="M12 12l8-8M13 4h7v7"/></svg></div>
+          <h3>Exit</h3>
+          <p>Remove your leaf and take your balance in a single transaction.</p>
+          <span class="who">leaf owner</span>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M9 12h6M13 8l4 4-4 4"/></svg></div>
+          <h3>Pay</h3>
+          <p>Carve a new leaf out of yours, so someone else owns part of it.</p>
+          <span class="who">leaf owner</span>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg></div>
+          <h3>Swap</h3>
+          <p>Trade a claim against a payment, all in one transaction.</p>
+          <span class="who">buyer and seller</span>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5"/><path d="M5 5l14 14"/></svg></div>
+          <h3>Evict</h3>
+          <p>After the lease runs out, remove a leaf and pay the owner exactly.</p>
+          <span class="who">evictor, after the lease</span>
+        </article>
+        <article class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="6" r="2.5"/><circle cx="8" cy="12" r="2.5"/><circle cx="8" cy="18" r="2.5"/><path d="M13 6h7M13 12h7M13 18h7"/></svg></div>
+          <h3>Batch</h3>
+          <p>Several changes in one transaction, so the fee is shared.</p>
+          <span class="who">anyone</span>
+        </article>
+      </div>
+      <a class="cta" href="#spec">Read the full explainer</a>
+    </section>
+  </main>
+
+  <footer id="spec">
+    <div class="row">
+      <a class="brand" href="#" aria-label="LayerTree home">
+        <svg aria-hidden="true"><use href="#mark"/></svg>
+        <span>LayerTree</span>
+      </a>
+      <span class="status"><b>Design stage.</b> The opcodes it relies on are proposals, not consensus.</span>
+    </div>
+  </footer>
+</div>
+
+</body>
+</html>
