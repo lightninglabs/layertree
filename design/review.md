@@ -477,6 +477,106 @@ reference set's `m_h`. The 10.1 trust table gained the line the review
 asked for: the operator can move a cohort to its own output and cannot
 change its rules, keys or balances by doing so.
 
+### F22. `REWRITE_h`'s amount-only exemption reaches channel leaves
+
+The protocol audit (`design/audit/protocol.md`, A1) found that 7.9 rule 3
+lets the operator alone raise any leaf's `amount`, including a channel
+leaf's above the capacity its signed states commit to, after which every
+pre-signed update pays a nonzero fee beside a zero-value ephemeral
+anchor and no default node relays it. It is reachable in any tree that
+carries `REWRITE_h` or `REWRITE_h^x` and hosts channel leaves in a
+cohort, at 1 sat per leaf. The fix is a script rule: the exemption does
+not apply when `old_i.seq = SEQ_FINAL`, with C.2.4's "merely burns"
+sentence corrected. Status: fix in flight (script rule, spec 0.11.0).
+
+### F23. Sub-dust carves squat a slot for good
+
+`CLAIM` and `SPLIT` accept a claim leaf of 0 or 1 sat, and every
+transition that removes a leaf must pay it exactly to a P2TR output, so a
+leaf below 330 sat can never be removed by a standard transaction: it
+blocks its cohort's sweep and every graft over it (audit A2). Any member
+can do it with one `SPLIT`, and a small honest redemption does it by
+accident. The fix is a script rule in 7.5, a `DUST_MIN` floor on the
+claim amount and on a nonzero residual. Status: fix in flight (script
+rule, spec 0.11.0).
+
+### F24. Plain `REWRITE_h` reopens credit-leaf and channel voiding
+
+10.3's credit-leaf checklist and C.6.6's `UPDATE^x` protection both
+missed that plain `REWRITE_h` asks only for the owner's and the
+operator's signatures, so the issuer of a credit leaf, or the owner and
+operator of a user-to-user channel leaf, can rewrite it down and void
+what the `^x` variants protect (audit A3). It is reachable in any tree
+that follows the spec's recommendations and adds `REWRITE_h` for
+batching. Fixed in text: 10.3 now lists `REWRITE_h^x` in place of
+`REWRITE_h`, or no `REWRITE_h`, and has the recipient check `m`; C.6.6
+and C.9.7 require the counterparty to verify from `m` that no plain
+`REWRITE_h` is present; `design/receive.md` says the same. 7.5.3's
+reference to the checklist, and 7.9 rule 7 becoming a MUST in trees
+that carry `UPDATE^x` or `CLAIM^x`, land with the spec 0.11.0 rule
+change.
+
+### F25. Eviction voids vouchers
+
+A voucher binds its source leaf's bytes, so the evictor's `EXIT` or a
+cohort sweep voids every outstanding voucher against the leaves it
+removes, although the issuer broke no rule, and a holder who paid for
+one is left with the issuer's goodwill (audit A4). It is reachable
+whenever a voucher is issued against a leaf whose lease can pass before
+redemption confirms. No script fix exists. Fixed in text: 9.6 states it
+and has the recipient read the source's evictor and lease and treat a
+voucher whose lease can pass within `Delta(q)` of 10.5 as unsecured;
+9.6.1's flow and a new 9.6.2 rule 5 put the same check before the swap
+counterparty pays; 10.3 and 10.8 add eviction and sweeps to the events
+that void vouchers.
+
+### F26. Partial vouchers need an empty position the operator controls
+
+A partial-balance voucher places its claim leaf in an empty position
+(7.5 rule 3), and the operator controls empty positions through
+`JOIN_0` and `DETACH_h`, so it can detach a cohort full and hold every
+partial voucher against it unredeemable (audit A5). Reachable by the
+operator at the cost of a detach and some joins. Fixed in text: 7.10
+and the operator row of 10.1 say so, and 9.6 has the recipient prefer a
+full-balance voucher or verify an empty position in the source's
+cohort. The structural fix, a `CLAIM` that credits a leaf the recipient
+already holds, is recorded as 13 item 11 and is not specified.
+
+### F27. `NUMS`-evictor credit leaves are squat tokens
+
+A voucher binds the claim leaf's bytes and not its position, so the
+holder of any voucher against a `NUMS`-evictor leaf chooses where its
+carve lands and can block any cohort's sweep for good; 10.3 and
+`design/receive.md` recommended exactly that evictor for credit leaves
+(audit A6). Reachable by every voucher recipient of such an issuer, at
+no extra cost. Fixed in text: 10.3 and `design/receive.md` now say a
+credit leaf SHOULD carry a finite lease with the operator as evictor,
+which costs the recipient nothing because eviction pays the whole
+balance to its exit key, and 10.8 says the redeemer chooses the slot
+and operators SHOULD keep cohorts full or detached. This narrows F20's
+closing remark about credit leaves.
+
+### F28. One later lease holds up a cohort sweep
+
+9.4 said renewed members "are not swept", but 7.7 rule 2 needs a lock
+time of at least every leaf's `evict_after`, so a leaf renewed in place
+holds up its whole cohort's sweep until the new lease, and a member of a
+later-lease cohort can carve a leaf on its own terms into an earlier
+cohort's gap, which 7.5 rule 5 permits (audit A7). The renewal half is a
+spec inconsistency; the carve half costs the attacker one `SPLIT`.
+Fixed in text: 9.4 is corrected and has renewal relocate the leaf into
+a cohort whose lease matches, with leases aligned per cohort and cohorts
+kept full or detached; 10.8 and `design/graft.md` match. A sweep
+variant that passes unexpired positions through is left for later.
+
+### F29. Member-funded grafts cannot be fee-bumped by replacement
+
+Every funder of a member-funded graft signs with `SIGHASH_DEFAULT`, so
+raising its fee by replacement needs every funder to sign again (audit
+A8). Cost and liveness only. Fixed in text: 9.2 says such a graft
+SHOULD carry an operator change output or a P2A anchor so it can be
+bumped by CPFP, and `design/graft.md` notes the same.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):
