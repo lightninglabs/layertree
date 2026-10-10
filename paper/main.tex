@@ -184,7 +184,8 @@ once, for the predicates, rather than once per tier.
 \item \textbf{The abstract protocol} (\S\ref{sec:protocol}). A Merkle-sum
   tree committed through a data-tweaked taproot key, and one \emph{step}
   predicate from which every transition is composed, in an
-  operator-assigned dense profile and a key-addressed sparse profile.
+  operator-assigned dense profile (the default) and a key-addressed
+  sparse profile kept as the measured alternative.
 \item \textbf{Realisation in three opcode tiers} (\S\ref{sec:scripts}).
   Every predicate compiled against the full candidate set, every predicate
   but the cohort sweep against a \texttt{0xC0}-only subset, and the
@@ -368,7 +369,10 @@ siblings are elided from the witness (a one-byte marker in place of a
 node; the script substitutes $\Emp_k$), so witness data grows with
 $\log_2 N$ rather than with $D$. It is the Merkle-sum sparse Merkle tree
 of Taproot Assets~\cite{mssmt} truncated to $D = 32$ or $64$, at 1.8 to
-2.7 times the dense per-exit cost (Table~\ref{tab:sizes}).
+2.7 times the dense per-exit cost (Table~\ref{tab:sizes}). Dense is the
+default profile; the sparse profile is retained for deployments that need
+key-addressed positions, and the rest of the paper measures the dense one
+unless it says otherwise.
 
 \subsection{The Tree Output}\label{sec:output}
 

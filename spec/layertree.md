@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.8.4
+Version:  0.8.5
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -53,10 +53,13 @@ transaction introspection (`OP_TX`), `OP_CHECKSIGFROMSTACK`, and the
 elliptic-curve opcodes of the "Elliptic Curve Operations for Bitcoin Script"
 draft BIP (`OP_EC_POINT_ADD`, `OP_EC_POINT_MUL`, `OP_EC_POINT_X_COORD`).
 
-Two tree profiles are specified over the same scripts: a **dense** tree with
-operator-assigned positions and constant-size subtree grafting, and a
+Two tree profiles are specified over the same scripts. The **dense**
+tree, with operator-assigned positions and constant-size subtree grafting,
+is the default profile and the one this document recommends. The
 **sparse** key-addressed Merkle-sum tree (a truncated MS-SMT) with
-compressed proofs, in which positions are derived from the owner's key.
+compressed proofs, in which positions are derived from the owner's key, is
+retained as the option for key-addressed registries; it costs 1.6 to 2.7
+times as much per exit and cannot graft or sweep cohorts (5.4, 11).
 
 ## 2. Conventions
 
@@ -418,7 +421,14 @@ candidates make possible, and is the recommended target. MID is what a
 size, with a 21.47 BTC cap per tree. MIN is the existence proof that
 `OP_CAT` and one tweak opcode suffice for the covenant itself, at the cost
 of vouchers, terminal exits, a fixed transaction shape and a small grinding
-step. Member-to-member payment survives in MIN as `SPLIT`. CCV (section 4.6) is what BIP-443 adds on top of either numeric
+step. Member-to-member payment survives in MIN as `SPLIT`. The dashes in
+the MIN column mean not built, not impossible: `JOIN_h`, `UPDATE`,
+`EXIT_K` and `EVICT_SUBTREE_h` follow the same constructive-sighash
+construction (every output the rule constrains is assembled into the
+message, the rest is raw witness) but have not been generated or
+measured, and `UPDATE^x` follows `UPDATE`. A MIN tree as measured here is
+therefore created with its whole membership and only ever shrinks, by
+`EXIT_1` and `SPLIT`. CCV (section 4.6) is what BIP-443 adds on top of either numeric
 flavour: the same transitions at a smaller script than FULL (1,716 vs
 2,101 bytes for `EXIT_1` at `D = 16`) with no EC-ops dependency, `r` and
 `m` gone from every witness, and vouchers left out pending a redefined
@@ -600,11 +610,14 @@ A LayerTree of **depth D** is a complete binary tree with `2^D` leaf
 positions numbered `0 .. 2^D − 1`. The node at height `h` and index `i`
 covers positions `[i·2^h, (i+1)·2^h)`. Unoccupied positions hold `E_0`.
 `D` is fixed at tree creation (section 6.2). A tree has one of two
-**profiles**, also fixed at creation:
+**profiles**, also fixed at creation. Dense is the default: implementations
+MUST support it, and SHOULD use it unless the deployment needs
+key-addressed positions. Sparse is OPTIONAL.
 
 * **Dense (`D`)**: the operator assigns positions. Subtrees of new leaves
-  may be grafted at any height (`JOIN_h`). Implementations SHOULD support
-  `D` in the range 8 to 24.
+  may be grafted at any height (`JOIN_h`) and swept as aligned subtrees
+  (`EVICT_SUBTREE_h`). Implementations SHOULD support `D` in the range 8
+  to 24.
 * **Sparse (`S`)**: a leaf's position is derived from the leaf:
 
   ```
@@ -617,9 +630,12 @@ covers positions `[i·2^h, (i+1)·2^h)`. Unoccupied positions hold `E_0`.
   set alone), and non-inclusion of `(owner_key, nonce)` is proven by an
   inclusion proof of `E_0` at its position. A position collision on join is
   detected by that proof and resolved by choosing another `nonce`.
-  Implementations SHOULD support `D` in the range 32 to 64; `D = 256`
-  (the full MS-SMT) is valid but costs about 35 kB of script per exit
-  (section 11).
+  Implementations that support the sparse profile SHOULD support `D` in
+  the range 32 to 64; `D = 256` (the full MS-SMT) is valid but costs
+  about 35 kB of script per exit (section 11). The profile buys
+  key-addressed positions, a history-independent root and structural
+  uniqueness of leaves, at 1.6 to 2.7 times the dense per-exit cost
+  (`design/tree-comparison.md` has the measured comparison).
 
 The **root** is the node at height `D`, index 0. Its sum is the **total**.
 
@@ -1589,7 +1605,18 @@ leaf. `U` SHOULD retain the leaf, both paths, `r`, `r'` and the transaction
 id (section 9.7).
 
 The operator MAY use `JOIN_0` for a single member and MAY fund leaves
-itself (for example when providing liquidity to a channel leaf).
+itself (for example when providing liquidity to a channel leaf, or when
+selling a leaf to a member who pays off-chain).
+
+A member who pays for its leaf off-chain has no input to sign, so step 3
+does not protect it. Such a member MUST, before releasing payment, obtain
+the confirmed `JOIN_h` transaction, its leaf and its path in the new tree,
+and verify that output 0 is an unspent `TREE_SPK(r', m)` and that
+`fold(U.leaf, path) = (r', S')`, recomputing every sum. Paying before the
+graft confirms trusts the operator to graft; a hash-locked voucher
+(7.5.1, 9.6.1) against a source leaf the operator already holds is the
+alternative that the covenant enforces. `design/graft.md` discusses the
+funding modes.
 
 ### 9.3 Exiting and fees
 
@@ -1806,7 +1833,7 @@ construction. The "virtual network" of the design notes is this hub.
 
 | Party | Can | Cannot |
 |---|---|---|
-| Operator | refuse to co-sign `JOIN`/`UPDATE`; evict a leaf after its `evict_after` (paying it in full); issue vouchers against its own leaves | move, reduce, freeze or delay any other leaf; prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
+| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full); issue vouchers against its own leaves | move, reduce or delay any other leaf; freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
 | Owner | `EXIT` at any time; co-sign `UPDATE`; issue vouchers against their leaf | affect any other leaf; withdraw more than their leaf's amount |
 | Anyone | redeem a valid voucher (`CLAIM`); relay transitions | trigger an owner's exit; create leaves; alter amounts |
 
@@ -2034,7 +2061,8 @@ price of doing without the restored splice opcodes and the EC point
 opcodes: about 260 WU per exit.
 
 The sparse profile at `D = 32` costs about twice the dense profile at
-`D = 16` per exit. What it buys is key-addressed positions: no slot
+`D = 16` per exit, which is why dense is the default profile (5.4). What
+sparse buys is key-addressed positions: no slot
 allocation, a history-independent root, and structural uniqueness of
 leaves. The full 256-level MS-SMT is about twelve times the dense cost and
 is not recommended; truncating positions to 32–64 bits loses nothing but

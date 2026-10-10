@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LayerTree scripts, MIN tier (spec section 4.6): BIP-342 tapscript
+"""LayerTree scripts, MIN tier (spec section 4.5): BIP-342 tapscript
 (0xC0 semantics) + OP_CAT + OP_TWEAKADD. No OP_TX, no OP_CHECKSIGFROMSTACK.
 
 Introspection is *constructive*: the script assembles the BIP-341 signature
@@ -21,7 +21,7 @@ Shape is fixed per script: exactly two inputs (the tree output and one fee
 input) and outputs [tree', payout, <raw extra outputs>] for EXIT_1, or
 [tree', <raw extra outputs>] for SPLIT. EXIT_1 and SPLIT for the dense
 profile are provided; other transitions follow the same construction
-(spec 4.6). Vouchers (CLAIM) are impossible without OP_CHECKSIGFROMSTACK;
+(spec 4.5). Vouchers (CLAIM) are impossible without OP_CHECKSIGFROMSTACK;
 SPLIT, which authorises the same carve with a transaction signature, is not.
 """
 import os

@@ -6,8 +6,9 @@ covenants (Great Script Restoration + `OP_TX` + `OP_CHECKSIGFROMSTACK` +
 EC opcodes) enforce every state transition. Any participant can exit, and
 the operator can evict any expired participant, in **one transaction whose
 size is independent of the number of participants**. Two tree profiles are
-specified: a dense operator-allocated tree, and a key-addressed sparse
-Merkle-sum tree with compressed proofs. LayerTree proposes no opcodes of its
+specified: a dense operator-allocated tree, which is the default, and a
+key-addressed sparse Merkle-sum tree with compressed proofs, kept as the
+measured alternative. LayerTree proposes no opcodes of its
 own; it composes the existing candidates listed in spec section 4.3, and the
 test suite fails if a script uses anything else.
 
@@ -45,7 +46,7 @@ specification in Go on top of `btcsuite/btcd`, `lightningnetwork/lnd` and
 | Package | Contents |
 |---|---|
 | `tree` | leaves, merkle-sum tree, paths, proof compression, taproot binding of roots to the tree output |
-| `script` | transition script generators for the FULL, MID and MIN opcode tiers, byte-checked against `spec/golden.json` |
+| `script` | transition script generators for the FULL, MID, MIN and CCV opcode tiers, byte-checked against `spec/golden.json` |
 | `txn` | transaction construction, witness assembly, BIP-341 sighash and Schnorr signing |
 | `msg` | TLV-encoded off-chain messages: compressed proofs, vouchers, join offers |
 

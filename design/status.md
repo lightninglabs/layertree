@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-09-20 (spec 0.8.3, Appendix C 0.2.0, paper v0.1).
+Last updated 2026-10-09 (spec 0.8.5, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 
@@ -9,8 +9,8 @@ Last updated 2026-09-20 (spec 0.8.3, Appendix C 0.2.0, paper v0.1).
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 425 + 120 + 31 checks pass. Every script uses only the allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 39 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
+| Python reference and simulator | 425 + 120 + 31 + 309 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). The CCV tier of issue #3 is measured in the paper's tier table and section 5; the hypothetical native Merkle-sum opcode of issue #3 part 2 has one clearly labelled paragraph in the discussion. |
@@ -36,7 +36,10 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
    script and kept at depth 32 to 64 with empty-element compression; the
    dense operator-assigned tree costs about half per exit and supports
    subtree grafting. Bitmap compression was measured and is documented but
-   not the default on-chain encoding.
+   not the default on-chain encoding. Since 2026-10-09 dense is the
+   default and the recommendation (spec 5.4); sparse is demoted, not
+   deleted: still specified, generated and tested as the key-addressed
+   option, with the measured comparison in `design/tree-comparison.md`.
 5. **Fixed-shape multiproofs** (F15). `EXIT_K`, `JOINK_K`,
    `EVICT_SUBTREE_h` are different taptree leaves with unrolled loops;
    witness-flag-driven shapes do not reduce script size.
@@ -52,7 +55,11 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
    claims are theorems about hash trees), P for the off-chain protocol (the
    failures are interleavings). Tapscript bytecode is verified by
    execution, not proof.
-10. **Paper is functionality first** (issue #4). The reader meets the
+10. **Radix 2 stays** (2026-10-09). A radix-4 dense level was built and
+    measured (`tools/experiments/radix4.py`): 146 bytes of script and 123
+    of witness against 88 and 41, a net loss at every depth; radix 8 is
+    worse. Spec 13.2 carries the numbers.
+11. **Paper is functionality first** (issue #4). The reader meets the
     ideal functionality (interfaces, adversarial influence, the liveness
     bound as a function of tree size), then the covenant predicates, then
     the tiers as realisations, then one UC theorem whose lemmas cite the
