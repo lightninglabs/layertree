@@ -1898,8 +1898,9 @@ pairs so that the first consumed is on top
 
 Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
 (sparse). Witness data (paths, leaves, signatures, `r`, `m`) is
-`42·levels + constant` (dense) or `41·(non-empty siblings) + levels +
-constant` (sparse). Full tables from the
+`41·levels + constant` (dense: a 40-byte sibling and a direction element
+of one byte or none per level, 129 WU per level with the script) or
+`41·(non-empty siblings) + levels + constant` (sparse). Full tables from the
 simulator, including varops consumed, are in `spec/scripts/sizes.md`; see
 section 11.
 
@@ -2616,25 +2617,65 @@ Implementers MUST NOT parameterise selectors from the witness.
 ## 11. Cost Analysis
 
 *(informative)* Figures are measured by executing the reference scripts in
-the simulator (`tools/gen_listings.py` → `spec/scripts/sizes.md`). The
-control block assumes the reference script set of 6.2, which is eight
-tapleaves and therefore depth 3 and 129 bytes; 11.1 gives the cost of a
-larger set.
+the simulator (`tools/gen_listings.py` → `spec/scripts/sizes.md`) and
+priced on one transaction model. `spec/fee-analysis.md`
+(`tools/fee_analysis.py`) and the paper use the same model unchanged, so
+a figure that appears in more than one place is the same figure:
+
+* **Measured witness (WU).** The script, the witness elements and a
+  129-byte control block, one weight unit per byte. The control block is
+  for the reference script set of 6.2, eight tapleaves and so taptree
+  depth 3; 11.1 prices a larger set. The sweeps, rewrites, detach and
+  variants priced below would need 16 to 32 leaves in one taptree, 8 to
+  16 vB more on every spend.
+* **Skeleton.** 946 WU: the tree input (41 vB), a P2WPKH fee input (41 vB
+  plus 108 WU of witness), the tree output (43 vB), one P2TR payout
+  (43 vB), a P2WPKH change output (31 vB), version, lock time and counts
+  (10 vB), and the segwit marker and flag (2 WU). Each further payout
+  adds 172 WU (43 vB). A transition with no payout (`JOIN`, `UPDATE`,
+  `CLAIM`, `SPLIT`, the update case of `REWRITE_h`) is priced without one,
+  774 WU; `DETACH_h` uses the slot for its second tree output. The
+  FULL-tier endogenous fee form (9.3) drops the fee input and change,
+  550 WU.
+* **Virtual bytes.** `vB = ceil(WU / 4)`, rounded once per transaction;
+  per-leaf figures divide that by the leaves that leave or change.
+* **Excluded.** The witness item count and the per-item length prefixes
+  (one byte per element below 253 bytes, three for the script).
+  `spec/scripts/weights.md` (`tools/measure_weight.py`) serialises the
+  transaction each test builds and measures what the model leaves out:
+  on a dense `D = 16` `EXIT_1` it is 42 WU (10.5 vB) in FULL with 39
+  witness items, 40 WU (10 vB) in CCV, but 170 WU (42.5 vB) in MID and
+  179 WU (44.75 vB) in MIN, whose witnesses carry each level's sibling as
+  several small elements (over 160 items); a MID sweep at `h = 6` has
+  about 950 items, 955 WU of prefixes. Measured against the model, the
+  owner `EXIT_1` rows are FULL dense 1,030 vB (model 1,020), FULL sparse
+  `D = 32` 1,648 (1,637), MID dense 1,381 (1,338), MID sparse `D = 31`
+  2,864 (2,787), MIN dense 1,501 (1,456), CCV dense 918 (908) and CCV
+  sparse 1,535 (1,525). The prefixes are omitted the same way from every
+  row here, in `spec/fee-analysis.md` and in the paper, so the
+  comparisons between rows stand; the absolute figures are about 1% low
+  in FULL and CCV and about 3% low in MID and MIN. The transaction-tree
+  baseline below is a model, not a measurement, and carries no such term.
 
 | profile | D | positions | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
 |---|---|---|---|---|---|---|---|
-| dense | 8 | 256 | 1,397 | 574 | 2,100 | ≈ 3,050 | ≈ 765 |
-| dense | 12 | 4,096 | 1,749 | 738 | 2,616 | ≈ 3,570 | ≈ 890 |
-| dense | 16 | 65,536 | 2,101 | 902 | 3,132 | ≈ 4,080 | ≈ 1,020 |
-| dense | 20 | 1,048,576 | 2,453 | 1,066 | 3,648 | ≈ 4,600 | ≈ 1,150 |
-| dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | ≈ 4,340 | ≈ 1,085 |
-| dense, `EVICT_SUBTREE_4` (13 leaves swept) | 16 | 65,536 | 5,281 | 2,129 | 7,539 | ≈ 8,490 | ≈ 2,120 (≈ 165 per leaf) |
-| dense, `EVICT_SUBTREE_6` (51 leaves swept) | 16 | 65,536 | 16,097 | 6,455 | 22,681 | ≈ 23,630 | ≈ 5,910 (≈ 116 per leaf) |
-| sparse | 32 | 2^32 | 5,147 | 326 + 41·log2 N | ≈ 6,260 (N = 65k) | ≈ 7,210 | ≈ 1,800 |
-| sparse | 64 | 2^64 | 9,499 | 326 + 41·log2 N | ≈ 10,610 (N = 65k) | ≈ 11,560 | ≈ 2,890 |
-| sparse | 256 | 2^256 | 35,611 | 285 + 41·log2 N | ≈ 36,680 (N = 65k) | ≈ 37,630 | ≈ 9,410 |
-| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,683 | ≈ 3,630 | ≈ 908 |
-| sparse, CCV tier | 32 | 2^32 | 4,762 | 262 + 41·log2 N | ≈ 5,810 (N = 65k) | ≈ 6,760 | ≈ 1,690 |
+| dense | 8 | 256 | 1,397 | 574 | 2,100 | 3,046 | 762 |
+| dense | 12 | 4,096 | 1,749 | 738 | 2,616 | 3,562 | 891 |
+| dense | 16 | 65,536 | 2,101 | 902 | 3,132 | 4,078 | 1,020 |
+| dense | 20 | 1,048,576 | 2,453 | 1,066 | 3,648 | 4,594 | 1,149 |
+| dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | 4,339 | 1,085 |
+| dense, `EVICT_SUBTREE_4` (13 leaves swept) | 16 | 65,536 | 5,281 | 2,129 | 7,539 | 10,549 | 2,638 (203 per leaf) |
+| dense, `EVICT_SUBTREE_6` (51 leaves swept) | 16 | 65,536 | 16,097 | 6,455 | 22,681 | 32,227 | 8,057 (158 per leaf) |
+| sparse | 32 | 2^32 | 5,147 | 244 + 41·k | ≈ 6,180 (N = 2^16) | ≈ 7,120 | ≈ 1,780 |
+| sparse | 64 | 2^64 | 9,499 | 244 + 41·k | ≈ 10,530 (N = 2^16) | ≈ 11,470 | ≈ 2,870 |
+| sparse | 256 | 2^256 | 35,611 | 203 + 41·k | ≈ 36,600 (N = 2^16) | ≈ 37,550 | ≈ 9,390 |
+| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,683 | 3,629 | 908 |
+| sparse, CCV tier | 32 | 2^32 | 4,762 | 180 + 41·k | ≈ 5,730 (N = 2^16) | ≈ 6,670 | ≈ 1,670 |
+
+Sparse witness sizes are a formula in `k`, the number of non-empty
+siblings on the path, which is about `log2 N` for `N` members; the
+measured figures in `spec/scripts/sizes.md` (326, 285 and 262 bytes) are
+on a six-leaf tree with `k = 2`, and the totals here take `k = 16`.
 
 The CCV-tier rows (section 4.6) replace the `TREE_SPK` recomputations
 with `OP_CHECKCONTRACTVERIFY` calls: about 390 script bytes and 64
@@ -2646,33 +2687,42 @@ tier's two `TREE_SPK` recomputations. A CCV `CLAIM` at `D = 16` (dense)
 measures 3,472 / 1,626 bytes against FULL's 3,859 / 1,690; it is the one
 CCV script that needs `OP_CHECKSIGFROMSTACK` (4.6).
 
-The transaction weight column adds a fee input (P2WPKH), a change output
-and non-witness overhead (≈ 950 WU). In the dense profile each level costs
-131 WU (88 script + 41 path + 2 length prefixes) regardless of occupancy. In
-the sparse profile each level costs 135 WU of script plus 1 WU for an empty
-sibling or 42 WU for a non-empty one, so witness data grows with `log2 N`
-rather than with `D`. The minimal-inventory row (section 4.4) shows the
-price of doing without the restored splice opcodes and the EC point
-opcodes: about 260 WU per exit.
+The transaction weight column adds the 946 WU skeleton of the model
+above. In the dense profile each level costs 129 WU regardless of
+occupancy: 88 of script and 41 of witness (a 40-byte sibling node and a
+direction element of one byte or none), which is the slope of the table
+(516 WU per four levels); the two length prefixes those elements carry on
+the wire are among the excluded bytes above. In the sparse profile each
+level costs 135 WU of script plus 1 WU for an empty sibling or 42 WU for a
+non-empty one, so witness data grows with `log2 N` rather than with `D`.
+The minimal-inventory row (section 4.4) shows the price of doing without
+the restored splice opcodes and the EC point opcodes: about 260 WU per
+exit.
 
-The sparse profile at `D = 32` costs about twice the dense profile at
-`D = 16` per exit, which is why dense is the default profile (5.4). What
-sparse buys is key-addressed positions: no slot
-allocation, a history-independent root, and structural uniqueness of
-leaves. The full 256-level MS-SMT is about twelve times the dense cost and
-is not recommended; truncating positions to 32–64 bits loses nothing but
-the ability to use a raw key as the position.
+The sparse profile at `D = 32` costs about 1.8 times the dense profile at
+`D = 16` per exit (1,780 against 1,020 vB at `N = 2^16`; 1.7 to 2.8 times
+over `D = 32` to `64`), which is why dense is the default profile (5.4).
+What sparse buys is key-addressed positions: no slot allocation, a
+history-independent root, and structural uniqueness of leaves. The full
+256-level MS-SMT costs about 17 times the dense script and 9 times the
+dense transaction and is not recommended; truncating positions to 32–64
+bits loses nothing but the ability to use a raw key as the position.
 
 For comparison, a unilateral exit from a radix-2 Ark or CTV tree of `2^D`
-leaves publishes `D` transactions of roughly 600 WU each (about 9,600 WU at
-`D = 16`) and waits out a relative timelock at the leaf, while the operator
-must publish the whole tree to reclaim expired leaves. LayerTree pays a fixed
-cost of about 2,000 WU (the EC-heavy prologue, the leaf, the signature and
-the transaction skeleton) plus 130 WU per level, so it breaks even near
-`D = 5` (32 leaves) and is about 2.4× cheaper at `D = 16`; the gap widens
-with size. The trade-off is that LayerTree requires the
-larger opcode set of section 4, whereas CTV-based trees need only a template
-opcode.
+leaves publishes `D` transactions, modelled at 150 vB each (one key-path
+P2TR input and two P2TR outputs), plus a 111 vB claim of the leaf (the
+same model as `spec/fee-analysis.md`), and waits out a relative timelock
+at the leaf, while the operator must publish the whole tree to reclaim
+expired leaves. LayerTree pays a fixed cost of about 2,000 WU, or 500 vB
+(the EC-heavy prologue, the leaf, the signature and the transaction
+skeleton), plus 129 WU per level, about 32 vB, so it breaks even near
+`D = 3` (8 leaves) and is about 2.5 times cheaper at `D = 16` (1,020
+against 2,511 vB, about 60% smaller); the gap widens with size. The model
+ignores the leaf's timelock and the separate fee of each tree
+transaction, which favours the tree, and the sharing of a tree's interior
+transactions among exits in the same round, which favours it the other
+way. The trade-off is that LayerTree requires the larger opcode set of
+section 4, whereas CTV-based trees need only a template opcode.
 
 `EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,741 of
 witness data (5,617 WU in total), i.e. a second exit in the same transaction
@@ -2696,27 +2746,32 @@ Shape-specialised multiproofs change the picture for *removals* in the same
 way grafting does for additions. `EVICT_SUBTREE_h` (section 7.7) hashes the
 subtree's internal nodes once and checks one signature:
 
-| script | positions | leaves swept | script | witness | per-leaf total | sequential equivalent |
-|---|---|---|---|---|---|---|
-| `EVICT_SUBTREE_2` | 4 | 3 | 2,709 | 1,051 | ≈ 1,300 WU | `EXIT_4`: 7,039 B script |
-| `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 WU | `EXIT_16`: 26,791 B script |
-| `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 WU | `EXIT_64`: 105,847 B script |
+| script | positions | leaves swept | script | witness | witness per leaf (WU) | tx vB per leaf | sequential equivalent |
+|---|---|---|---|---|---|---|---|
+| `EVICT_SUBTREE_2` | 4 | 3 | 2,709 | 1,051 | ≈ 1,300 | 432 | `EXIT_4`: 7,039 B script |
+| `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 | 203 | `EXIT_16`: 26,791 B script |
+| `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 | 158 | `EXIT_64`: 105,847 B script |
 
-(`D = 16`; three of every sixteen positions already empty.) Per-leaf cost
-falls from about 2.5 kWU (sequential) or 4 kWU (standalone) to about
-0.45 kWU, and the script grows only with the subtree, not with `D` per
-leaf. This is why cohorts SHOULD be grafted into aligned subtrees with a
-common lease expiry: the operator can then both add and remove a cohort in
-one constant-shape transaction each.
+(`D = 16`; three of every sixteen positions already empty. The witness
+column is script plus witness elements plus control block, the
+transaction column prices the whole transaction on the model above with
+one payout per leaf.) Per-leaf witness falls from about 2.5 kWU
+(sequential) or 4 kWU (standalone) to about 0.45 kWU, and at the
+transaction level from 1,020 vB (standalone `EXIT_1`) or 842 vB (per exit
+in `EXIT_2`) to 203 and 158 vB; the script grows only with the subtree,
+not with `D` per leaf. This is why cohorts SHOULD be grafted into aligned
+subtrees with a common lease expiry: the operator can then both add a
+cohort in one constant-shape transaction and remove it in one
+transaction per cohort.
 
 The MID tier's sweep (8.7) measures 4,097 / 1,157, 7,865 / 2,417 and
 23,873 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
 same cohorts, about 1.5 times FULL's script and 1.1 to 1.2 times its
-witness: about 615 WU per leaf at `h = 6` against FULL's 445. A full
-32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about 565 WU per
-leaf). The 1,000-element stack limit caps a MID sweep at `D = 16` to
-54 occupied positions (4.5), so a full 64-leaf cohort takes two
-`EVICT_SUBTREE_5` spends.
+witness: about 615 WU of witness per leaf at `h = 6` against FULL's 445.
+A full 32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about
+565 WU per leaf). The 1,000-element stack limit caps a MID sweep at
+`D = 16` to 54 occupied positions (4.5), so a full 64-leaf cohort takes
+two `EVICT_SUBTREE_5` spends.
 
 `REWRITE_h` (section 7.9) runs the same fold over two subtrees and is the
 members' counterpart: a mass exit, a batched `UPDATE` and an intra-cohort
@@ -2725,35 +2780,39 @@ settlement at once. Measured at `D = 16` with every position occupied
 scenario of `tools/test_scripts.py`, with exits, joins, rotations,
 renewals and payments, three of every seven positions empty or joining):
 
-| script | positions | scenario | script | witness | owner sigs | per-leaf vB |
-|---|---|---|---|---|---|---|
-| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | ≈ 370 |
-| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | ≈ 198 |
-| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | ≈ 159 |
-| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | ≈ 145 per changed leaf |
-| `REWRITE_6` | 64 | mixed (51 changed) | 16,444 | 15,139 | 36 | ≈ 168 per changed leaf, 134 per position |
+| script | positions | scenario | script | witness | owner sigs | tx vB | per-leaf vB |
+|---|---|---|---|---|---|---|---|
+| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | 1,437 | 359 |
+| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | 3,123 | 195 |
+| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | 10,104 | 158 |
+| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | 9,208 | 144 per changed leaf |
+| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 16,444 | 15,139 | 36 | 8,509 | 167 per changed leaf, 133 per position |
 
-The per-leaf column counts the whole transaction (skeleton, fee input and
-change, 43-byte payout outputs) divided by the leaves that leave or
-change. The marginal costs are what the design turns on: at `h = 6` each
+The transaction column prices the whole transaction on the model above:
+the skeleton with one payout per exiting leaf and none in the update
+case; the per-leaf column divides it by the leaves that leave or change.
+The marginal costs are what the design turns on: at `h = 6` each
 position costs 233 bytes of script (its `REWRITE_STEP` and its share of
 the `HASH_STEP2`s) and 234 bytes of witness for its two elements, about
 117 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
 output and drops the 117-byte new element, so an unchanged leaf costs
 about 117 vB, a changed leaf about 133 vB and an exiting leaf about
-147 vB. Sixty-four owners who leave together therefore pay what the
-operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and a
-cohort that rewrites every balance pays about 145 vB per leaf against
-1,073 vB for an `UPDATE` each. `REWRITE_h^x` adds the 65-byte exit-key
-signature, 16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 /
-4,905 bytes).
+147 vB. Sixty-four owners who leave together therefore pay exactly what
+the operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and
+a cohort that rewrites every balance pays about 144 vB per leaf against
+1,030 vB for an `UPDATE` each (3,346 WU of witness on the skeleton
+without a payout). `REWRITE_h^x` adds the 65-byte exit-key signature,
+16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 / 4,905
+bytes).
 
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
-`D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness, about
-780 vB, and every later `EXIT_1` from the detached tree costs the depth-8
-figure of the table above, 765 vB instead of 1,020, so it pays for itself
-at the fourth exit; a cohort of 256 that all leave alone saves about a
-quarter. Its larger effect is on throughput (10.5), not bytes.
+`D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness,
+2,174 WU with the control block and 780 vB on the model above (the
+skeleton's payout slot is its second tree output), and every later
+`EXIT_1` from the detached tree costs the depth-8 figure of the table
+above, 762 vB instead of 1,020, so it pays for itself at the fourth exit;
+a cohort of 256 that all leave alone saves about a quarter. Its larger
+effect is on throughput (10.5), not bytes.
 
 Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 `D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
@@ -2817,10 +2876,13 @@ balances at 1 to 250 sat/vB. Headlines, FULL dense `D = 16` (1,020 vB):
 | 250 sat/vB | 255,000 sat | 25,500,000 sat | 2,550,000 sat |
 
 Depth moves the cost little (762 vB at `D = 8`, 1,149 vB at `D = 20`);
-tier and profile move it more (MID +31%, MIN +43%, sparse 1.6–2.7×). The
-FULL-tier endogenous fee option saves a constant 99 vB. Batching lowers the
-marginal exit to 665 vB, and cohort sweeps lower eviction to 203 vB per
-leaf (`EVICT_SUBTREE_4`) and 158 vB per leaf (`EVICT_SUBTREE_6`), which is
+tier and profile move it more (MID +31%, MIN +43%, sparse 1.7 to 2.8
+times at `N = 2^16`): one tier step costs as much as 10 to 14 levels of
+depth. The FULL-tier endogenous fee option saves a constant 99 vB.
+Batching lowers the cost of a second exit in the same transaction to
+665 vB (its marginal weight rounded on its own; `EXIT_2` is 1,684 vB in
+all, 842 per exit), and cohort sweeps lower eviction to 203 vB per leaf
+(`EVICT_SUBTREE_4`) and 158 vB per leaf (`EVICT_SUBTREE_6`), which is
 what keeps small leaves evictable at high fee rates; operators SHOULD size
 cohorts and minimum leaf amounts so that a sweep stays below about 10% of
 the smallest leaf at the fee-rate tail they intend to survive. Dust (330
