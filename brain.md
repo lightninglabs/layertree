@@ -105,7 +105,29 @@ with numbers.
   864, chan 149, MSU 61; Lean audit adds `claim_evictable`.
   `tools/replay_txn_dump.py` re-derives the Go sighash pins. CLAIM at
   D = 16 is 3,859 / 1,690 (1,656 vB; 1,614 in the paper's no-payout
-  model), CLAIM^h 1,624, MIN SPLIT 6,501 bytes. No workers in flight.
+  model), CLAIM^h 1,624, MIN SPLIT 6,501 bytes.
+- Round of 2026-10-10 (owner away for a few hours; "autonomously
+  iterate, strengthen the Lean proof system, find other issues to make
+  it airtight"), six workers in isolated worktrees, commit but never
+  push, file-partitioned: (A, Fable) spec follow-up pass 0.10.1 in
+  spec/*.md for the review hand-offs; (B, Fable) Lean strengthening in
+  formal/ (trace-level invariants, voucher non-replay, DETACH/REWRITE,
+  PADZ and sparse encoding, "not covered" list); (C1, Fable,
+  security-auditor) protocol-level adversarial audit to
+  design/audit/protocol.md; (C2, Fable) script-level witness-mutation
+  audit to design/audit/script.md, may fix confirmed generator bugs
+  with golden/listings/Go; (D, Opus) paper: counts 956/228/35/864, 79
+  golden, `\LeanTheoremCount` macro, citations verified by web search,
+  overfull bib line, trim the full version toward 30 body pages; (E,
+  Opus) tools/measure_weight.py and spec/scripts/weights.md (exact
+  serialised vB with prefixes), REWRITE/sweep/exit per-leaf figure in
+  gen_cost_figures and batching.md, Lightning baseline in
+  cost-comparison.md. Merge order when they report: C2 first (golden
+  may move), then A, B, E, D; the orchestrator fixes shared count
+  lines, the Lean theorem count in the paper macro, status.md and
+  CLAUDE.md, builds the PDFs, pushes after each merge. After the round:
+  triage the audits, spawn fix workers for confirmed findings, then open
+  work 9 (cohort transitions beyond FULL).
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
