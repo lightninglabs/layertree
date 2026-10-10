@@ -48,7 +48,7 @@ script side of the same fact.
 | | Dense | Sparse |
 |---|---|---|
 | Position of a leaf | assigned by the operator | `H_pos(owner_key ‖ le32(nonce)) mod 2^D` |
-| Depth for 65,536 members | 16 | 32 (64 for a global tree) |
+| Depth for 65,536 members | 16, because slots are filled in order | 32, because positions are random and collide below about 2 log2 N bits (64 for billions of leaves) |
 | Root depends on insertion order | yes | no |
 | Non-inclusion proof | no | yes, an inclusion proof of `E_0` |
 | Uniqueness of `(owner_key, nonce)` | by the operator's bookkeeping | structural |
