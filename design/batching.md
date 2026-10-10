@@ -142,6 +142,14 @@ about 57. A rewrite in which only a few leaves change is still cheaper
 than the same number of `UPDATE`s above about two leaves, but the
 unchanged leaves' bytes make it a tool for cohorts that settle together.
 
+Shape 1 is a special case of this shape once one rule is added: a
+position whose old element is a leaf and whose new element is `E_0` MUST
+pay the leaf's amount (exactly, or with the FULL tier's fee option) to
+`P2TR(leaf.exit_key)` from the next unused output. With that rule the
+rewrite is a safe mass exit, so the taptree carries one script per height
+instead of two, and the owner's decision (2026-10-09) is to build
+`REWRITE_h` with the exit rule and not a separate `EXIT_SUBTREE_h`.
+
 The Lean argument is the same as for Shape 1: one `Step` with a published
 old and new subtree, conservation from `Steps.sum` unconditionally,
 grounding from the witness. The rewrite also closes the opacity caveat of
@@ -184,17 +192,33 @@ property of the deployment into a lever the operator can pull when a
 cohort's leaves become time-sensitive, for instance channel leaves whose
 HTLC deadlines are near (C.9.5).
 
-Three consequences need rules. Vouchers bind `m`, so a voucher issued
-against a leaf in a detached subtree must be reissued under `m_h`; the
-issuer's obligation of 9.6 to rebuild vouchers after a source-leaf change
-extends to a detach. Channel-leaf contexts bind `m` through `chan_id`
-(C.2), so channels in a detached cohort would need their states re-signed
-unless `chan_id` is defined over something a detach preserves; that is an
-open design point and argues for excluding `m` from `chan_id` in favour
-of the leaf's own `(owner_key, nonce)`. And the detach spends nobody's
-balance, but it changes everyone's exit path, so it should be the
-operator's decision or a cohort parameter chosen at graft time, not
-something any member can trigger.
+Two consequences need rules, and one that looked like a consequence is
+not. Vouchers bind `m`, and `CLAIM` re-derives `m` from the input it
+spends, so a voucher issued against a leaf in a detached subtree must be
+reissued under `m_h`; the issuer's obligation of 9.6 to rebuild vouchers
+after a source-leaf change extends to a detach. (A voucher bound to a
+tree identifier that a detach preserves would remove this, and is the
+same change the CCV tier needs to carry `CLAIM`.) And the detach spends
+nobody's balance, but it changes everyone's exit path, so it is the
+operator's decision, like `JOIN_h`; a per-cohort parameter chosen at
+graft time would be a format change for no gain, since a detach can only
+shorten a member's path.
+
+Channel leaves need nothing. `chan_id` (C.2.2) binds `m`, but as a
+constant baked into the channel scripts of the leaf's `exit_key` at
+creation, not as a value any script re-derives from the tree that is
+spent. `DETACH_h` leaves every leaf's bytes unchanged, so an `EXIT_1` from
+the detached tree creates the same `P2TR(exit_key)` funding output, the
+same `UPD_F` script runs with the same `ctx_upd`, and every signed state
+remains valid. The `m` in `chan_id` is therefore a creation-time domain
+separator. It is also worth keeping. Without it, two channels that reuse
+`(owner_key, nonce, P_chan, C, epoch)` across two trees would accept each
+other's states, so a stale state from one could be presented against the
+other; C.1.1 already forbids reusing `P_chan`, and `m` makes a violation
+of that rule harmless instead of fatal. The replay it does not prevent is
+harmless anyway: anyone can graft a byte-identical copy of a channel leaf
+into another tree only by funding it, and the copy's states pay the
+channel's two parties out of the grafter's money.
 
 The Lean model has one tree output; `DETACH_h` conserves value across two,
 `S = (S − sum_h) + sum_h`, so the model needs a two-output step or a
@@ -207,9 +231,9 @@ detached node. Both are small.
 |---|---|---|---|
 | `EXIT_K` | each owner | 842 average at `K = 2` | measured |
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
-| `EXIT_SUBTREE_h` | each exiting owner | about 177 at 51 leaves | specified in 13.4, unbuilt |
-| `REWRITE_h` | each changed owner, operator | about 120 per changed leaf | proposed |
-| `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 815 once | proposed |
+| `EXIT_SUBTREE_h` | each exiting owner | about 177 at 51 leaves | specified in 13.4; folded into `REWRITE_h` |
+| `REWRITE_h` | each changed owner, operator | about 120 per changed leaf | being built, with the exit rule below |
+| `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 815 once | proposed, being built |
 
 What the three new shapes have in common is that they are variants of
 one generator, the post-order fold of `EVICT_SUBTREE_h`, with a

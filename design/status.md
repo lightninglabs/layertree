@@ -59,7 +59,32 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     measured (`tools/experiments/radix4.py`): 146 bytes of script and 123
     of witness against 88 and 41, a net loss at every depth; radix 8 is
     worse. Spec 13.2 carries the numbers.
-11. **Paper is functionality first** (issue #4). The reader meets the
+11. **MIN stays an existence proof** (2026-10-09). `EXIT_1` and `SPLIT`
+    are built and measured; `JOIN`, `UPDATE`, `EXIT_K` and the sweep are
+    argued (spec 4.5 says the dashes mean not built, not impossible) and
+    will not be built. A MIN tree is created with its whole membership.
+12. **The 116-byte leaf stays** (2026-10-09). Publishing 72 bytes per
+    exit (exit key, amount, hash of the rest) would save about 11 vbytes
+    per leaf in every shape, under one percent of a solo exit, for a
+    format change that touches Lean, Go and every golden vector. Not
+    worth it.
+13. **`chan_id` keeps `m`** (2026-10-09). The question was whether a
+    `DETACH_h` would invalidate channel states. It does not: `chan_id` is
+    a constant in the channel scripts behind the leaf's `exit_key`, and
+    a detach leaves leaf bytes unchanged. `m` stays as a free domain
+    separator that makes `P_chan` reuse across trees harmless
+    (`design/batching.md`, Shape 3).
+14. **`DETACH_h` is the operator's** (2026-10-09), like `JOIN_h`; a
+    per-cohort flag at graft time would be a format change for no gain.
+15. **`REWRITE_h` subsumes `EXIT_SUBTREE_h`** (2026-10-09). A position
+    that goes from a leaf to `E_0` must pay the leaf to its exit key, so
+    one script per height is a mass exit, a cohort join, a batched
+    update and an intra-cohort settlement. 13.4's owner multiproof is
+    not built separately.
+16. **A slashable operator bond** for voucher equivocation is tracked as
+    issue #11, not built: it reaches over-issuance only, and the
+    dedicated credit leaf with `CLAIM^x` removes the need.
+17. **Paper is functionality first** (issue #4). The reader meets the
     ideal functionality (interfaces, adversarial influence, the liveness
     bound as a function of tree size), then the covenant predicates, then
     the tiers as realisations, then one UC theorem whose lemmas cite the
@@ -108,13 +133,7 @@ ones most likely to move:
    C in executable form, the `REBIND_n` and `SETTLE_n` update machine, so
    the deadline reasoning of 9.6.2 and C.4.4 is argued rather than
    exercised. The Go side carries no Appendix C scripts at all.
-7. **The rest of the MIN tier.** MIN realises the dense `EXIT_1` and, since
-   issue #9, the dense `SPLIT` (spec 8.6.2): 6,441 bytes of script and
-   2,010 of witness at `D = 16`, the MID carve with the `OP_TX` reads
-   replaced by the constructive signature message. `JOIN`, `UPDATE`,
-   `EVICT_SUBTREE_h`, `EXIT_K` and the sparse profile follow the same
-   construction but are argued, not measured.
-8. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
+7. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
    swaps, tracked here only so the note in `notes.md` has a home.

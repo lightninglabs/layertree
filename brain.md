@@ -106,23 +106,24 @@ with numbers.
   two-way traffic stays on channel leaves.
 - Workers add commits only; no rebases on the stack until it is merged.
 
+## Decided 2026-10-09 (owner), recorded in status.md 11 to 16
+
+- `REWRITE_h` subsumes `EXIT_SUBTREE_h` via the leaf-to-`E_0` payout rule.
+- `DETACH_h` is operator-authorised. `chan_id` keeps `m`: a detach does
+  not invalidate channel states, because `chan_id` is a constant in the
+  channel scripts behind `exit_key`, not re-derived from the spent tree.
+  Only vouchers need reissue after a detach.
+- `SLASH` bond: issue #11, not built now.
+- MIN stays an existence proof; the 116-byte leaf stays.
+
 ## Open questions
 
-- Should `chan_id` exclude `m` so that a `DETACH_h` does not invalidate
-  channel-leaf states? Argued yes in `design/batching.md`; not decided.
-- A `SLASH` transition that pays an operator bond leaf to anyone
-  presenting two conflicting vouchers (over-issuance proof) for the
-  shared bond-leaf model; voiding has no compact proof and is handled by
-  `CLAIM^x` instead (`design/receive.md`).
-- Who authorises `DETACH_h`: operator only, or a cohort parameter at
-  graft time?
-- Is the MIN tier worth extending beyond EXIT_1 (SPLIT is the first
-  candidate), or is MIN an existence proof and nothing more?
-- The leaf hash could be restructured so an exit publishes 72 bytes
-  instead of 116 (exit key, amount, hash of the rest); about 11 vbytes
-  per leaf in every shape. Format change; needs its own page.
 - Paper length for the full version: "not too far" past 18 pages. Target
   25 to 30 body pages.
+- One voucher message for every tier (bound to a tree identifier instead
+  of `m`) would let CCV carry `CLAIM` and make vouchers survive a detach;
+  the CCV worker builds it CCV-only first and reports whether unifying
+  is worth the golden churn.
 
 ## Pointers
 
@@ -131,4 +132,4 @@ with numbers.
 - Numbers: `spec/scripts/sizes.md`, `spec/fee-analysis.md`.
 - Proofs: `formal/README.md`.
 - Findings and decision log: `design/review.md`, `design/status.md`.
-- Issues: #1 P model, #3 native primitives (#6, #7), #9 SPLIT (#10).
+- Issues: #1 P model (open), #11 SLASH bond (open); #3 and #9 closed by #6, #7 and #10.
