@@ -128,6 +128,12 @@ def mk_leaf(label, amount, evictor=None, evict_after=0, nonce=None, seq=0):
                    evictor if evictor else lt.NUMS_X, evict_after, nonce, seq)
 
 
+def carve_of(src, label, amount, nonce=None):
+    """A leaf carved out of src by CLAIM or SPLIT: it keeps src's evictor_key
+    and evict_after, as spec 7.5 rule 5 requires."""
+    return mk_leaf(label, amount, src.evictor_key, src.evict_after, nonce)
+
+
 def test_all(depth, profile, verbose=True):
     w = World(depth, profile)
     D = depth
@@ -324,7 +330,7 @@ def test_all(depth, profile, verbose=True):
     # ---------------- CLAIM ----------------
     root = w.tree.root()
     src = w.tree.leaves[s_oper]
-    frank = mk_leaf("frank", 40_000, w.op_pk, 900_000)
+    frank = carve_of(src, "frank", 40_000)
     s_frank = w.slot(frank, 3)
     spath = w.tree.path(s_oper)
     t5 = w.clone(); lt.apply_claim(t5, s_oper, s_frank, frank)
@@ -337,7 +343,7 @@ def test_all(depth, profile, verbose=True):
     wit = w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), vsig, root[0], w.m]
     record("CLAIM", w.run("CLAIM", wit, ctx), wit)
     # replay after the source leaf changed
-    frank2 = mk_leaf("frank2", 40_000, w.op_pk, 900_000)
+    frank2 = carve_of(src, "frank2", 40_000)
     s_frank2 = w.slot(frank2, 4)
     t6 = lt.Tree(D); t6.leaves = dict(t5.leaves)
     spath2 = t5.path(s_oper)
@@ -345,9 +351,20 @@ def test_all(depth, profile, verbose=True):
     cpath2 = t6.path(s_frank2)
     ctx6 = TxContext([(r5[1], w.spk(r5)), (600, P2WPKH)], [(t6.root()[1], w.spk(t6.root()))])
     expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath2) + w.path_witness(spath2) + w.bm(spath2) + [src.serialize()] + w.bm(cpath2) + [frank2.serialize(), vsig, r5[0], w.m], ctx6), "voucher replay / wrong leaf")
-    greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000)
+    greedy = carve_of(src, "greedy", src.amount + 1)
     gsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, greedy), sk("operator-owner"))
     expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [greedy.serialize(), gsig, root[0], w.m], ctx), "over-claim underflow")
+    # 7.5 rule 5: the claim leaf keeps the source's evictor and lease. The
+    # source has a NUMS evictor and evict_after 0, so a claim naming the
+    # operator, or any later evict_after, fails even under a valid voucher.
+    for label, lf in (("another evictor key", mk_leaf("escape", 40_000, w.op_pk, src.evict_after)),
+                      ("a later evict_after", mk_leaf("later", 40_000, None, src.evict_after + 1))):
+        esig = schnorr_sign(lt.voucher_msg(w.tree_id, src, lf), sk("operator-owner"))
+        t_e = w.clone(); t_e.leaves[s_oper] = src.with_amount_seq(src.amount - lf.amount, src.seq + 1)
+        s_e = w.slot(lf, 3); t_e.leaves[s_e] = lf
+        ctx_e = w.ctx([(t_e.root()[1], w.spk(t_e.root()))], extra_in=(600, P2WPKH))
+        expect_fail(lambda: w.run("CLAIM", w.path_witness(t_e.path(s_e)) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(t_e.path(s_e)) + [lf.serialize(), esig, root[0], w.m], ctx_e),
+                    f"CLAIM of a leaf with {label} than its source")
     bsig = schnorr_sign(vmsg, sk("bob-owner"))
     expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
     # the voucher binds this tree's tree_id (6.2, 7.5): one signed for a
@@ -384,7 +401,7 @@ def test_all(depth, profile, verbose=True):
     # ---------------- CLAIM draining the source -> E_0 ----------------
     root = w.tree.root()
     src2 = w.tree.leaves[s_erin]
-    gina = mk_leaf("gina", src2.amount, w.op_pk, 900_000)
+    gina = carve_of(src2, "gina", src2.amount)
     s_gina = w.slot(gina, 6)
     spath2 = w.tree.path(s_erin)
     t8 = w.clone(); del t8.leaves[s_erin]
@@ -985,7 +1002,7 @@ def test_channel_rules(depth, verbose=True):
         s_src = (1 << D) - 1
         w.tree.leaves = {s_alice: alice, s_src: src}
         root = w.tree.root()
-        claim = mk_leaf("claimant", 40_000, w.op_pk, 900_000)
+        claim = carve_of(src, "claimant", 40_000)
         s_claim = 3
         spath = w.tree.path(s_src)
         t5 = w.clone()
@@ -1054,7 +1071,7 @@ def test_claim_h(depth, profile, verbose=True):
 
     preimage = lt.sha256(b"payment-preimage")
     payment_hash = lt.sha256(preimage)
-    hodl = mk_leaf("hodl", 40_000, w.op_pk, 900_000)
+    hodl = carve_of(src, "hodl", 40_000)
     s_hodl = w.slot(hodl, 3)
     spath = w.tree.path(s_oper)
     t1 = w.clone(); lt.apply_claim(t1, s_oper, s_hodl, hodl)
@@ -1083,11 +1100,11 @@ def test_claim_h(depth, profile, verbose=True):
     expect_fail(lambda: w.run("CLAIM", head + [hsig, root[0], w.m], ctx),
                 "plain CLAIM with a hash-locked voucher signature")
     # the payment hash is bound to this carve: another claim leaf needs its own voucher
-    other = mk_leaf("other", 40_000, w.op_pk, 900_000)
+    other = carve_of(src, "other", 40_000)
     expect_fail(lambda: w.run("CLAIM_H", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
                               [src.serialize()] + w.bm(cpath) + [other.serialize(), hsig, preimage, root[0], w.m], ctx),
                 "CLAIM^h voucher reused for a different claim leaf")
-    greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000)
+    greedy = carve_of(src, "greedy", src.amount + 1)
     gsig = schnorr_sign(lt.voucher_h_msg(w.tree_id, src, greedy, payment_hash), sk("operator-owner"))
     expect_fail(lambda: w.run("CLAIM_H", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
                               [src.serialize()] + w.bm(cpath) + [greedy.serialize(), gsig, preimage, root[0], w.m], ctx),
@@ -1139,7 +1156,7 @@ def test_claim_x(depth, profile, hashlock=False, verbose=True):
     root = w.tree.root()
 
     # the recipient redeems the cumulative voucher into its own claim leaf
-    claim = mk_leaf("recipient", 40_000, w.op_pk, 900_000)
+    claim = carve_of(credit, "recipient", 40_000)
     s_claim = w.slot(claim, 3)
     spath = w.tree.path(s_credit)
     t1 = w.clone(); lt.apply_claim(t1, s_credit, s_claim, claim)
@@ -1172,7 +1189,7 @@ def test_claim_x(depth, profile, hashlock=False, verbose=True):
                 f"{name} with a transaction signature in place of the voucher")
     # the operator cannot drain the credit leaf: its own voucher and its own
     # transaction signature are not the exit key
-    drain = mk_leaf("operator-drain", credit.amount, w.op_pk, 900_000)
+    drain = carve_of(credit, "operator-drain", credit.amount)
     s_drain = w.slot(drain, 6)
     t2 = w.clone(); lt.apply_claim(t2, s_credit, s_drain, drain)
     cpath2 = t2.path(s_drain); r2 = t2.root()
@@ -1218,7 +1235,7 @@ def test_split(depth, profile, verbose=True):
     root = w.tree.root()
 
     # alice splits 200_000 off her own leaf to a new leaf for bob
-    bob = mk_leaf("bob", 200_000, w.op_pk, 900_000)
+    bob = carve_of(alice, "bob", 200_000)
     s_bob = w.slot(bob, 3)
     spath = w.tree.path(s_alice)
     t1 = w.clone(); lt.apply_claim(t1, s_alice, s_bob, bob)
@@ -1241,8 +1258,19 @@ def test_split(depth, profile, verbose=True):
     vsig = schnorr_sign(lt.voucher_msg(w.tree_id, alice, bob), sk("alice-owner"))
     expect_fail(lambda: w.run("SPLIT", head + [vsig, root[0], w.m], ctx),
                 "SPLIT with a voucher signature instead of a transaction signature")
+    # 7.5 rule 5 holds for SPLIT as for CLAIM: the owner cannot carve its
+    # balance into a leaf with another evictor or a later lease
+    for label, lf in (("another evictor key", mk_leaf("escape", 200_000, w.op_pk, alice.evict_after)),
+                      ("a later evict_after", mk_leaf("later", 200_000, None, alice.evict_after + 1))):
+        t_e = w.clone(); lt.apply_update(t_e, s_alice, alice.with_amount_seq(alice.amount - lf.amount, alice.seq + 1))
+        s_e = w.slot(lf, 3); t_e.leaves[s_e] = lf
+        ctx_e = w.ctx([(t_e.root()[1], w.spk(t_e.root()))], extra_in=(600, P2WPKH))
+        expect_fail(lambda: w.run("SPLIT", w.path_witness(t_e.path(s_e)) + w.path_witness(spath) + w.bm(spath) +
+                                  [alice.serialize()] + w.bm(t_e.path(s_e)) +
+                                  [lf.serialize(), schnorr_sign(ctx_e.sighash(), sk("alice-owner")), root[0], w.m], ctx_e),
+                    f"SPLIT into a leaf with {label} than its source")
     # over-split: the new leaf exceeds the source
-    greedy = mk_leaf("greedy", alice.amount + 1, w.op_pk, 900_000)
+    greedy = carve_of(alice, "greedy", alice.amount + 1)
     t2 = w.clone()
     expect_fail(lambda: w.run("SPLIT", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
                               [alice.serialize()] + w.bm(cpath) + [greedy.serialize(), asig, root[0], w.m], ctx),
@@ -1256,7 +1284,7 @@ def test_split(depth, profile, verbose=True):
     expect_fail(lambda: w.run("SPLIT", head + [asig, r1[0], w.m], ctx), "SPLIT against a stale root")
     # the owner's signature covers output 0, which is the only place the new
     # leaf reaches it: a relayer cannot swap in its own leaf (7.5.2, 10.7)
-    mallory = mk_leaf("mallory", bob.amount, w.op_pk, 900_000)
+    mallory = carve_of(alice, "mallory", bob.amount)
     s_mal = w.slot(mallory, 3)
     tm = w.clone(); lt.apply_claim(tm, s_alice, s_mal, mallory); rm = tm.root()
     ctx_m = w.ctx([(rm[1], w.spk(rm))], extra_in=(600, P2WPKH))
@@ -1270,6 +1298,87 @@ def test_split(depth, profile, verbose=True):
         print(f"SPLIT {profile} D={depth}: script {len(script)} B (CLAIM {claim} B, saves {claim - len(script)}), "
               f"witness {sum(len(x) for x in head) + 64 + 64} B, varops {it.cost}")
     return it, len(script), sum(len(x) for x in head + [asig, root[0], w.m])
+
+
+def test_carve_rules(depth, verbose=True):
+    """The carve rule of spec 7.5 rule 5 against the cohort sweep (7.7).
+
+    A member of an evictable cohort cannot plant a non-evictable dust leaf
+    in an empty position of the cohort by SPLIT (the finding 9 attack of
+    paper/reviews/crypto.md): a NUMS evictor or a later lease fails. A
+    carve that keeps the member's terms lands there and is swept with the
+    cohort by EVICT_SUBTREE_2. The rule is per balance, not per tree: a
+    leaf the operator admitted with a NUMS evictor can still carve NUMS
+    dust into the cohort and block the sweep, which 10.8 states.
+    """
+    w = World(depth, "D")
+    height = 2
+    w.compiled = dict(w.compiled)
+    w.compiled["SPLIT"] = assemble(ls.split_script(depth, "D"))
+    w.compiled["EVICT_SUBTREE_2"] = assemble(ls.evict_subtree_script(depth, height, w.op_pk))
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    n, base = 1 << height, 1 << height                   # subtree index 1: positions 4..7
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000) for i in range(n - 1)}
+    empty = base + n - 1
+    alice = mk_leaf("alice", 50_000)                     # admitted non-evictable
+    w.tree.leaves = dict(cohort); w.tree.leaves[0] = alice
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+
+    def split(src, s_src, new, signer):
+        """A SPLIT of `new` off `src` into the cohort's empty position."""
+        t = w.clone(); lt.apply_update(t, s_src, src.with_amount_seq(src.amount - new.amount, src.seq + 1))
+        cpath = t.path(empty); t.leaves[empty] = new
+        ctx = w.ctx([(t.root()[1], w.spk(t.root()))], extra_in=(600, P2WPKH))
+        wit = (w.path_witness(cpath) + w.path_witness(w.tree.path(s_src)) + [src.serialize(), new.serialize(),
+               schnorr_sign(ctx.sighash(), sk(signer)), root[0], w.m])
+        return t, wit, ctx
+
+    member, s_member = cohort[base], base
+    for label, dust in (("a NUMS evictor", mk_leaf("dust", 1)),
+                        ("a later evict_after", mk_leaf("dust", 1, w.op_pk, 800_001))):
+        _, wit, ctx = split(member, s_member, dust, "c0-owner")
+        expect_fail(lambda: w.run("SPLIT", wit, ctx), f"cohort member plants dust with {label}")
+    dust = carve_of(member, "dust", 1)
+    t1, wit, ctx = split(member, s_member, dust, "c0-owner")
+    w.run("SPLIT", wit, ctx)
+    check(True, "a carve that keeps the member's evictor and lease lands in the cohort")
+
+    # the sweep still covers the whole cohort, dust included
+    w.tree = t1
+    root1 = w.tree.root()
+    rest = w.clone()
+    for p in range(base, base + n):
+        del rest.leaves[p]
+    outs = [(rest.root()[1], w.spk(rest.root()))]
+    outs += [(w.tree.leaves[p].amount, lt.p2tr_spk(w.tree.leaves[p].exit_key)) for p in range(base, base + n)]
+    ctx_s = w.ctx(outs + [(400, P2WPKH)], extra_in=(5_000, P2WPKH), locktime=800_000)
+    leaves_rev = [w.tree.leaves[p].serialize() for p in reversed(range(base, base + n))]
+    w.run("EVICT_SUBTREE_2", w.path_witness(w.tree.path(base, height=height), height) + leaves_rev +
+          [schnorr_sign(ctx_s.sighash(), w.op_sk), root1[0], w.m], ctx_s)
+    check(True, "EVICT_SUBTREE_2 sweeps the cohort including the carved dust leaf")
+
+    # the residual 10.8 names: a non-evictable member's dust blocks the sweep
+    w.tree = lt.Tree(depth); w.tree.leaves = dict(cohort); w.tree.leaves[0] = alice
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    nums_dust = carve_of(alice, "dust", 1)
+    t2, wit, ctx = split(alice, 0, nums_dust, "alice-owner")
+    w.run("SPLIT", wit, ctx)
+    w.tree = t2
+    rest = w.clone()
+    for p in range(base, base + n):
+        del rest.leaves[p]
+    outs = [(rest.root()[1], w.spk(rest.root()))]
+    outs += [(w.tree.leaves[p].amount, lt.p2tr_spk(w.tree.leaves[p].exit_key)) for p in range(base, base + n)]
+    ctx_b = w.ctx(outs + [(400, P2WPKH)], extra_in=(5_000, P2WPKH), locktime=800_000)
+    leaves_rev = [w.tree.leaves[p].serialize() for p in reversed(range(base, base + n))]
+    expect_fail(lambda: w.run("EVICT_SUBTREE_2", w.path_witness(w.tree.path(base, height=height), height) + leaves_rev +
+                              [schnorr_sign(ctx_b.sighash(), w.op_sk), w.tree.root()[0], w.m], ctx_b),
+                "a non-evictable member's NUMS dust still blocks the sweep (10.8)")
+    if verbose:
+        print(f"carve rules D={depth}: dust with another evictor or a later lease rejected, "
+              f"inherited dust swept with the cohort")
 
 
 def test_swap(depth, verbose=True):
@@ -1331,7 +1440,7 @@ def test_swap(depth, verbose=True):
     # ---- tree leg: the same preimage redeems the voucher ----
     root = w.tree.root()
     src = w.tree.leaves[s_oper]
-    bought = mk_leaf("bought", 40_000, w.op_pk, 900_000)
+    bought = carve_of(src, "bought", 40_000)
     s_bought = w.slot(bought, 3)
     spath = w.tree.path(s_oper)
     t1 = w.clone(); lt.apply_claim(t1, s_oper, s_bought, bought)
@@ -1397,6 +1506,8 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_claim_x(d, prof)
         test_claim_x(d, prof, hashlock=True)
         test_split(d, prof)
+    for d in (4, 16):
+        test_carve_rules(d)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)

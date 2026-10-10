@@ -304,9 +304,7 @@ def _carve_body_ccv(depth, profile):
     """[src claim] -> [1], after the authorisation: F._carve_body's two
     steps bound by CHECK_INPUT and final_ccv. Shared by SPLIT, CLAIM and
     CLAIM^h under 0xC2."""
-    s = [
-        "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
-        "OP_SWAP", "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",  # src claim
+    s = F.carve_leaf_rules() + [                           # src claim
         # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
         "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB"] + F.LE64 + [
         2, "OP_PICK", F.OFF_EXIT_KEY, F.OFF_SEQ - F.OFF_EXIT_KEY, "OP_SUBSTR", "OP_CAT",
@@ -538,10 +536,10 @@ def _evict_subtree_script_ccv0(depth, height, operator_key):
 def _split_script_ccv0(depth, sparse=False):
     """SPLIT (7.5.2) under c0: MID's carve with the owner's transaction
     signature, no r and no m. Witness: MID's SPLIT witness minus r and m,
-    so src.ok is 25 deep under the signature. MID's carve_source runs
-    with alt_r=False, CHECK_INPUT replaces the parked-root comparison of
-    step 1, and _final_ccv0 replaces FINAL."""
-    s = [25, "OP_PICK", "OP_CHECKSIGVERIFY"]                         # src(10) claim(10) extras(7)
+    so src.ok is M.CARVE_OWNER_DEPTH deep under the signature. MID's
+    carve_source runs with alt_r=False, CHECK_INPUT replaces the
+    parked-root comparison of step 1, and _final_ccv0 replaces FINAL."""
+    s = [M.CARVE_OWNER_DEPTH, "OP_PICK", "OP_CHECKSIGVERIFY"]         # src(10) claim(10) extras(13)
     return s + _carve_body_ccv0(depth, sparse)
 
 

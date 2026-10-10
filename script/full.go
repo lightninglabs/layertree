@@ -550,6 +550,25 @@ func FullSplitScript(depth int, sparse bool) []Token {
 	return fullCarveScript(depth, [32]byte{}, sparse, authOwner, false)
 }
 
+// fullCarveLeafRules opens every carve body: [src claim] -> [src claim],
+// both leaves 116 bytes, and the claim leaf no easier to keep than the
+// source (spec 7.5 rule 5): its evictor_key equals the source's and its
+// evict_after is no later. Shared with the CCV tier
+// (tools/layertree_scripts.py carve_leaf_rules).
+func fullCarveLeafRules() []Token {
+	return []Token{
+		Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_SWAP), // src claim
+		Op(ts.OP_2DUP), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
+		Op(ts.OP_SWAP), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
+		Op(ts.OP_EQUALVERIFY), // claim.evictor_key == src.evictor_key
+		Op(ts.OP_2DUP), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
+		Op(ts.OP_SWAP), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
+		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // claim.evict_after <= src.evict_after
+	}
+}
+
 // fullVoucherAuth is the voucher check of CLAIM and CLAIM^h (spec 7.5 rule
 // 1, 7.5.1 rule 1), shared with the CCV tier: [src claim vsig] -> [src
 // claim], with SHA256(preimage) parked on the altstack beforehand under
@@ -617,10 +636,8 @@ func fullCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
 	// Everything below is the shared carve body: both steps and FINAL.
 	// Stack on entry: src claim ; altstack: m r.
 	s = fullCat(s,
+		fullCarveLeafRules(),
 		[]Token{
-			Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
-			Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
-			Op(ts.OP_SWAP), // src claim
 			// new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq+1)
 			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_OVER), Num(8),
 			Op(OP_LEFT), Op(ts.OP_SUB),

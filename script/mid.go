@@ -500,19 +500,30 @@ func MidSplitScript(depth int, sparse bool) []Token {
 	return midCarveScript(depth, [32]byte{}, sparse, authOwner)
 }
 
+// The MID carve witness holds, below the authorisation element, src(10)
+// claim(10) and thirteen extras: seq_num and its pad, the pad of seq + 1,
+// the pad of the new source amount, and the minimal evict_after of the
+// source and of the claim leaf with their pads (midCarveRules). The depth
+// of a source field under the authorisation element follows from that
+// layout: src.ok, the third field, sits 31 deep.
+const (
+	midCarveExtras     = 13
+	midCarveOwnerDepth = 31
+)
+
 // midVoucherAuth is the voucher check of CLAIM and CLAIM^h under 0xC0
 // numerics (spec 7.5 rule 1, 7.5.1 rule 1), shared with the CCV tier's 0xC0
-// scripts: [src(10) claim(10) extras(7) vsig] -> [src(10) claim(10)
-// extras(7)], with SHA256(preimage) parked on the altstack beforehand under
+// scripts: [src(10) claim(10) extras(13) vsig] -> [src(10) claim(10)
+// extras(13)], with SHA256(preimage) parked on the altstack beforehand under
 // hashlock. The message H_voucher(tree_id || src || claim) is assembled from
 // the seven leaf fields of each block by fourteen OP_PICKs: src's fields sit
-// 27 deep under vsig, claim's 18 once src_leaf is on the stack, and src.ok
-// 26 deep once the message replaces the copies
+// 33 deep under vsig, claim's 24 once src_leaf is on the stack, and src.ok
+// 32 deep once the message replaces the copies
 // (tools/layertree_mid.py voucher_auth).
 func midVoucherAuth(treeID [32]byte, hashlock bool) []Token {
-	s := midRepeat([]Token{Num(27), Op(txscript.OP_PICK)}, 7)
+	s := midRepeat([]Token{Num(33), Op(txscript.OP_PICK)}, 7)
 	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
-	s = append(s, midRepeat([]Token{Num(18), Op(txscript.OP_PICK)}, 7)...)
+	s = append(s, midRepeat([]Token{Num(24), Op(txscript.OP_PICK)}, 7)...)
 	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
 	s = append(s, Op(txscript.OP_CAT), Data(treeID[:]), Op(txscript.OP_SWAP),
 		Op(txscript.OP_CAT))
@@ -522,7 +533,7 @@ func midVoucherAuth(treeID [32]byte, hashlock bool) []Token {
 		prefix = midVoucherHPrefix
 	}
 	s = append(s, midTagged(prefix)...)
-	return append(s, Num(26), Op(txscript.OP_PICK), Op(OP_CHECKSIGFROMSTACK),
+	return append(s, Num(32), Op(txscript.OP_PICK), Op(OP_CHECKSIGFROMSTACK),
 		Op(txscript.OP_VERIFY))
 }
 
@@ -533,10 +544,10 @@ func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string) []Toke
 	s := midPrologue() // ... extras(7) vsig [pre] | m r
 	if auth == authOwner {
 		// SPLIT (7.5.2): the owner signs the transaction, so no message is
-		// rebuilt. src.ok sits 25 deep, since the witness holds src(10)
-		// claim(10) extras(7) below the signature and the owner key is the
-		// third field of the source leaf block.
-		s = append(s, Num(25), Op(txscript.OP_PICK), // ... osig src.ok
+		// rebuilt. src.ok sits midCarveOwnerDepth deep, since the witness
+		// holds src(10) claim(10) extras(13) below the signature and the
+		// owner key is the third field of the source leaf block.
+		s = append(s, Num(midCarveOwnerDepth), Op(txscript.OP_PICK), // ... osig src.ok
 			Op(txscript.OP_CHECKSIGVERIFY)) // src(10) claim(10) extras(7)
 	} else {
 		if hashlock {
@@ -555,8 +566,30 @@ func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string) []Toke
 	return append(s, midFinal(depth)...)
 }
 
+// midCarveRules is the carve rule of spec 7.5 rule 5 under 0xC0 numerics:
+// [src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10)
+// claim(10) extras(7)]. The claim leaf's evictor_key must equal the
+// source's, and its evict_after, supplied as a minimal number with a PADZ
+// pad like the source's, must be no later: each pad is checked against the
+// leaf's own field and the two numbers compared
+// (tools/layertree_mid.py carve_rules).
+func midCarveRules() []Token {
+	s := []Token{
+		Num(19), Op(txscript.OP_PICK), Num(30), Op(txscript.OP_PICK),
+		Op(txscript.OP_EQUALVERIFY),                              // claim.evk == src.evk
+		Num(2), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK), // | cea
+	}
+	s = append(s, midPadz()...) // ... sea zse wse le32(cea)
+	s = append(s, Num(16), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+		Num(2), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK)) // | cea sea
+	s = append(s, midPadz()...) // ... le32(sea)
+	return append(s, Num(23), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK), // sea cea
+		Op(txscript.OP_GREATERTHANOREQUAL), Op(txscript.OP_VERIFY)) // sea >= cea
+}
+
 // midCarveSource is step 1 of CLAIM, CLAIM^h and SPLIT, after the
-// authorisation check. Stack on entry: src(10) claim(10) extras(7) ;
+// authorisation check. Stack on entry: src(10) claim(10) extras(13) ;
 // altstack: .. m r. On exit: T oh os nh ns over the source path ; altstack:
 // .. m claim_leaf amt_c r. The MIN tier shares it.
 func midCarveSource(depth int, sparse bool) []Token {
@@ -567,7 +600,7 @@ func midCarveSource(depth int, sparse bool) []Token {
 // CCV tier's 0xC0 numerics carry no r, so with altR false the altstack
 // holds .. claim_leaf amt_c on exit (layertree_mid.carve_source alt_r).
 func midCarveSourceAlt(depth int, sparse, altR bool) []Token {
-	var s []Token
+	s := midCarveRules() // src(10) claim(10) extras(7)
 	// seq consistency: le32(seq_num) == src.seq
 	s = append(s, Num(20), Op(txscript.OP_PICK), Num(7), Op(txscript.OP_PICK))
 	s = append(s, midRoll(7, 2)...)

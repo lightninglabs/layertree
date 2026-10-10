@@ -426,9 +426,13 @@ def voucher_h_msg(tree_id, source_leaf, claim_leaf, payment_hash):
 
 
 def apply_claim(tree, source_slot, claim_slot, claim_leaf):
+    """A carve (spec 7.5 rules 2, 3 and 5): the claim leaf keeps the
+    source's evictor and a lease no longer than the source's."""
     src = tree.leaves[source_slot]
     assert claim_slot not in tree.leaves
     assert claim_leaf.amount <= src.amount
+    assert claim_leaf.evictor_key == src.evictor_key, "7.5 rule 5: evictor_key"
+    assert claim_leaf.evict_after <= src.evict_after, "7.5 rule 5: evict_after"
     tree.leaves[source_slot] = src.with_amount_seq(src.amount - claim_leaf.amount, src.seq + 1)
     tree.leaves[claim_slot] = claim_leaf
     return src
@@ -537,9 +541,11 @@ def build_vectors():
     }
 
     # CLAIM: voucher from operator leaf (slot 15) creating erin (slot 3).
+    # erin keeps the operator leaf's NUMS evictor and evict_after 0 (7.5
+    # rule 5): a carve is never easier to keep than its source.
     t4 = Tree(D)
     t4.leaves = dict(t3.leaves)
-    erin = Leaf(40_000, det_key("erin-exit"), det_key("erin-owner"), det_key("operator"), 900_000, 0)
+    erin = Leaf(40_000, det_key("erin-exit"), det_key("erin-owner"), NUMS_X, 0, 0)
     spath = t4.path(15)
     src_before = t4.leaves[15]
     apply_claim(t4, 15, 3, erin)

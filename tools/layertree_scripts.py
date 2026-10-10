@@ -435,11 +435,27 @@ def _carve_script(depth, profile, auth, exit_consent=False, tree_id=None):
     return s + voucher_auth(tree_id, hashlock) + _carve_body(depth, profile)
 
 
+def carve_leaf_rules():
+    """Opens every carve body: [src claim] -> [src claim]. Both leaves are
+    116 bytes, and the claim leaf is no easier to keep than the source
+    (spec 7.5 rule 5): its evictor_key equals the source's and its
+    evict_after is no later. Without this an owner facing eviction could
+    move its balance into a leaf with a NUMS evictor or a far lease, and
+    anyone could plant a one-satoshi NUMS leaf in a cohort's empty slot
+    and block EVICT_SUBTREE_h on it for good. Shared with the CCV tier."""
+    return ["OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+            "OP_SWAP", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",   # src claim
+            "OP_2DUP", OFF_EVICTOR_KEY, 32, "OP_SUBSTR",
+            "OP_SWAP", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", "OP_EQUALVERIFY",  # claim.evk == src.evk
+            "OP_2DUP", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
+            "OP_SWAP", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
+            "OP_LESSTHANOREQUAL", "OP_VERIFY"]                               # claim.ea <= src.ea
+
+
 def _carve_body(depth, profile):
     """Everything after the authorisation check: both steps and FINAL.
     Stack on entry: src claim ; altstack: m r."""
-    s = ["OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
-          "OP_SWAP", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",  # src claim
+    s = carve_leaf_rules() + [                                        # src claim
           # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
           "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB"] + LE64 + [
           2, "OP_PICK", OFF_EXIT_KEY, OFF_SEQ - OFF_EXIT_KEY, "OP_SUBSTR", "OP_CAT",

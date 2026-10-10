@@ -1,9 +1,10 @@
-# SPLIT (MID tier, owner-authorised carve, dense, D=4): 2413 bytes
+# SPLIT (MID tier, owner-authorised carve, dense, D=4): 2473 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE
-25 OP_PICK OP_CHECKSIGVERIFY 20 OP_PICK OP_7 OP_PICK OP_7 OP_ROLL OP_7
-  OP_ROLL
+31 OP_PICK OP_CHECKSIGVERIFY
+CARVE_RULES
+20 OP_PICK OP_7 OP_PICK OP_7 OP_ROLL OP_7 OP_ROLL
 PADZ
 OP_EQUALVERIFY OP_TOALTSTACK OP_TOALTSTACK OP_TOALTSTACK OP_TOALTSTACK
   OP_TOALTSTACK

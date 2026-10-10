@@ -432,6 +432,32 @@ What did not change, and why:
   `CCVTweak.binding`, a second `BindingModel` whose injectivity is
   proved from the two tweak stages (data tweak, then TapTweak).
 
+### F20. Carves inherit the lease
+
+The paper review (`paper/reviews/crypto.md`, finding 9) found that
+`SPLIT` and a self-issued `CLAIM` accepted any 116-byte claim leaf, which
+made eviction a property of a leaf rather than of a balance: an owner
+facing eviction could move its whole balance into a fresh leaf with a
+`NUMS` evictor or a far `evict_after`, and any member could carve a
+one-satoshi `NUMS` leaf into an empty position of a cohort and block
+`EVICT_SUBTREE_h` on it for good, at about 1,020 vB per single eviction
+instead of 158 to 203 per leaf swept.
+
+Spec 0.10.0 adds 7.5 rule 5: the claim leaf's `evictor_key` MUST equal
+the source's and its `evict_after` MUST be no later. It is two field
+comparisons in every tier (25 bytes under `0xC2`; 60 under `0xC0`, where
+the raw `le32` fields are not numbers and the witness supplies each
+`evict_after` as a minimal number with a `PADZ` pad, as `EXIT_1` already
+does for the lock time), a `claim_evictable` theorem in Lean, and a
+builder check in Go. What it does not reach is a leaf the operator
+admitted as non-evictable: that leaf can still carve dust of the same
+terms into any empty position, and the suites check that it can, so the
+residual stated in 10.8 (admit such leaves only where a blocked sweep is
+acceptable, and prefer a finite lease to `NUMS`) is a tested claim rather
+than a hope. A dedicated credit leaf with a `NUMS` evictor (10.3,
+`design/receive.md`) is unaffected: its carves inherit the `NUMS`
+evictor, which is what the recipient wants.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):

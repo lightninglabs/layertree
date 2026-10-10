@@ -120,7 +120,7 @@ Everything the shared output can do fits on one page:
 | `EXIT` | leaf owner | Removes your leaf, pays your balance to your exit key |
 | `EVICT` | evictor, after the lease height | Removes an expired leaf, paying the owner exactly |
 | `UPDATE` | owner and operator | Rewrites a leaf in place: resize, renew the lease, rotate keys |
-| `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one |
+| `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one; the new leaf keeps the source's evictor and a lease no longer than the source's, so eviction holds per balance |
 | `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher; needs no signature-over-stack-data opcode, so it exists in all three tiers, including MIN |
 | `SWEEP` (`EVICT_SUBTREE_h` in the spec) | evictor | Removes a whole expired cohort in one transaction |
 
@@ -425,7 +425,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 1,879 executable checks across four tiers (852 FULL, 198 MID, 31 MIN, 798 CCV), positive and negative, plus 149 for the channel leaves of Appendix C |
+| Compiled scripts | 2,033 executable checks across four tiers (906 FULL, 228 MID, 35 MIN, 864 CCV), positive and negative, plus 149 for the channel leaves of Appendix C |
 | Python against Go | 77 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 

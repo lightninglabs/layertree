@@ -24,6 +24,12 @@ def mk_leaf(label, amount, evictor=None, evict_after=0, nonce=None, seq=0, spars
     return lf
 
 
+def carve_of(src, label, amount, sparse=False):
+    """A leaf carved out of src: it keeps src's evictor_key and evict_after
+    (spec 7.5 rule 5)."""
+    return mk_leaf(label, amount, src.evictor_key, src.evict_after, sparse=sparse)
+
+
 class MidWorld:
     def __init__(self, depth, sparse, tree_id=TREE_ID):
         self.depth, self.sparse = depth, sparse
@@ -193,7 +199,7 @@ def test_mid(depth, sparse, verbose=True):
     # ---------------- CLAIM ----------------
     root = w.tree.root()
     src = w.tree.leaves[s_o]
-    frank = mk_leaf("frank", 40_000, w.op_pk, 900_000, sparse=S)
+    frank = carve_of(src, "frank", 40_000, sparse=S)
     s_f = w.slot(frank, 3)
     spath = w.tree.path(s_o)
     t5 = w.clone(); lt.apply_claim(t5, s_o, s_f, frank)
@@ -202,18 +208,29 @@ def test_mid(depth, sparse, verbose=True):
     cpath = t5.path(s_f); r5 = t5.root()
     ctx = w.ctx([(r5[1], w.spk(r5))], (600, P2WPKH))
     vsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, frank), sk("operator-owner"))
-    extras = [M.scriptnum(src.seq)] + list(M.pad(src.seq)) + list(M.pad(src.seq + 1)) + list(M.pad(src.amount - frank.amount))
+    extras = M.w_carve_extras(src, frank)
     wit = (list(M.pad(r5[1])) + M.w_levels(cpath, lt.EMPTY_NODE, frank.node(), S) + w.pos(frank) +
            w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
            M.w_leaf(src) + M.w_leaf(frank) + extras + [vsig, root[0], w.m])
     it = w.run("CLAIM", wit, ctx)
     costs["CLAIM"] = (it, len(w.compiled["CLAIM"]), sum(len(x) for x in wit))
-    greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000, sparse=S)
+    greedy = carve_of(src, "greedy", src.amount + 1, sparse=S)
     gsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, greedy), sk("operator-owner"))
-    bad_extras = extras[:-2] + list(M.pad(0))
+    bad_extras = M.w_carve_extras(src, greedy, amt_new=0)
     expect_fail(lambda: w.run("CLAIM", list(M.pad(r5[1])) + M.w_levels(cpath, lt.EMPTY_NODE, greedy.node(), S) + w.pos(greedy) +
                 w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
                 M.w_leaf(src) + M.w_leaf(greedy) + bad_extras + [gsig, root[0], w.m], ctx), "mid: over-claim")
+    # 7.5 rule 5: another evictor key or a later evict_after than the source's
+    for label, lf in (("another evictor key", mk_leaf("escape", 40_000, w.op_pk, src.evict_after, sparse=S)),
+                      ("a later evict_after", mk_leaf("later", 40_000, None, src.evict_after + 1, sparse=S))):
+        t_e = w.clone(); t_e.leaves[s_o] = src.with_amount_seq(src.amount - lf.amount, src.seq + 1)
+        s_e = w.slot(lf, 3); cp_e = t_e.path(s_e); t_e.leaves[s_e] = lf; r_e = t_e.root()
+        ctx_e = w.ctx([(r_e[1], w.spk(r_e))], (600, P2WPKH))
+        esig = schnorr_sign(lt.voucher_msg(w.tree_id, src, lf), sk("operator-owner"))
+        expect_fail(lambda: w.run("CLAIM", list(M.pad(r_e[1])) + M.w_levels(cp_e, lt.EMPTY_NODE, lf.node(), S) + w.pos(lf) +
+                    w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
+                    M.w_leaf(src) + M.w_leaf(lf) + M.w_carve_extras(src, lf) + [esig, root[0], w.m], ctx_e),
+                    f"mid: CLAIM of a leaf with {label} than its source")
     head = wit[:-3]
     expect_fail(lambda: w.run("CLAIM", head + [schnorr_sign(lt.voucher_msg(w.tree_id, src, frank), sk("bob-owner")), root[0], w.m], ctx),
                 "mid: voucher wrong signer")
@@ -240,7 +257,9 @@ def test_mid(depth, sparse, verbose=True):
         ctx = w.ctx([(r[1], w.spk(r))], (600, P2WPKH))
         vsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, claim), sk("chan-src-owner"))
         pad_of = lambda x: (bytes(4 - len(x)), bytes(len(x))) if len(x) <= 4 else (b"", bytes(4))
-        extras = [src_seq_num] + list(pad_of(src_seq_num)) + list(pad_of(seq1_num)) + list(M.pad(src.amount - claim.amount))
+        extras = ([src_seq_num] + list(pad_of(src_seq_num)) + list(pad_of(seq1_num)) + list(M.pad(src.amount - claim.amount)) +
+                  [M.scriptnum(src.evict_after)] + list(M.pad(src.evict_after)) +
+                  [M.scriptnum(claim.evict_after)] + list(M.pad(claim.evict_after)))
         wit = (list(M.pad(r[1])) + M.w_levels(cpath, lt.EMPTY_NODE, claim.node(), S) + w.pos(claim) +
                w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
                M.w_leaf(src) + M.w_leaf(claim) + extras + [vsig, root[0], w.m])
@@ -252,7 +271,7 @@ def test_mid(depth, sparse, verbose=True):
             (0xFFFFFFFF, b"\xff\xff\xff\xff", b"\xfe\xff\xff\xff", True)):
         src = mk_leaf("chan-src", 1_000_000, seq=seq, sparse=S)
         s_src = w.slot(src, (1 << depth) - 1)
-        claim = mk_leaf("claimant", 40_000, w.op_pk, 900_000, sparse=S)
+        claim = carve_of(src, "claimant", 40_000, sparse=S)
         s_claim = w.slot(claim, 3)
         wit, ctx = claim_wit(src, seq_num, seq1_num, claim, s_src, s_claim)
         if claimable:
@@ -340,7 +359,7 @@ def test_claim_h(depth, sparse, verbose=True):
 
     preimage = lt.sha256(b"payment-preimage")
     payment_hash = lt.sha256(preimage)
-    hodl = mk_leaf("hodl", 40_000, w.op_pk, 900_000, sparse=S)
+    hodl = carve_of(src, "hodl", 40_000, sparse=S)
     s_h = w.slot(hodl, 3)
     spath = w.tree.path(s_o)
     t1 = w.clone(); lt.apply_claim(t1, s_o, s_h, hodl)
@@ -348,7 +367,7 @@ def test_claim_h(depth, sparse, verbose=True):
     cpath = t1.path(s_h); r1 = t1.root()
     ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
     hsig = schnorr_sign(lt.voucher_h_msg(w.tree_id, src, hodl, payment_hash), sk("operator-owner"))
-    extras = [M.scriptnum(src.seq)] + list(M.pad(src.seq)) + list(M.pad(src.seq + 1)) + list(M.pad(src.amount - hodl.amount))
+    extras = M.w_carve_extras(src, hodl)
     head = (list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, hodl.node(), S) + w.pos(hodl) +
             w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
             M.w_leaf(src) + M.w_leaf(hodl) + extras)
@@ -398,7 +417,7 @@ def test_split(depth, sparse, verbose=True):
     w.tree.leaves = {s_a: alice, s_o: oper}
     root = w.tree.root()
 
-    bob = mk_leaf("bob", 200_000, w.op_pk, 900_000, sparse=S)
+    bob = carve_of(alice, "bob", 200_000, sparse=S)
     s_b = w.slot(bob, 3)
     spath = w.tree.path(s_a)
     t1 = w.clone(); lt.apply_claim(t1, s_a, s_b, bob)
@@ -406,8 +425,7 @@ def test_split(depth, sparse, verbose=True):
     cpath = t1.path(s_b); r1 = t1.root()
     ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    extras = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) +
-              list(M.pad(alice.amount - bob.amount)))
+    extras = M.w_carve_extras(alice, bob)
     head = (list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, bob.node(), S) + w.pos(bob) +
             w.pads_for(root[1]) + M.w_levels(spath, alice.node(), src2.node(), S) + w.pos(alice) +
             M.w_leaf(alice) + M.w_leaf(bob) + extras)
@@ -431,20 +449,27 @@ def test_split(depth, sparse, verbose=True):
         """Witness below the signature for a SPLIT of `new` into s_new,
         presenting s_new as empty; cnode is the source's claimed new node."""
         t = w.clone(); t.leaves[s_a] = src2; t.leaves[s_new] = new
-        ex = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) +
-              list(M.pad(amt_new)))
+        ex = M.w_carve_extras(alice, new, amt_new=amt_new)
         return (list(M.pad(t.root()[1])) + M.w_levels(t.path(s_new), lt.EMPTY_NODE, new.node(), S) + w.pos(new) +
                 w.pads_for(root[1]) + M.w_levels(spath, alice.node(), cnode, S) + w.pos(alice) +
                 M.w_leaf(alice) + M.w_leaf(new) + ex)
-    greedy = mk_leaf("greedy", alice.amount + 1, w.op_pk, 900_000, sparse=S)
+    greedy = carve_of(alice, "greedy", alice.amount + 1, sparse=S)
     expect_fail(lambda: w.run("SPLIT", carve_head(greedy, w.slot(greedy, 3), src2.node(), 0) +
                               [asig, root[0], w.m], ctx), "mid: SPLIT over-split underflow")
+    # 7.5 rule 5 under SPLIT: another evictor key, a later evict_after
+    for label, lf in (("another evictor key", mk_leaf("escape", 200_000, w.op_pk, alice.evict_after, sparse=S)),
+                      ("a later evict_after", mk_leaf("later", 200_000, None, alice.evict_after + 1, sparse=S))):
+        t_e = w.clone(); t_e.leaves[s_a] = src2; s_e = w.slot(lf, 3); t_e.leaves[s_e] = lf; r_e = t_e.root()
+        ctx_e = w.ctx([(r_e[1], w.spk(r_e))], (600, P2WPKH))
+        expect_fail(lambda: w.run("SPLIT", carve_head(lf, s_e, src2.node(), alice.amount - lf.amount) +
+                                  [schnorr_sign(ctx_e.sighash(), sk("alice-owner")), root[0], w.m], ctx_e),
+                    f"mid: SPLIT into a leaf with {label} than its source")
     if not S:   # in the sparse profile the destination is derived from the leaf
-        occ = mk_leaf("bob", 200_000, w.op_pk, 900_000)
+        occ = carve_of(alice, "bob", 200_000)
         expect_fail(lambda: w.run("SPLIT", carve_head(occ, s_o, src2.node(), alice.amount - occ.amount) +
                                   [asig, root[0], w.m], ctx), "mid: SPLIT into an occupied position")
     # the signature binds the recipient through output 0 (7.5.2, 10.7)
-    mallory = mk_leaf("mallory", bob.amount, w.op_pk, 900_000, sparse=S)
+    mallory = carve_of(alice, "mallory", bob.amount, sparse=S)
     s_m = w.slot(mallory, 3)
     tm = w.clone(); lt.apply_claim(tm, s_a, s_m, mallory); rm = tm.root()
     ctx_m = w.ctx([(rm[1], w.spk(rm))], (600, P2WPKH))
@@ -457,6 +482,75 @@ def test_split(depth, sparse, verbose=True):
         print(f"MID SPLIT {'S' if S else 'D'} D={depth}: script {len(script)} B "
               f"(CLAIM {claim} B, saves {claim - len(script)}), witness {sum(len(x) for x in wit)} B")
     return it, len(script), sum(len(x) for x in wit)
+
+
+def test_carve_rules(depth, verbose=True):
+    """The carve rule (spec 7.5 rule 5) against the MID cohort sweep, as
+    test_scripts.test_carve_rules: a cohort member's SPLIT of dust with a
+    NUMS evictor or a later lease into the cohort's empty position fails,
+    dust that keeps the member's terms lands and is swept, and a member the
+    operator admitted with a NUMS evictor can still block the sweep (10.8)."""
+    w = MidWorld(depth, False)
+    height = 2
+    w.compiled = dict(w.compiled)
+    w.compiled["SPLIT"] = assemble(M.split_script(depth, False), mode="c0")
+    w.compiled["EVICT_SUBTREE_2"] = assemble(M.evict_subtree_script(depth, height, w.op_pk), mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    n, base = 1 << height, 1 << height
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000) for i in range(n - 1)}
+    empty = base + n - 1
+    alice = mk_leaf("alice", 50_000)
+
+    def reset():
+        w.tree = lt.Tree(depth); w.tree.leaves = dict(cohort); w.tree.leaves[0] = alice
+        w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+        return w.tree.root()
+
+    def split(src, s_src, new, signer):
+        root = w.tree.root()
+        src2 = src.with_amount_seq(src.amount - new.amount, src.seq + 1)
+        t = w.clone(); t.leaves[s_src] = src2
+        cpath = t.path(empty); t.leaves[empty] = new
+        spath = w.tree.path(s_src)
+        ctx = w.ctx([(t.root()[1], w.spk(t.root()))], (600, P2WPKH))
+        wit = (list(M.pad(t.root()[1])) + M.w_levels(cpath, lt.EMPTY_NODE, new.node(), False) +
+               w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), False) +
+               M.w_leaf(src) + M.w_leaf(new) + M.w_carve_extras(src, new) +
+               [schnorr_sign(ctx.sighash(), sk(signer)), root[0], w.m])
+        return t, wit, ctx
+
+    def sweep(expect_ok, msg):
+        rest = w.clone()
+        for p in range(base, base + n):
+            del rest.leaves[p]
+        outs = [(rest.root()[1], w.spk(rest.root()))]
+        outs += [(w.tree.leaves[p].amount, lt.p2tr_spk(w.tree.leaves[p].exit_key)) for p in range(base, base + n)]
+        ctx = w.ctx(outs + [(400, P2WPKH)], (5_000, P2WPKH), locktime=800_000)
+        wit = M.w_evict_subtree(w.tree, depth, height, 1) + [schnorr_sign(ctx.sighash(), w.op_sk), w.tree.root()[0], w.m]
+        if expect_ok:
+            w.run("EVICT_SUBTREE_2", wit, ctx); check(True, msg)
+        else:
+            expect_fail(lambda: w.run("EVICT_SUBTREE_2", wit, ctx), msg)
+
+    reset()
+    member, s_member = cohort[base], base
+    for label, dust in (("a NUMS evictor", mk_leaf("dust", 1)),
+                        ("a later evict_after", mk_leaf("dust", 1, w.op_pk, 800_001))):
+        _, wit, ctx = split(member, s_member, dust, "c0-owner")
+        expect_fail(lambda: w.run("SPLIT", wit, ctx), f"mid: cohort member plants dust with {label}")
+    t1, wit, ctx = split(member, s_member, carve_of(member, "dust", 1), "c0-owner")
+    w.run("SPLIT", wit, ctx)
+    check(True, "mid: a carve that keeps the member's evictor and lease lands in the cohort")
+    w.tree = t1
+    sweep(True, "mid: EVICT_SUBTREE_2 sweeps the cohort including the carved dust leaf")
+    reset()
+    t2, wit, ctx = split(alice, 0, carve_of(alice, "dust", 1), "alice-owner")
+    w.run("SPLIT", wit, ctx)
+    w.tree = t2
+    sweep(False, "mid: a non-evictable member's NUMS dust still blocks the sweep (10.8)")
+    if verbose:
+        print(f"MID carve rules D={depth}: dust with another evictor or a later lease rejected, "
+              f"inherited dust swept with the cohort")
 
 
 def test_evict_subtree(depth, height, verbose=True, full=False):
@@ -565,6 +659,7 @@ if __name__ == "__main__":
     test_claim_h(31, True)
     test_split(16, False)
     test_split(31, True)
+    test_carve_rules(16)
     for h in (2, 4, 6):
         test_evict_subtree(16, h)
     for h in (5, 6):   # every position occupied: h = 6 exceeds the stack limit (spec 4.5)

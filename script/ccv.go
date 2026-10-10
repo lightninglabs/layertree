@@ -265,10 +265,8 @@ func CCV0ClaimScript(depth int, treeID [32]byte, sparse, hashlock bool) []Token 
 // (tools/layertree_ccv.py _carve_body_ccv).
 func ccvCarveBody(depth int, sparse bool) []Token {
 	s := fullCat(
+		fullCarveLeafRules(),
 		[]Token{
-			Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
-			Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
-			Op(ts.OP_SWAP), // src claim
 			// new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq+1)
 			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_OVER), Num(8),
 			Op(OP_LEFT), Op(ts.OP_SUB),
@@ -470,7 +468,7 @@ func ccv0CarveBody(depth int, sparse bool) []Token {
 // numerics: MID's carve witness minus r and m, authorised by src.ok's
 // transaction signature (tools/layertree_ccv.py _split_script_ccv0).
 func CCV0SplitScript(depth int, sparse bool) []Token {
-	s := []Token{Num(25), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY)}
+	s := []Token{Num(midCarveOwnerDepth), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY)}
 	return append(s, ccv0CarveBody(depth, sparse)...)
 }
 

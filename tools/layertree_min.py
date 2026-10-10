@@ -115,11 +115,12 @@ def split_script(depth):
     witness (bottom..top):
        e31 sha_seqs tapleaf sha_prevouts ver lock spk_in1_ser amt_in1 extra_outs
        zf wf [claim levels] zi wi [src levels]
-       src(10) new(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 osig r m
-    Outputs are [tree', <raw extra outputs>]: a SPLIT pays nothing out."""
+       src(10) new(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 sea zse wse cea zce wce osig r m
+    (the thirteen extras of M.w_carve_extras). Outputs are [tree', <raw
+    extra outputs>]: a SPLIT pays nothing out."""
     s = ["OP_2DUP"] + F.tree_spk_min() + ["OP_TOALTSTACK",          # .. osig r m       | spk0
          "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK",     # .. osig m         | spk0 m r
-         "OP_DROP", 25, "OP_PICK", "OP_CHECKSIGVERIFY"]             # src(10) new(10) extras(7)
+         "OP_DROP", M.CARVE_OWNER_DEPTH, "OP_PICK", "OP_CHECKSIGVERIFY"]   # src(10) new(10) extras(13)
     s += M.carve_source(depth)                                       # T oh os nh ns     | spk0 m new amt_c r
     # as MID check_old, but the input amount is kept for the message
     s += ["OP_2SWAP"] + roll(6, 2) + M.le64()                        # T nh ns oh S8

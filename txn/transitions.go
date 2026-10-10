@@ -511,10 +511,11 @@ type carveStack func(claimPath, sourcePath [][]byte, source *tree.Leaf,
 	rootHash, merkleRoot [32]byte) ([][]byte, []SigSlot)
 
 // buildCarve is the shared body of CLAIM, CLAIM^h and SPLIT (spec 7.5 rules
-// 2 to 4). Step 1 lowers the source leaf by the claim's amount and advances
+// 2 to 5). Step 1 lowers the source leaf by the claim's amount and advances
 // its seq, emptying the position if nothing is left; step 2 places the
 // claim leaf at a position that is empty after step 1. The total is
-// conserved.
+// conserved, and the claim leaf keeps the source's evictor and a lease no
+// longer than the source's, so eviction holds per balance.
 func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	name string, assemble carveStack, opts *TxOpts) (*Spend, *tree.Tree,
 	error) {
@@ -530,6 +531,13 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	case src.Seq == math.MaxUint32:
 		return nil, nil, errors.New("txn: the source leaf's seq is " +
 			"final, so it cannot be carved (spec 5.2)")
+	case claim.EvictorKey != src.EvictorKey:
+		return nil, nil, errors.New("txn: the claim leaf must keep the " +
+			"source's evictor_key (spec 7.5 rule 5)")
+	case claim.EvictAfter > src.EvictAfter:
+		return nil, nil, fmt.Errorf("txn: the claim leaf's evict_after "+
+			"%d is later than the source's %d (spec 7.5 rule 5)",
+			claim.EvictAfter, src.EvictAfter)
 	}
 	if err := st.checkPos(claimPos, claim); err != nil {
 		return nil, nil, err

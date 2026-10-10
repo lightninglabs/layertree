@@ -164,7 +164,10 @@ tree-creation parameters. With `UPDATE^x` (7.4 rule 5) the operator
 cannot rewrite the leaf without a signature from its exit key, which is
 the recipient's. With `EXIT^=` (7.2 rule 6) an exit of the leaf pays its
 whole amount to the exit key, so the operator leaving the leaf only pays
-the recipient more than it owed. An evictor key of NUMS removes eviction.
+the recipient more than it owed. An evictor key of NUMS removes eviction,
+and it survives the carve rule of spec 7.5 rule 5: a credit leaf created
+by `JOIN` with a NUMS evictor is still fine, since every leaf carved out
+of it inherits that evictor, which is what the recipient wants.
 The fourth move is not covered: the operator can issue itself a voucher
 against the credit leaf and redeem it with plain `CLAIM`, which needs no
 consent from anyone. That drains the leaf and voids the recipient's

@@ -48,7 +48,7 @@ Any line naming `sorryAx` means an unfinished proof; there are none.
 | 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=` | `ExitBlock`, `ExitK exact …` | `exact = true` is the exact-payout variant. |
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. |
-| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. What the voucher message binds (`tree_id` since 0.10.0, `m` before) lives inside that `Prop`; the model never sees it. |
+| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource`, `claim_evictable` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. What the voucher message binds (`tree_id` since 0.10.0, `m` before) lives inside that `Prop`; the model never sees it. Rule 5 (the claim leaf keeps the source's evictor key and a lease no longer than the source's) is two hypotheses of `Claim`, `evictorKey_eq` and `evictAfter_le`. |
 | 7.8 terminal branch of `FINAL` | `Final`, `ExitKT` | `Final d r' out0 terminal` is the branch the script took: `r' = E_D` with output 0 free, or `out0 = r'.sum`. `ExitKT` is `ExitK` with it. |
 | 7.7 `EVICT_SUBTREE_h` | `EvictSubtree`, `Tree.sweepPayouts` (`Cohort.lean`) | One step from the root of the published `Tree h` to `E_h`, with the `FINAL` branch of 7.8 and the payout list of rule 2. |
 | `REWRITE_h` (`design/batching.md` Shape 2) | `Rewrite`, `Tree.rewritePayouts` | One step from the old published subtree's root to the new one's; authorisation is a predicate on positions required wherever the element changes; a leaf replaced by `E_0` is paid. |
@@ -134,6 +134,10 @@ by `lake build`; the names are the Lean identifiers.
 * **`claim_sound`**: a claim conserves the total, the source position held
   the source leaf, the claim position was empty *after* the source step,
   and output 0 commits to both rewrites.
+* **`claim_evictable`** (7.5 rule 5): whoever may evict the source leaf at
+  a height may evict the claim leaf there too, with the same key, so
+  eviction is a property of a balance and no sequence of carves escapes
+  it.
 * **`terminal_no_leaf`** (7.8): any tree whose root is `E_D` holds no leaf,
   so the terminal branch of `FINAL` is reachable only when the exit removed
   the last leaf; an exit that leaves a leaf behind cannot take it.

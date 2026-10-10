@@ -10,7 +10,7 @@ import layertree_min as N  # noqa: E402
 import test_scripts as TS  # noqa: E402
 from script_sim import Interp, ScriptError, TxContext, assemble, pubkey_x, schnorr_sign  # noqa: E402
 from test_scripts import BIP342_OPS, sk, check, expect_fail, P2WPKH  # noqa: E402
-from test_mid import mk_leaf  # noqa: E402
+from test_mid import carve_of, mk_leaf  # noqa: E402
 
 MIN_OPCODES = BIP342_OPS | N.EXTRA_OPCODES | {"OP_BOOLOR", "OP_GREATERTHANOREQUAL"}
 
@@ -129,8 +129,7 @@ def test_split(depth, verbose=True):
             sig = sig or schnorr_sign(ctx.sighash(), signer or sk("alice-owner"))
         else:
             ctx, e31, sig = base
-        extras = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) +
-                  list(M.pad(max(alice.amount - new.amount, 0))))
+        extras = M.w_carve_extras(alice, new, amt_new=max(alice.amount - new.amount, 0))
         wit = (N.raw_pieces(ctx, e31, 1) + list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, new.node(), False) +
                list(M.pad(root[1])) + M.w_levels(spath, alice.node(), lt.EMPTY_NODE if drained else src2.node(), False) +
                M.w_leaf(alice) + M.w_leaf(new) + extras + [sig, (r1 if stale else root)[0], m])
@@ -141,12 +140,12 @@ def test_split(depth, verbose=True):
         it.run(script, wit)
         return it
 
-    bob = mk_leaf("bob", 200_000, op_pk, 900_000)
+    bob = carve_of(alice, "bob", 200_000)
     good, wit = build(bob, 3)
     it = run(good[0], wit)
     check(True, "min: SPLIT authorised by the source owner")
     # a full drain: the source position becomes E_0
-    whole = mk_leaf("whole", alice.amount, op_pk, 900_000)
+    whole = carve_of(alice, "whole", alice.amount)
     g2, w2 = build(whole, 3)
     run(g2[0], w2)
     check(True, "min: SPLIT draining the source leaf")
@@ -155,14 +154,19 @@ def test_split(depth, verbose=True):
     expect_fail(lambda: run(g[0], w_), "min: SPLIT signed by the operator")
     g, w_ = build(bob, 3, signer=sk("bob-owner"))
     expect_fail(lambda: run(g[0], w_), "min: SPLIT signed by the recipient")
-    greedy = mk_leaf("greedy", alice.amount + 1, op_pk, 900_000)
+    greedy = carve_of(alice, "greedy", alice.amount + 1)
     g, w_ = build(greedy, 3)
     expect_fail(lambda: run(g[0], w_), "min: SPLIT over-split underflow")
+    # 7.5 rule 5: the new leaf keeps alice's evictor (NUMS) and lease (0)
+    g, w_ = build(mk_leaf("escape", 200_000, op_pk, alice.evict_after), 3)
+    expect_fail(lambda: run(g[0], w_), "min: SPLIT into a leaf with another evictor key than its source")
+    g, w_ = build(mk_leaf("later", 200_000, None, alice.evict_after + 1), 3)
+    expect_fail(lambda: run(g[0], w_), "min: SPLIT into a leaf with a later evict_after than its source")
     g, w_ = build(bob, s_o)
     expect_fail(lambda: run(g[0], w_), "min: SPLIT into an occupied position")
     _, w_ = build(bob, 3, base=good, stale=True)
     expect_fail(lambda: run(good[0], w_), "min: SPLIT against a stale root")
-    mallory = mk_leaf("mallory", 200_000, op_pk, 900_000)
+    mallory = carve_of(alice, "mallory", 200_000)
     g, w_ = build(mallory, 3, sig=good[2])
     expect_fail(lambda: run(g[0], w_), "min: SPLIT recipient swapped under the owner's signature")
     g, w_ = build(bob, 3, amount=root[1] - 1)
