@@ -66,9 +66,9 @@ leaves for the recipients whose credit has accumulated, at about one
 vbyte per recipient, and the recipients' vouchers are replaced by leaves
 they can exit from alone. The graft itself does not retire the vouchers:
 each credit leaf's `seq` must still advance, which today is one `UPDATE`
-per credit leaf (1,073 vbytes at `D = 16`), and would be about 120 to 240
-vbytes per recipient once the cohort rewrite of `design/batching.md`
-advances a whole subtree of credit leaves in one transaction. Until a
+per credit leaf (1,073 vbytes at `D = 16`), or about 133 vbytes per
+recipient (149 under `^x`) when the cohort rewrite `REWRITE_h` of spec
+7.9 advances a whole subtree of credit leaves in one transaction. Until a
 voucher is retired the operator, not the recipient, carries the risk of
 paying twice (`design/graft.md`). The on-chain `CLAIM^h` is what the recipient
 does if the operator stops cooperating, and the fact that it exists is
@@ -81,7 +81,7 @@ what makes the off-chain settlement safe to accept.
 | On-chain bytes per receive | 0 | 0 |
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none beyond dust at redemption; sub-floor amounts accumulate in the voucher |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
-| Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf today, 1,073 vbytes, or about 120 to 240 per recipient once a cohort rewrite exists (`design/batching.md`) |
+| Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
 | Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,652 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |

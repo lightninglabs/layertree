@@ -236,13 +236,13 @@ L 92.103617 168.351709
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="56.08" y="142.85612" transform="rotate(-0 56.08 142.85612)">1,020</text>
    </g>
    <g id="text_19">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="307.145532" y="262.180193" transform="rotate(-0 307.145532 262.180193)">177</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="322.221702" y="264.984266" transform="rotate(-0 322.221702 264.984266)">159</text>
    </g>
    <g id="text_20">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="332.221702" y="286.903975" transform="rotate(-0 332.221702 286.903975)">121</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="332.221702" y="283.165211" transform="rotate(-0 332.221702 283.165211)">145</text>
    </g>
    <g id="text_21">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="414.268936" y="171.04783" transform="rotate(-0 414.268936 171.04783)">762</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="414.268936" y="170.580484" transform="rotate(-0 414.268936 170.580484)">765</text>
    </g>
    <g id="text_22">
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="399.840557" y="266.853648" transform="rotate(-0 399.840557 266.853648)">147</text>
@@ -282,9 +282,9 @@ z
 " style="stroke: #2a78d6; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#mdf79b5d5d5" x="138.127234" y="244.529018" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
-     <use xlink:href="#mdf79b5d5d5" x="216.38762" y="264.936436" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
-     <use xlink:href="#mdf79b5d5d5" x="307.145532" y="271.946618" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="138.127234" y="241.880727" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="230.174468" y="268.6752" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="322.221702" y="274.750691" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="line2d_37">
@@ -321,7 +321,7 @@ z
 " style="stroke: #eb6834; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#m01dc74fd02" x="322.221702" y="280.6704" style="fill: #ffffff; stroke: #eb6834; stroke-width: 1.44"/>
+     <use xlink:href="#m01dc74fd02" x="322.221702" y="276.931636" style="fill: #ffffff; stroke: #eb6834; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="line2d_39">
@@ -339,12 +339,12 @@ z
 " style="stroke: #4a3aa7; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#me995862ea1" x="414.268936" y="180.814255" style="fill: #ffffff; stroke: #4a3aa7; stroke-width: 1.44"/>
+     <use xlink:href="#me995862ea1" x="414.268936" y="180.346909" style="fill: #ffffff; stroke: #4a3aa7; stroke-width: 1.44"/>
     </g>
    </g>
   </g>
   <g id="text_23">
-   <text style="font-weight: 600; font-size: 9.36px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="17.28" y="20.16" transform="rotate(-0 17.28 20.16)">Batch shapes: measured, specified but unbuilt, and proposed</text>
+   <text style="font-weight: 600; font-size: 9.36px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="17.28" y="20.16" transform="rotate(-0 17.28 20.16)">Batch shapes, measured</text>
   </g>
   <g id="text_24">
    <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #52514e" x="17.28" y="33.12" transform="rotate(-0 17.28 33.12)">vbytes per leaf against leaves handled in one transaction, dense D=16, fee analysis model</text>
@@ -378,43 +378,43 @@ L 31.104 55.80315
     </g>
    </g>
    <g id="text_28">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="58.82715" transform="rotate(-0 36.288 58.82715)">Owner multiproof EXIT_SUBTREE_h, estimate</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="58.82715" transform="rotate(-0 36.288 58.82715)">Cohort rewrite REWRITE_h, every leaf exits, measured</text>
    </g>
    <g id="line2d_42">
-    <path d="M 17.28 68.1408 
-L 24.192 68.1408 
-L 31.104 68.1408 
+    <path d="M 17.28 68.2272 
+L 24.192 68.2272 
+L 31.104 68.2272 
 " style="fill: none; stroke: #1baf7a; stroke-width: 1.44; stroke-linecap: square"/>
     <g>
-     <use xlink:href="#m87397ed6df" x="24.192" y="68.1408" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.44"/>
+     <use xlink:href="#m87397ed6df" x="24.192" y="68.2272" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="text_29">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="71.1648" transform="rotate(-0 36.288 71.1648)">Operator sweep EVICT_SUBTREE_h, measured</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="71.2512" transform="rotate(-0 36.288 71.2512)">Operator sweep EVICT_SUBTREE_h, measured</text>
    </g>
    <g id="line2d_43">
-    <path d="M 17.28 80.47845 
-L 24.192 80.47845 
-L 31.104 80.47845 
+    <path d="M 17.28 80.56485 
+L 24.192 80.56485 
+L 31.104 80.56485 
 " style="fill: none; stroke: #eb6834; stroke-width: 1.44; stroke-linecap: square"/>
     <g>
-     <use xlink:href="#m01dc74fd02" x="24.192" y="80.47845" style="fill: #ffffff; stroke: #eb6834; stroke-width: 1.44"/>
+     <use xlink:href="#m01dc74fd02" x="24.192" y="80.56485" style="fill: #ffffff; stroke: #eb6834; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="text_30">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="83.50245" transform="rotate(-0 36.288 83.50245)">Cohort rewrite REWRITE_h, per changed leaf, estimate</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="83.58885" transform="rotate(-0 36.288 83.58885)">Cohort rewrite REWRITE_h, per changed leaf, measured</text>
    </g>
    <g id="line2d_44">
-    <path d="M 17.28 92.77425 
-L 24.192 92.77425 
-L 31.104 92.77425 
+    <path d="M 17.28 92.86065 
+L 24.192 92.86065 
+L 31.104 92.86065 
 " style="fill: none; stroke: #4a3aa7; stroke-width: 1.44; stroke-linecap: square"/>
     <g>
-     <use xlink:href="#me995862ea1" x="24.192" y="92.77425" style="fill: #ffffff; stroke: #4a3aa7; stroke-width: 1.44"/>
+     <use xlink:href="#me995862ea1" x="24.192" y="92.86065" style="fill: #ffffff; stroke: #4a3aa7; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="text_31">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="95.79825" transform="rotate(-0 36.288 95.79825)">Detach a height-8 subtree, then exit alone at depth 8, estimate</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="95.88465" transform="rotate(-0 36.288 95.88465)">Detach a height-8 subtree, then exit alone at depth 8, measured</text>
    </g>
   </g>
  </g>

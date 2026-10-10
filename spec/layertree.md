@@ -1329,8 +1329,10 @@ against a source leaf in a detached subtree MUST be reissued under `m_h`
 (9.6).
 
 *(informative)* Value is conserved across two tree outputs,
-`S = (S − sum_h) + sum_h`; the Lean model of section 7 has one tree output
-and does not yet cover this step. The detached tree is a depth-`h` tree in
+`S = (S − sum_h) + sum_h`; the Lean model states the second output
+directly (`detach_sound`, `formal/LayerTree/Cohort.lean`) and proves that
+a member's path truncated to its lower `h` levels is a valid exit proof
+in the detached tree (`detach_member_payable`). The detached tree is a depth-`h` tree in
 every respect, including its own `DETACH_h'` scripts if `m_h`'s set
 carries them.
 

@@ -90,14 +90,15 @@ out on their own schedule.
 
 Second, the owner-side equivalent is specified but not built. Spec 13.4
 describes it: the same post-order fold that the sweep uses, with a
-signature per leaf in place of the evictor-key check. The witness would
-carry the `K` leaves, their signatures, and the siblings of the union of
-their paths, so leaves in the same subtree share the levels above it. For
-four owners in one aligned height-2 subtree the estimate from the sweep's
-measured sizes plus 64 bytes of signature per leaf is about 353 vbytes per
-leaf; for the thirteen owners of a height-4 subtree, about 222, and for
-the fifty-one of a height-6 subtree, about 177. `design/batching.md`
-specifies this shape and two more.
+signature per leaf in place of the evictor-key check. The witness
+carries the subtree's leaves, the exiting owners' signatures, and the
+siblings of the shared path above the subtree, so leaves in the same
+subtree share the levels above it. It is built as the exit-only case of
+the cohort rewrite `REWRITE_h` (spec 7.9), and measured at `D = 16`:
+four owners leaving a height-2 subtree pay about 370 vbytes per leaf,
+sixteen leaving a height-4 subtree about 198, and sixty four leaving a
+height-6 subtree about 159, the same as the operator's sweep.
+`design/batching.md` has the shape and two more.
 
 What a script fixes is the height and alignment of the subtree, not
 which of its leaves exit. As in the sweep, the witness supplies every
@@ -107,8 +108,8 @@ subtree; owners in different subtrees need separate steps, as `EXIT_K`
 does today. Each height is its own taptree leaf (design review F15), and
 each doubling of the taptree costs every spend 8 vbytes, so which heights
 to carry is a tree-creation choice; the reference taptree carries only
-`K = 1` and `K = 2`. The owner multiproof is unbuilt for lack of a
-measurement, not because of an obstacle in the design.
+`K = 1` and `K = 2`; `REWRITE_2` is in the golden set as a tree-creation
+variant.
 
 Batching does not lift the serialisation limit, but it changes what the
 limit counts. Every transition spends the same output, so unconfirmed
@@ -183,11 +184,12 @@ batched form is the subtree rewrite of spec 13.5: publish a subtree's
 old leaves and new leaves, fold each once, and authorise with one
 signature per leaf or one aggregate signature. Its per-leaf cost would be
 close to the sweep's, roughly 100 vbytes, which is parity with a bare spend
-in one transaction instead of many. It is not built. The spec left the
-aggregate-key version out because MuSig2 nonce coordination reintroduces
-the interactive rounds the design otherwise avoids; the per-leaf-signature
-version has no such obstacle and is the natural next shape after the owner
-multiproof.
+in one transaction instead of many. It is built as `REWRITE_h` (spec
+7.9): about 145 vbytes per changed leaf when all 64 positions of a
+height-6 subtree rotate keys, against 1,073 for an `UPDATE` each. The
+spec left the aggregate-key version out because MuSig2 nonce
+coordination reintroduces the interactive rounds the design otherwise
+avoids; the per-leaf-signature version has no such obstacle.
 
 ### What `UPDATE` is for, and how to make it cheaper
 
@@ -216,10 +218,9 @@ Four things reduce it, in increasing order of change.
   interior is paid once and each rewritten leaf adds its 116 bytes twice
   and a signature, about 120 vbytes. Leaves in the subtree that do not
   change need no signature; they are supplied for the fold or stand behind
-  a sibling hash. The spec left this out because its aggregate-key form
-  needs MuSig2 nonce rounds; a per-leaf-signature form has no such
-  obstacle and is the natural next shape after the owner multiproof
-(`design/batching.md`).
+  a sibling hash. This is `REWRITE_h` (spec 7.9), measured at about 145
+  vbytes per changed leaf and 117 per unchanged position at `h = 6`
+  (`design/batching.md`).
 
 The subtree rewrite is also a batch of intra-tree payments: moving an
 amount from one leaf to another inside the rewritten subtree conserves
@@ -357,10 +358,9 @@ A transaction's weight is the script, witness data and control block from
 one change output, the tree output and one P2TR payout. Each extra payout
 adds 172 weight units. Vbytes are weight divided by four, rounded up. The
 sweep rows use the leaf counts the measured witnesses imply (13, 51 and
-206). The owner multiproof and the batched rewrite are estimates built
-from the sweep's measured sizes plus 64 bytes per signature, and are
-labelled as such wherever they appear. The CCV and native-opcode rows
-come from the size tables on PR #6 and PR #7.
+206). The cohort rewrite rows are the measured `REWRITE_h` sizes of
+spec 11. The CCV and native-opcode rows come from the size tables of
+spec 4.5 and `design/native-opcodes.md`.
 
 ```
 python3 tools/gen_cost_figures.py    # regenerates design/figures/*.svg

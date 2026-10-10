@@ -290,9 +290,9 @@ z
 " style="stroke: #2a78d6; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#mdf79b5d5d5" x="138.127234" y="208.529018" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
-     <use xlink:href="#mdf79b5d5d5" x="216.38762" y="228.936436" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
-     <use xlink:href="#mdf79b5d5d5" x="307.145532" y="235.946618" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="138.127234" y="205.880727" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="230.174468" y="232.6752" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="322.221702" y="238.750691" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="line2d_37">
@@ -350,7 +350,7 @@ L 31.104 55.80315
     </g>
    </g>
    <g id="text_28">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="58.82715" transform="rotate(-0 36.288 58.82715)">Owner multiproof, estimate (spec 13.4, not built)</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="36.288" y="58.82715" transform="rotate(-0 36.288 58.82715)">Cohort rewrite exits REWRITE_h, measured (spec 7.9)</text>
    </g>
    <g id="line2d_40">
     <path d="M 17.28 68.1408 

@@ -85,14 +85,14 @@ Rules, in the form of 7.7:
    replaced by `E_0`. Output 0 is `(S − Σ flagged amounts, TREE_SPK(r', m))`.
 
 One script per height covers every subset of owners in that subtree, so
-the taptree carries a few heights, not a script per subset. The cost is
-the sweep's plus a signature and about ten bytes of script per exiting
-leaf, and the unflagged leaves of the subtree are published at about 57
-vbytes each. Estimates at `D = 16` from the measured sweep sizes: 353
-vbytes per leaf for four leaves in a height-2 subtree, 222 for the
-thirteen of a height-4 subtree, 177 for the fifty-one of a height-6
-subtree. Owners who coordinate therefore pay about 1.1 times what the
-operator pays to sweep them, instead of 5 times.
+the taptree carries a few heights, not a script per subset. This shape
+was not built on its own: it is the exit-only case of `REWRITE_h` below
+(every position's new element is `E_0`), and the measured figures are
+that case's. At `D = 16`, with every position leaving, `REWRITE_2/4/6`
+cost about 370, 198 and 159 vbytes per leaf [the estimates from the
+sweep's sizes were 353, 222 and 177 at the sweep's occupancies]. Sixty
+four owners who coordinate therefore pay what the operator pays to sweep
+them (158), instead of 6.5 times.
 
 The Lean model covers it as it stands: the shape is one `Step` whose old
 node is a published subtree and whose new node is that subtree with
@@ -277,9 +277,11 @@ over two subtrees with a different per-position rule, and `DETACH_h` is
 `JOIN_h` with the old and new node exchanged and one output check added.
 Building them was the existing change checklist twice: generator and
 stack comments, positive and negative cases, golden vectors, Go mirror,
-spec sections 7 and 8, the tier matrix. The Lean step forms above are
-still open: the rewrite is one `Step` the model already covers in shape,
-the detach needs a two-output step. The one genuinely new mechanism is
+spec sections 7 and 8, the tier matrix. The Lean model covers both
+(`formal/LayerTree/Cohort.lean`): `rewrite_sound` and
+`rewrite_exit_conservation` for the rewrite, `detach_sound` and
+`detach_member_payable` for the detach, the latter stating the second
+output directly rather than generalising `Step`. The one genuinely new mechanism is
 the second tree output of `DETACH_h`, and it is the one with the largest
 payoff, because it is the only change here that raises the exit
 throughput of a deployment rather than lowering the bytes of an exit.

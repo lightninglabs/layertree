@@ -57,14 +57,13 @@ TREE_EXIT_VB = 2511
 
 # Exit amortisation, vB per leaf removed in one transaction against the
 # batch size. "Owner exits" is measured (spec/fee-analysis.md, one and two
-# leaves); the owner multiproof is the spec 13.4 estimate, not built: the
-# EVICT_SUBTREE_2/4/6 measured sizes plus 64 witness bytes and about 10
-# script bytes per exiting leaf for a CHECKSIGVERIFY in place of the
-# evictor-key check, at the measured occupancies 4, 13 and 51;
-# the operator sweeps are the measured EVICT_SUBTREE_4/6/8 sizes divided
-# by the leaves they remove (13, 51 and 206), spec/scripts/sizes.md.
+# leaves); the cohort rewrite exits are the measured REWRITE_2/4/6 with
+# every position leaving (spec 11: 370, 198 and 159 vB per leaf at 4, 16
+# and 64 positions); the operator sweeps are the measured
+# EVICT_SUBTREE_4/6/8 sizes divided by the leaves they remove (13, 51
+# and 206), spec/scripts/sizes.md.
 OWNER_EXITS = [(1, 1020), (2, 842)]
-OWNER_MULTIPROOF = [(4, 353), (13, 222), (51, 177)]
+REWRITE_EXITS = [(4, 370), (16, 198), (64, 159)]
 OPERATOR_SWEEPS = [(13, 203), (51, 158), (206, 147)]
 BATCH_OUTPUT_VB = 43  # one P2TR output inside a batch transaction.
 
@@ -320,7 +319,7 @@ def fig_exit_amortisation(png_dir):
             fontsize=12 * PX, color=INK2,
             bbox={"facecolor": SURFACE, "edgecolor": "none", "pad": 2})
     series(ax, OPERATOR_SWEEPS, AQUA)
-    series(ax, OWNER_MULTIPROOF, BLUE, hollow=True, line=False)
+    series(ax, REWRITE_EXITS, BLUE, hollow=True, line=False)
     series(ax, OWNER_EXITS, BLUE)
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 2, 842, "842", 10, 0)
@@ -329,7 +328,7 @@ def fig_exit_amortisation(png_dir):
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA)],
              ["Owner exits, measured",
-              "Owner multiproof, estimate (spec 13.4, not built)",
+              "Cohort rewrite exits REWRITE_h, measured (spec 7.9)",
               "Operator sweeps, measured (EVICT_SUBTREE_4/6/8)"], 68)
     f.text(590, 366 + 36, "leaves removed in one transaction", 11, INK3,
            ha="right")
@@ -599,18 +598,18 @@ def fig_radix(png_dir):
 # ---------------------------------------------------------------------------
 
 # The batching shapes share the axes of the exit-amortisation figure. The
-# cohort rewrite (REWRITE_h, per changed leaf) and the detach-then-exit
-# point are estimates from the spec; the other series reuse the constants
-# above.
-COHORT_REWRITE = [(64, 121)]
-DETACH_EXIT = [(256, 762)]
+# cohort rewrite point is the measured REWRITE_6 with every key rotated
+# (145 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
+# after a DETACH_8 (765 vB), spec 11; the other series reuse the
+# constants above.
+COHORT_REWRITE = [(64, 145)]
+DETACH_EXIT = [(256, 765)]
 VIOLET = "#4a3aa7"
 
 
 def fig_batching_shapes(png_dir):
     top, bottom = 178, 416
-    f = Fig(bottom + 56, "Batch shapes: measured, specified but unbuilt, "
-            "and proposed", "vbytes per leaf against leaves handled in "
+    f = Fig(bottom + 56, "Batch shapes, measured", "vbytes per leaf against leaves handled in "
             "one transaction, dense D=16, fee analysis model")
     ax = f.axes(64, top, 590, bottom)
     log_x(ax, [1, 2, 4, 8, 16, 32, 64, 128, 256], 1, 300)
@@ -627,25 +626,25 @@ def fig_batching_shapes(png_dir):
                     xytext=(8, 0), textcoords="offset points", va="center",
                     fontsize=11 * PX, color=INK3, annotation_clip=False)
     series(ax, OPERATOR_SWEEPS, AQUA)
-    series(ax, OWNER_MULTIPROOF, BLUE, hollow=True, line=False)
+    series(ax, REWRITE_EXITS, BLUE, hollow=True, line=False)
     series(ax, OWNER_EXITS, BLUE)
     series(ax, COHORT_REWRITE, ORANGE, hollow=True, line=False)
     series(ax, DETACH_EXIT, VIOLET, hollow=True, line=False)
     label(ax, 1, 1020, "1,020", 10, 0)
-    label(ax, 51, 177, "177", 0, 12, ha="center")
-    label(ax, 64, 121, "121", 10, -4)
-    label(ax, 256, 762, "762", 0, 12, ha="center")
+    label(ax, 64, 159, "159", 0, 12, ha="center")
+    label(ax, 64, 145, "145", 10, -4)
+    label(ax, 256, 765, "765", 0, 12, ha="center")
     label(ax, 206, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA),
               line_handle(ORANGE, hollow=True, marker=True),
               line_handle(VIOLET, hollow=True)],
              ["Owner exits EXIT_K, measured",
-              "Owner multiproof EXIT_SUBTREE_h, estimate",
+              "Cohort rewrite REWRITE_h, every leaf exits, measured",
               "Operator sweep EVICT_SUBTREE_h, measured",
-              "Cohort rewrite REWRITE_h, per changed leaf, estimate",
+              "Cohort rewrite REWRITE_h, per changed leaf, measured",
               "Detach a height-8 subtree, then exit alone at depth 8, "
-              "estimate"], 68)
+              "measured"], 68)
     f.text(590, bottom + 36, "leaves handled in one transaction", 11,
            INK3, ha="right")
     f.text(64, top - 10, "vB per leaf", 11, INK3)
