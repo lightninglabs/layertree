@@ -504,7 +504,7 @@ return node
 
 In witnesses of the **dense** profile, each level is supplied as two
 elements: `dir` (the empty string for 0, `0x01` for 1, per BIP-342
-`MINIMALIF`) and `sc = sib.hash || le64(sib.sum)`. In the **sparse** profile
+`MINIMALIF`) and `sc = sib.hash || enc64(sib.sum)` (41 bytes). In the **sparse** profile
 only `sc` is supplied, and `sc` MAY be the empty string when the sibling is
 the empty node `E_k` of that level (a *compressed* proof); the script derives
 `dir` from the leaf and computes `E_k` itself. A non-empty `sc` that is not
@@ -1837,8 +1837,13 @@ exits in a batch" as `EXIT_K` (section 13).
    reference taptree includes `K ∈ {1, 2}`. Larger `K` suits operator-driven
    batch evictions and cooperative mass exits.
 2. **Higher radix.** A radix-4 sum tree halves the number of levels at the
-   cost of three 40-byte siblings per level; per-level script grows but
-   total witness shrinks for large `D`.
+   cost of three 41-byte siblings per level. Measured in the dense FULL
+   tier (`tools/experiments/radix4.py`), a radix-4 level is 146 bytes of
+   script and 123 of witness against 88 and 41, so at `D = 16` an exit
+   saves about 240 bytes of script and adds about 330 of witness, a net
+   loss; radix 8 is worse. The sparse profile may gain from radix 4
+   because most of its siblings are empty; `design/profiles.md` has the
+   analysis.
 3. **Smaller `LEVEL`.** With `OP_MULTI OP_CAT` the four concatenations per
    level collapse to two; keeping `ZERO8` on the stack replaces the 9-byte
    push in `PAD8` with a 2-byte `OP_PICK`. Together these save roughly 25%.

@@ -135,7 +135,7 @@ with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
 
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
-    f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")
+    f.write("add 41 bytes per additional non-empty sibling (about log2 N in total).\n\n")
     f.write("| profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |\n")
     f.write("|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:
