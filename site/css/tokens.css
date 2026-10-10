@@ -1,0 +1,127 @@
+/*
+ * Design tokens for the LayerTree explainer.
+ *
+ * This is the only file a visual identity needs to change. Every color,
+ * font, size, spacing step and motion duration used by site.css and by the
+ * SVG that js/tree-anim.js draws is one of the custom properties below.
+ * The palette is a restrained placeholder.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Color: light theme. */
+  --color-bg: #f6f4ef;
+  --color-surface: #fffdf8;
+  --color-surface-2: #ece8de;
+  --color-text: #1c1b19;
+  --color-text-muted: #5d5a53;
+  --color-border: #d6d0c3;
+  --color-border-strong: #a59e8f;
+  --color-link: #135d66;
+  --color-accent: #0f6a6a;          /* proof path, new root */
+  --color-accent-soft: #d5ebe8;
+  --color-sibling: #a25c00;         /* siblings supplied by the proof */
+  --color-sibling-soft: #f6e5cc;
+  --color-chain: #e9e3d6;           /* the on-chain strip */
+  --color-good: #2e6b34;            /* payouts, checks that hold */
+  --color-good-soft: #dcebd9;
+  --color-bad: #a8261c;             /* checks that fail */
+  --color-bad-soft: #f5dad6;
+  --color-pending: #6a4fa0;         /* a root computed but not yet committed */
+  --color-empty: #b8b1a2;
+  --color-focus: #1a62d6;
+
+  /* Type. System stacks only, so the site works offline. */
+  --font-body: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --text-xs: 0.78rem;
+  --text-sm: 0.88rem;
+  --text-base: 1.06rem;
+  --text-md: 1.2rem;
+  --text-lg: 1.5rem;
+  --text-xl: 2rem;
+  --text-2xl: 2.7rem;
+  --leading-tight: 1.2;
+  --leading-body: 1.6;
+
+  /* Sizes of text drawn inside the SVG figures, in CSS pixels. */
+  --svg-text-sm: 11px;
+  --svg-text: 12.5px;
+  --svg-text-lg: 14px;
+
+  /* Spacing. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4.5rem;
+  --gutter: 16px;
+  --measure: 42rem;
+  --wide: 60rem;
+
+  --radius-sm: 3px;
+  --radius: 6px;
+  --border-width: 1px;
+  --stroke: 1.5px;
+  --stroke-strong: 2.5px;
+
+  /* Motion. tree-anim.js staggers the fold by --motion-step per level. */
+  --motion-fast: 160ms;
+  --motion-pulse: 520ms;
+  --motion-step: 240ms;
+  --motion-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #151513;
+    --color-surface: #1d1c1a;
+    --color-surface-2: #282622;
+    --color-text: #ebe7dd;
+    --color-text-muted: #a9a499;
+    --color-border: #3a3731;
+    --color-border-strong: #6b665b;
+    --color-link: #7fcbd1;
+    --color-accent: #5cc0bb;
+    --color-accent-soft: #17393a;
+    --color-sibling: #e6a649;
+    --color-sibling-soft: #3d2e17;
+    --color-chain: #24221e;
+    --color-good: #7cc283;
+    --color-good-soft: #1d3320;
+    --color-bad: #f0877c;
+    --color-bad-soft: #3e1d1a;
+    --color-pending: #b49ce6;
+    --color-empty: #57534a;
+    --color-focus: #7aa7ff;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #151513;
+  --color-surface: #1d1c1a;
+  --color-surface-2: #282622;
+  --color-text: #ebe7dd;
+  --color-text-muted: #a9a499;
+  --color-border: #3a3731;
+  --color-border-strong: #6b665b;
+  --color-link: #7fcbd1;
+  --color-accent: #5cc0bb;
+  --color-accent-soft: #17393a;
+  --color-sibling: #e6a649;
+  --color-sibling-soft: #3d2e17;
+  --color-chain: #24221e;
+  --color-good: #7cc283;
+  --color-good-soft: #1d3320;
+  --color-bad: #f0877c;
+  --color-bad-soft: #3e1d1a;
+  --color-pending: #b49ce6;
+  --color-empty: #57534a;
+  --color-focus: #7aa7ff;
+}
