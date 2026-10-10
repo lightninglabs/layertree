@@ -24,6 +24,7 @@ Vouchers / channels / shape & yes / yes / free & yes / yes / free & no / no / fi
 \end{tabular}
 \end{table}
 
+\iffullversion
 \paragraph{FULL and MID.} With \texttt{0xC2} the leaf is one 116-byte
 stack element read with \op{SUBSTR}, sums use arbitrary-length arithmetic,
 one \tr{LEVEL} of the fold is 88 bytes, and $\TreeSpk$ is recomputed with
@@ -56,7 +57,7 @@ field-by-field enforcement and the signature as a tier's only
 introspection. \tr{EXIT}$_1$ costs
 $3{,}640$ bytes of script at $D = 16$ (73\% more than FULL) and
 $1{,}473\vB$ (44\% more); vouchers and channel leaves need a signature
-over stack data and are out of reach, \tr{SPLIT} is not ($6{,}501$
+over stack data and are out of reach, \tr{SPLIT} is not ($6{,}651$
 bytes). Whether a 64-leaf sweep (16 kB in FULL) fits MIN is open.
 
 \paragraph{CCV: binding by opcode.}\label{sec:ccv}
@@ -68,3 +69,16 @@ and deducts its amount. The state key becomes the BIP-443 data tweak of
 $\NUMS$ by the root; the fold and the authorisation are FULL's, in either
 numeric encoding, and $r$ and $m$ leave every witness. One \op{TX} read
 per constrained amount survives, hence exact payouts.
+\else
+\paragraph{What each tier gives up.} In FULL the leaf is one stack
+element and sums use arbitrary-length arithmetic. MID's 4-byte numbers
+cap a tree at $2^{31}$ satoshis (21.47\,BTC) and force exact payouts.
+MIN has no \op{TX}: the script builds the BIP-341 signature message from
+the values it has verified and checks it with a signature under the
+generator $G$ (Poelstra's construction~\cite{catschnorr}), which passes
+only if the message equals the real transaction's (assumption [MIN]);
+vouchers and channels, which need a signature over stack data, are out
+of its reach, but \tr{SPLIT} is not ($6{,}651$ bytes of script). CCV
+replaces every taproot-key recomputation with an
+\op{CHECKCONTRACTVERIFY} call and is the smallest tier.
+\fi

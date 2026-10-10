@@ -1,6 +1,7 @@
 % Shared by both versions: the evaluation section body (implementation,
 % transaction model, exit cost, comparison, Figure 3, the batch table).
 
+\iffullversion
 \paragraph{Implementation.} A Python tapscript interpreter for both leaf
 versions models BIP-441 numerics, \op{TX}, CSFS, the EC opcodes and
 varops, computes the real BIP-341 signature message and enforces
@@ -15,7 +16,17 @@ hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
 against 79 golden scripts, and builds, signs and verifies every FULL
 transition (42 cases); its BIP-341 signature hash equals the
 simulator's.
+\else
+\paragraph{Implementation.} A Python tapscript interpreter for both leaf
+versions computes the real BIP-341 signature message and runs every
+compiled script against a reference tree, with positive and negative
+cases per rule (forged leaf, stale root, unconserved amount, early
+eviction, voucher replay, and others); a Go implementation on
+\texttt{btcd} and \texttt{lnd} generates the same scripts byte for byte
+and builds, signs and verifies every FULL transition.
+\fi
 
+\iffullversion
 \paragraph{The transaction model.} Every vB figure is a whole
 transaction: script, witness elements and a 129-byte control block (the
 eight-leaf reference script set) as measured, plus a $946\WU$ skeleton
@@ -28,6 +39,15 @@ excluded (on a dense $D = 16$ exit, $10.5\vB$ in FULL, 10 in CCV, 42.5
 in MID, 44.75 in MIN), and the baselines omit the same overhead. A deployment that carries the
 sweeps, rewrites and variants needs 16 to 32 tapleaves, which adds 8 to
 $16\vB$ to every spend.
+\else
+\paragraph{The transaction model.} Every vB figure is a whole
+transaction: the measured script, witness and a 129-byte control block
+(an eight-leaf taptree), plus a $946\WU$ skeleton (the tree input, a
+fee input, the tree output, one P2TR payout and a change output) and
+$172\WU$ per further payout; transitions without a payout are charged
+$172\WU$ less. Witness length prefixes are excluded, about 1\% in FULL
+and 3\% in MID and MIN.
+\fi
 
 \paragraph{Exit cost.} A dense exit (Figure~\ref{fig:plot},
 Table~\ref{tab:sizes}) costs $762\vB$ at $D = 8$ and $1{,}149\vB$ at
@@ -44,8 +64,8 @@ the tree. LayerTree is about 60\% smaller at $D = 16$; a radix-4 tree
 needs $2{,}031\vB$, and an Ark member of a 256-member round unrolls
 $1{,}311\vB$. Under mass exit a tree's interior is shared, about $261\vB$
 per member at radix 2 and $191\vB$ at radix 4 with the claim, against
-$161\vB$ for a cohort leaving by \tr{REWRITE}$_6$ (Table~\ref{tab:ark},
-Appendix~\ref{app:eval}). The model prices neither the latency of $D$
+$161\vB$ for a cohort leaving by \tr{REWRITE}$_6$\iffullversion{} (Table~\ref{tab:ark},
+Appendix~\ref{app:eval})\fi. The model prices neither the latency of $D$
 sequential confirmations nor the larger opcode set.
 
 \begin{figure}[tbp]
@@ -75,6 +95,9 @@ sequential confirmations nor the larger opcode set.
 \label{fig:plot}
 \end{figure}
 
+% The batch table and its paragraph are the full version's; the short
+% version gives each shape in its operations section.
+\iffullversion
 \begin{table}[tbp]
 \centering
 \caption{Batch shapes at dense $D = 16$ on the model above: vB per leaf that leaves or changes, or per member that joins. Self-funded joins add each member's P2TR key-path funding input ($58\vB$) and the signing round of \S\ref{sec:parties}. The \tr{REWRITE}$_h$ rows are FULL only.}
@@ -102,6 +125,7 @@ costs the operator under $3\vB$ per member, so a self-funded member's own
 input dominates its entry. Off-chain, a member follows every spend of the
 tree output (about 1\,kB of witness each), and the operator stores the
 whole tree.
+\fi
 
 \iffullversion
 \paragraph{Fees and budgets.} At $10\sat/\mathrm{vB}$ a $D=16$ exit
@@ -113,6 +137,7 @@ budget in the dense profile and 3.6 to 4.7\% in the sparse ($D = 64$ to
 sigop budget.
 \fi
 
+\iffullversion
 \paragraph{Artefact.} Every number here is regenerated from the
 repository~\cite{layertreerepo} at the revision on the title page
 (\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
@@ -124,3 +149,10 @@ cohort shapes), \path{test_mid.py} (268), \path{test_min.py} (55),
 (55); by \texttt{go test ./...}; and by \texttt{lake build} in
 \path{formal/}, which prints the axiom audit. Figure coordinates are
 copied from these outputs by hand.
+\else
+\paragraph{Artefact.} Every number here is regenerated from the
+repository~\cite{layertreerepo} at the revision on the title page by
+the test suites and generators under \path{tools/} (1{,}054 FULL, 268
+MID, 55 MIN, 972 CCV and 210 channel checks), by \texttt{go test} and by
+\texttt{lake build}.
+\fi

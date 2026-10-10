@@ -1,0 +1,53 @@
+% Short version only: the trust model (spec/layertree.md 10.1), what each
+% party does (9.7), and the liveness assumption [C] (10.5).
+\section{Trust Model}\label{sec:trust}
+
+Custody never rests with the operator. The tree output's key path is
+unspendable, and every script path needs either a proof against the
+committed root plus the affected owner's signature, or the operator's
+signature for operations that only add value or move a cohort intact.
+Table~\ref{tab:trust} lists what each party can and cannot do.
+
+\begin{table}[tbp]
+\centering
+\caption{Who can do what (spec 10.1). ``Carve'' is \tr{SPLIT} or a redeemed voucher.}
+\label{tab:trust}
+\setlength{\tabcolsep}{3pt}\scriptsize
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\begin{tabular}{@{}L{1.3cm}L{5.0cm}L{5.0cm}@{}}
+\toprule
+party & can & cannot \\
+\midrule
+Operator & refuse to co-sign; graft leaves, including ones it funds; evict a leaf after its lease, paying it in full, with everything carved from it; issue vouchers on its own leaves; detach a cohort; fill a cohort's empty positions, stalling partial-balance vouchers & move or reduce another leaf; delay an exit beyond [C] (it contends by fee, like anyone); freeze value it did not graft and fund; change the taptree, a lease, or a detached cohort's rules, keys or balances \\
+Owner & exit at any time; co-sign updates; issue vouchers against its leaf; carve its leaf & affect any other leaf; withdraw more than its amount; carve a leaf with another evictor or a later lease than its own \\
+Anyone & redeem a valid voucher; relay transitions & trigger an owner's exit; create leaves; alter amounts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{What a member does.} A member stores its leaf and path and
+follows every spend of the tree output; each witness carries the path it
+used, so the member updates its own path from the chain alone and needs
+nothing else to exit. It verifies its path before funding a join
+(\S\ref{sec:parties}) and the source before accepting a voucher
+(\S\ref{sec:holder-risk}), and must be online to exit, since its
+signature commits to the current outpoint.
+
+\paragraph{Liveness.}\label{sec:liveness} Every operation spends and
+recreates one output, so an honest exit can be overtaken by conflicting
+spends (a corrupt member alone can carve its balance back and forth),
+and its delay depends on policy and fees. We state it as an assumption.
+\emph{[C] (contention):} at most $\kappa \ge 1$ spends of a tree output
+confirm per block, and while an honest spend is pending at the
+prevailing feerate at most $\beta$ conflicting adversarial spends
+confirm ahead of it. $\kappa$ is mempool policy (25 under Bitcoin Core's
+chain limits before version 31, at most 64 under its cluster limit
+since~\cite{corepolicy,clustermempool}, as low as 1 once anyone hangs
+descendants off a payout); $\beta$ is the adversary's fee budget against
+the honest bid. Under [C] an honest spend with $q$ others queued ahead
+confirms within $\lat(q) = \lat_L(\lceil (\beta + q)/\kappa \rceil + 1)$
+blocks, $\lat_L$ being the chain's own delay. Cooperatively a tree
+drains 25 exits per block, so 10{,}000 leaves closing at once take 400
+blocks: a tree is sized by exit throughput, not depth. The operator
+can evict any leaf once its lease passes, so a member who wants a longer
+guarantee needs a later lease at entry; no carve extends one.

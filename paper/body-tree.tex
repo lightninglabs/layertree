@@ -13,7 +13,7 @@ $x$. A leaf is a fixed 116-byte record
 \end{multline*}
 with keys as 32-byte x-only points, $\mathsf{evict\_after}$ a block
 height, $\mathsf{nonce}$ a per-leaf identifier and $\mathsf{seq}$ a
-counter advanced by vouchers (Appendix~\ref{app:claim}). A \emph{node} is
+counter advanced by vouchers (\iffullversion Appendix~\ref{app:claim}\else \S\ref{sec:vouchers}\fi). A \emph{node} is
 a pair $(h, s)$ of a 32-byte hash and an unsigned sum. A position holding
 leaf $\ell$ has node $(\Hleaf(\ell), \ell.\mathsf{amount})$; an empty
 position has node $\Emp_0 = (0^{32}, 0)$. The parent of $(h_L, s_L)$ and
@@ -24,7 +24,7 @@ $(h_R, s_R)$ is
 \]
 Every hash is a BIP-340 tagged hash with its own tag; $\encs(s)$ is the
 minimal BIP-441 encoding of $s + 2^{64}$, produced from a computed sum
-with one addition (Lemma~\ref{lem:enc}). $\Emp_h$ is the node of the
+with one addition\iffullversion{} (Lemma~\ref{lem:enc})\fi. $\Emp_h$ is the node of the
 empty tree of height $h$.
 
 The \emph{sibling path} $\pi$ of a position is the list of $D$ pairs
@@ -34,9 +34,10 @@ a node with a path from the bottom up, hashing with each sibling in the
 order the direction gives and adding the sums. The honest path folds a
 leaf's node to the root, and folding a \emph{different} node up the
 \emph{same} path yields the root with that position replaced
-(Theorem~\ref{thm:binding}).
+\iffullversion(Theorem~\ref{thm:binding})\else(\S\ref{sec:proved})\fi.
 
 \paragraph{Profiles.}
+\iffullversion
 In the \emph{dense} profile positions are assigned by the operator and a
 path carries explicit direction bits; each level costs 88 bytes of script
 and 41 bytes of witness. In the \emph{sparse} profile a leaf's position is
@@ -48,6 +49,14 @@ Merkle-sum sparse Merkle tree of Taproot Assets~\cite{mssmt} truncated to
 $D = 32$ or $64$, at 1.7 to 2.8 times the dense per-exit cost with
 $2^{16}$ members (Table~\ref{tab:sizes}). Dense is the default, and the
 rest of the paper measures it unless it says otherwise.
+\else
+In the \emph{dense} profile the operator assigns positions and a path
+carries direction bits. In the \emph{sparse} profile a leaf's position
+is derived by hashing its owner key and nonce, as in the Merkle-sum
+sparse Merkle tree of Taproot Assets~\cite{mssmt}, truncated to
+$D = 32$ or $64$, at 1.7 to 2.8 times the dense exit cost. Dense is the
+default and is what we measure.
+\fi
 
 \subsection{The Tree Output}\label{sec:output}
 
