@@ -5,7 +5,10 @@ a LayerTree at a range of fee rates, and compares it against the floor cost
 of any on-chain payment and against an Ark/CTV-style unilateral exit. All
 tables below are the literal output of `tools/fee_analysis.py`, which
 parses the measured sizes in `spec/scripts/sizes.md` and applies the
-transaction-skeleton model of section 11. Regenerate with:
+transaction model stated once at the head of section 11 (measured
+witness, 946 WU skeleton, 172 WU per further payout, `vB = ceil(WU / 4)`,
+witness length prefixes excluded); the prose around the tables is
+maintained by hand. Regenerate with:
 
 ```
 python3 tools/fee_analysis.py
@@ -15,7 +18,10 @@ python3 tools/fee_analysis.py
 
 State every number here explicitly; nothing below is looked up live.
 
-* **Skeleton.** Per section 11: tree input 41 vB, P2WPKH fee input 41 vB +
+* **Model.** The one stated at the head of section 11. Measured witness:
+  script, witness elements and a 129-byte control block for the
+  eight-leaf reference script set of 6.2 (11.1 prices larger sets, 8 vB
+  per doubling). Skeleton: tree input 41 vB, P2WPKH fee input 41 vB +
   108 WU witness, tree output 43 vB, payout output 43 vB (one per exit,
   43 vB more for each additional payout in a batch), change output 31 vB,
   version/locktime/counts ~10 vB, marker+flag 2 WU. Non-witness bytes cost
@@ -23,7 +29,20 @@ State every number here explicitly; nothing below is looked up live.
   for one payout; each extra payout adds **172 WU** (43 vB). The
   FULL-tier **endogenous** fee model (fee taken out of the payout, no fee
   input, no change output) totals **550 WU** for one payout.
-* **vbytes.** `vbytes = ceil(weight_WU / 4)`.
+* **vbytes.** `vbytes = ceil(weight_WU / 4)`, rounded once per
+  transaction.
+* **Excluded.** The witness item count and per-item length prefixes, as
+  in section 11. `spec/scripts/weights.md` measures them on serialised
+  transactions: 10.5 vB on a FULL dense `D = 16` `EXIT_1` (1,030 vB
+  measured against 1,020 here), 10 vB in CCV, 42.5 vB in MID (1,381
+  against 1,338) and 44.75 vB in MIN (1,501 against 1,456), the `0xC0`
+  tiers carrying over 160 witness items. Every row below omits them the
+  same way.
+* **Sparse rows.** The sparse witness figures in `spec/scripts/sizes.md`
+  are measured on a six-leaf tree (two non-empty siblings), so the sparse
+  rows below are `N = 6` figures. At `N = 2^16` the witness grows by about
+  41 bytes per further non-empty sibling: 1,780 vB at `D = 32` and
+  2,870 vB at `D = 64` (section 11).
 * **Fee.** `fee_sat = vbytes * fee_rate_sat_per_vb` (fee rates: 1, 2, 5, 10,
   25, 50, 100, 250 sat/vB).
 * **Dust.** P2TR dust limit assumed at 330 sat (a payout output below this
@@ -69,10 +88,11 @@ Illustrative USD, at 10 sat/vB and 100 sat/vB, $100,000/BTC:
 
 Reading this table: depth costs about 30 WU per level of script plus witness
 (the D=8 -> D=20 spread is only 762 -> 1,149 vbytes, +51%, over a 4,096x
-increase in tree size); tier costs much more than depth (MID is +31%, MIN
-is +43% over FULL at the same D=16); sparse costs about 1.6-2.7x dense at
-comparable practical depths, because a sparse tree needs D=32-64 levels of
-proof where a dense tree needs 8-20.
+increase in tree size); one tier step costs as much as 10 to 14 levels of
+depth (MID is +31%, MIN is +43% over FULL at the same D=16); sparse costs
+about 1.6-2.7x dense on the six-leaf measurement above (1.7 to 2.8x at
+N = 2^16), because a sparse tree needs D=32-64 levels of proof where a
+dense tree needs 8-20.
 
 ## EXIT_2: marginal cost of a second exit in the same transaction
 
@@ -247,7 +267,8 @@ D for their addressing needs, not to save fees. Tier matters much more:
 MID costs +31% and MIN +43% over FULL at the same D, so a chain that has
 not activated the FULL opcode set pays a real, fixed tax on every exit
 regardless of tree size. The sparse profile costs 1.6x (D=32) to 2.7x
-(D=64) a comparable dense exit; use it only where key-addressed positions
+(D=64) a comparable dense exit on the six-leaf measurement (1.7x to 2.8x
+at N = 2^16); use it only where key-addressed positions
 (no slot allocation, history-independent root) are worth that premium —
 for balances under about 20,000-50,000 sat at 10-25 sat/vB, a sparse exit
 can consume more than 5% of the balance in fees. Below a few thousand
@@ -307,6 +328,10 @@ larger FULL-tier opcode set, while Ark/CTV needs only `OP_CHECKTEMPLATEVERIFY`.
   specific deployed implementation.
 * USD figures use a placeholder price of 100,000 USD/BTC and are for scale
   only.
-* All figures assume the measured taptree/control-block size (5-6 leaves,
-  129 WU); a taptree with more supported transition scripts has a larger
-  control block and slightly higher cost per exit.
+* All figures assume the measured taptree/control-block size (the
+  eight-leaf reference set of 6.2, 129 WU); a taptree with more supported
+  transition scripts has a larger control block and slightly higher cost
+  per exit (8 vB per doubling, 11.1).
+* All figures omit the witness item count and length prefixes, measured
+  in `spec/scripts/weights.md` (about 1% in FULL and CCV, about 3% in MID
+  and MIN); see the assumptions above.

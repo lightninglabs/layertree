@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.10.0
+Version:  0.10.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -174,9 +174,10 @@ four changes, detailed in `design/review.md`:
               leaf = 116-byte record; empty leaf hash = 0x00..00, sum 0
 ```
 
-Every transition spends the tree output as input 0, recreates it as output
-0 with the new root and the new total, and places any payouts at output 1
-onward. Extra inputs (fees, funds being joined) and extra outputs (change,
+Every transition spends the tree output as input 0 (the CCV tier of 4.6
+reads the current input's index instead, so its tree input may sit at any
+index), recreates it as output 0 with the new root and the new total, and
+places any payouts at output 1 onward. Extra inputs (fees, funds being joined) and extra outputs (change,
 anchors) are unconstrained. The taptree of transition scripts is constant for
 the life of the tree; only the internal key changes with the state. Its
 Merkle root, `m`, doubles as the tree identifier.
@@ -222,12 +223,17 @@ design does not.
    v2" draft states.
 6. **Elliptic-curve opcodes** as in the draft BIP "Elliptic Curve Operations
    for Bitcoin Script" (Osuntokun; `Roasbeef/bips` branch `ec-ops-bip`,
-   bitcoin/bips PR #1945): `OP_EC_POINT_ADD` (0xbb; `[point2] [point1]` →
-   `point1 + point2`), `OP_EC_POINT_MUL` (0xbc; `[scalar] [point]` with the
-   scalar on top, a 32-byte big-endian scalar reduced mod `n`, and the empty
-   vector standing for `G`), `OP_EC_POINT_NEGATE` (0xbd, unused here) and
-   `OP_EC_POINT_X_COORD` (0xbe; 33-byte point → 32-byte x coordinate). All
-   points are 33-byte compressed; the point at infinity is the empty vector.
+   bitcoin/bips PR #1945), at commit `8df28249`, which is the revision the
+   reference scripts and the simulator assume. Operands are written as
+   that draft writes them, top of the stack first: `OP_EC_POINT_ADD` (0xbb;
+   `[point2] [point1]` → `point1 + point2`, `point2` on top),
+   `OP_EC_POINT_MUL` (0xbc; `[scalar] [point]` → `scalar · point`, the
+   scalar on top and the point beneath it; the scalar is 32 bytes
+   big-endian reduced mod `n`, and an empty `point` stands for `G`, so
+   `<t> OP_0 OP_SWAP OP_EC_POINT_MUL` computes `t·G`, 8.2),
+   `OP_EC_POINT_NEGATE` (0xbd, unused here) and `OP_EC_POINT_X_COORD`
+   (0xbe; 33-byte point → 32-byte x coordinate). All points are 33-byte
+   compressed; the point at infinity is the empty vector.
    Costs are 10, 30, 5 and 1 sigops units respectively (BIP-342 units in
    which `OP_CHECKSIG` is 50); under BIP-440 this is 10,000 varops per unit.
    **[A-3]** The scripts assume these opcodes are available in tapleaf
@@ -236,7 +242,8 @@ design does not.
    BIP-443 also claims `0xbb`. The final numbering is out of scope here and
    does not affect the design; the reference simulator parks `OP_TX` at
    `0xbf` as a placeholder.
-7. **`OP_CHECKCONTRACTVERIFY`** as in BIP-443: redefining
+7. **`OP_CHECKCONTRACTVERIFY`** as in BIP-443 at `bitcoin/bips` commit
+   `24e96e87`, the revision the CCV tier pins: redefining
    `OP_SUCCESS187` (0xbb), popping `<data> <index> <pk> <taptree>
    <mode>` (bottom to top). The CCV tier (section 4.6) uses only the
    following values: modes `-1` (`CHECK_INPUT`, no amount check), `0`
@@ -552,10 +559,12 @@ profiles, both numerics), tests in `tools/test_ccv.py`, Go mirror in
 ### 4.7 Policy assumptions
 
 *(informative)* Relay of `0xC2` script-path spends with witnesses of a few
-kilobytes is assumed to be standard once BIP-441 activates. Transitions use
-exogenous fees (section 9.3); a Pay-to-Anchor (`OP_1 <0x4e73>`) output at any
-index ≥ 1 (or ≥ K+1 for a K-payout transition) is compatible with all
-scripts in this document.
+kilobytes and 116-byte leaf elements is assumed to be standard once
+BIP-441 activates. The `0xC0` tiers are subject to today's 80-byte
+witness item limit, which only MIN's `extra_outs` element can exceed
+(8.11, 10.10). Transitions use exogenous fees (section 9.3); a
+Pay-to-Anchor (`OP_1 <0x4e73>`) output at any index ≥ 1 (or ≥ K+1 for a
+K-payout transition) is compatible with all scripts in this document.
 
 ## 5. Data Structures
 
@@ -1889,8 +1898,9 @@ pairs so that the first consumed is on top
 
 Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
 (sparse). Witness data (paths, leaves, signatures, `r`, `m`) is
-`42·levels + constant` (dense) or `41·(non-empty siblings) + levels +
-constant` (sparse). Full tables from the
+`41·levels + constant` (dense: a 40-byte sibling and a direction element
+of one byte or none per level, 129 WU per level with the script) or
+`41·(non-empty siblings) + levels + constant` (sparse). Full tables from the
 simulator, including varops consumed, are in `spec/scripts/sizes.md`; see
 section 11.
 
@@ -1998,6 +2008,27 @@ depth `h`. The
 script is `JOIN_h` plus 235 bytes, almost all of them the second
 `TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
 
+### 8.11 MIN witness elements and standardness
+
+*(informative)* The MIN tier reconstructs the BIP-341 signature message
+from witness-supplied serialisations (4.5), and its `EXIT_1` and `SPLIT`
+pass every output beyond the ones the script constrains as one raw
+element, `extra_outs` (`tools/layertree_min.py`), which the script
+concatenates into the output hash. Consensus bounds that element at 520
+bytes under tapleaf `0xC0`. Policy is tighter: Bitcoin Core relays a
+`0xC0` tapscript spend only if no witness item exceeds 80 bytes
+(`MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE`, section 15). A serialised P2TR
+output is 43 bytes and a Pay-to-Anchor output 13, so one P2TR change
+output plus an anchor (56 bytes) fits and two P2TR change outputs (86
+bytes) do not: such a MIN transaction is valid but not relayed by default
+nodes today. This is a policy limit, not a consensus one; a spender keeps
+`extra_outs` under 80 bytes (one change output, an anchor if any), and a
+future revision of the generator could split the element per output at
+the cost of one `OP_CAT` each. Every other witness element in the `0xC0`
+tiers is at most 64 bytes (10.10). The simulator checks consensus limits
+(520-byte elements, 1,000 stack elements) and the `MINIMALDATA` rules,
+not this standardness rule.
+
 ## 9. Off-Chain Protocol
 
 This section specifies the behaviour of operators and participants around
@@ -2035,6 +2066,18 @@ A member's funds are safe by construction: the only transaction that can
 spend `U`'s input is one whose output 0 commits to a root containing `U`'s
 leaf. `U` SHOULD retain the leaf, both paths, `r`, `r'` and the transaction
 id (section 9.7).
+
+*(informative)* A self-funded `JOIN_h` is a signing round among the
+joiners. Every member signs the same transaction, and its output 0
+commits to the subtree holding every new leaf, so the cohort must be
+fixed before anyone signs, and a member who withdraws, changes its leaf or
+never signs invalidates every other member's signature; the operator then
+rebuilds the subtree and collects signatures again, with the abort and
+retry exposure of a coinjoin or an Ark round. The covenant itself needs
+only the operator's signature (7.3 rule 2); the round is the price of
+members funding their own leaves on-chain. An operator-funded graft has
+no round: the operator fronts the value and is paid off-chain, as the
+next two paragraphs describe.
 
 The operator MAY use `JOIN_0` for a single member and MAY fund leaves
 itself (for example when providing liquidity to a channel leaf, or when
@@ -2116,7 +2159,7 @@ payments and of the original sketch's signed vouchers: an operator that
 keeps a funded bond leaf can pay recipients instantly with a voucher that is
 independently redeemable if the operator later disappears.
 
-#### 9.6.1 Hash-locked vouchers and swaps
+#### 9.6.1 Hash-locked vouchers and exchanges
 
 A hash-locked voucher (7.5.1) carries the obligations of 9.6 and three more.
 
@@ -2137,8 +2180,9 @@ that holds the same `payment_hash` in another contract (a Lightning HTLC, a
 channel-leaf HTLC of Appendix C.4.1, a voucher in another tree) MUST assume
 the counterparty in that contract learns the preimage as soon as the
 `CLAIM^h` transaction is in a block, and MUST size its own deadlines
-accordingly. This is what makes the swap atomic, and it is also why a
-redeemer SHOULD settle or secure its own leg before broadcasting.
+accordingly. The shared hash orders the two legs; it does not make the
+exchange atomic (9.6.2), which is why a redeemer SHOULD settle or secure
+its own leg before broadcasting.
 
 *(informative)* The canonical flow buys a leaf with off-chain funds, for a
 recipient holding no on-chain Bitcoin. `A` owns a funded leaf and wants
@@ -2153,14 +2197,21 @@ that `A` advances `seq` first; neither is removed by the hash lock, which
 orders the exchange rather than securing it. Reversing the roles (`B`
 generating `R` and being paid over Lightning) swaps which side carries
 which risk. Section 13 item 9 composes the same hash with a channel-leaf
-HTLC, giving a swap with no on-chain step on the channel side.
+HTLC, giving an exchange with no on-chain step on the channel side.
 
-#### 9.6.2 Swaps against a channel-leaf HTLC
+#### 9.6.2 Pairing a voucher with a channel-leaf HTLC
 
-A `CLAIM^h` voucher and a channel-leaf HTLC (Appendix C.4.1) that name the
-same `payment_hash` form an atomic swap: the preimage that resolves one
-resolves the other. Both legs apply the same 32-byte preimage discipline,
-so a preimage valid for one is valid for the other by construction.
+A `CLAIM^h` voucher is a hash-locked cheque, not an HTLC: the value stays
+in the source leaf, and until the redemption confirms the issuer can void
+the cheque with a conflicting `EXIT` or `SPLIT` of that leaf. Pairing it
+with a channel-leaf HTLC (Appendix C.4.1) that names the same
+`payment_hash` therefore gives an ordered exchange, not an atomic swap.
+The order is fixed: the HTLC resolves first, its preimage enables the
+voucher, and the voucher resolves second (rules 1 and 2); the voucher
+holder carries the issuer risk of 9.6.1 from the moment it offers the HTLC
+until its `CLAIM^h` confirms (rule 4). Both legs apply the same 32-byte
+preimage discipline, so a preimage valid for one is valid for the other by
+construction.
 
 The two legs are not symmetric, and the asymmetry drives the rules below.
 The HTLC leg has a deadline the chain enforces, `cltv_expiry`, after which
@@ -2274,10 +2325,10 @@ construction. The "virtual network" of the design notes is this hub.
 
 | Party | Can | Cannot |
 |---|---|---|
-| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves | move, reduce or delay any other leaf; freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
+| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves | move or reduce any other leaf; delay any other leaf's exit beyond the liveness bound of 10.5 (it can contend for the tree output only by fee, like any other spender, and assumption [C] bounds what that buys); freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
 | Owner | `EXIT` at any time; co-sign `UPDATE`; issue vouchers against their leaf; carve their leaf by `SPLIT` or a voucher | affect any other leaf; withdraw more than their leaf's amount; carve out a leaf with another evictor or a later lease than their own (7.5 rule 5) |
 | Anyone | redeem a valid voucher (`CLAIM`); relay transitions | trigger an owner's exit; create leaves; alter amounts |
-| Operator, `DETACH_h` (7.10) | move an aligned cohort into a tree output of its own, which shortens every member's path | change the cohort's rules, keys or balances by doing so: the child is the parent's option set at depth `h` (rule 3), its leaves are the parent's bytes, and its `tree_id` is inherited, so vouchers and channel states survive |
+| Operator, `DETACH_h` (7.10) | with its signature alone (7.10 rule 4), move an aligned cohort into a tree output of its own, which shortens every member's path and gives the cohort its own exit throughput (10.5) | take value from the cohort or from the parent: output 1 carries exactly the cohort's sum under the cohort's own root and output 0 the remainder (7.10 rules 1 to 3); change the cohort's rules, keys or balances: the child is the parent's option set at depth `h` (rule 3), its leaves are the parent's bytes, and its `tree_id` is inherited, so vouchers and channel states survive |
 
 Custody is never with the operator: the tree output's key path is
 unspendable (section 6.1) and every script path requires either a proof
@@ -2318,8 +2369,9 @@ IOU: the first redeemer is paid by consensus.
 
 A hash-locked voucher (7.5.1) adds ordering, not security. It guarantees
 that the holder cannot carve the leaf without the preimage, which is what
-makes an exchange against an off-chain leg atomic, and it leaves both risks
-of the preceding paragraph exactly where they were: the issuer can still
+lets an off-chain leg be resolved first and the voucher second (9.6.2),
+and it leaves both risks of the preceding paragraph exactly where they
+were: the issuer can still
 over-issue, and can still invalidate an unredeemed voucher by advancing
 `seq`. Because the two forms use different tags, a plain voucher cannot be
 redeemed under the hash lock and a hash-locked voucher cannot be redeemed
@@ -2383,32 +2435,75 @@ the script set is authenticated natively and the witness carries neither
 implementation MUST NOT add a witness-supplied taptree operand anywhere
 the input or output 0 is checked.
 
-### 10.5 Concurrency and pinning
+### 10.5 Concurrency, liveness and pinning
 
-All transitions spend the same UTXO, so at most one confirms per tree per
-block position and conflicting transitions are resolved by fee. An owner's
-`EXIT_1` conflicts with a pending operator `JOIN`; either party can replace
-the other under BIP-125 rules if it pays the required increment. An attacker
-holding one leaf can therefore impose a replacement cost on the operator
-once per leaf per round. Mitigations: operators SHOULD honour cooperative
-exit requests promptly (removing the incentive), MAY chain several
-transitions off one confirmed output within mempool descendant limits, and
-SHOULD use anchor outputs so that either party can bump fees. Signatures
-cover outputs, so a third party cannot alter where an exit pays.
+All transitions spend the same UTXO, so conflicting transitions are
+resolved by fee. An owner's `EXIT_1` conflicts with a pending operator
+`JOIN`; either party can replace the other under the replacement rules of
+BIP-125 if it pays the required increment. An attacker holding one leaf
+can therefore impose a replacement cost on the operator once per leaf per
+round. Signatures cover outputs, so a third party cannot alter where an
+exit pays.
 
-Because every transition spends and recreates the one tree output,
-uncooperative exits are serialised through it: default mempool policy
-(25 descendants) bounds a tree to roughly 25 single-leaf exits per block,
-and `EXIT_K` raises that only for parties who cooperate. Operators SHOULD
-size each tree by this exit throughput rather than by depth, and SHOULD
-shard a deployment into several trees when the time to drain one at 25
-leaves per block would exceed the time-sensitive commitments its leaves
-carry (for channel leaves, Appendix C.9.5 gives the bound).
+How long an honest transition can be delayed is not a consequence of
+consensus. The chain admits any number of valid conflicting spends of the
+tree output, and a corrupt member can produce them without removing a
+leaf: a `SPLIT` of its balance back and forth between two positions, or a
+voucher to itself redeemed by `CLAIM`; a corrupt operator can do the same
+with a `JOIN` and `EXIT` of a leaf it funds. Each confirmed spend
+invalidates a pending honest transition, which must be rebuilt against the
+new root (9.7). This document therefore states the exit-latency bound as
+a policy assumption with two parameters it does not derive:
+
+**[C] (contention).** At most `kappa >= 1` spends of one tree output
+confirm per block, and while an honest transition is pending at the
+prevailing fee rate at most `beta` conflicting spends confirm ahead of it.
+
+`kappa` is mempool policy, not consensus: 25 under Bitcoin Core's default
+ancestor and descendant count limits (section 15, Bitcoin Core policy); a
+per-cluster limit under cluster mempool, which replaces the chain limit
+with a bound on the size and count of the connected component the tree's
+chain belongs to; and as low as 1 once any participant attaches
+unconfirmed descendants to a payout or change output, which every
+transition leaves free. `beta` is economic: it is bounded by the
+adversary's fee budget against the honest bid and by nothing else, so
+without a bound on it a unilateral exit is a fee auction. Under [C] an
+honest transition with `q` honest transitions queued ahead of it takes
+effect within
+
+```
+Delta(q) = Delta_L · (ceil((beta + q) / kappa) + 1)
+```
+
+blocks, where `Delta_L` is the latency of one confirmation at the chosen
+fee rate. Nothing in the bound depends on the tree's membership `N`, which
+a corrupt operator controls by grafting. Appendix C.4.4 consumes
+`Delta(q)` as `G_exit`, and the cell "cannot delay" of 10.1 means this
+bound and nothing stronger.
+
+*(informative)* Cooperatively (`beta = 0`, `kappa = 25`, `Delta_L = 1`)
+a tree drains 25 single-leaf exits per block, so 10,000 leaves leaving at
+once take about 400 blocks; `EXIT_K` raises the rate only for parties who
+cooperate. That throughput is a cooperative-case figure, not a guarantee.
+TRUC (BIP-431) is not an option for transitions, since it caps an
+unconfirmed chain at two transactions and the chain is the throughput;
+pinning by a low-fee-rate ancestor on the fee input, or by descendants
+hung off a payout or change output, is outside what [C] models and is
+mitigated by policy (package relay, anchors), not by the scripts.
+
+Operators SHOULD size each tree by exit throughput rather than by depth,
+and SHOULD shard a deployment into several trees when the time to drain
+one at `kappa` leaves per block would exceed the time-sensitive
+commitments its leaves carry (for channel leaves, Appendix C.9.5 gives the
+rule). Operators SHOULD honour cooperative exit requests promptly
+(removing the incentive to contend), MAY chain several transitions off one
+confirmed output within the chain limit, and SHOULD use anchor outputs so
+that either party can bump fees.
 
 `DETACH_h` (7.10) is sharding on demand. A detached cohort spends its own
-output, so its transitions form their own unconfirmed chain and the
-descendant bound applies to it separately: an operator that detaches `k`
-cohorts raises the deployment's exit throughput to about `25·(k + 1)` leaves
+output, so its transitions form their own unconfirmed chain and `kappa`
+applies to it separately: an operator that detaches `k` cohorts raises the
+deployment's cooperative exit throughput to about `kappa · (k + 1)` leaves
 per block. Operators SHOULD detach a cohort when its leaves become
 time-sensitive, for instance channel leaves whose HTLC deadlines are near,
 rather than size every tree for the worst case in advance.
@@ -2485,9 +2580,24 @@ for the two `TREE_SPK` evaluations (82 sigops units each), 0.5M for the
 signature, and about 0.3M for hashing and stack work. The sparse profile at
 `D = 32` uses 3.07M against a budget of about 65M for its weight (4.7%),
 and the 256-level tree 9.3M against about 376M (2.5%): the fraction falls
-with depth because the budget scales with transaction weight. Stack depth peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80)
-against a limit of 32,768, and no element exceeds 40 bytes except the script
-itself.
+with depth because the budget scales with transaction weight. Stack depth
+peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80) against a limit
+of 32,768 (1,000 in the `0xC0` tiers, 4.5).
+
+Element sizes, measured on the reference witnesses: in FULL and in CCV
+under `0xC2` the largest witness element is the 116-byte leaf, with
+everything else at most 64 bytes (a signature; a sibling is 40 bytes);
+in MID, MIN and CCV under `0xC0` the leaf travels as seven field elements
+and no witness element exceeds 64 bytes, except MIN's raw `extra_outs`
+(8.11). The largest elements built during execution are the voucher
+message of `CLAIM` (328 bytes, 360 bytes for `CLAIM^h`), the tagged node
+preimage (144 bytes) and, in MIN, the reconstructed sighash message (276
+bytes), all under the 520-byte element limit of `0xC0`. The
+policy-relevant size is Bitcoin Core's 80-byte standardness cap on `0xC0`
+tapscript witness items (section 15): the `0xC0` tiers stay under it
+except as 8.11 describes, and the 116-byte leaf of the `0xC2` tiers
+relies on the relay assumption of 4.7, since no standardness rule for
+`0xC2` exists yet.
 
 ### 10.11 Reorganisations
 
@@ -2507,25 +2617,65 @@ Implementers MUST NOT parameterise selectors from the witness.
 ## 11. Cost Analysis
 
 *(informative)* Figures are measured by executing the reference scripts in
-the simulator (`tools/gen_listings.py` → `spec/scripts/sizes.md`). The
-control block assumes the reference script set of 6.2, which is eight
-tapleaves and therefore depth 3 and 129 bytes; 11.1 gives the cost of a
-larger set.
+the simulator (`tools/gen_listings.py` → `spec/scripts/sizes.md`) and
+priced on one transaction model. `spec/fee-analysis.md`
+(`tools/fee_analysis.py`) and the paper use the same model unchanged, so
+a figure that appears in more than one place is the same figure:
+
+* **Measured witness (WU).** The script, the witness elements and a
+  129-byte control block, one weight unit per byte. The control block is
+  for the reference script set of 6.2, eight tapleaves and so taptree
+  depth 3; 11.1 prices a larger set. The sweeps, rewrites, detach and
+  variants priced below would need 16 to 32 leaves in one taptree, 8 to
+  16 vB more on every spend.
+* **Skeleton.** 946 WU: the tree input (41 vB), a P2WPKH fee input (41 vB
+  plus 108 WU of witness), the tree output (43 vB), one P2TR payout
+  (43 vB), a P2WPKH change output (31 vB), version, lock time and counts
+  (10 vB), and the segwit marker and flag (2 WU). Each further payout
+  adds 172 WU (43 vB). A transition with no payout (`JOIN`, `UPDATE`,
+  `CLAIM`, `SPLIT`, the update case of `REWRITE_h`) is priced without one,
+  774 WU; `DETACH_h` uses the slot for its second tree output. The
+  FULL-tier endogenous fee form (9.3) drops the fee input and change,
+  550 WU.
+* **Virtual bytes.** `vB = ceil(WU / 4)`, rounded once per transaction;
+  per-leaf figures divide that by the leaves that leave or change.
+* **Excluded.** The witness item count and the per-item length prefixes
+  (one byte per element below 253 bytes, three for the script).
+  `spec/scripts/weights.md` (`tools/measure_weight.py`) serialises the
+  transaction each test builds and measures what the model leaves out:
+  on a dense `D = 16` `EXIT_1` it is 42 WU (10.5 vB) in FULL with 39
+  witness items, 40 WU (10 vB) in CCV, but 170 WU (42.5 vB) in MID and
+  179 WU (44.75 vB) in MIN, whose witnesses carry each level's sibling as
+  several small elements (over 160 items); a MID sweep at `h = 6` has
+  about 950 items, 955 WU of prefixes. Measured against the model, the
+  owner `EXIT_1` rows are FULL dense 1,030 vB (model 1,020), FULL sparse
+  `D = 32` 1,648 (1,637), MID dense 1,381 (1,338), MID sparse `D = 31`
+  2,864 (2,787), MIN dense 1,501 (1,456), CCV dense 918 (908) and CCV
+  sparse 1,535 (1,525). The prefixes are omitted the same way from every
+  row here, in `spec/fee-analysis.md` and in the paper, so the
+  comparisons between rows stand; the absolute figures are about 1% low
+  in FULL and CCV and about 3% low in MID and MIN. The transaction-tree
+  baseline below is a model, not a measurement, and carries no such term.
 
 | profile | D | positions | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
 |---|---|---|---|---|---|---|---|
-| dense | 8 | 256 | 1,397 | 574 | 2,100 | ≈ 3,050 | ≈ 765 |
-| dense | 12 | 4,096 | 1,749 | 738 | 2,616 | ≈ 3,570 | ≈ 890 |
-| dense | 16 | 65,536 | 2,101 | 902 | 3,132 | ≈ 4,080 | ≈ 1,020 |
-| dense | 20 | 1,048,576 | 2,453 | 1,066 | 3,648 | ≈ 4,600 | ≈ 1,150 |
-| dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | ≈ 4,340 | ≈ 1,085 |
-| dense, `EVICT_SUBTREE_4` (13 leaves swept) | 16 | 65,536 | 5,281 | 2,129 | 7,539 | ≈ 8,490 | ≈ 2,120 (≈ 165 per leaf) |
-| dense, `EVICT_SUBTREE_6` (51 leaves swept) | 16 | 65,536 | 16,097 | 6,455 | 22,681 | ≈ 23,630 | ≈ 5,910 (≈ 116 per leaf) |
-| sparse | 32 | 2^32 | 5,147 | 326 + 41·log2 N | ≈ 6,260 (N = 65k) | ≈ 7,210 | ≈ 1,800 |
-| sparse | 64 | 2^64 | 9,499 | 326 + 41·log2 N | ≈ 10,610 (N = 65k) | ≈ 11,560 | ≈ 2,890 |
-| sparse | 256 | 2^256 | 35,611 | 285 + 41·log2 N | ≈ 36,680 (N = 65k) | ≈ 37,630 | ≈ 9,410 |
-| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,683 | ≈ 3,630 | ≈ 908 |
-| sparse, CCV tier | 32 | 2^32 | 4,762 | 262 + 41·log2 N | ≈ 5,810 (N = 65k) | ≈ 6,760 | ≈ 1,690 |
+| dense | 8 | 256 | 1,397 | 574 | 2,100 | 3,046 | 762 |
+| dense | 12 | 4,096 | 1,749 | 738 | 2,616 | 3,562 | 891 |
+| dense | 16 | 65,536 | 2,101 | 902 | 3,132 | 4,078 | 1,020 |
+| dense | 20 | 1,048,576 | 2,453 | 1,066 | 3,648 | 4,594 | 1,149 |
+| dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | 4,339 | 1,085 |
+| dense, `EVICT_SUBTREE_4` (13 leaves swept) | 16 | 65,536 | 5,281 | 2,129 | 7,539 | 10,549 | 2,638 (203 per leaf) |
+| dense, `EVICT_SUBTREE_6` (51 leaves swept) | 16 | 65,536 | 16,097 | 6,455 | 22,681 | 32,227 | 8,057 (158 per leaf) |
+| sparse | 32 | 2^32 | 5,147 | 244 + 41·k | ≈ 6,180 (N = 2^16) | ≈ 7,120 | ≈ 1,780 |
+| sparse | 64 | 2^64 | 9,499 | 244 + 41·k | ≈ 10,530 (N = 2^16) | ≈ 11,470 | ≈ 2,870 |
+| sparse | 256 | 2^256 | 35,611 | 203 + 41·k | ≈ 36,600 (N = 2^16) | ≈ 37,550 | ≈ 9,390 |
+| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,683 | 3,629 | 908 |
+| sparse, CCV tier | 32 | 2^32 | 4,762 | 180 + 41·k | ≈ 5,730 (N = 2^16) | ≈ 6,670 | ≈ 1,670 |
+
+Sparse witness sizes are a formula in `k`, the number of non-empty
+siblings on the path, which is about `log2 N` for `N` members; the
+measured figures in `spec/scripts/sizes.md` (326, 285 and 262 bytes) are
+on a six-leaf tree with `k = 2`, and the totals here take `k = 16`.
 
 The CCV-tier rows (section 4.6) replace the `TREE_SPK` recomputations
 with `OP_CHECKCONTRACTVERIFY` calls: about 390 script bytes and 64
@@ -2537,33 +2687,42 @@ tier's two `TREE_SPK` recomputations. A CCV `CLAIM` at `D = 16` (dense)
 measures 3,472 / 1,626 bytes against FULL's 3,859 / 1,690; it is the one
 CCV script that needs `OP_CHECKSIGFROMSTACK` (4.6).
 
-The transaction weight column adds a fee input (P2WPKH), a change output
-and non-witness overhead (≈ 950 WU). In the dense profile each level costs
-131 WU (88 script + 41 path + 2 length prefixes) regardless of occupancy. In
-the sparse profile each level costs 135 WU of script plus 1 WU for an empty
-sibling or 42 WU for a non-empty one, so witness data grows with `log2 N`
-rather than with `D`. The minimal-inventory row (section 4.4) shows the
-price of doing without the restored splice opcodes and the EC point
-opcodes: about 260 WU per exit.
+The transaction weight column adds the 946 WU skeleton of the model
+above. In the dense profile each level costs 129 WU regardless of
+occupancy: 88 of script and 41 of witness (a 40-byte sibling node and a
+direction element of one byte or none), which is the slope of the table
+(516 WU per four levels); the two length prefixes those elements carry on
+the wire are among the excluded bytes above. In the sparse profile each
+level costs 135 WU of script plus 1 WU for an empty sibling or 42 WU for a
+non-empty one, so witness data grows with `log2 N` rather than with `D`.
+The minimal-inventory row (section 4.4) shows the price of doing without
+the restored splice opcodes and the EC point opcodes: about 260 WU per
+exit.
 
-The sparse profile at `D = 32` costs about twice the dense profile at
-`D = 16` per exit, which is why dense is the default profile (5.4). What
-sparse buys is key-addressed positions: no slot
-allocation, a history-independent root, and structural uniqueness of
-leaves. The full 256-level MS-SMT is about twelve times the dense cost and
-is not recommended; truncating positions to 32–64 bits loses nothing but
-the ability to use a raw key as the position.
+The sparse profile at `D = 32` costs about 1.8 times the dense profile at
+`D = 16` per exit (1,780 against 1,020 vB at `N = 2^16`; 1.7 to 2.8 times
+over `D = 32` to `64`), which is why dense is the default profile (5.4).
+What sparse buys is key-addressed positions: no slot allocation, a
+history-independent root, and structural uniqueness of leaves. The full
+256-level MS-SMT costs about 17 times the dense script and 9 times the
+dense transaction and is not recommended; truncating positions to 32–64
+bits loses nothing but the ability to use a raw key as the position.
 
 For comparison, a unilateral exit from a radix-2 Ark or CTV tree of `2^D`
-leaves publishes `D` transactions of roughly 600 WU each (about 9,600 WU at
-`D = 16`) and waits out a relative timelock at the leaf, while the operator
-must publish the whole tree to reclaim expired leaves. LayerTree pays a fixed
-cost of about 2,000 WU (the EC-heavy prologue, the leaf, the signature and
-the transaction skeleton) plus 130 WU per level, so it breaks even near
-`D = 5` (32 leaves) and is about 2.4× cheaper at `D = 16`; the gap widens
-with size. The trade-off is that LayerTree requires the
-larger opcode set of section 4, whereas CTV-based trees need only a template
-opcode.
+leaves publishes `D` transactions, modelled at 150 vB each (one key-path
+P2TR input and two P2TR outputs), plus a 111 vB claim of the leaf (the
+same model as `spec/fee-analysis.md`), and waits out a relative timelock
+at the leaf, while the operator must publish the whole tree to reclaim
+expired leaves. LayerTree pays a fixed cost of about 2,000 WU, or 500 vB
+(the EC-heavy prologue, the leaf, the signature and the transaction
+skeleton), plus 129 WU per level, about 32 vB, so it breaks even near
+`D = 3` (8 leaves) and is about 2.5 times cheaper at `D = 16` (1,020
+against 2,511 vB, about 60% smaller); the gap widens with size. The model
+ignores the leaf's timelock and the separate fee of each tree
+transaction, which favours the tree, and the sharing of a tree's interior
+transactions among exits in the same round, which favours it the other
+way. The trade-off is that LayerTree requires the larger opcode set of
+section 4, whereas CTV-based trees need only a template opcode.
 
 `EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,741 of
 witness data (5,617 WU in total), i.e. a second exit in the same transaction
@@ -2587,27 +2746,32 @@ Shape-specialised multiproofs change the picture for *removals* in the same
 way grafting does for additions. `EVICT_SUBTREE_h` (section 7.7) hashes the
 subtree's internal nodes once and checks one signature:
 
-| script | positions | leaves swept | script | witness | per-leaf total | sequential equivalent |
-|---|---|---|---|---|---|---|
-| `EVICT_SUBTREE_2` | 4 | 3 | 2,709 | 1,051 | ≈ 1,300 WU | `EXIT_4`: 7,039 B script |
-| `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 WU | `EXIT_16`: 26,791 B script |
-| `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 WU | `EXIT_64`: 105,847 B script |
+| script | positions | leaves swept | script | witness | witness per leaf (WU) | tx vB per leaf | sequential equivalent |
+|---|---|---|---|---|---|---|---|
+| `EVICT_SUBTREE_2` | 4 | 3 | 2,709 | 1,051 | ≈ 1,300 | 432 | `EXIT_4`: 7,039 B script |
+| `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 | 203 | `EXIT_16`: 26,791 B script |
+| `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 | 158 | `EXIT_64`: 105,847 B script |
 
-(`D = 16`; three of every sixteen positions already empty.) Per-leaf cost
-falls from about 2.5 kWU (sequential) or 4 kWU (standalone) to about
-0.45 kWU, and the script grows only with the subtree, not with `D` per
-leaf. This is why cohorts SHOULD be grafted into aligned subtrees with a
-common lease expiry: the operator can then both add and remove a cohort in
-one constant-shape transaction each.
+(`D = 16`; three of every sixteen positions already empty. The witness
+column is script plus witness elements plus control block, the
+transaction column prices the whole transaction on the model above with
+one payout per leaf.) Per-leaf witness falls from about 2.5 kWU
+(sequential) or 4 kWU (standalone) to about 0.45 kWU, and at the
+transaction level from 1,020 vB (standalone `EXIT_1`) or 842 vB (per exit
+in `EXIT_2`) to 203 and 158 vB; the script grows only with the subtree,
+not with `D` per leaf. This is why cohorts SHOULD be grafted into aligned
+subtrees with a common lease expiry: the operator can then both add a
+cohort in one constant-shape transaction and remove it in one
+transaction per cohort.
 
 The MID tier's sweep (8.7) measures 4,097 / 1,157, 7,865 / 2,417 and
 23,873 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
 same cohorts, about 1.5 times FULL's script and 1.1 to 1.2 times its
-witness: about 615 WU per leaf at `h = 6` against FULL's 445. A full
-32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about 565 WU per
-leaf). The 1,000-element stack limit caps a MID sweep at `D = 16` to
-54 occupied positions (4.5), so a full 64-leaf cohort takes two
-`EVICT_SUBTREE_5` spends.
+witness: about 615 WU of witness per leaf at `h = 6` against FULL's 445.
+A full 32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about
+565 WU per leaf). The 1,000-element stack limit caps a MID sweep at
+`D = 16` to 54 occupied positions (4.5), so a full 64-leaf cohort takes
+two `EVICT_SUBTREE_5` spends.
 
 `REWRITE_h` (section 7.9) runs the same fold over two subtrees and is the
 members' counterpart: a mass exit, a batched `UPDATE` and an intra-cohort
@@ -2616,35 +2780,39 @@ settlement at once. Measured at `D = 16` with every position occupied
 scenario of `tools/test_scripts.py`, with exits, joins, rotations,
 renewals and payments, three of every seven positions empty or joining):
 
-| script | positions | scenario | script | witness | owner sigs | per-leaf vB |
-|---|---|---|---|---|---|---|
-| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | ≈ 370 |
-| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | ≈ 198 |
-| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | ≈ 159 |
-| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | ≈ 145 per changed leaf |
-| `REWRITE_6` | 64 | mixed (51 changed) | 16,444 | 15,139 | 36 | ≈ 168 per changed leaf, 134 per position |
+| script | positions | scenario | script | witness | owner sigs | tx vB | per-leaf vB |
+|---|---|---|---|---|---|---|---|
+| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | 1,437 | 359 |
+| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | 3,123 | 195 |
+| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | 10,104 | 158 |
+| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | 9,208 | 144 per changed leaf |
+| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 16,444 | 15,139 | 36 | 8,509 | 167 per changed leaf, 133 per position |
 
-The per-leaf column counts the whole transaction (skeleton, fee input and
-change, 43-byte payout outputs) divided by the leaves that leave or
-change. The marginal costs are what the design turns on: at `h = 6` each
+The transaction column prices the whole transaction on the model above:
+the skeleton with one payout per exiting leaf and none in the update
+case; the per-leaf column divides it by the leaves that leave or change.
+The marginal costs are what the design turns on: at `h = 6` each
 position costs 233 bytes of script (its `REWRITE_STEP` and its share of
 the `HASH_STEP2`s) and 234 bytes of witness for its two elements, about
 117 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
 output and drops the 117-byte new element, so an unchanged leaf costs
 about 117 vB, a changed leaf about 133 vB and an exiting leaf about
-147 vB. Sixty-four owners who leave together therefore pay what the
-operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and a
-cohort that rewrites every balance pays about 145 vB per leaf against
-1,073 vB for an `UPDATE` each. `REWRITE_h^x` adds the 65-byte exit-key
-signature, 16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 /
-4,905 bytes).
+147 vB. Sixty-four owners who leave together therefore pay exactly what
+the operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and
+a cohort that rewrites every balance pays about 144 vB per leaf against
+1,030 vB for an `UPDATE` each (3,346 WU of witness on the skeleton
+without a payout). `REWRITE_h^x` adds the 65-byte exit-key signature,
+16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 / 4,905
+bytes).
 
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
-`D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness, about
-780 vB, and every later `EXIT_1` from the detached tree costs the depth-8
-figure of the table above, 765 vB instead of 1,020, so it pays for itself
-at the fourth exit; a cohort of 256 that all leave alone saves about a
-quarter. Its larger effect is on throughput (10.5), not bytes.
+`D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness,
+2,174 WU with the control block and 780 vB on the model above (the
+skeleton's payout slot is its second tree output), and every later
+`EXIT_1` from the detached tree costs the depth-8 figure of the table
+above, 762 vB instead of 1,020, so it pays for itself at the fourth exit;
+a cohort of 256 that all leave alone saves about a quarter. Its larger
+effect is on throughput (10.5), not bytes.
 
 Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 `D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
@@ -2708,10 +2876,13 @@ balances at 1 to 250 sat/vB. Headlines, FULL dense `D = 16` (1,020 vB):
 | 250 sat/vB | 255,000 sat | 25,500,000 sat | 2,550,000 sat |
 
 Depth moves the cost little (762 vB at `D = 8`, 1,149 vB at `D = 20`);
-tier and profile move it more (MID +31%, MIN +43%, sparse 1.6–2.7×). The
-FULL-tier endogenous fee option saves a constant 99 vB. Batching lowers the
-marginal exit to 665 vB, and cohort sweeps lower eviction to 203 vB per
-leaf (`EVICT_SUBTREE_4`) and 158 vB per leaf (`EVICT_SUBTREE_6`), which is
+tier and profile move it more (MID +31%, MIN +43%, sparse 1.7 to 2.8
+times at `N = 2^16`): one tier step costs as much as 10 to 14 levels of
+depth. The FULL-tier endogenous fee option saves a constant 99 vB.
+Batching lowers the cost of a second exit in the same transaction to
+665 vB (its marginal weight rounded on its own; `EXIT_2` is 1,684 vB in
+all, 842 per exit), and cohort sweeps lower eviction to 203 vB per leaf
+(`EVICT_SUBTREE_4`) and 158 vB per leaf (`EVICT_SUBTREE_6`), which is
 what keeps small leaves evictable at high fee rates; operators SHOULD size
 cohorts and minimum leaf amounts so that a sweep stays below about 10% of
 the smallest leaf at the fee-rate tail they intend to survive. Dust (330
@@ -2776,9 +2947,10 @@ exits in a batch" as `EXIT_K` (section 13).
    coordination and is left for a separate document.
 6. **Hash-locked vouchers.** Now specified as 7.5.1 (`CLAIM^h`), with the
    protocol in 9.6.1 and the security analysis in 10.3; the entry is kept so
-   the numbering stays stable. It enables atomic swaps between trees, into
-   Lightning, or with on-chain funds, and third-party liquidity provision:
-   any leaf owner can service a swap by issuing a voucher.
+   the numbering stays stable. It enables ordered exchanges (9.6.1, not
+   atomic swaps) between trees, into Lightning, or with on-chain funds,
+   and third-party liquidity provision: any leaf owner can service such an
+   exchange by issuing a voucher.
 7. **Nesting.** A leaf's `exit_key` may be the output key of another
    LayerTree, giving hierarchical trees with constant-size exit at each
    level.
@@ -2787,8 +2959,10 @@ exits in a batch" as `EXIT_K` (section 13).
    `TREE_SPK`; see the caveat in section 10.4.
 9. **Vouchers and channel HTLCs share a hash.** Now specified as 9.6.2: a
    `CLAIM^h` voucher (7.5.1) and a channel-leaf HTLC (Appendix C.4.1) that
-   name the same payment hash give an atomic swap between the credit
-   instrument and the settlement instrument, with one leg on-chain at most.
+   name the same payment hash give an ordered exchange between the credit
+   instrument and the settlement instrument (HTLC first, voucher second,
+   issuer risk on the voucher holder until its `CLAIM^h` confirms), with
+   one leg on-chain at most.
    The entry is kept so the numbering stays stable.
 10. **`UPDATE` with `exit_key` consent.** Now specified as 7.4 rule 5
    (`UPDATE^x`); the entry is kept so the numbering stays stable.
@@ -3035,11 +3209,21 @@ and signature-hash models are simplified as documented in its header.
   `https://github.com/rustyrussell/bips/pull/1`.
 * Draft "Elliptic Curve Operations for Bitcoin Script" (Osuntokun),
   `https://github.com/Roasbeef/bips/blob/ec-ops-bip/bips-ec-ops.md`,
-  bitcoin/bips PR #1945.
+  bitcoin/bips PR #1945; the scripts assume commit `8df28249` (4.1).
 * "[0/4] A Bitcoin Scripting Proposal BIP Quartet", bitcoindev,
   `https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ`.
-* BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala): the data-tweaked internal
-  key used here follows the same pattern.
+* BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala), pinned at `bitcoin/bips`
+  commit `24e96e87` (4.1): the data-tweaked internal key used here follows
+  the same pattern.
+* Bitcoin Core mempool policy: the ancestor and descendant count limits
+  (`src/policy/policy.h`, `DEFAULT_ANCESTOR_LIMIT` and
+  `DEFAULT_DESCENDANT_LIMIT`, 25) and the 80-byte tapscript witness item
+  limit (`MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE`),
+  `https://github.com/bitcoin/bitcoin`.
+* Cluster mempool (Wuille, Daftuar, Zhao), Delving Bitcoin,
+  `https://delvingbitcoin.org/t/an-overview-of-the-cluster-mempool-proposal/393`.
+* BIP-125, Opt-in Full Replace-by-Fee Signaling; BIP-431, Topology
+  Restrictions for Pinning (TRUC).
 * Merkle Sum Sparse Merkle Trees, Taproot Assets BIP draft (Osuntokun).
 * Ark protocol documentation (Ark Labs; Second).
 * `design/unified-batching.md` — the essay in which LayerTree was first
