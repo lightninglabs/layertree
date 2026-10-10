@@ -191,6 +191,19 @@ figure { margin: var(--space-5) 0; }
 figure svg { display: block; max-width: 100%; height: auto; }
 figcaption { font-size: var(--text-sm); color: var(--color-text-muted); margin-top: var(--space-2); }
 
+/* Static diagrams drawn inline in the pages. */
+.diagram text { fill: var(--color-text); font-family: var(--font-mono); font-size: 12px; }
+.diagram .d-sm { font-size: 11px; fill: var(--color-text-muted); }
+.diagram .d-b { font-weight: 700; }
+.diagram .d-box { fill: var(--color-surface); stroke: var(--color-border-strong); stroke-width: 1.5px; }
+.diagram .d-chain { fill: var(--color-chain); stroke: var(--color-border-strong); stroke-width: 1px; }
+.diagram .d-tree { fill: var(--color-surface); stroke: var(--color-accent); stroke-width: 2px; }
+.diagram .d-tx { fill: var(--color-accent-soft); stroke: var(--color-accent); stroke-width: 1.5px; }
+.diagram .d-off { fill: none; stroke: var(--color-border-strong); stroke-width: 1px; stroke-dasharray: 4 3; }
+.diagram .d-line { stroke: var(--color-text-muted); stroke-width: 1.5px; fill: none; }
+.diagram .d-dash { stroke: var(--color-text-muted); stroke-width: 1.2px; fill: none; stroke-dasharray: 3 3; }
+.diagram .d-head { fill: var(--color-text-muted); }
+
 .callout {
   background: var(--color-surface);
   border: var(--border-width) solid var(--color-border);

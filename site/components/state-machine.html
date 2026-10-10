@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The state machine</title>
+<meta name="description" content="How one Bitcoin output can hold a state machine: the chain stores a root, and every spend proves the old state, applies a rule and commits to the new root.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html" aria-current="page">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>A state machine in one output</h1>
+
+  <p class="takeaway">The chain stores only a commitment to the state, and every
+  spend must prove the old state against that commitment, apply one rule, and
+  commit to the new state. The state itself never goes on-chain, so one output can
+  carry the balances of many owners, or any other state that can be hashed into a
+  root and changed by a rule a script can check.</p>
+
+  <p>The figure runs one spend through the covenant. The rule in this example is
+  an exit: B leaves with its 3. The list under the caption tracks the three
+  checks the covenant makes.</p>
+
+  <div class="tree-anim" data-scenario="sm-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="sm-steps">
+  {
+    "label": "The three checks of the covenant",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "A", "amount": 5}, {"label": "B", "amount": 3},
+      {"label": "C", "amount": 6}, {"label": "D", "amount": 2},
+      {"label": "E", "amount": 4}, null, null, null
+    ],
+    "steps": [
+      {
+        "title": "The chain holds a commitment",
+        "caption": "The tree output carries two things: its amount, 20, and an output key derived from the root. Nothing else about the tree is on-chain. The leaves and the nodes between them live off-chain, with the members and the operator.",
+        "ops": [
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "pending"},
+            {"text": "The rule holds.", "state": "pending"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "The witness brings the old state and a proof",
+        "caption": "B's transaction spends the tree output. Its witness, the data supplied alongside a spend, holds B's leaf, the sibling node at each of the three levels above it, the root it claims, and B's signature.",
+        "ops": [
+          {"op": "path", "pos": 1},
+          {"op": "badge", "pos": 1, "text": "B signs", "kind": "sig"},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "pending"},
+            {"text": "The rule holds.", "state": "pending"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "Check 1: the input commits to the old root",
+        "caption": "The script hashes B's leaf with each sibling in turn, adding the sums as it goes, and reaches a root. It derives an output key from that root and compares it with the key of the output being spent. They match, so B's leaf is in the committed tree with amount 3.",
+        "ops": [
+          {"op": "path", "pos": 1},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "ok"},
+            {"text": "The rule holds.", "state": "pending"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "A false proof fails check 1",
+        "caption": "Suppose B's witness claimed 9 instead of 3. Every node on the path would hash to a different value, the computed root would differ from the committed one, and so would the derived key. The script stops here and the transaction is invalid.",
+        "ops": [
+          {"op": "mark", "kind": "bad", "nodes": [[0, 1], [1, 0], [2, 0], [3, 0]]},
+          {"op": "badge", "pos": 1, "text": "claims 9", "kind": "bad"},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root: the computed root differs.", "state": "fail"},
+            {"text": "The rule holds.", "state": "pending"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "Check 2: the rule holds",
+        "caption": "For an exit the rule is that the leaf's owner key signed this transaction, and that the transaction pays the leaf's exit key no more than the leaf's amount. B's signature verifies. A join, an eviction or a voucher would check a different rule at this point.",
+        "ops": [
+          {"op": "path", "pos": 1},
+          {"op": "badge", "pos": 1, "text": "B signs", "kind": "sig"},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "ok"},
+            {"text": "The rule holds: B signed, and B is paid at most 3.", "state": "ok"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "Fold the new state",
+        "caption": "The script puts the new node in place of the old one, here an empty slot, and folds it up the same siblings. The siblings have not changed, so the proof of the old state also serves for the new one. The new root's total is 17.",
+        "ops": [
+          {"op": "leaf", "pos": 1, "leaf": null},
+          {"op": "fold", "pos": 1},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "ok"},
+            {"text": "The rule holds.", "state": "ok"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "Check 3: the output commits to the new root",
+        "caption": "The script derives the output key for the new root and requires output 0 of the transaction to have that key and an amount of exactly 17. The tree output now commits to a tree without B, and B's 3 leaves in its own output.",
+        "ops": [
+          {"op": "chip", "id": "payB", "kind": "payout", "label": "Payout to B", "amount": 3},
+          {"op": "commit"},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "ok"},
+            {"text": "The rule holds.", "state": "ok"},
+            {"text": "The output commits to the new root, with amount 17.", "state": "ok"}
+          ]}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="pattern">The pattern</h2>
+  <p>A covenant is a script that restricts what the spending transaction may
+  contain, not only who may sign it. Bitcoin script keeps no variables between
+  transactions, so the only place a covenant can keep state is in the output it
+  guards. LayerTree keeps the state in the output's key. The key is derived from
+  the root of the tree, then tweaked by the set of scripts the output may be spent
+  with, in the usual taproot way. The starting point of the derivation is a point
+  whose private key nobody knows, so the output can never be spent by a signature
+  alone; every spend must run one of the scripts.</p>
+  <p>Each script then makes the same three checks:</p>
+  <ol>
+    <li><strong>The input commits to the old root.</strong> The witness supplies
+    the old state and a proof. The script folds the proof into a root, derives the
+    output key from it, and compares that key with the key of the output being
+    spent.</li>
+    <li><strong>The rule holds.</strong> The script checks whatever the transition
+    requires: a signature from the leaf's owner, a signature from the operator, a
+    block height, a signed voucher.</li>
+    <li><strong>The output commits to the new root.</strong> The script folds the
+    new state up the same proof, derives the output key for the new root, and
+    requires the transaction to create an output with that key and the new
+    total.</li>
+  </ol>
+  <p>Those three checks are the whole covenant. Every page on this site is an
+  instance of it with a different rule and a different node replaced.</p>
+
+  <figure>
+    <svg class="diagram" viewBox="0 0 680 196" role="img"
+      aria-label="Each transaction spends the tree output that commits to one root and creates a tree output that commits to the next. The trees themselves stay off-chain; only roots and amounts appear on-chain.">
+      <defs>
+        <marker id="sm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" class="d-head"/>
+        </marker>
+      </defs>
+      <rect class="d-chain" x="2" y="2" width="676" height="86" rx="6"/>
+      <text class="d-sm" x="12" y="18">ON-CHAIN</text>
+      <rect class="d-tree" x="12" y="28" width="104" height="48" rx="5"/>
+      <text class="d-b" x="64" y="48" text-anchor="middle">output</text>
+      <text class="d-sm" x="64" y="66" text-anchor="middle">root r0 · 20</text>
+      <rect class="d-tx" x="148" y="28" width="118" height="48" rx="5"/>
+      <text class="d-b" x="207" y="48" text-anchor="middle">transaction</text>
+      <text class="d-sm" x="207" y="66" text-anchor="middle">3 checks</text>
+      <rect class="d-tree" x="298" y="28" width="104" height="48" rx="5"/>
+      <text class="d-b" x="350" y="48" text-anchor="middle">output</text>
+      <text class="d-sm" x="350" y="66" text-anchor="middle">root r1 · 17</text>
+      <rect class="d-tx" x="434" y="28" width="118" height="48" rx="5"/>
+      <text class="d-b" x="493" y="48" text-anchor="middle">transaction</text>
+      <text class="d-sm" x="493" y="66" text-anchor="middle">3 checks</text>
+      <rect class="d-tree" x="584" y="28" width="86" height="48" rx="5"/>
+      <text class="d-b" x="627" y="48" text-anchor="middle">output</text>
+      <text class="d-sm" x="627" y="66" text-anchor="middle">root r2</text>
+      <line class="d-line" x1="116" y1="52" x2="146" y2="52" marker-end="url(#sm-arrow)"/>
+      <line class="d-line" x1="266" y1="52" x2="296" y2="52" marker-end="url(#sm-arrow)"/>
+      <line class="d-line" x1="402" y1="52" x2="432" y2="52" marker-end="url(#sm-arrow)"/>
+      <line class="d-line" x1="552" y1="52" x2="582" y2="52" marker-end="url(#sm-arrow)"/>
+      <text class="d-sm" x="12" y="120">OFF-CHAIN</text>
+      <rect class="d-off" x="12" y="128" width="104" height="58" rx="5"/>
+      <text x="64" y="152" text-anchor="middle">tree 0</text>
+      <text class="d-sm" x="64" y="170" text-anchor="middle">A B C D E</text>
+      <rect class="d-off" x="298" y="128" width="104" height="58" rx="5"/>
+      <text x="350" y="152" text-anchor="middle">tree 1</text>
+      <text class="d-sm" x="350" y="170" text-anchor="middle">A C D E</text>
+      <rect class="d-off" x="584" y="128" width="86" height="58" rx="5"/>
+      <text x="627" y="152" text-anchor="middle">tree 2</text>
+      <text class="d-sm" x="627" y="170" text-anchor="middle">…</text>
+      <line class="d-dash" x1="64" y1="128" x2="64" y2="78"/>
+      <line class="d-dash" x1="350" y1="128" x2="350" y2="78"/>
+      <line class="d-dash" x1="627" y1="128" x2="627" y2="78"/>
+      <path class="d-dash" d="M116,150 C170,150 190,110 207,80" marker-end="url(#sm-arrow)"/>
+      <text class="d-sm" x="126" y="176">witness: old leaf + proof</text>
+    </svg>
+    <figcaption>Each transaction spends an output that commits to one root and
+    creates an output that commits to the next. The trees stay off-chain; a
+    transaction's witness carries only the leaf it changes and that leaf's
+    proof.</figcaption>
+  </figure>
+
+  <h2 id="sums">Why every node carries a sum</h2>
+  <p>A plain Merkle tree commits to which leaves exist. A Merkle-sum tree also
+  commits to how much they add up to: every node holds a hash and an amount, and
+  a node's amount is the sum of its children's. The hash covers both children's
+  amounts, so a proof of one leaf also fixes the sum of every sibling on its
+  path. The script recomputes the sums on the way up, and the root's sum must
+  equal the amount of the output being spent.</p>
+  <p>That turns "the operator cannot steal" into a property of the arithmetic.
+  The script recomputes the root twice, before and after the change, and the
+  difference between the two totals is exactly the value that may leave the
+  output. Section 10.2 of the specification states the consequence: for any set
+  of leaves whose proofs verify against an output, their amounts add up to at
+  most the output's amount. Every provable leaf can be paid.</p>
+
+  <h2 id="scaling">Why this scales ownership</h2>
+  <p>On Bitcoin, each owner normally needs an output of their own, and outputs
+  are what every node must store. Here one output holds the balances of up to
+  2<sup>D</sup> owners, where D is the tree's depth, fixed when the tree is
+  created. Each owner holds a proof of their own leaf. A spend touches one
+  leaf and costs one proof, so the size of every transition depends on the
+  depth, not on how many owners the tree has: at depth 16 the tree has 65,536
+  slots and an exit is about 1,020 vB whether one slot is full or all of them
+  are.</p>
+
+  <h2 id="beyond">Beyond balances</h2>
+  <p>Nothing in the three checks is specific to money. Any state that can be
+  hashed into a root, and any change a script can check given a proof, fits the
+  same shape. A few examples follow; LayerTree builds none of them, and they are
+  here to show the reach of the pattern.</p>
+  <ul>
+    <li>A counter that may only increase. Each leaf already carries one: its
+    <code>seq</code> field rises by one with every voucher redeemed against it,
+    which is how a used voucher can never verify again.</li>
+    <li>A registry that maps keys to values. LayerTree's sparse profile places
+    each leaf at a position derived from its owner's key, so a proof that the
+    slot at that position is empty proves the key is not registered.</li>
+    <li>An auction. The state is the current best bid; the rule accepts a
+    replacement only if it is higher, and pays the previous bidder back in the
+    same transaction.</li>
+  </ul>
+
+  <h2 id="limits">The limits</h2>
+  <ul>
+    <li><strong>Cost grows with depth.</strong> Script has no loops, so the fold is
+    written out once per level. In the FULL tier each level costs 88 bytes of
+    script and 41 bytes of witness, about 32 vB. A deeper tree holds more owners
+    and costs more to leave.</li>
+    <li><strong>The script sees only what it is shown.</strong> It must be given
+    every node it checks. A rule about many leaves needs all of them in the
+    witness: the cohort sweep publishes every slot of the subtree it removes. And
+    a member who loses their proof cannot exit until they rebuild it, which they
+    can do from the witnesses of past transitions on the chain (spec 9.7).</li>
+    <li><strong>Transitions are sequential.</strong> Every transition spends the
+    same output, so each must wait for the one before it. The
+    <a href="../index.html#limits">overview</a> covers what that means for
+    throughput.</li>
+    <li><strong>The opcodes are proposals.</strong> Deriving a key from a root and
+    reading the spending transaction need opcodes Bitcoin does not have today.
+    The <a href="tiers.html">tiers page</a> lists the four sets the scripts have
+    been built against.</li>
+  </ul>
+
+  <h2 id="proved">What is proved</h2>
+  <p>The rules are mechanised in Lean 4 in <code>formal/</code>, with no external
+  libraries and no unproved steps. The headline theorems, by name:</p>
+  <ul>
+    <li><code>fold_sound</code>: a node and a path that fold to a tree's root
+    really are that node at that position, assuming the hash has no collisions.
+    This is check 1.</li>
+    <li><code>witness_root_binds</code> and <code>output_binds</code>: the output
+    key determines both the root and the script set, so checks 1 and 3 pin the
+    state on both sides of the transaction.</li>
+    <li><code>Steps.sum</code>: every sequence of steps conserves the total,
+    unconditionally.</li>
+    <li><code>ExitK.no_inflation</code>: no exit creates value.</li>
+    <li><code>payable</code>: whoever holds a leaf and its path can always build
+    an accepted exit paying the leaf's amount, without anyone's cooperation.</li>
+  </ul>
+  <p><code>payable</code> assumes the committed root really is the root of a
+  tree, which creation and grafting must establish off-chain; the
+  <a href="join.html">join page</a> explains why. Lean covers the rules, not the
+  bytecode. The scripts are checked by execution: a simulator runs every compiled
+  script against reference trees, with failing cases for every rule, and a Go
+  implementation regenerates the same scripts byte for byte.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#6-the-tree-output">Spec 6.1 to 6.4</a>: the state key, the taptree and how a script verifies the current state.</li>
+      <li><a href="../../spec/layertree.md#71-common-rules">Spec 7.1</a>: the common rules every transition enforces.</li>
+      <li><a href="../../spec/layertree.md#102-conservation">Spec 10.2</a>: conservation, with the proof sketch; <a href="../../spec/layertree.md#104-binding-the-taptree">10.4</a>: why the script set is bound too.</li>
+      <li><a href="../../formal/README.md"><code>formal/README.md</code></a>: every theorem, the hash assumptions and what is left to the tests.</li>
+      <li><a href="../../CONCEPTS.md"><code>CONCEPTS.md</code></a>, concepts 1 and 2: state in the output's address, and sums in the tree.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>
