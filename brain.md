@@ -207,6 +207,12 @@ with numbers.
   (C.6.2, C.7). An Opus text worker is doing B2, B3, B7, C.5.6 and
   F30 to F36. After the A1/A2 rule worker lands: a Fable channel rule
   worker for B1, B4, the C.6/C.9 test-coverage list, Appendix C 0.4.0.
+  Text worker landed (merge of 82cad6a, F30 to F36; swap page rule 5
+  and CLAIM^x figures fixed in 7913268). The channel rule worker
+  (Fable) is running now, in parallel with the A1/A2 rule worker; it
+  owns C.3/C.4/C.9, layertree_chan.py, test_chan.py, chan Go and
+  review.md F30/F33/F34 status lines. Owner decision pending: B6 chan_id
+  binds m (decision 13) versus tree_id (audit recommendation).
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
