@@ -33,27 +33,17 @@ with numbers.
 | Python simulator | 1,054 / 268 / 55 / 972 checks (FULL / MID / MIN / CCV), 210 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
 | Go | 79 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
 | Lean | Builds clean, no sorry, 60 audited theorems (about 3,400 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
-| Paper | Two versions from one source (`make` builds `main.pdf`, 35 pages, body ends on 15 with References at the top of 16 and no slack, and `main-full.pdf`, 74 pages with References on 29); four tiers throughout; round-two review response landed; 0.10.0 CLAIM figures in (0d8c0bd, PDFs 0580c8b). Open: citations to verify, one overfull bibliography line, trimming the full version. |
+| Paper | Two versions from one source, two audiences (status.md decision 23). `main.pdf` (18 pages, body ends on 15, References on 16) is the developer paper: how it works, every operation in a member's order, vouchers as a section, trust model, tiers, a short "what is proved", channels, evaluation, related work. `main-full.pdf` (74 pages, References on 29) keeps the functionality-first body and the proofs. Shared text in `paper/body-*.tex`, developer body in `paper/short-*.tex`. Open: the short version still carries the "Ideal Functionality" title (owner's call), the repository citation needs a public URL, trim the full version toward 30 body pages. |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
 | PR stack | Empty. #8 (72e9846), #10 (54d094f), #6 (f23f193) and #7 (3ef8128) all merged. |
 
 ## In flight right now
 
-- Paper restructure (owner's decision 2026-10-10): the short version
-  (`main.pdf`) becomes a developer paper: how the system works, a
-  digestible description of every major operation ordered by a member's
-  life in the tree (join, move value, settle, leave, be evicted, batch),
-  the flows, the trust model (10.1), the opcode packages (tiers), prior
-  work, and the voucher system as a first-class section (cumulative
-  vouchers advancing `seq`, credit leaves, `CLAIM^h` cheques, the
-  receive flow, issuer risk, `DUST_MIN`); Lean and UC in a short "what
-  is proved" section only. The full version (`main-full.pdf`) keeps the
-  functionality-first body and the proofs (decision 17 now applies to it
-  alone). An Opus writer is doing it in a worktree (commit, never push;
-  sources only, the orchestrator rebuilds the PDFs after merging). Body
-  limit 15 LNCS pages; shared text factored into files both versions
-  include.
+- Paper restructure landed 2026-10-10 (merge of the writer's branch at
+  a1a493f, PDFs in the commit after): see the Paper row above. The
+  writer's corrections to the full version's receive section (settle
+  first, finite lease, CLAIM^x 1,635 vB, 147 per leaf) came with it.
 
 - Explainer website track (owner's request 2026-10-10), all under
   `site/`, static with no build step: an Opus builder writes the site
