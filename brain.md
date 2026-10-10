@@ -74,7 +74,18 @@ with numbers.
    Makefile targets `main.pdf` and `main-full.pdf`, both stamped. Build
    order stays: sources first, then make, then commit PDFs with
    version.tex.
-3. Demote sparse in the spec (5.4 wording, 4.5 matrix ordering, 11),
+3. Editorial pass after the merges, one commit: demote sparse in the spec
+   (5.4 wording, 4.5 ordering, 11), CONCEPTS (also fix "256 members cost
+   the same script as one" and "up to 256 members" since the reference
+   taptree carries only JOIN_0 and JOIN_2), README and the paper; spec
+   10.1 trust table should list JOIN among the operator's powers and
+   qualify "cannot freeze" with "other than value it grafts"; 9.2 should
+   state the off-chain buyer's checks; 4.5 should say why MIN has no
+   JOIN; the MIN generator docstring cites 4.6 for the tiers section,
+   now 4.5. Spec 0.8.5.
+3b. MID join negatives are thin (only an underfunded JOIN_2): add
+   occupied slot, join without operator, and JOINK_2 stale second path.
+   (The sparse demotion wording is item 3 above:
    CONCEPTS, README and the paper, as one editorial commit after the
    merges; spec 0.8.3.
 4. Build `REWRITE_h`, the cohort rewrite with per-leaf signatures
