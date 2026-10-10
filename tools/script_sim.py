@@ -434,7 +434,10 @@ class Interp:
 
     def run(self, script, stack):
         self._ccv_success = False
-        self.ctx.ccv_input_init(self.ctx.input_index)  # BIP-443 per-input init
+        if self.ctx is not None:
+            # BIP-443 per-input init; experiments run scripts without a
+            # transaction context and have no CCV state to reset.
+            self.ctx.ccv_input_init(self.ctx.input_index)
         try:
             return self._run(script, stack)
         except _CcvSuccess:
