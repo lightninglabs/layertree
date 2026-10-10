@@ -64,12 +64,13 @@ leaves.
 
 \paragraph{Entry and moving value.} \tr{JOIN}$_h$ walks only the levels
 above its slot, so at $D = 16$ an operator-funded 1{,}024-member graft
-costs $614\vB$ (estimate), under $1\vB$ per member, against $43\vB$ for
+costs $614\vB$ (estimate, without a payout output), under $1\vB$ per member, against $43\vB$ for
 one output in an on-chain batch and about $154\vB$ for a channel opened
 in its own transaction (\S\ref{sec:graft}); a self-funded member adds
 its own $58\vB$ input and the signing round of \S\ref{sec:parties}. An
 on-chain \tr{UPDATE} is $1{,}030\vB$ and a voucher redemption
-$1{,}614\vB$, so moving value by rewriting leaves would cost about ten times a bare
+$1{,}614\vB$ (neither has a payout output; on the skeleton that carries
+one, an \tr{UPDATE} is $1{,}073\vB$), so moving value by rewriting leaves would cost about ten times a bare
 spend per payment. Value moves off-chain instead, as it does in
 Lightning and Ark: in channel leaves as HTLC forwards
 (\S\ref{sec:channels}), or by vouchers that the issuer usually settles
@@ -78,7 +79,7 @@ maintenance, not payment.
 
 \begin{table}[tbp]
 \centering
-\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row is an estimate at $2^{16}$ members. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
+\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
 \label{tab:lifetime}
 \setlength{\tabcolsep}{3pt}\scriptsize
 \begin{tabular}{@{}lrrrlll@{}}

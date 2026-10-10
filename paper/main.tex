@@ -909,8 +909,8 @@ P2WPKH change output, version, lock time and counts) and $172\WU$ per
 further payout, with $\mathrm{vB} = \lceil \mathrm{WU}/4 \rceil$;
 transitions without a payout (joins, updates, carves) are charged
 $172\WU$ less. The witness item count and per-item length prefixes are
-excluded, about 10 to $14\vB$ on a dense $D = 16$ exit (1 to 1.4\%), and
-the baselines omit the same overhead. A deployment that carries the
+excluded (on a dense $D = 16$ exit, $10.5\vB$ in FULL, 10 in CCV, 42.5
+in MID, 44.75 in MIN), and the baselines omit the same overhead. A deployment that carries the
 sweeps, rewrites and variants needs 16 to 32 tapleaves, which adds 8 to
 $16\vB$ to every spend.
 
