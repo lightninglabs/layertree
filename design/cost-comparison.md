@@ -88,16 +88,16 @@ something members opt into at join time by accepting a lease, and the
 figure of about 160 vbytes per leaf is not available to an owner who wants
 out on their own schedule.
 
-Second, the owner-side equivalent is specified but not built. Spec 13.4
-describes it: the same post-order fold that the sweep uses, with a
+Second, the owner-side equivalent exists, and it is no longer the
+expensive path. Spec 13.4 describes it: the same post-order fold that the sweep uses, with a
 signature per leaf in place of the evictor-key check. The witness
 carries the subtree's leaves, the exiting owners' signatures, and the
 siblings of the shared path above the subtree, so leaves in the same
 subtree share the levels above it. It is built as the exit-only case of
 the cohort rewrite `REWRITE_h` (spec 7.9), and measured at `D = 16`:
-four owners leaving a height-2 subtree pay about 370 vbytes per leaf,
-sixteen leaving a height-4 subtree about 198, and sixty four leaving a
-height-6 subtree about 159, the same as the operator's sweep.
+four owners leaving a height-2 subtree pay about 359 vbytes per leaf,
+sixteen leaving a height-4 subtree about 195, and sixty four leaving a
+height-6 subtree about 158, the same as the operator's sweep.
 `design/batching.md` has the shape and two more.
 
 What a script fixes is the height and alignment of the subtree, not
@@ -185,7 +185,7 @@ old leaves and new leaves, fold each once, and authorise with one
 signature per leaf or one aggregate signature. Its per-leaf cost would be
 close to the sweep's, roughly 100 vbytes, which is parity with a bare spend
 in one transaction instead of many. It is built as `REWRITE_h` (spec
-7.9): about 145 vbytes per changed leaf when all 64 positions of a
+7.9): about 144 vbytes per changed leaf when all 64 positions of a
 height-6 subtree rotate keys, against 1,073 for an `UPDATE` each. The
 spec left the aggregate-key version out because MuSig2 nonce
 coordination reintroduces the interactive rounds the design otherwise
@@ -218,7 +218,7 @@ Four things reduce it, in increasing order of change.
   interior is paid once and each rewritten leaf adds its 116 bytes twice
   and a signature, about 120 vbytes. Leaves in the subtree that do not
   change need no signature; they are supplied for the fold or stand behind
-  a sibling hash. This is `REWRITE_h` (spec 7.9), measured at about 145
+  a sibling hash. This is `REWRITE_h` (spec 7.9), measured at about 144
   vbytes per changed leaf and 117 per unchanged position at `h = 6`
   (`design/batching.md`).
 
@@ -227,6 +227,36 @@ amount from one leaf to another inside the rewritten subtree conserves
 the sum, and only the leaves whose content changes must sign. That is the
 on-chain settlement an Ark round performs, at about the cost of a bare
 spend per touched leaf, without a round and without every member signing.
+
+## The Lightning baseline
+
+The Lightning figures on this page are those of the paper
+(`paper/appendix-channels.tex`, `paper/full-cost.tex`): a simple taproot
+channel priced with the same model as the LayerTree rows, fee-bumping
+children included.
+
+| Simple taproot channel | vbytes |
+|---|---|
+| Funding transaction: one P2TR key-path input, the funding output and change | 154 |
+| Cooperative close: the MuSig2 key-path spend of the funding output | 154 |
+| Commitment: a MuSig2 key-path input, two balance outputs and two anchors | 240 |
+| Anchor child that pays the commitment's fee | 152 |
+| Delayed sweep of the broadcaster's output after the CSV | 138 |
+| Force close: commitment, anchor child and sweep | 530 |
+| Lifetime, open in its own transaction and force close | 684, about 680 |
+| Lifetime, open in its own transaction and cooperative close | 308 |
+| Lifetime, open as one output of a batch and cooperative close | 197 |
+| Lifetime, open as one output of a batch and force close | 573 |
+
+The non-taproot anchor commitment of BOLT 3 is 1,124 weight units,
+281 vbytes, in place of the 240 above. Against this baseline a LayerTree
+member who leaves alone pays 1,020 vbytes for the first exit from a dense
+`D = 16` tree (665 for each further exit in an `EXIT_K`), about twice a
+channel's 530-vbyte force close and about 1.5 times its 684-vbyte
+lifetime; a voucher redemption with `CLAIM` is 1,656. A channel leaf
+inside the tree (Appendix C) costs its `EXIT_1` plus an update, a
+settlement and their two anchor children, about 1,681 vbytes in all and
+about 146 blocks, against 684 for a channel with its own funding output.
 
 ## Lifetime cost per member
 
@@ -239,7 +269,7 @@ member leaves.
 |---|---|---|---|
 | LayerTree dense `D = 16` | 3 | 161 | 1,023 |
 | LayerTree sparse `D = 32` | 1,644 | 3,108 | 3,281 |
-| Lightning channel | 197 | 197 | 283 |
+| Lightning channel | 197 | 197 | 573 |
 | Ark round tree `D = 16` | 86 | 86 | 2,554 |
 | Bare on-chain UTXO | 154 | 154 | 154 |
 
@@ -247,7 +277,8 @@ The assumptions are simple and stated so they can be argued with. Entry
 in a batch is one output in a shared transaction (43 vbytes) for
 Lightning, Ark and the bare UTXO, and one share of a 256-slot graft for
 LayerTree. A Lightning cooperative close is 154 vbytes and a force close
-is a 130-vbyte commitment plus a 110-vbyte sweep. Ark's cooperative exit
+is 530: a 240-vbyte commitment, its 152-vbyte anchor child and a
+138-vbyte sweep (the Lightning baseline above). Ark's cooperative exit
 is one output in a round transaction and its unilateral exit is the
 2,511-vbyte unroll. The bare UTXO is received once and spent once. The
 LayerTree batch exit is the 51-leaf sweep, which requires a lease.
@@ -266,7 +297,7 @@ takes and who has to be online.
 
 | | LayerTree exit | LayerTree channel leaf, force close | Lightning force close | Ark unilateral exit, `D = 16` |
 |---|---|---|---|---|
-| Transactions | 1 | 3, plus fee children | 2 | 16, plus the claim |
+| Transactions | 1 | 3, plus fee children | 3: commitment, anchor child, sweep | 16, plus the claim |
 | Blocks until funds are spendable | 1 | about 146 | about 145 | 16 plus the leaf timelock |
 | Timelock on the exit path | none | CSV on the settlement | CSV on the commitment | relative timelock at the leaf |
 | Who must be online | nobody | a watchtower for stale states | a watchtower | the member, before the round expires |
@@ -275,9 +306,10 @@ takes and who has to be online.
 The LayerTree row is the design's motivation in one line. There is no
 presigned transaction to lose, no counterparty to wait for, no timelock,
 and no expiry; the covenant checks a proof and pays. A channel leaf gives
-up some of that in exchange for free payments, and its force close is
-about 13 times a BOLT-3 force close in bytes, because materialising the
-funding output carries the Merkle-sum proof (Appendix C.5).
+up some of that in exchange for free payments, and its force close,
+about 1,681 vbytes, is about three times a simple taproot channel's
+530-vbyte force close, because materialising the funding output carries
+the Merkle-sum proof (Appendix C.5).
 
 ## Dense or sparse
 
@@ -335,11 +367,12 @@ and radix 2 is optimal.
 
 ## Where LayerTree loses
 
-- A solo exit is 1,020 vbytes against 111 for a bare spend and 240 for a
-  Lightning force close with its sweep. The proof is the price of the
-  shared output.
+- A solo exit is 1,020 vbytes against 111 for a bare spend and 530 for a
+  Lightning force close with its anchor child and sweep. The proof is the
+  price of the shared output.
 - An on-chain per-leaf update is 1,073 vbytes. Moves must be off-chain or
-  batched, and the batched rewrite is not built.
+  batched; the batched rewrite `REWRITE_h` brings a cohort's update to
+  about 144 vbytes per changed leaf.
 - The sparse profile costs 1.6 to 2.7 times the dense one and cannot graft
   or sweep.
 - Uncoordinated exits serialise through one output at about 25
@@ -362,6 +395,15 @@ sweep rows use the leaf counts the measured witnesses imply (13, 51 and
 spec 11. The CCV and native-opcode rows come from the size tables of
 spec 4.5 and `design/native-opcodes.md`.
 
+The model leaves out the witness serialisation overhead: the item count
+and one length prefix per witness item. `tools/measure_weight.py`
+serialises the real transactions the test suites build and measures it
+(`spec/scripts/weights.md`): 10.5 vbytes on a FULL `EXIT_1` at `D = 16`
+(1,030 against the model's 1,020), 10 in the CCV tier, and about 43 and
+45 in the MID and MIN tiers, whose witnesses carry each level's sibling
+as several small elements.
+
 ```
 python3 tools/gen_cost_figures.py    # regenerates design/figures/*.svg
+python3 tools/measure_weight.py      # regenerates spec/scripts/weights.md
 ```
