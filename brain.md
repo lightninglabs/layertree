@@ -213,6 +213,60 @@ with numbers.
   owns C.3/C.4/C.9, layertree_chan.py, test_chan.py, chan Go and
   review.md F30/F33/F34 status lines. Owner decision pending: B6 chan_id
   binds m (decision 13) versus tree_id (audit recommendation).
+
+## HANDOFF 2026-10-10 (rate limit killed both rule workers; owner moving agents)
+
+Main is at 4b2dd70 plus this commit. Everything landed before this point is
+pushed. Two worker branches hold unmerged work; neither is pushed. Both
+were killed by the session spend limit, not by errors.
+
+1. Branch `worktree-agent-a12aa50d8c1e7f647`, worktree
+   `.claude/worktrees/agent-a12aa50d8c1e7f647`, tree clean, three
+   commits on top of main: `4de18b3` (A1: REWRITE_h keeps the owner
+   signature on SEQ_FINAL leaves, every tier, Go, golden, tests),
+   `5ed0e92` (A2: DUST_MIN creation parameter floors every carve,
+   spec 0.11.0, tools, Go), `c3ed282` (weights.md regenerated). It had
+   merged main twice (last at a31b246) and was in its final full-matrix
+   run when it died; the report never arrived. To land: merge the
+   branch, run the whole matrix (regen golden/listings/structured one
+   at a time, all six suites, Go, gofmt, `cd formal && lake build`
+   exit 0), check CLAUDE.md = AGENTS.md and the 4.5/14 count lines, then
+   push. Still owed from its brief and never confirmed done: 7.9 rule 7
+   SHOULD -> MUST beside UPDATE^x/CLAIM^x; 7.5.3 cross-reference to
+   "REWRITE_h^x or no REWRITE_h" and its NUMS example -> finite lease;
+   7.5's self-voucher replay sentence (claim leaf equal to source
+   replays as a no-op, theorem `self_voucher_fixed`); 5.2 (owner_key,
+   nonce) uniqueness cross-referenced from 7.5's replay paragraph;
+   receive.md redemption floor (DUST_MIN); C.2.4 "merely burns" sentence;
+   DUST_MIN floor on UPDATE if owner-only. Grep the branch for each
+   before redoing it. Then update review.md F22/F23 to fixed, status.md
+   decision 22 (0.11.0: NONNEG, DUST_MIN, REWRITE SEQ_FINAL exclusion),
+   rebuild the paper (sizes change again for CLAIM/SPLIT), push.
+2. Branch `worktree-agent-aaa2f4093b7c67fba`, worktree
+   `.claude/worktrees/agent-aaa2f4093b7c67fba`: one WIP commit on top of
+   main with B1 (settlement dust floor in `settle_outputs` and Go
+   `StateProposal.Validate`, msg/chan.go, tests) and B4 tests; its last
+   words were "Go side is green. Now the spec text for B1 (C.3.4) and
+   B4 (C.4.4, C.9.6)", so the Appendix C text, the 0.4.0 bump, the C.6/
+   C.9 coverage tests, the CheckDeadline evict_after fix, the swap
+   fixture fix, the test_chan count in CLAUDE.md/AGENTS.md and review.md
+   F30/F33/F34 statuses are NOT done. Resume by reading its diff
+   (`git diff main...worktree-agent-aaa2f4093b7c67fba`), finishing the
+   brief in brain.md's channel-audit bullet above and design/audit/
+   channels.md, running `python3 tools/test_chan.py` and Go, then merge
+   after branch 1 (both touch test_chan.py and golden chan section).
+3. Owner decisions pending: B6 chan_id binds m (decision 13) or tree_id;
+   10.5 SHOULD shard/detach kept; MIN extra_outs split per output
+   (8.11); the protocol review's P1c and P8 proposals; the repository
+   citation in refs.bib needs a public URL before submission.
+4. After both land: full matrix, paper rebuild (both PDFs, short body
+   must still end on page 15), site tiers/payment pages re-check, memory
+   file `layertree-autonomous-round` update, then open work 9 (cohort
+   transitions beyond FULL) and a Go/txn builder audit as the next
+   round.
+5. Mail watcher: re-arm `substrate watch --session-id <id> --project
+   /Users/roasbeef/gocode/src/github.com/roasbeef/layertree --timeout
+   25m` in the background on every wake.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
