@@ -4,124 +4,162 @@
  * This is the only file a visual identity needs to change. Every color,
  * font, size, spacing step and motion duration used by site.css and by the
  * SVG that js/tree-anim.js draws is one of the custom properties below.
- * The palette is a restrained placeholder.
+ *
+ * Identity: the schematic identity (site/identity/schematic/) with the
+ * warmth of the approachable one (site/identity/approachable/). The page is
+ * a drafting sheet on cream paper with brown-black ink, a 16 px grid, IBM
+ * Plex Mono for labels and display, IBM Plex Sans for body, and one signal
+ * color, vermilion, for the proof path and for links.
  */
 
 :root {
   color-scheme: light dark;
 
-  /* Color: light theme. */
-  --color-bg: #f6f4ef;
-  --color-surface: #fffdf8;
-  --color-surface-2: #ece8de;
-  --color-text: #1c1b19;
-  --color-text-muted: #5d5a53;
-  --color-border: #d6d0c3;
-  --color-border-strong: #a59e8f;
-  --color-link: #135d66;
-  --color-accent: #0f6a6a;          /* proof path, new root */
-  --color-accent-soft: #d5ebe8;
-  --color-sibling: #a25c00;         /* siblings supplied by the proof */
-  --color-sibling-soft: #f6e5cc;
-  --color-chain: #e9e3d6;           /* the on-chain strip */
-  --color-good: #2e6b34;            /* payouts, checks that hold */
-  --color-good-soft: #dcebd9;
-  --color-bad: #a8261c;             /* checks that fail */
-  --color-bad-soft: #f5dad6;
-  --color-pending: #6a4fa0;         /* a root computed but not yet committed */
-  --color-empty: #b8b1a2;
-  --color-focus: #1a62d6;
+  /* Color: light theme. Cream drafting paper, brown-black ink. */
+  --color-bg: #f4ede0;              /* the sheet, under the grid */
+  --color-surface: #fbf7ef;         /* figure plates, cards, the header */
+  --color-surface-2: #ede4d3;       /* caption bars, card heads, the on-chain strip */
+  --color-text: #2a2119;
+  --color-text-muted: #5e5043;
+  --color-border: #d9cdb8;          /* hairlines inside a plate */
+  --color-border-strong: #8a7b69;   /* edges, neutral outlines */
+  --color-rule: #2a2119;            /* the 1 px ink rule round plates and cards */
+  --color-grid-minor: rgba(42, 33, 25, 0.055);
+  --color-grid-major: rgba(42, 33, 25, 0.11);
+  --color-link: #a83a12;            /* vermilion, darkened for text contrast */
+  --color-accent: #d1481a;          /* the signal: proof path, fold, new root */
+  --color-accent-soft: #f8ddd0;
+  --color-accent-ink: #ffffff;      /* text on the accent */
+  --color-sibling: #d1481a;         /* siblings keep the signal, drawn dashed */
+  --color-sibling-soft: #fbf7ef;
 
-  /* Type. System stacks only, so the site works offline. */
-  --font-body: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
-  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, Georgia, serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* The categorical set, validated together (see site/README.md):
+     node, path (the accent), leaf, leaf-exit, chain. */
+  --color-node: #2767ae;            /* interior node outline */
+  --color-node-sum: #1e4e85;        /* sum written on an interior node */
+  --color-leaf: #1d8a6a;            /* leaf outline */
+  --color-leaf-exit: #a67300;       /* the leaf that is leaving, its arrow, its payout */
+  --color-chain: #6b4e9b;           /* the on-chain strip, the only solid shape */
 
-  --text-xs: 0.78rem;
-  --text-sm: 0.88rem;
-  --text-base: 1.06rem;
+  --color-good: #2e7d32;            /* checks that hold */
+  --color-good-soft: #dfecd6;
+  --color-bad: #a3201b;             /* checks that fail */
+  --color-bad-soft: #f6d9d3;
+  --color-pending: #2767ae;         /* a root computed but not yet committed: the node color, dashed */
+  --color-empty: #bcae98;
+  --color-focus: #2767ae;
+
+  /* Type. IBM Plex is loaded from Google Fonts in each page's head; the
+     stacks after it keep the site readable offline. */
+  --font-body: "IBM Plex Sans", "Source Sans 3", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1.03rem;
   --text-md: 1.2rem;
   --text-lg: 1.5rem;
-  --text-xl: 2rem;
-  --text-2xl: 2.7rem;
-  --leading-tight: 1.2;
+  --text-xl: 1.9rem;
+  --text-2xl: 2.6rem;
+  --leading-tight: 1.15;
   --leading-body: 1.6;
 
   /* Sizes of text drawn inside the SVG figures, in CSS pixels. */
-  --svg-text-sm: 11px;
+  --svg-text-sm: 10.5px;
   --svg-text: 12.5px;
   --svg-text-lg: 14px;
 
-  /* Spacing. */
+  /* Spacing. The page grid is 16 px; the steps are a little roomier than a
+     strict datasheet. */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-5: 1.5rem;
-  --space-6: 2rem;
-  --space-7: 3rem;
-  --space-8: 4.5rem;
+  --space-6: 2.25rem;
+  --space-7: 3.25rem;
+  --space-8: 5rem;
   --gutter: 16px;
+  --grid: 16px;
   --measure: 42rem;
   --wide: 60rem;
 
-  --radius-sm: 3px;
-  --radius: 6px;
+  /* Drafted corners, softened slightly; never pills. */
+  --radius-sm: 2px;
+  --radius: 4px;
   --border-width: 1px;
   --stroke: 1.5px;
   --stroke-strong: 2.5px;
 
-  /* Motion. tree-anim.js staggers the fold by --motion-step per level. */
-  --motion-fast: 160ms;
-  --motion-pulse: 520ms;
-  --motion-step: 240ms;
-  --motion-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Motion. tree-anim.js staggers the fold by --motion-step per level.
+     Strokes draw and colors settle; nothing bounces or pulses. */
+  --motion-fast: 120ms;
+  --motion-pulse: 480ms;
+  --motion-step: 220ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-bg: #151513;
-    --color-surface: #1d1c1a;
-    --color-surface-2: #282622;
-    --color-text: #ebe7dd;
-    --color-text-muted: #a9a499;
-    --color-border: #3a3731;
-    --color-border-strong: #6b665b;
-    --color-link: #7fcbd1;
-    --color-accent: #5cc0bb;
-    --color-accent-soft: #17393a;
-    --color-sibling: #e6a649;
-    --color-sibling-soft: #3d2e17;
-    --color-chain: #24221e;
-    --color-good: #7cc283;
-    --color-good-soft: #1d3320;
-    --color-bad: #f0877c;
-    --color-bad-soft: #3e1d1a;
-    --color-pending: #b49ce6;
-    --color-empty: #57534a;
-    --color-focus: #7aa7ff;
+    --color-bg: #1a1612;
+    --color-surface: #221d18;
+    --color-surface-2: #2b251e;
+    --color-text: #f0e7d8;
+    --color-text-muted: #bbae9c;
+    --color-border: #3d352c;
+    --color-border-strong: #85786a;
+    --color-rule: #a69886;
+    --color-grid-minor: rgba(240, 231, 216, 0.045);
+    --color-grid-major: rgba(240, 231, 216, 0.09);
+    --color-link: #f2845d;
+    --color-accent: #ec6236;
+    --color-accent-soft: #48261b;
+    --color-accent-ink: #1a1612;
+    --color-sibling: #ec6236;
+    --color-sibling-soft: #221d18;
+    --color-node: #5a8fd0;
+    --color-node-sum: #9dbfea;
+    --color-leaf: #38a586;
+    --color-leaf-exit: #b98418;
+    --color-chain: #9b82d4;
+    --color-good: #5bb56a;
+    --color-good-soft: #1f3121;
+    --color-bad: #f08070;
+    --color-bad-soft: #43201b;
+    --color-pending: #5a8fd0;
+    --color-empty: #5e5448;
+    --color-focus: #8fb5e6;
   }
 }
 
 :root[data-theme="dark"] {
-  --color-bg: #151513;
-  --color-surface: #1d1c1a;
-  --color-surface-2: #282622;
-  --color-text: #ebe7dd;
-  --color-text-muted: #a9a499;
-  --color-border: #3a3731;
-  --color-border-strong: #6b665b;
-  --color-link: #7fcbd1;
-  --color-accent: #5cc0bb;
-  --color-accent-soft: #17393a;
-  --color-sibling: #e6a649;
-  --color-sibling-soft: #3d2e17;
-  --color-chain: #24221e;
-  --color-good: #7cc283;
-  --color-good-soft: #1d3320;
-  --color-bad: #f0877c;
-  --color-bad-soft: #3e1d1a;
-  --color-pending: #b49ce6;
-  --color-empty: #57534a;
-  --color-focus: #7aa7ff;
+  --color-bg: #1a1612;
+  --color-surface: #221d18;
+  --color-surface-2: #2b251e;
+  --color-text: #f0e7d8;
+  --color-text-muted: #bbae9c;
+  --color-border: #3d352c;
+  --color-border-strong: #85786a;
+  --color-rule: #a69886;
+  --color-grid-minor: rgba(240, 231, 216, 0.045);
+  --color-grid-major: rgba(240, 231, 216, 0.09);
+  --color-link: #f2845d;
+  --color-accent: #ec6236;
+  --color-accent-soft: #48261b;
+  --color-accent-ink: #1a1612;
+  --color-sibling: #ec6236;
+  --color-sibling-soft: #221d18;
+  --color-node: #5a8fd0;
+  --color-node-sum: #9dbfea;
+  --color-leaf: #38a586;
+  --color-leaf-exit: #b98418;
+  --color-chain: #9b82d4;
+  --color-good: #5bb56a;
+  --color-good-soft: #1f3121;
+  --color-bad: #f08070;
+  --color-bad-soft: #43201b;
+  --color-pending: #5a8fd0;
+  --color-empty: #5e5448;
+  --color-focus: #8fb5e6;
 }
