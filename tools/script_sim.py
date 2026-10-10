@@ -32,7 +32,7 @@ OPS = {
     "OP_NUMEQUALVERIFY": 0x9d, "OP_LESSTHAN": 0x9f,
     "OP_LESSTHANOREQUAL": 0xa1, "OP_GREATERTHANOREQUAL": 0xa2,
     "OP_SHA256": 0xa8, "OP_CHECKSIG": 0xac, "OP_CHECKSIGVERIFY": 0xad,
-    "OP_CHECKLOCKTIMEVERIFY": 0xb1,
+    "OP_CHECKLOCKTIMEVERIFY": 0xb1, "OP_CHECKSEQUENCEVERIFY": 0xb2,
     # OP_SUCCESSx redefinitions: BIP-348 (0xcc), BIP-349 (0xcb), the EC ops
     # draft BIP (Roasbeef/bips ec-ops-bip: 0xbb..0xbe). The OP_TX draft also
     # claims 0xbd; we place OP_TX at 0xbf here as a PLACEHOLDER until the
@@ -317,6 +317,54 @@ SEL_CURR_INPUT = TXSELECT_CURR_INPUT_NUMBER
 SEL_IN_AMOUNT = TXSELECT_INPUT_AMOUNT | TXSELECT_INPUTSELECT_CURRENT
 SEL_IN_SPK = TXSELECT_INPUT_SCRIPTPUBKEY | TXSELECT_INPUTSELECT_CURRENT
 SEL_OUT_SINGLE = TXSELECT_OUTPUT_AMOUNT | TXSELECT_OUTPUT_SCRIPT | TXSELECT_OUTPUTSELECT_SINGLE
+
+
+def collate(ctx, sel, inputs=None, outputs=None):
+    """OP_TX with TXSELECT_COLLATE: one element, per Appendix C.2.1 [C-A1].
+
+    The selected fields in txid order, with CompactSize length prefixes for
+    variable-size objects and CompactSize for counts:
+
+        le32(nVersion) || cs(num_inputs) || { le32(nSequence) || le64(amount)
+          || cs(len(spk)) || spk }_inputs || cs(num_outputs)
+          || { le64(amount) || cs(len(spk)) || spk }_outputs || le32(nLockTime)
+
+    Each field appears only when its bit is selected. This is also the
+    off-chain signer's serialiser for the channel messages of C.2.2.
+    """
+    if sel & (TXSELECT_INPUT_OUTPOINT_HASH | TXSELECT_INPUT_OUTPOINT_INDEX |
+              TXSELECT_INPUT_SCRIPT | TXSELECT_CURR_INPUT_NUMBER):
+        raise ScriptError("COLLATE: field not modelled")
+    if inputs is None:
+        isel = sel & TXSELECT_INPUTSELECT_MASK
+        inputs = [ctx.input_index] if isel == TXSELECT_INPUTSELECT_CURRENT else list(range(len(ctx.inputs)))
+    if outputs is None:
+        outputs = list(range(len(ctx.outputs)))
+    cs = lt.compact_size
+    out = bytearray()
+    if sel & TXSELECT_VERSION:
+        out += ctx.version.to_bytes(4, "little")
+    if sel & TXSELECT_NUM_INPUTS:
+        out += cs(len(ctx.inputs))
+    for i in inputs:
+        amt, spk = ctx.inputs[i]
+        if sel & TXSELECT_INPUT_SEQUENCE:
+            out += ctx.sequences[i].to_bytes(4, "little")
+        if sel & TXSELECT_INPUT_AMOUNT:
+            out += amt.to_bytes(8, "little")
+        if sel & TXSELECT_INPUT_SCRIPTPUBKEY:
+            out += cs(len(spk)) + spk
+    if sel & TXSELECT_NUM_OUTPUTS:
+        out += cs(len(ctx.outputs))
+    for i in outputs:
+        amt, spk = ctx.outputs[i]
+        if sel & TXSELECT_OUTPUT_AMOUNT:
+            out += amt.to_bytes(8, "little")
+        if sel & TXSELECT_OUTPUT_SCRIPT:
+            out += cs(len(spk)) + spk
+    if sel & TXSELECT_LOCKTIME:
+        out += ctx.locktime.to_bytes(4, "little")
+    return bytes(out)
 
 
 # -------------------------------------------------------------- interpreter --
@@ -656,6 +704,28 @@ class Interp:
                     raise ScriptError("CLTV: sequence final")
                 if (v < 500_000_000) != (self.ctx.locktime < 500_000_000) or self.ctx.locktime < v:
                     raise ScriptError("CLTV not satisfied")
+            elif name == "OP_CHECKSEQUENCEVERIFY":
+                # BIP-112, as used by the channel scripts of Appendix C.3.3.
+                # The script check only compares the operand with the input's
+                # nSequence; the relative lock itself (BIP-68) is a property
+                # of the block the transaction is mined in, which the chain
+                # model of tools/test_chan.py enforces.
+                a = top()
+                self.charge(wordspan(len(a)) * 2)
+                v = scriptnum_decode(a, 5) if self.mode == "c0" else num_decode(a)
+                if v < 0 or v >= 1 << 32:
+                    raise ScriptError("CSV operand out of range")
+                if not v & (1 << 31):
+                    seq = self.ctx.sequences[self.ctx.input_index]
+                    if self.ctx.version < 2:
+                        raise ScriptError("CSV: transaction version < 2")
+                    if seq & (1 << 31):
+                        raise ScriptError("CSV: input sequence disables relative lock")
+                    mask = (1 << 22) | 0xffff
+                    if (v & (1 << 22)) != (seq & (1 << 22)):
+                        raise ScriptError("CSV: lock type mismatch")
+                    if (seq & mask) < (v & mask):
+                        raise ScriptError("CSV not satisfied")
             elif name == "OP_INTERNALKEY":
                 pushv(self.ctx.internal_key)
             elif name == "OP_EC_POINT_ADD":
@@ -778,7 +848,10 @@ class Interp:
         else:
             raise ScriptError("OP_TX range selector not modelled")
         if sel & TXSELECT_COLLATE:
-            raise ScriptError("COLLATE not modelled")
+            blob = collate(ctx, sel, inputs, outputs)
+            self.charge(len(blob) * 2)
+            pushv(blob)
+            return
         outs = []
         if sel & TXSELECT_VERSION:
             outs.append(ctx.version.to_bytes(4, "little"))
