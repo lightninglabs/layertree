@@ -1,0 +1,79 @@
+% Full version only: the two profiles and the radix. Source:
+% design/tree-comparison.md, measured sizes from spec/scripts/sizes.md,
+% the radix-r levels from tools/experiments/radix4.py (spec 13.2).
+\section{Profiles and Radix}\label{sec:profiles}
+
+Both profiles are the same Merkle-sum tree. They differ in who decides
+where a leaf sits, and that choice sets the depth, the proof encoding,
+which predicates exist and the price of every exit.
+
+\paragraph{One node format.} A parent hashes each child's sum, not only
+their total, and this is a soundness property. A tree hashing $h_L \,\|\,
+h_R \,\|\, (s_L + s_R)$ admits inflation: two leaves of 100 under a root of
+sum 100 each have a proof whose sibling claims sum zero, and together the
+proofs claim 200. Here the two proofs hash the distinct preimages $(A,
+100, B, 0)$ and $(A, 0, B, 100)$, so at most one reaches the root; in Lean
+this is \lean{serializeNode\_inj} with \lean{hNode\_inj}, from which
+\lean{fold\_sound} gives that a verified leaf carries its true amount.
+
+\paragraph{What the profiles decide.} A sparse position is a function of
+the leaf, so a joiner computes it alone, a key and nonce cannot appear
+twice, the root depends only on the leaf set, and absence is an
+inclusion proof of $\Emp_0$. None of LayerTree's predicates needs these
+properties: an exit proves inclusion and a join proves its slot is
+$\Emp_h$, the same way in both profiles. The dense profile has aligned
+subtrees instead, on which \tr{JOIN}$_h$, \tr{EVICT\_SUBTREE}$_h$ and
+every shape of \S\ref{sec:batching} depend.
+
+\paragraph{Where the bytes go.} A sparse proof is the smaller witness and
+the larger script, and the script wins: dense \tr{EXIT}$_1$ at $D = 16$
+is $2{,}101$ bytes of script and 902 of witness ($1{,}020\vB$), sparse at
+$D = 32$ is $5{,}147$ and 326 on a six-leaf tree ($1{,}637\vB$), about
+860 bytes of witness and $1{,}800\vB$ at $2^{16}$ members. Both causes
+follow from hashing the position. Random positions collide, $N^2/2^{D+1}$
+expected collisions among $N$ members (about one half at $D = 32$ for $N
+= 2^{16}$, about 32{,}000 at $D = 16$), so the sparse tree needs about
+twice the depth, and every level is unrolled. And a sparse level is 135
+bytes against 88, because it derives the direction bit from the
+position, substitutes $\Emp_k$ for an elided sibling and computes
+$\Emp_{k+1}$ for the next level. The full-width tree of Taproot
+Assets~\cite{mssmt} ($D = 256$) costs $35{,}611$ bytes of script per
+exit, about twelve times dense; MID caps sparse depth at 31.
+
+Dense is therefore the default (spec 5.4): 1.6 to 2.7 times cheaper per
+exit, cohort grafts at one price, sweeps at about $160\vB$ per leaf, and
+every batch shape, at the price of an operator who keeps the slot map.
+The sparse profile is kept, specified and tested, as the measured
+alternative and for deployments that are key-addressed registries; it
+still hosts channel leaves and vouchers and still exits in one
+transaction.
+
+\begin{table}[tbp]
+\centering
+\caption{Radix in the dense FULL tier, measured: a radix-$r$ level generated and run in the simulator against a radix-$r$ reference tree (55 checks), and \tr{EXIT}$_1$ for 65{,}536 slots (262{,}144 at radix 8). The radix-2 row reproduces the shipped \tr{LEVEL}.}
+\label{tab:radix}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+radix & level script (B) & level siblings (B) & levels & \tr{EXIT}$_1$ script (B) & witness (B) & tx (vB) \\
+\midrule
+2 & 88 & 41 & 16 & 2{,}101 & 902 & 1{,}020 \\
+4 & 146 & 123 & 8 & 1{,}861 & 1{,}230 & 1{,}042 \\
+8 & 215 & 287 & 6 & 1{,}983 & 1{,}968 & 1{,}257 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Radix.} A radix-$r$ path carries $41(r-1)D/\log_2 r$ sibling
+bytes, $41D$ at radix 2 and $61.5D$ at radix 4, so radix 2 minimises the
+witness and a higher radix can only save the fixed part of the unrolled
+level. Table~\ref{tab:radix} measures it. Of the radix-4 level's 146 bytes about 62
+are hashing and sums shared with radix 2 and the rest sibling and
+direction handling, so the fixed part a higher radix amortises is about
+60 bytes while the sibling part is what it multiplies. Radix 4 saves 240
+bytes of script and adds 328 of witness, a net loss of about 3\%, and
+radix 8 is worse. In the sparse profile most siblings are empty and cost
+one witness byte, so a radix-4 level of about 180 bytes could replace two
+levels of 135, saving about $360\vB$ per exit (estimate; no sparse
+radix-$r$ level has been written). With a native Merkle-sum opcode a
+level costs only its sibling and radix 2 is optimal.

@@ -4,6 +4,23 @@
 % realisation with covenants. Build: make (regenerates version.tex from git),
 % or latexmk -pdf main.tex. Set \anontrue for a double-blind submission.
 %
+% Two versions from one source. \iffullversion selects between them:
+%  - main.pdf, the short submission (\fullversionfalse): a body within the
+%    15 LNCS pages of FC, with the UC proof, the Lean development and the
+%    channel scripts in appendices, and without the sections below;
+%  - main-full.pdf, the full version (\fullversiontrue): the same text
+%    with those three appendices lifted into the body as sections, plus
+%    five further sections (cost comparison, profiles and radix,
+%    batching, grafting, receiving over Lightning) in full-*.tex.
+% The switch is the job name: `make` runs latexmk once as main and once
+% with -jobname=main-full, and the preamble sets \fullversiontrue when the
+% job name is main-full. To build the full version by hand:
+%   latexmk -pdf -jobname=main-full main.tex
+% In the text, \iffullversion ... \else ... \fi carries the differences,
+% \lifted{label} cites a lifted appendix as "Appendix X" in the short
+% version and as a section in the full one, and \thispart reads
+% "appendix" or "section".
+%
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{microtype}
@@ -46,9 +63,20 @@
 \newif\ifanon
 \anonfalse
 
+\newif\iffullversion
+\fullversionfalse
+\makeatletter
+\edef\lt@jobname{\jobname}
+\edef\lt@fulljob{\detokenize{main-full}}
+\ifx\lt@jobname\lt@fulljob \fullversiontrue \fi
+\makeatother
+\newcommand{\lifted}[1]{\iffullversion\S\ref{#1}\else Appendix~\ref{#1}\fi}
+\newcommand{\thispart}{\iffullversion section\else appendix\fi}
+
 % Build date and "DRAFT (commit <abbreviated hash>)" under the affiliation;
 % \GitHash is the Makefile's equivalent of gitinfo2's \gitAbbrevHash.
-\newcommand{\draftline}{\GitDate\\ \textsc{Draft} (commit \texttt{\GitHash})}
+\newcommand{\draftline}{\GitDate\\ \textsc{Draft} (commit \texttt{\GitHash})%
+  \iffullversion\\ Full version\fi}
 
 \newcommand{\Hleaf}{\ensuremath{H_{\mathsf{leaf}}}}
 \newcommand{\Hnode}{\ensuremath{H_{\mathsf{node}}}}
@@ -198,7 +226,7 @@ once, for the predicates, rather than once per tier.
   with \op{CHECKCONTRACTVERIFY} in place of the key arithmetic (CCV). This is an upper bound on the opcodes needed;
   we prove no lower bound.
 \item \textbf{A UC security proof with mechanised lemmas}
-  (\S\ref{sec:security}, Appendix~\ref{app:uc}). The abstract protocol
+  (\S\ref{sec:security}, \lifted{app:uc}). The abstract protocol
   UC-realises $\Ftree$ in a hybrid model with a global ledger and clock
   and an ideal signature functionality, in the idealised hash model. The
   tree-level lemmas the simulator relies on are theorems in Lean~4, cited
@@ -220,6 +248,18 @@ The specification, code and proofs are provided as an anonymised artefact.
 \else
 The specification, code and proofs are public~\cite{layertreerepo}; this
 text describes revision \GitHash.
+\fi
+
+\iffullversion
+\paragraph{This version.} This is the full version. It lifts into the
+body the UC proof (\S\ref{app:uc}), the Lean development
+(\S\ref{app:lean}) and the channel-leaf scripts (\S\ref{app:channels}),
+and adds five sections: costs against bare UTXOs, Lightning and
+transaction trees (\S\ref{sec:cost}), the two profiles and the radix
+(\S\ref{sec:profiles}), batch shapes (\S\ref{sec:batching}), the trust
+model of grafting (\S\ref{sec:graft}) and receiving over Lightning
+(\S\ref{sec:receive}). The short version keeps the first three as
+appendices and omits the five.
 \fi
 
 \section{Background}\label{sec:background}
@@ -609,9 +649,9 @@ FULL's 2{,}101 / 902.
 We prove that $\Pi$ realises $\Ftree$ in two layers. The tree-level facts
 (binding, conservation, payability) are theorems about the abstract
 predicates, mechanised in Lean~4~\cite{lean4} in about 1{,}300 lines
-without Mathlib (Appendix~\ref{app:lean}) and cited by their statements.
+without Mathlib (\lifted{app:lean}) and cited by their statements.
 The composable claim is a simulation argument in the hybrid model of
-\S\ref{sec:background}, sketched here and given in Appendix~\ref{app:uc}.
+\S\ref{sec:background}, sketched here and given in \lifted{app:uc}.
 We work in the idealised hash model: $\Hleaf$ and $\Hnode$ are injective
 on the domains the protocol uses, and digests under different tags never
 coincide or equal the zero string; a proof under injectivity holds against
@@ -640,6 +680,7 @@ path; in particular the sum in $n$ is the true sum of that subtree, and a
 leaf node that verifies with a full-length path is the leaf at that
 position.
 \end{theorem}
+\iffullversion\else
 \begin{lstlisting}[style=leansig]
 theorem root_inj {d} (t₁ t₂ : Tree d) : (t₁.root : Node H) = t₂.root → t₁ = t₂
 theorem fold_sound {d} (t : Tree d) (m : Node H) (π : List (Bool × Node H)) :
@@ -647,6 +688,7 @@ theorem fold_sound {d} (t : Tree d) (m : Node H) (π : List (Bool × Node H)) :
 theorem fold_setSub {d h} (t : Tree d) (p : Pos d h) (s : Tree h) :
     fold s.root (t.pathSub p) = ((t.setSub p s).root : Node H)
 \end{lstlisting}
+\fi
 \begin{proof}[sketch]
 Induction on the path. A non-empty path claims an internal node, so the
 tree is not a tip by tag separation. Injectivity of $\Hnode$ on the
@@ -664,12 +706,14 @@ exact payouts; for \tr{JOIN}$_h$, $S' = S + s_{\mathrm{new}}$; for
 \tr{CLAIM} leaves $S$ unchanged. No hash assumption is needed: the
 predicate conserves sums whatever nodes it is shown.
 \end{theorem}
+\iffullversion\else
 \begin{lstlisting}[style=leansig]
 theorem Steps.sum {r r' : Node H} {ss : List (Step H)} (h : Steps r ss r') :
     r'.sum + oldSum ss = r.sum + newSum ss
 theorem ExitK.no_inflation {exact} {r r'} {blocks} {out0} (h : ExitK exact r blocks r' out0) :
     out0 + payoutSum blocks ≤ r.sum      -- ExitK.exact_conservation: equality if exact
 \end{lstlisting}
+\fi
 
 \begin{theorem}[Payability]\label{thm:pay}
 For any tree $T$ and position $p$ holding leaf $\ell$, the honest witness
@@ -677,11 +721,13 @@ For any tree $T$ and position $p$ holding leaf $\ell$, the honest witness
 root of $T$ with $p$ emptied, the sum falls by $\ell.\mathsf{amount}$,
 and every other position is unchanged.
 \end{theorem}
+\iffullversion\else
 \begin{lstlisting}[style=leansig]
 theorem payable {d} (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = some l) :
     (leafStep (t.path p) (some l) none).valid t.root (t.set p none).root ∧
     (t.set p none).root.sum + l.amount = t.root.sum ∧ ∀ q, q ≠ p → (t.set p none).get q = t.get q
 \end{lstlisting}
+\fi
 
 \begin{theorem}[Real-tree invariant]\label{thm:ground}
 If the current root is the root of a tree and every step is well formed
@@ -691,6 +737,7 @@ the initial tree with each step's subtree replaced. Leaf-level steps are
 grounded by construction; a \tr{JOIN} graft is grounded exactly when the
 operator's node has a preimage tree.
 \end{theorem}
+\iffullversion\else
 \begin{lstlisting}[style=leansig]
 theorem Steps.sound {d} (t : Tree d) {r'} {ss : List (Step H)} (h : Steps t.root ss r')
     (hwf : ∀ s ∈ ss, s.WF d) (hg : ∀ s ∈ ss, s.Grounded) : ∃ t' : Tree d, t'.root = r'
@@ -699,6 +746,7 @@ theorem join_sound {auth : Prop} {d h} (t : Tree d) (path) (new r' : Node H) (ou
     ∃ p : Pos d h, t.getSub p = Tree.empty h ∧ out0 = t.root.sum + new.sum
       ∧ ∀ u : Tree h, u.root = new → r' = (t.setSub p u).root
 \end{lstlisting}
+\fi
 
 \lean{update\_sound} and \lean{claim\_sound} locate the positions of
 \tr{UPDATE} and \tr{CLAIM} the same way; mechanising \tr{CLAIM} showed
@@ -711,7 +759,7 @@ simulation.
 \paragraph{Root binding to the output.} The predicates conclude that the
 witness root and taptree are the committed ones from
 $\TreeSpk(r', m') = \TreeSpk(r, m)$, which needs $\TreeSpk$ injective in
-$(r, m)$ (\lean{witness\_root\_binds}); Appendix~\ref{app:lean} reduces
+$(r, m)$ (\lean{witness\_root\_binds}); \lifted{app:lean} reduces
 this to the discrete logarithm of $\NUMS$ and collisions in $\Hstate$ or
 the taproot tweak hash.
 
@@ -756,7 +804,7 @@ an opaque slot in $\Ftree$, matching Theorem~\ref{thm:ground}'s
 conditionality. Creation is the base case the covenant cannot enforce,
 hence the proviso. The hybrids and the per-tier remarks (MIN's binding
 rests additionally on collision resistance of the TapSighash) are in
-Appendix~\ref{app:uc}.
+\lifted{app:uc}.
 \end{proof}
 
 \paragraph{What the theorem leaves out.} The predicates are matched to
@@ -771,6 +819,13 @@ any leaf after its lease, and a cohort at about $160\vB$ per leaf, which
 makes griefing cheap; the functionality states this as a capability, and
 members who want a hard guarantee buy it with a future lease height.
 
+% Full version: the UC proof and the Lean development follow the
+% security section as sections of their own.
+\iffullversion
+\input{appendix-uc}
+\input{appendix-lean}
+\fi
+
 \section{Channel Leaves as Composition}\label{sec:channels}
 
 A leaf whose exit key is a 2-of-2 between its owner and a counterparty
@@ -780,7 +835,7 @@ off-chain and whose funding output materialises at the payout of the
 leaves is a Lightning hub behind one UTXO, with opening, resizing and
 closing costing nothing on-chain except at dispute. In UC terms the
 channel protocol runs in the $\Ftree$-hybrid model: it treats the
-functionality's payout as its funding transaction. Appendix~\ref{app:channels}
+functionality's payout as its funding transaction. \lifted{app:channels}
 gives scripts, state machine and costs.
 
 \paragraph{Rebindable commitments.}
@@ -824,16 +879,20 @@ the exit key to \iface{UPDATE}'s authorisers.
 
 \begin{theorem}[Composition, sketch]\label{thm:chan}
 In the $(\Ftree, \Gledger, \Gclock, \Fsig)$-hybrid model with conditions
-(i) to (iii), the channel-leaf protocol of Appendix~\ref{app:channels}
+(i) to (iii), the channel-leaf protocol of \lifted{app:channels}
 realises $\Fchan$ with closing bound $\lat(N) + 3 + \mathsf{csv\_delay}$,
 for channels whose HTLC deadlines respect the budget above.
 \end{theorem}
-The argument (Appendix~\ref{app:uc}) reuses the channel-level simulator
+The argument (\lifted{app:uc}) reuses the channel-level simulator
 of~\cite{genchannels} and uses \iface{EXIT} and \iface{EVICT} to
 materialise the funding output; the HTLC deadline argument under $\lat(N)$
 is future work. Channel leaves need \op{TX} and \op{CHECKSIGFROMSTACK},
 hence FULL or MID, or CCV with the channel scripts in their own
 outputs; MIN's constructive introspection commits to the prevout.
+
+\iffullversion
+\input{appendix-channels}
+\fi
 
 \section{Evaluation}\label{sec:eval}
 
@@ -861,6 +920,7 @@ $1{,}149\vB$ at $D = 20$: a 4{,}096-fold increase in tree size raises it by
 $2^{16}$ members costs about 1.8 times the dense profile at $D = 16$; its
 witness grows with $\log_2 N$, not $D$.
 
+\iffullversion\else
 \paragraph{Comparison with transaction trees.} The dashed line of
 Figure~\ref{fig:plot} is a \emph{model}: a radix-2 tree of $2^D$ leaves
 in which every exiter publishes $D$ transactions of about $150\vB$ and a
@@ -874,6 +934,7 @@ exit. The model prices neither the latency of $D$ sequential
 confirmations nor the larger opcode set. LayerTree wins clearly for
 isolated exits and eviction, and is comparable or worse for a coordinated
 mass exit.
+\fi
 
 \begin{figure}[tbp]
 \centering
@@ -920,6 +981,7 @@ mass exit.
 \label{fig:plot}
 \end{figure}
 
+\iffullversion\else
 \paragraph{Batching, joins and cohorts.} A second exit in the same
 transaction costs $665\vB$ marginally against $1{,}020\vB$ alone. A dense
 \tr{JOIN}$_2$ at $D = 16$ is $2{,}713\WU$ of witness whatever the grafted
@@ -929,6 +991,7 @@ joins cannot graft and cost about $5{,}000\WU$ per leaf.
 \tr{EVICT\_SUBTREE}$_4$ removes 13 leaves at $203\vB$ each and
 \tr{EVICT\_SUBTREE}$_6$ 51 at $158\vB$, improving with cohort size because
 the interior is hashed once.
+\fi
 
 \paragraph{Fees and budgets.} At $10\sat/\mathrm{vB}$ a $D=16$ exit
 costs $10{,}200\sat$: a $1{,}020{,}000\sat$ balance exits for a 1\% fee,
@@ -936,6 +999,16 @@ $102{,}000\sat$ for 10\% (Appendix~\ref{app:eval}). Varops usage is 5.6
 to 7.7\% of the BIP-440 budget in the dense profile and 2.5 to 4.7\% in
 the sparse, falling with depth because the budget scales with weight;
 \texttt{0xC0} tiers use one to three of the BIP-342 sigop budget.
+
+% Full version: costs against the alternatives, the two profiles and
+% the radix, batching, grafting and the receive case.
+\iffullversion
+\input{full-cost}
+\input{full-profiles}
+\input{full-batching}
+\input{full-graft}
+\input{full-receive}
+\fi
 
 \section{Related Work}\label{sec:related}
 
@@ -1016,10 +1089,14 @@ protocol; and completing the MIN tier.
 \bibliography{refs}
 
 \appendix
+\iffullversion\else
 \input{appendix-uc}
 \input{appendix-lean}
+\fi
 \input{appendix-scripts}
+\iffullversion\else
 \input{appendix-channels}
+\fi
 \input{appendix-eval}
 \input{appendix-listings}
 

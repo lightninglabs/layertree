@@ -1,0 +1,60 @@
+% Full version only: the receive case. Source: design/receive.md; sizes
+% from spec/scripts/sizes.md on the fee model of spec/fee-analysis.md,
+% the proposed CLAIM^x variant and the sibling-pair claim labelled.
+\section{Receiving over Lightning}\label{sec:receive}
+
+A user with no on-chain funds receives a Lightning payment and wants a
+balance it can leave with alone. An Ark client gets an out-of-round
+output co-signed by the operator that expires with its round, or, below
+the operator's floor, a ledger credit with no on-chain claim. The tree
+takes the same payment with less trust.
+
+\paragraph{Cumulative hash-locked vouchers.} A \tr{CLAIM}$^{h}$ voucher
+(Appendix~\ref{app:claim}) is the operator's signature over a source leaf
+it owns, a claim leaf for the recipient and a payment hash; whoever holds
+it and the preimage can redeem it alone. The recipient generates the
+preimage and issues the invoice, the payer's HTLC reaches the operator,
+the operator issues a voucher under that hash, and the recipient reveals
+the preimage so the operator can settle. Nothing reaches the chain. Since
+a redemption advances the source leaf's $\mathsf{seq}$ and voids every
+other voucher against it, repeated receives are one \emph{cumulative}
+voucher that the operator reissues for the running total; the recipient
+keeps the latest, and needs no contest window because only it can redeem
+and it never prefers a smaller state.
+
+\paragraph{Settlement.} The voucher is insurance. Normally the operator
+puts the claim leaf into the next cohort graft at about one vbyte per
+recipient (\S\ref{sec:graft}) and retires the voucher by advancing the
+credit leaf's $\mathsf{seq}$: one \tr{UPDATE} today ($1{,}073\vB$), about
+120 to $240\vB$ per recipient with \tr{REWRITE}$_h$ (estimate).
+Unilaterally the recipient redeems one \tr{CLAIM}$^{h}$: $1{,}652\vB$ at
+$D = 16$, about 16{,}500\,sat at 10\,sat/vB, no timelock, against about
+$2{,}511\vB$ and a timelock to unroll an Ark round tree. The redemption
+proves two positions; if the credit leaf's sibling slot is reserved for
+the recipient's claim leaf, a sibling-pair \tr{CLAIM} shares fifteen of
+sixteen levels and costs about $1{,}130\vB$ (estimate, not built). Per
+receive nothing reaches the chain, there is no floor beyond dust at
+redemption, nothing expires, and the recipient need not be online.
+
+\paragraph{What the recipient trusts.} The covenant stops the operator
+from redeeming more than the source holds or paying anyone but the
+recipient. It does not stop over-issuance or voiding (advancing
+$\mathsf{seq}$ before the recipient redeems). A credit leaf dedicated to
+one recipient removes over-issuance, since every voucher against it goes
+to that recipient, who can watch its amount. Of the operator's ways to
+void, \tr{UPDATE}$^{x}$ (the exit key, which is the recipient's, must
+sign), exact payouts and a NUMS evictor close three; the fourth, a
+voucher the operator issues itself and redeems with plain \tr{CLAIM}, is
+closed only by a \tr{CLAIM}$^{x}$ variant requiring a signature by the
+source leaf's exit key. With the three variants in the taptree a credit
+leaf can only grow or pay its recipient, whose exposure is the operator's
+liveness. \tr{CLAIM}$^{x}$ is proposed, not specified; the Lean model is
+unaffected, since \lean{Claim} carries an opaque authorisation. Where one
+operator leaf backs many recipients, over-issuance is equivocation with a
+compact proof, which a slashable bond can deter; voiding has no compact
+proof, so no bond reaches it.
+
+The credit is one-way: if the recipient could also spend, an older,
+larger voucher would be a stale state needing a window to supersede, as
+in every bidirectional channel. For spending, the recipient redeems into
+a channel leaf (\S\ref{sec:channels}).

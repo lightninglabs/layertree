@@ -1,0 +1,79 @@
+% Full version only: the graft and its trust model. Source:
+% design/graft.md; sizes from spec/scripts/sizes.md on the fee model of
+% spec/fee-analysis.md.
+\section{Grafting and Whom It Trusts}\label{sec:graft}
+
+\tr{JOIN}$_h$ replaces an empty node $\Emp_h$ with a node $(R_h, s_h)$
+that the operator built off-chain from up to $2^h$ new leaves, and adds
+$s_h$ to the tree output. Nothing below height $h$ appears on-chain and
+the script walks only the $D - h$ levels above the slot, so a larger
+cohort is a smaller transaction (Table~\ref{tab:graft}). Each height is a
+tapleaf fixed at creation; the sparse profile batches only by
+\tr{JOINK}$_K$.
+
+\paragraph{What the covenant checks.} The predicate requires that the
+slot held $\Emp_h$, that output~0 carries $S + s_h$, and the operator's
+signature. It sees a hash and a sum and cannot tell a real cohort from
+random bytes, which is what makes the graft constant-size and is the
+source of every trust question. \lean{join\_sound} states the
+consequences: the slot was empty, output~0 is the old sum plus $s_h$, and
+for every tree whose root is the grafted node the new root is the old
+tree with it inserted. A graft therefore cannot move, shrink or rewrite
+an existing leaf. A node with no preimage is the opaque slot of $\Ftree$:
+its $s_h$, exactly the value the graft added, is frozen, every other leaf
+stays payable (Theorem~\ref{thm:cons} holds whatever a sibling is), and
+the terminal exit is lost.
+
+\paragraph{Who carries what risk.} Existing members never sign and take
+no risk. The operator can fill an empty aligned slot with any node it
+signs and funds, so an opaque or zero-sum graft freezes only the value it
+brings and wastes only slots no one else could fill. Assurance is needed
+only by those who put money in. A member funding with an input checks the
+unsigned transaction (the slot folds as $\Emp_h$ to the current root, its
+leaf folds to $(R_h, s_h)$ with sums recomputed, output~0 commits to the
+new root for $S + s_h$) and signs over all outputs, so its input can only
+be spent into a root containing its leaf. A member buying in off-chain
+checks the same path against the confirmed root before paying over
+Lightning, or pays through a hash-locked voucher (\S\ref{sec:receive}).
+Neither checks anyone else's leaf: leaves whose paths verify sum to at
+most the root, so a co-member's bad leaf cannot make a good one unpayable.
+
+\begin{table}[tbp]
+\centering
+\caption{Entry cost per member at $D = 16$ on the model of \S\ref{sec:cost}. \tr{JOIN}$_0$ and \tr{JOIN}$_2$ are measured, the other dense rows are the measured rows with the same number of levels (\tr{JOIN}$_8$ is \tr{JOIN}$_0$ at $D = 8$); per member is operator-funded; member-funded adds a $58\vB$ input per member.}
+\label{tab:graft}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+graft & members & tx (vB) & per member & member-funded \\
+\midrule
+\tr{JOIN}$_0$ & 1 & 980 & 980 & $\approx 1{,}040$ \\
+\tr{JOIN}$_2$ & 4 & 915 & 229 & $\approx 290$ \\
+\tr{JOIN}$_4$ & 16 & 851 & 53 & $\approx 110$ \\
+\tr{JOIN}$_8$ & 256 & 722 & 2.8 & $\approx 61$ \\
+\tr{JOIN}$_{10}$ & 1{,}024 & 657 & 0.64 & $\approx 59$ \\
+sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}644 & 1{,}644 & $\approx 1{,}700$ \\
+sparse \tr{JOINK}$_2$, $D = 32$ & 2 & 2{,}864 & 1{,}432 & $\approx 1{,}490$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Funding.} In an operator-funded graft the operator supplies
+$s_h$ from the input the model already counts and members buy their
+balances off-chain; the operator bears the credit risk of a member who
+never pays, a risk to it and not to other members. In a member-funded
+graft each member adds an input, one absent member stalls the cohort (a
+liveness cost, not a safety one), and the saving against an on-chain
+batch, $43\vB$ per output, is gone. A 256-member operator-funded cohort
+at $D = 16$ is one $722\vB$ transaction, under 30\,sat per member at
+10\,sat/vB; had the operator grafted a node with no tree behind it, every
+member's check would fail, nobody would pay, and only the operator's own
+coins would be frozen.
+
+\paragraph{Designing a cohort.} The slot the operator picks is what later
+batching depends on, and a cohort should share a lease, since one leaf
+with a NUMS evictor or a later lease blocks the sweep of its subtree.
+\tr{REWRITE}$_h$ is a graft that publishes its leaves: grounded by
+construction, at an estimated $60\vB$ or more per leaf against under 3
+for \tr{JOIN}$_8$. A graft also settles off-chain credit as exitable
+leaves (\S\ref{sec:receive}).
