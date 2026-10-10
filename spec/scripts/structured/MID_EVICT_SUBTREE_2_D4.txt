@@ -1,4 +1,4 @@
-# EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D=4): 2225 bytes
+# EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D=4): 2249 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

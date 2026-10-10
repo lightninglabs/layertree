@@ -89,7 +89,7 @@ def mid_macros():
     for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("STATE", F.STATE_PREFIX),
                      ("VOUCHER", F.VOUCHER_PREFIX), ("POS", F.POS_PREFIX), ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
         t.append((f"TAGGED({tag})", M.tagged(pre)))
-    t += [("PADZ", M.padz()), ("ENC64", M.enc64()), ("LE64", M.le64()),
+    t += [("NONNEG", M.nonneg()), ("PADZ", M.padz()), ("ENC64", M.enc64()), ("LE64", M.le64()),
           ("TREE_SPK_MIN", F.tree_spk_min()), ("PROLOGUE", M.prologue()),
           ("LEVEL_MID", M.level(False)), ("LEVEL_MID_S", M.level(True)),
           ("SPARSE_SETUP", M.sparse_setup()), ("SPARSE_TEARDOWN", M.sparse_teardown()),
@@ -130,7 +130,7 @@ def min_macros():
                      ("TAPTWEAK", F.TAPTWEAK_PREFIX), ("TAPSIGHASH", N.TAPSIGHASH_PREFIX),
                      ("CHALLENGE", N.CHALLENGE_PREFIX)):
         t.append((f"TAGGED({tag})", M.tagged(pre)))
-    t += [("PADZ", M.padz()), ("LE64", M.le64()), ("TREE_SPK_MIN", F.tree_spk_min()),
+    t += [("NONNEG", M.nonneg()), ("PADZ", M.padz()), ("LE64", M.le64()), ("TREE_SPK_MIN", F.tree_spk_min()),
           ("LEVEL_MID", M.level(False)), ("LEAF_JOIN", M.leaf_join()),
           ("CARVE_RULES", M.carve_rules())]
     return [(n, words(x, "c0")) for n, x in t]
@@ -293,6 +293,7 @@ NOTES_FULL = {
 NOTES_MID = {
     "TAGGED": "[msg] -> [H_tag(msg)]",
     "CARVE_RULES": "[src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ (7.5 rule 5)",
+    "NONNEG": "[x] -> [x]: x == |x|, a minimal non-negative CScriptNum (rejects a negative, a negative zero and a non-minimal encoding)",
     "PADZ": "[x z w] -> [le32(x)]: z||w == 00000000 and size(x)+size(z) == 4",
     "ENC64": "[x z w] -> [enc64(x)]",
     "LE64": "[x z w] -> [le64(x)]",

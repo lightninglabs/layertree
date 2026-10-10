@@ -1,4 +1,4 @@
-# SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D=4): 2103 bytes
+# SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D=4): 2143 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 31 OP_PICK OP_CHECKSIGVERIFY

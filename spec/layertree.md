@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.10.0
+Version:  0.11.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -361,10 +361,10 @@ are interchangeable, with one numeric cap noted below.
 | Beyond BIP-342 | `OP_CAT`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT`; `OP_TX`; `OP_CHECKSIGFROMSTACK`; `OP_EC_POINT_MUL/ADD/X_COORD` | `OP_CAT`; `OP_TX` (assumed in `0xC0`, **[A-5]**); `OP_CHECKSIGFROMSTACK`; `OP_TWEAKADD` | `OP_CAT`; `OP_TWEAKADD` | `OP_CHECKCONTRACTVERIFY` (BIP-443, **[A-6]**); `OP_TX`; with `0xC2` the BIP-441 opcodes FULL uses, with `0xC0` `OP_CAT`; `OP_CHECKSIGFROMSTACK` only for `CLAIM`/`CLAIM^h`. No EC ops, no `OP_TWEAKADD` |
 | Introspection | `OP_TX` | `OP_TX` | constructive: the script rebuilds the BIP-341 sighash message and checks a generator-key signature with `OP_CHECKSIG` (section 4.4) | `OP_TX` for amounts only; scriptPubKeys and the input's state by `OP_CHECKCONTRACTVERIFY` |
 | Leaf on the stack | one 116-byte element, fields by `OP_SUBSTR` | seven field elements, rejoined by `OP_CAT` under `OP_SIZE` checks | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
-| Fixed-width numbers | `2^64 OP_ADD` | `PADZ`: witness zero pad `z`, filler `w`, `z||w = 00000000`, `size(x)+size(z) = 4` | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
-| Sum limit per tree | none (< 2^51 by leaf rule) | every sum < 2^31 sat | every sum < 2^31 sat | as FULL (`0xC2`) or as MID (`0xC0`) |
+| Fixed-width numbers | `2^64 OP_ADD` | `PADZ`: witness zero pad `z`, filler `w`, `z||w = 00000000`, `size(x)+size(z) = 4`; `NONNEG` (`OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY`) on every witness-supplied number that enters a sum (a sibling sum, a leaf amount, a joined sum), since `CScriptNum` is sign-magnitude and `le32` of a value in `[2^31, 2^32)` is a negative number (10.6) | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
+| Sum limit per tree | none (< 2^51 by leaf rule) | every sum < 2^31 sat, enforced: `NONNEG` keeps every term non-negative and `PADZ`'s four-byte bound every accumulator below 2^31 | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both | exact for both (4.6) |
-| Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID | as FULL (`0xC2`) or as MID (`0xC0`, `D ≤ 31`) |
+| Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum` below `2^D` (the `D`-bit accumulator is compared with all 32 bits of `pos_lo`, whose top byte is non-zero, so `25 ≤ D ≤ 31`, with `2^(31−D)` times the grinding below `D = 31`) | as MID | as FULL (`0xC2`) or as MID (`0xC0`, `25 ≤ D ≤ 31`) |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK` |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | yes, both numerics, as `CLAIM` |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes, both numerics |
@@ -390,30 +390,30 @@ script / witness data:
 
 | transition | FULL D | MID D | MIN D | CCV D | FULL S (32) | MID S (31) | CCV S (32) |
 |---|---|---|---|---|---|---|---|
-| `EXIT_1` | 2,101 / 902 | 3,299 / 978 | 3,572 / 1,175 | 1,716 / 838 | 5,147 / 326 | 9,274 / 796 | 4,762 / 262 |
-| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,824 / 794 | — | 1,456 / 679 | 5,131 / 367 | 9,254 / 783 | 4,746 / 303 |
-| `JOINK_2` | 3,545 / 1,525 | 5,749 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 17,985 / 1,433 | 9,388 / 542 |
-| `UPDATE` | 2,137 / 1,080 | 3,407 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,393 / 1,002 | 4,962 / 483 |
-| `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,397 / 1,032 | 4,969 / 547 |
-| `CLAIM` | 3,859 / 1,690 | 6,376 / 1,840 | n/a | 3,472 / 1,626 | 9,953 / 688 | 18,326 / 1,551 | 9,566 / 419 |
-| `CLAIM^h` | 3,867 / 1,722 | 6,384 / 1,869 | n/a | 3,480 / 1,658 | 9,961 / 515 | 18,334 / 1,446 | 9,574 / 451 |
-| `SPLIT` | 3,750 / 1,674 | 6,217 / 1,821 | 6,501 / 2,018 | 3,363 / 1,610 | 9,844 / 483 | 18,167 / 1,420 | 9,457 / 419 |
-| `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,097 / 1,157 | — | 2,340 / 987 | — | — | — |
-| `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | 4,960 / 2,065 | — | — | — |
-| `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | 15,968 / 6,391 | — | — | — |
+| `EXIT_1` | 2,101 / 902 | 3,367 / 978 | 3,640 / 1,175 | 1,716 / 838 | 5,147 / 326 | 9,402 / 796 | 4,762 / 262 |
+| `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,884 / 794 | — | 1,456 / 679 | 5,131 / 367 | 9,382 / 783 | 4,746 / 303 |
+| `JOINK_2` | 3,545 / 1,525 | 5,885 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 18,241 / 1,433 | 9,388 / 542 |
+| `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,962 / 483 |
+| `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,969 / 547 |
+| `CLAIM` | 3,859 / 1,690 | 6,512 / 1,840 | n/a | 3,472 / 1,626 | 9,953 / 688 | 18,582 / 1,551 | 9,566 / 419 |
+| `CLAIM^h` | 3,867 / 1,722 | 6,520 / 1,869 | n/a | 3,480 / 1,658 | 9,961 / 515 | 18,590 / 1,446 | 9,574 / 451 |
+| `SPLIT` | 3,750 / 1,674 | 6,353 / 1,821 | 6,637 / 2,018 | 3,363 / 1,610 | 9,844 / 483 | 18,423 / 1,420 | 9,457 / 419 |
+| `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,169 / 1,157 | — | 2,340 / 987 | — | — | — |
+| `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
+| `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,866 / 1,754 | — | n/a | — | 9,960 / 547 | — | — |
 | `REWRITE_4` (16 positions, mixed) | 5,336 / 4,329 | — | — | — | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
-encoding: seven-element leaves, `PADZ`): dense `D = 16`: `EXIT_1`
-2,934 / 914, `JOIN_2` 2,456 / 730, `UPDATE` 3,039 / 1,092, `UPDATE^x`
-3,043 / 1,156, `CLAIM` 6,006 / 1,773, `CLAIM^h` 6,014 / 1,805, `SPLIT`
-5,847 / 1,757, `EVICT_SUBTREE_2/4/6` 3,745 / 1,093, 7,561 / 2,353 and
-23,761 / 7,397; sparse `D = 31`: `EXIT_1` 8,909 / 732, `JOIN_0`
-8,886 / 719, `UPDATE` 9,025 / 905, `UPDATE^x` 9,029 / 969, `CLAIM`
-17,956 / 1,350, `CLAIM^h` 17,964 / 1,382, `SPLIT` 17,797 / 1,356. The CCV call saves about 360 bytes of script
-over MID at either profile (MID `EXIT_1` at `D = 16`: 3,299 / 978),
+encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
+3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,111 / 1,092, `UPDATE^x`
+3,115 / 1,156, `CLAIM` 6,142 / 1,773, `CLAIM^h` 6,150 / 1,805, `SPLIT`
+5,983 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
+24,057 / 7,397; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
+9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
+18,212 / 1,350, `CLAIM^h` 18,220 / 1,382, `SPLIT` 18,053 / 1,356. The CCV call saves about 360 bytes of script
+over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
 because the `TREE_SPK_MIN` recomputation and the spk introspection read
 drop out.
 
@@ -1885,6 +1885,15 @@ pairs so that the first consumed is on top
 (`evict_subtree_pad_nodes` in `tools/layertree_mid.py`). Listing:
 `spec/scripts/MID_EVICT_SUBTREE_2_D4.txt`; the stack bound is in 4.5.
 
+Every MID macro that takes a number from the witness into a sum
+(`LEVEL_MID`'s sibling sum, `LEAF_JOIN`'s amount, the dense join block's
+`new_sum`) opens with `NONNEG` (`OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY`,
+4.5, 10.6), so that a four-byte `CScriptNum` with its top bit set, which
+`PADZ` would otherwise accept as the `le32` of a value in `[2^31, 2^32)`,
+cannot enter the fold as a negative number. The MIN tier and the CCV
+tier's `0xC0` scripts share these macros. The macro definitions are in
+`spec/scripts/structured/MACROS_MID.txt`.
+
 ### 8.8 Sizes
 
 Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
@@ -2417,6 +2426,21 @@ rather than size every tree for the worst case in advance.
 
 * Amounts and sums are unsigned. `OP_SUB` underflow fails the script, which
   is what makes over-claims and negative balances impossible.
+* Under `0xC0` numerics (MID, MIN, CCV with `0xC0`) `CScriptNum` is
+  sign-magnitude: a four-byte operand with its top bit set is negative,
+  and `PADZ` alone would accept the `le32` of a value in `[2^31, 2^32)` as
+  that negative number, so a leaf amount, a joined sum or a sibling sum of
+  `2^31 + 2^24` would enter the fold as `-2^24` and commit a node whose
+  sum exceeds the tree output by that much. The `NONNEG` check (`OP_DUP
+  OP_DUP OP_ABS OP_EQUALVERIFY`, 4.5) MUST guard every witness-supplied
+  number that enters a sum; it compares the operand with its own
+  re-encoded absolute value, so it also rejects a negative zero and every
+  non-minimal encoding without relying on the `MINIMALDATA` policy.
+  Accumulated sums are then non-negative, and `PADZ`'s four-byte bound
+  keeps each below `2^31`. `evict_after` and `seq` are not sums and keep
+  `PADZ` alone (`OP_CHECKLOCKTIMEVERIFY` fails on a negative operand by
+  itself, and `seq`'s `CScriptNum` reading is what 5.1 and 7.5 rule 2
+  describe).
 * `PAD8` produces a 10-byte string for values of 2^64 or more, so the hash
   preimage differs from any honestly built node and the proof fails; in
   addition every sum is monotone non-decreasing up the path and the final
@@ -2708,7 +2732,7 @@ balances at 1 to 250 sat/vB. Headlines, FULL dense `D = 16` (1,020 vB):
 | 250 sat/vB | 255,000 sat | 25,500,000 sat | 2,550,000 sat |
 
 Depth moves the cost little (762 vB at `D = 8`, 1,149 vB at `D = 20`);
-tier and profile move it more (MID +31%, MIN +43%, sparse 1.6–2.7×). The
+tier and profile move it more (MID +33%, MIN +44%, sparse 1.6–2.7×). The
 FULL-tier endogenous fee option saves a constant 99 vB. Batching lowers the
 marginal exit to 665 vB, and cohort sweeps lower eviction to 203 vB per
 leaf (`EVICT_SUBTREE_4`) and 158 vB per leaf (`EVICT_SUBTREE_6`), which is

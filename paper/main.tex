@@ -571,8 +571,8 @@ Numerics & any length & 4-byte, $< 2^{31}$ & 4-byte, $< 2^{31}$ & as FULL or MID
 Owner payout & $\le$ amount & exact & exact & exact \\
 Predicates & all & all & \tr{EXIT}$_1$, \tr{SPLIT} & all \\
 Vouchers / channels / shape & yes / yes / free & yes / yes / free & no / no / fixed & option / yes / free \\
-\tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 & 1{,}716 / 838 \\
-\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 & 908 \\
+\tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}367 / 978 & 3{,}640 / 1{,}175 & 1{,}716 / 838 \\
+\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}355 & 1{,}473 & 908 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -910,8 +910,8 @@ $16\vB$ to every spend.
 
 \paragraph{Exit cost.} A dense exit (Figure~\ref{fig:plot},
 Table~\ref{tab:sizes}) costs $762\vB$ at $D = 8$ and $1{,}149\vB$ at
-$D = 20$, about $32\vB$ per level. One tier step costs as much as 10 (MID, $+31\%$) to 14 (MIN,
-$+43\%$) levels of depth. The sparse profile at $D = 32$ with $2^{16}$
+$D = 20$, about $32\vB$ per level. One tier step costs as much as 10 (MID, $+33\%$) to 14 (MIN,
+$+44\%$) levels of depth. The sparse profile at $D = 32$ with $2^{16}$
 members costs about $1{,}780\vB$, 1.75 times the dense profile at
 $D = 16$; its witness grows with $\log_2 N$, not $D$.
 
@@ -942,10 +942,10 @@ sequential confirmations nor the larger opcode set.
 \addlegendentry{LayerTree, FULL,\\dense, measured}
 \addplot[thick, dashed] coordinates {(8,1311) (12,1911) (16,2511) (20,3111)};
 \addlegendentry{radix-2 transaction\\tree, model}
-\addplot[only marks, mark=triangle*, mark size=2.2pt] coordinates {(16,1338)};
-\node[font=\scriptsize, anchor=west] at (axis cs:16.4,1338) {MID 1{,}338};
-\addplot[only marks, mark=diamond*, mark size=2.4pt] coordinates {(16,1456)};
-\node[font=\scriptsize, anchor=east] at (axis cs:15.7,1456) {MIN 1{,}456};
+\addplot[only marks, mark=triangle*, mark size=2.2pt] coordinates {(16,1355)};
+\node[font=\scriptsize, anchor=west] at (axis cs:16.4,1355) {MID 1{,}355};
+\addplot[only marks, mark=diamond*, mark size=2.4pt] coordinates {(16,1473)};
+\node[font=\scriptsize, anchor=east] at (axis cs:15.7,1473) {MIN 1{,}473};
 \addplot[only marks, mark=square*, mark size=1.8pt] coordinates {(16,908)};
 \node[font=\scriptsize, anchor=north west] at (axis cs:16.3,880) {CCV 908};
 \end{axis}
