@@ -65,6 +65,9 @@ add("FULL", "D", 4, "SPLIT", F.split_script(4, "D"), "c2")
 add("FULL", "S", 8, "SPLIT", F.split_script(8, "S"), "c2")
 add("MID", "D", 4, "SPLIT", M.split_script(4, False), "c0")
 add("MID", "S", 8, "SPLIT", M.split_script(8, True), "c0")
+add("MIN", "D", 4, "SPLIT", N.split_script(4), "c0")
+add("CCV", "D", 4, "SPLIT", CV.split_script_ccv(4, "D"), "c2")
+add("CCV", "S", 8, "SPLIT", CV.split_script_ccv(8, "S"), "c2")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

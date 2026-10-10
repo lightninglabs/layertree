@@ -545,6 +545,19 @@ func midCarveScript(depth int, sparse bool, auth string) []Token {
 			Op(OP_CHECKSIGFROMSTACK), Op(txscript.OP_VERIFY),
 			Op(txscript.OP_DROP))
 	}
+	s = append(s, midCarveSource(depth, sparse)...)
+	s = append(s, midCheckOld(sparse)...)
+	s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK))
+	s = append(s, midCarveClaim(depth, sparse)...)
+	return append(s, midFinal(depth)...)
+}
+
+// midCarveSource is step 1 of CLAIM, CLAIM^h and SPLIT, after the
+// authorisation check. Stack on entry: src(10) claim(10) extras(7) ;
+// altstack: .. m r. On exit: T oh os nh ns over the source path ; altstack:
+// .. m claim_leaf amt_c r. The MIN tier shares it.
+func midCarveSource(depth int, sparse bool) []Token {
+	var s []Token
 	// seq consistency: le32(seq_num) == src.seq
 	s = append(s, Num(20), Op(txscript.OP_PICK), Num(7), Op(txscript.OP_PICK))
 	s = append(s, midRoll(7, 2)...)
@@ -594,10 +607,14 @@ func midCarveScript(depth int, sparse bool, auth string) []Token {
 	}
 	s = append(s, Data(midNodePrefix))
 	s = append(s, midRoll(4, 4)...)
-	s = append(s, midLevels(sparse, depth, 0)...)
-	s = append(s, midCheckOld(sparse)...)
-	s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK))
-	s = append(s, midTagged(midLeafPrefix)...)
+	return append(s, midLevels(sparse, depth, 0)...)
+}
+
+// midCarveClaim is step 2: the new leaf into an empty position, proven
+// against the root step 1 produced. Stack on entry: T nh1 ns1 amt_c
+// claim_leaf. On exit: T nh2 ns2.
+func midCarveClaim(depth int, sparse bool) []Token {
+	s := midTagged(midLeafPrefix)
 	s = append(s, Op(txscript.OP_SWAP),
 		Op(txscript.OP_2SWAP), Op(txscript.OP_SWAP),
 		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
@@ -608,8 +625,7 @@ func midCarveScript(depth int, sparse bool, auth string) []Token {
 	s = append(s, Data(midEmptyLeafHash), Op(txscript.OP_0),
 		Op(txscript.OP_2SWAP))
 	s = append(s, midLevels(sparse, depth, 0)...)
-	s = append(s, midCheckPrev(sparse)...)
-	return append(s, midFinal(depth)...)
+	return append(s, midCheckPrev(sparse)...)
 }
 
 // MidAllScripts builds the MID-tier script set for one profile, keyed as

@@ -766,6 +766,17 @@ def test_split(depth, profile, verbose=True):
                 "SPLIT into an occupied position")
     # stale root
     expect_fail(lambda: w.run("SPLIT", head + [asig, r1[0], w.m], ctx), "SPLIT against a stale root")
+    # the owner's signature covers output 0, which is the only place the new
+    # leaf reaches it: a relayer cannot swap in its own leaf (7.5.2, 10.7)
+    mallory = mk_leaf("mallory", bob.amount, w.op_pk, 900_000)
+    s_mal = w.slot(mallory, 3)
+    tm = w.clone(); lt.apply_claim(tm, s_alice, s_mal, mallory); rm = tm.root()
+    ctx_m = w.ctx([(rm[1], w.spk(rm))], extra_in=(600, P2WPKH))
+    head_m = (w.path_witness(tm.path(s_mal)) + w.path_witness(spath) + w.bm(spath) + [alice.serialize()] +
+              w.bm(tm.path(s_mal)) + [mallory.serialize()])
+    w.run("SPLIT", head_m + [schnorr_sign(ctx_m.sighash(), sk("alice-owner")), root[0], w.m], ctx_m)
+    expect_fail(lambda: w.run("SPLIT", head_m + [asig, root[0], w.m], ctx_m),
+                "SPLIT recipient swapped under the owner's signature")
     if verbose:
         claim = len(assemble(ls.claim_script(depth, profile)))
         print(f"SPLIT {profile} D={depth}: script {len(script)} B (CLAIM {claim} B, saves {claim - len(script)}), "

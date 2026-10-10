@@ -33,16 +33,23 @@ section 7 are right; the tests show the *scripts* implement the rules.
 
 1. **No new opcodes.** Compose only the existing candidates listed in spec
    4.3: BIP-441 restored opcodes (tapleaf `0xC2`), `OP_TX` (Rusty Russell's
-   draft), `OP_CHECKSIGFROMSTACK` (BIP-348), `OP_TWEAKADD` (BIP-449), and
+   draft), `OP_CHECKSIGFROMSTACK` (BIP-348), `OP_TWEAKADD` (BIP-449),
    the EC ops draft BIP (`OP_EC_POINT_ADD/MUL/NEGATE/X_COORD`, opcodes
-   `0xbb..0xbe`, operand order `[scalar][point]`, empty vector = G).
-   `tools/test_scripts.py` fails if a script uses anything outside the
-   allowed set. Do not invent a selector, opcode or semantics to make a
-   script shorter.
-2. **Three tiers, one tree format.** Every transition exists in FULL
-   (`0xC2`), MID (`0xC0` + CAT + OP_TX + CSFS + TWEAKADD) and MIN (`0xC0` +
-   CAT + TWEAKADD). A change to a transition rule must land in all tiers
-   that support it, or the spec must say why a tier cannot.
+   `0xbb..0xbe`, operand order `[scalar][point]`, empty vector = G), and
+   `OP_CHECKCONTRACTVERIFY` (BIP-443, assumption `[A-6]`, CCV tier only).
+   `tools/test_scripts.py` and `tools/test_ccv.py` fail if a script uses
+   anything outside its tier's allowed set. Do not invent a selector,
+   opcode or semantics to make a script shorter. The hypothetical
+   `OP_MERKLESUMUPDATE` (`tools/layertree_msu.py`, `design/native-opcodes.md`)
+   is a measurement, not a tier: it stays behind the simulator's
+   `hypothetical=True` flag and out of every tier, `all_scripts()` and the
+   golden vectors.
+2. **Four tiers, one tree format.** Every transition exists in FULL
+   (`0xC2`), MID (`0xC0` + CAT + OP_TX + CSFS + TWEAKADD), MIN (`0xC0` +
+   CAT + TWEAKADD) and CCV (BIP-443 `OP_CHECKCONTRACTVERIFY` + OP_TX in
+   place of the key arithmetic, `0xC2` or `0xC0` numerics). A change to a
+   transition rule must land in all tiers that support it, or the spec
+   (4.5, 4.6) must say why a tier cannot.
 3. **Spec language.** RFC 2119 keywords in capitals only where normative;
    paragraphs marked *(informative)* carry no requirements. No em-dashes in
    prose. Section numbers are referenced as bare numbers ("7.2 rule 3").
@@ -64,7 +71,8 @@ section 7 are right; the tests show the *scripts* implement the rules.
 
 **Changing a script or adding a variant** (any tier):
 1. Edit the generator (`tools/layertree_scripts.py` FULL,
-   `tools/layertree_mid.py` MID, `tools/layertree_min.py` MIN). Keep the
+   `tools/layertree_mid.py` MID, `tools/layertree_min.py` MIN,
+   `tools/layertree_ccv.py` CCV). Keep the
    stack comments (`# a b c | alt`) current; they are how the next person
    debugs depth errors.
 2. Add positive and negative cases to the matching test file. Negative
@@ -77,7 +85,7 @@ section 7 are right; the tests show the *scripts* implement the rules.
    reference script *set* changes**; tree-creation variants (`UPDATE_X`,
    exact-payout `EXIT`) are excluded from it on purpose.
 4. Mirror the generator in Go (`script/full.go`, `script/mid.go`,
-   `script/min.go`) and add the golden-key comparison test. Run `gofmt -l .`.
+   `script/min.go`, `script/ccv.go`) and add the golden-key comparison test. Run `gofmt -l .`.
 5. Update the spec: the listing in section 8, the size table in 8.8 and
    `spec/scripts/sizes.md`, the tier matrix in 4.5, the test description in
    14, and the check counts in 14 (the suites print them). Bump the version
@@ -183,10 +191,10 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (422 checks)
-python3 tools/test_mid.py          # MID tier (113 checks)
-python3 tools/test_min.py          # MIN tier (7 checks)
-python3 tools/test_ccv.py          # CCV tier, both profiles (139 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (425 checks)
+python3 tools/test_mid.py          # MID tier (120 checks)
+python3 tools/test_min.py          # MIN tier (31 checks)
+python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (309 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
 python3 tools/gen_golden.py        # spec/golden.json

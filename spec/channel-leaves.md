@@ -3,7 +3,7 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.2.0
+Version:  0.2.1
 Requires: spec/layertree.md 0.7.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
@@ -855,6 +855,7 @@ are the same transition with different fields; only splicing (which changes
 | FULL | yes (`0xC2`) | yes | **yes** — as specified here |
 | MID | yes (`0xC0`, **[A-5]**) | yes | **yes** — identical scripts; only `OP_CAT`, `OP_SHA256`, `OP_TX`, `OP_CHECKSIGFROMSTACK`, `OP_CHECKLOCKTIMEVERIFY`, `OP_CHECKSEQUENCEVERIFY` are used, all of which MID has |
 | MIN | no | no | **no** |
+| CCV (4.6) | yes (amounts) | not assumed by the tree's scripts | **yes, hosted** — the channel scripts are FULL or MID scripts in their own outputs, so they need `OP_TX` and `OP_CHECKSIGFROMSTACK` wherever they run; the CCV tree itself only pays the leaf out exactly (C.6.1 holds by construction) and has no `CLAIM` (C.6.5 does not arise); the other rules of C.6 apply as in FULL |
 
 The channel scripts of C.3 use no BIP-441 numerics, no splice opcode beyond
 `OP_CAT`, and no EC opcode, so they are byte-identical in the FULL and MID

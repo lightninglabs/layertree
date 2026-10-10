@@ -46,8 +46,8 @@ Any line naming `sorryAx` means an unfinished proof; there are none.
 | 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=` | `ExitBlock`, `ExitK exact …` | `exact = true` is the exact-payout variant. |
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. |
-| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it. |
-| 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. The CCV tier's `TREE_SPK_CCV` (spec 4.6, 6.3) satisfies the same `BindingModel`: injectivity of the BIP-443 data tweak (discrete log plus collision resistance of the untagged `sha256(pk‖data)`) plays the role `H_state`'s tagged hash plays in FULL; the theorems apply unchanged. |
+| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. |
+| 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds`, `CCVTweak`, `CCVTweak.binding`, `ccv_input_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. The CCV tier's `TREE_SPK_CCV` (spec 4.6, 6.3) is built as `CCVTweak.binding`, a second `BindingModel` whose injectivity is proved from two stage hypotheses: the BIP-443 data tweak `NUMS + sha256(NUMS‖r)·G` is injective in `r`, and the taproot tweak is injective in `(P, m)`; the theorems then apply unchanged. |
 | 5.3 `enc64`, 8.2 `PAD8` | `Encoding.enc64_eq_minimal` (`Encoding.lean`) | `le64 n ‖ 01` is the minimal BIP-441 encoding of `n + 2^64`. |
 | 5.2 serialisation | `Encoding.serializeLeaf_inj`, `serializeNode_inj` | Fixed-width concatenation is injective under `WF`. |
 | 5.1 `SEQ_FINAL` | `minimalLE_two_pow_32_length`, `scriptNum_two_pow_31_length`, `scriptNum_neg_max31_succ` | Why the marker is `0xFFFFFFFF` in FULL and `0x7FFFFFFF` in MID, and why `0xFFFFFFFF` is *claimable* in MID. |
@@ -125,6 +125,12 @@ by `lake build`; the names are the Lean identifiers.
   against the true root under the true script set.
 * **`output_binds`**: the same for output 0, so the successor output
   commits to the computed root and the same `m`.
+* **`CCVTweak.binding`**, **`ccv_input_binds`**: the CCV tier's state key
+  (BIP-443 data tweak of `NUMS` by the root, then the taproot tweak by `m`)
+  as a second `BindingModel`. Its `treeSpk_inj` is proved, not assumed,
+  from injectivity of each tweak stage, so `witness_root_binds` and
+  `output_binds` hold for a CCV tree; `ccv_input_binds` is the first of
+  them stated for `CHECK_INPUT` with the input's own taptree.
 
 ### Encodings (`Encoding.lean`)
 
@@ -157,7 +163,12 @@ digest type and hash functions satisfying:
 
 The binding argument (`Binding.lean`) additionally assumes `TREE_SPK` is
 injective in `(r, m)`: the discrete logarithm assumption on secp256k1 plus
-collision resistance of `H_state` and `TapTweak`.
+collision resistance of `H_state` and `TapTweak`. For the CCV tier the
+assumption is split into `CCVTweak.dataTweak_inj` (collision resistance
+of the untagged SHA-256 over `NUMS ‖ r`, plus the discrete logarithm of
+`NUMS`: two distinct scalars can give the same x-only key only if
+`2·NUMS = −(t₁ + t₂)·G`) and `CCVTweak.tapTweak_inj` (the BIP-341
+argument for `TapTweak`), and `treeSpk_inj` is derived from them.
 
 Injectivity is the standard idealisation of collision resistance for
 proofs about Merkle structures: a proof that goes through under
@@ -178,7 +189,7 @@ out. The model does not quantify the adversary's advantage.
 * **Signatures, keys, lock times.** Authorisation decides *who* may perform
   a transition, not *what* it does to the tree, so it appears as an opaque
   proposition. Nothing about conservation depends on it. This is why the
-  authorisation variants of the spec (`UPDATE^x`, `CLAIM^h`) need no new
+  authorisation variants of the spec (`UPDATE^x`, `CLAIM^h`, `SPLIT`) need no new
   Lean development: they instantiate the same `Prop` differently, and the
   soundness theorems apply to them verbatim. It is also the boundary of the
   model: that the *script* enforces the authorisation it claims to is shown
@@ -220,7 +231,7 @@ formal/
   LayerTree/Leaf.lean      Leaf, Leaf.WF, Node, leafNode
   LayerTree/Tree.lean      Tree, Pos, root, total, paths, fold, the tree theorems
   LayerTree/Transitions.lean  Step, Steps, EXIT/JOIN/UPDATE/CLAIM and their theorems
-  LayerTree/Binding.lean   TREE_SPK binding
+  LayerTree/Binding.lean   TREE_SPK binding (FULL, and CCV via CCVTweak)
   LayerTree/Encoding.lean  le64, enc64 minimality, serialisation injectivity, SEQ_FINAL
   LayerTree/Axioms.lean    #print axioms audit for the headline theorems
 ```

@@ -20,6 +20,8 @@ func ccvScriptFor(profile string, depth int, name string,
 	case name == "UPDATE_X":
 		return nil, fmt.Errorf("UPDATE_X is a tree-creation parameter; " +
 			"generated separately in TestCCVUpdateX")
+	case name == "SPLIT":
+		return CCVSplitScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err

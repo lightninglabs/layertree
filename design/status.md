@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-09-20 (spec 0.8.1, Appendix C 0.2.0, paper v0.1).
+Last updated 2026-09-20 (spec 0.8.3, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 
@@ -9,12 +9,12 @@ Last updated 2026-09-20 (spec 0.8.1, Appendix C 0.2.0, paper v0.1).
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 422 + 113 + 7 checks pass. Every script uses only the allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 38 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
+| Python reference and simulator | 425 + 120 + 31 checks pass. Every script uses only the allowed opcode set. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 39 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). The CCV tier of issue #3 is measured in the paper's tier table and section 5; the native Merkle-sum opcode remains issue #3's open half. |
-| CCV tier (issue #3, part 1) | Complete: simulator `OP_CHECKCONTRACTVERIFY` per BIP-443 ([A-6]), `tools/layertree_ccv.py` both profiles (exact payouts, no CLAIM pending a voucher-message redefinition), `tools/test_ccv.py` 102 checks, Go mirror `script/ccv.go` byte-exact against 15 new golden keys, spec 0.7.0 (section 4.6, 6.3 `TREE_SPK_CCV`, 10.4 note, 11 cost rows, 14 tests), F19. Measured dense D=16 EXIT_1: 1,716 / 838 B script / witness vs FULL's 2,101 / 902, no EC-ops dependency. The 0xC0-numerics variant is in progress. |
+| CCV tier (issue #3, part 1) | Complete: simulator `OP_CHECKCONTRACTVERIFY` per BIP-443 ([A-6], amount rules pinned to bips commit `24e96e87` and tested one by one), `tools/layertree_ccv.py` both profiles and both numerics (exact payouts; `UPDATE^x` in both numerics, `SPLIT` in `0xC2`; no `CLAIM` / `CLAIM^h` pending a voucher-message redefinition), `tools/test_ccv.py` 309 checks including two tree inputs in one transaction, Go mirror `script/ccv.go` byte-exact against 17 golden keys, Lean `CCVTweak.binding` (a second `BindingModel`), spec 0.8.4 (4.3 inventory row, 4.5 CCV column, 4.6, 6.3 `TREE_SPK_CCV`, 10.4 note, 11 cost rows, 14 tests), F19. Measured dense D=16 EXIT_1: 1,716 / 838 B script / witness vs FULL's 2,101 / 902, no EC-ops dependency; 0xC0 dense EXIT_1 2,934 / 914. Open: `CLAIM` under CCV, `SPLIT` and `EVICT_SUBTREE_h` under 0xC0. |
 
 ## Decision log
 
@@ -100,13 +100,12 @@ ones most likely to move:
    C in executable form, the `REBIND_n` and `SETTLE_n` update machine, so
    the deadline reasoning of 9.6.2 and C.4.4 is argued rather than
    exercised. The Go side carries no Appendix C scripts at all.
-7. **`SPLIT` in the MIN tier** (issue #9, spec 7.5.2). `SPLIT` needs no
-   `OP_CHECKSIGFROMSTACK`, so unlike `CLAIM` nothing bars it from MIN on
-   opcode grounds, which would make it the first member-to-member
-   transition MIN supports. Whether it fits is unmeasured: MIN
-   reconstructs the sighash constructively and `SPLIT` needs two fold
-   passes where `EXIT_1` needs one. The tier matrix records this as open
-   rather than answered.
+7. **The rest of the MIN tier.** MIN realises the dense `EXIT_1` and, since
+   issue #9, the dense `SPLIT` (spec 8.6.2): 6,441 bytes of script and
+   2,010 of witness at `D = 16`, the MID carve with the `OP_TX` reads
+   replaced by the constructive signature message. `JOIN`, `UPDATE`,
+   `EVICT_SUBTREE_h`, `EXIT_K` and the sparse profile follow the same
+   construction but are argued, not measured.
 8. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
