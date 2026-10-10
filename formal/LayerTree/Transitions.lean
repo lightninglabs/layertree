@@ -674,6 +674,15 @@ theorem Tree.Sparse.unique {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d
   rw [h₁] at h₂
   exact ⟨rfl, Option.some.inj h₂⟩
 
+/-- **A leaf occupies one position** in a sparse tree: the same leaf bytes
+at two positions force the positions equal, because both are
+`pos(owner_key, nonce)`. In the dense profile this is not structural;
+5.2's uniqueness rule is what forbids the duplicate there. -/
+theorem Tree.Sparse.one_position {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d}
+    (hs : t.Sparse pos) {p₁ p₂ : Pos d 0} {l : Leaf} (h₁ : t.get p₁ = some l)
+    (h₂ : t.get p₂ = some l) : p₁ = p₂ :=
+  (hs.unique h₁ h₂ rfl rfl).1
+
 /-- **Non-inclusion by an `E_0` proof**: in a sparse tree, an empty derived
 position means no leaf with that `(owner_key, nonce)` is in the tree. -/
 theorem Tree.Sparse.absent {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d} (hs : t.Sparse pos)
@@ -732,5 +741,23 @@ theorem sparseJoin_sound {auth : Prop} {d : Nat} {pos : Nat → Nat → Pos d 0}
   · have hsum := Step.sum _ _ _ hj.join.step
     simp only [Tree.emptyNode_sum, leafNode_some] at hsum
     rw [hj.join.out0_eq]; omega
+
+/-- **A position collision is rejected, not resolved.** Two leaves with
+different `(owner_key, nonce)` can derive the same position (`pos` is an
+arbitrary function, and the model proves nothing about how often this
+happens); when it does, the sparse `JOIN_0` of the second leaf is not
+accepted against the tree holding the first, because the script's `E_0`
+proof at the derived position fails. The joiner picks another nonce
+(5.4). What the model does not prove is that a fresh nonce exists or how
+many tries it takes; that is a property of `H_pos`, which is not
+modelled. -/
+theorem sparse_collision_rejected {auth : Prop} {d : Nat} {pos : Nat → Nat → Pos d 0}
+    (t : Tree d) (hs : t.Sparse pos) (path : List (Bool × Node H)) (l l' : Leaf) (r' : Node H)
+    (out0 : Nat) (hwf : path.length = d) (hocc : t.get (pos l.ownerKey l.nonce) = some l') :
+    ¬ SparseJoin auth pos t.root path l r' out0 := by
+  intro hj
+  have := (sparseJoin_sound t hs path l r' out0 hwf hj).1
+  rw [this] at hocc
+  cases hocc
 
 end LayerTree
