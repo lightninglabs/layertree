@@ -1,14 +1,14 @@
 % Appendix: the Lean formalisation. Input from main.tex after \appendix.
 \section{The Lean Formalisation}\label{app:lean}
 
-This \thispart{} describes the mechanised model behind \S\ref{sec:security}
+This appendix describes the mechanised model behind \S\ref{sec:security}
 in enough detail that a reader can judge what has been proved, under
 what assumptions, and what has not. The development is about 1{,}900
 lines of Lean~4~\cite{lean4} in eight modules and depends on nothing but the
 core library: no Mathlib, no external tactics. It builds in seconds and
-prints an axiom audit for 31 headline theorems; each depends only on
-\lean{propext}, \lean{Quot.sound} and, for those that case on a
-\lean{Bool} or on \lean{Steps}, \lean{Classical.choice}, and none on
+prints an axiom audit for 31 headline theorems; as \texttt{lake build}
+prints it, every theorem lists a subset of \lean{propext},
+\lean{Quot.sound} and \lean{Classical.choice}, and none lists
 \lean{sorryAx}. The code is in the artefact~\cite{layertreerepo}.
 
 \subsection{Design of the Model}
@@ -236,9 +236,16 @@ hypothesis & stands for & used by \\
 \lean{hLeaf\_inj} & SHA-256 collision resistance + \lean{serializeLeaf\_inj} & \lean{leafNode\_inj}, \lean{root\_inj} \\
 \lean{hNode\_inj} & SHA-256 collision resistance + \lean{serializeNode\_inj} & \lean{root\_inj}, \lean{fold\_sound} \\
 \lean{hNode\_ne\_hLeaf}, \lean{hNode\_ne\_empty}, \lean{hLeaf\_ne\_empty} & distinct tags (random-oracle heuristic) & \lean{leafNode\_inj}, \lean{fold\_sound} \\
-\lean{treeSpk\_inj} & DL on secp256k1 + CR of $\Hstate$, TapTweak & \lean{witness\_root\_binds} \\
-\lean{CCVTweak.dataTweak\_inj}, \lean{tapTweak\_inj} & CR of SHA-256 over $\NUMS \| r$, DL of $\NUMS$; TapTweak & \lean{CCVTweak.binding}, \lean{ccv\_input\_binds} \\
+\lean{treeSpk\_inj} & DL of $\NUMS$ + CR of $\Hstate$, TapTweak (opposite-sign keys); taproot binding in the ROM (same-sign keys) & \lean{witness\_root\_binds} \\
+\lean{CCVTweak.dataTweak\_inj}, \lean{tapTweak\_inj} & as \lean{treeSpk\_inj}, one per stage & \lean{CCVTweak.binding}, \lean{ccv\_input\_binds} \\
 real-tree invariant & creation check + grounded grafts (off-chain) & every theorem stated for a \lean{Tree} \\
+\midrule
+\multicolumn{3}{@{}l}{\emph{used by Theorem~\ref{thm:uc} but outside Lean}} \\
+compiler correctness & the bytecode implements $\Pred_\tau$ (tested, 1{,}879 checks) & $\Gledger[\Pred_\tau]$ \\
+opcode semantics & [A-1] to [A-6] (Table~\ref{tab:assume}) & every tier \\
+{[C]} & contention: $\kappa$, $\beta$ (\S\ref{sec:func}) & liveness \\
+{[MIN]} & CR of TapSighash and the challenge hash & MIN \\
+Lemma~\ref{lem:path} & paper proof from \lean{hNode\_inj} & honest paths \\
 \midrule
 (none) & & \lean{Steps.sum}, \lean{ExitK.no\_inflation}, encodings \\
 \bottomrule
@@ -247,9 +254,12 @@ real-tree invariant & creation check + grounded grafts (off-chain) & every theor
 
 The conservation results use no hypothesis at all, which is the formal
 content of ``the covenant conserves sums whatever it is shown''. The
-collision-resistance assumption on the TapSighash and challenge hashes
-that the MIN tier's constructive introspection adds (\S\ref{sec:min}) is
-outside the model, since the model does not include signature checking.
+hash axioms are stated for all leaves and all \lean{Nat} sums, while the
+serialisation injectivities hold for well-formed leaves and sums below
+$2^{64}$; the bridge is that every sum on a verified path is at most the
+input amount, and the 41-byte size check on each sibling bounds its sum
+below $2^{64}$, so the axioms are only ever applied inside the encodings'
+range.
 
 \subsection{Modules and Effort}
 
@@ -297,13 +307,21 @@ $(r, m) \ne (r', m')$ yields one of: $x(P_r) = x(P_{r'})$ with $r \ne r'$,
 which is a collision in $\Hstate$ or the relation
 $\NUMS + tG = -(\NUMS + t'G)$, solvable for the discrete logarithm of
 $\NUMS$; $x(P_r) = x(P_{r'})$ with $m \ne m'$, a collision in
-$H_{\mathsf{TapTweak}}$; or distinct internal keys with $Q = \pm Q'$,
-again a linear relation in $\NUMS$ and $G$ solvable for the discrete
-logarithm of $\NUMS$. Making the hypothesis explicit is the point: it is
-what a future script change must not break. For the CCV tier the map is
-built rather than assumed: \lean{CCVTweak.binding} composes the BIP-443
-data tweak of $\NUMS$ by the root with the taproot tweak by $m$ and
-proves \lean{treeSpk\_inj} from the injectivity of each stage, so the
+$H_{\mathsf{TapTweak}}$; or distinct internal keys with $Q = \pm Q'$.
+Write $P_r = \sigma(\NUMS + h G)$ with $\sigma = \pm 1$ and
+$h = \Hstate(r)$, and $t = H_{\mathsf{TapTweak}}(x(P_r) \,\|\, m)$. When
+the two keys have opposite signs, $Q = \pm Q'$ is a linear relation in
+$\NUMS$ and $G$, solvable for the discrete logarithm of $\NUMS$. When
+they have the same sign the $\NUMS$ terms cancel and what remains is
+$h + \sigma t = h' + \sigma t' \bmod n$, a collision of the composed map
+$(r, m) \mapsto \Hstate(r) + \sigma H_{\mathsf{TapTweak}}(x(P_r) \,\|\, m)$:
+neither a discrete logarithm nor a collision of either hash. We assume it
+hard in the random-oracle model, which is how BIP-341's own binding
+argument goes. Making the hypothesis explicit is the point: it is what a
+future script change must not break. For the CCV tier
+\lean{CCVTweak.binding} decomposes \lean{treeSpk\_inj} into two stage
+assumptions, the BIP-443 data tweak of $\NUMS$ by the root and the
+taproot tweak by $m$, each of which carries the same case split, so the
 binding theorems hold for a CCV tree unchanged (\lean{ccv\_input\_binds}
 states the first for the input's own taptree).
 
@@ -326,9 +344,13 @@ execution: every script of every tier runs in the simulator against a
 reference tree with positive and negative cases, and the Go generators are
 compared byte for byte with the Python output. A verified interpreter for
 the tapscript subset (BIP-441 numerics, \op{TX}, \op{CHECKSIGFROMSTACK})
-would close this gap and is a project of a different size. Signatures,
-lock times and the transaction structure beyond amounts are
-authorisation-side facts and are deliberately opaque. Concurrency,
+would close this gap and is a project of a different size. Signatures
+and lock times are authorisation and deliberately opaque. Payout
+destinations are not authorisation but are not proved either: that
+output $k$ pays $\mathrm{P2TR}$ of leaf $k$'s exit key, and that an
+eviction pays the exit key and not the evictor, is established by
+execution, since \lean{ExitBlock} carries no exit key. Nor is
+Lemma~\ref{lem:path}, which has a paper proof only. Concurrency,
 mempool policy, reorganisations and the off-chain protocol are not
 theorems about hash trees and belong to a model checker; a design for a
 P~\cite{plang} model is in the artefact.

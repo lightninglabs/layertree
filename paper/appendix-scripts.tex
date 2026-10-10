@@ -1,5 +1,11 @@
 \section{Script Listings}\label{app:scripts}
 
+\iffullversion\else
+Table~\ref{tab:assume} lists the deployment assumptions of
+\S\ref{sec:scripts}.
+\input{appendix-assumptions}
+\fi
+
 Figure~\ref{fig:step} states the step every transition is built from; the listings below are taken from the reference generators and are what
 the size figures of \S\ref{sec:eval} measure. Stack comments show the
 main stack left to right with the top on the right, and the alt stack
@@ -120,3 +126,17 @@ against the witness-supplied $e_{[0,31)}$ and finally executes
 \[
 \langle G_x \,\|\, e_{[0,31)} \,\|\, \mathtt{01}\rangle\ \ \langle G_x\rangle\ \ \op{CHECKSIG}.
 \]
+
+\paragraph{Grinding and fee bumping.} The spender grinds the fee input's
+\texttt{nSequence} until $e$ ends in $\mathtt{00}$ (so that $e + 1$ is
+formed by replacing the last byte), 256 hashes on average, choosing
+values that set no BIP-68 relative lock (the disable bit set) and stay
+below $\mathtt{0xFFFFFFFE}$ so the transaction keeps signalling
+replaceability. Any change to the transaction changes the message, so a
+replacement with a higher fee must be re-ground and re-signed by the
+owner; a third party bumps it only by a child spending the fee change or
+an anchor. The raw $\mathit{extra}$ outputs travel as one witness element,
+and Bitcoin Core's policy limits \texttt{0xC0} witness items to 80 bytes:
+one P2TR change output and a P2A anchor (56 bytes) fit, two P2TR change
+outputs (86 bytes) make the exit non-standard. The simulator checks
+consensus limits only.

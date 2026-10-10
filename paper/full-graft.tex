@@ -19,7 +19,7 @@ source of every trust question. \lean{join\_sound} states the
 consequences: the slot was empty, output~0 is the old sum plus $s_h$, and
 for every tree whose root is the grafted node the new root is the old
 tree with it inserted. A graft therefore cannot move, shrink or rewrite
-an existing leaf. A node with no preimage is the opaque slot of $\Ftree$:
+an existing leaf. A node with no preimage is an opaque node of $\Ftree$:
 its $s_h$, exactly the value the graft added, is frozen, every other leaf
 stays payable (Theorem~\ref{thm:cons} holds whatever a sibling is), and
 the terminal exit is lost.
@@ -40,20 +40,20 @@ most the root, so a co-member's bad leaf cannot make a good one unpayable.
 
 \begin{table}[tbp]
 \centering
-\caption{Entry cost per member at $D = 16$ on the model of \S\ref{sec:cost}. \tr{JOIN}$_0$ and \tr{JOIN}$_2$ are measured, the other dense rows are the measured rows with the same number of levels (\tr{JOIN}$_8$ is \tr{JOIN}$_0$ at $D = 8$); per member is operator-funded; member-funded adds a $58\vB$ input per member.}
+\caption{Entry cost per member at $D = 16$ on the model of \S\ref{sec:eval}, with no payout output. \tr{JOIN}$_0$ and \tr{JOIN}$_2$ are measured; \tr{JOIN}$_4$ and \tr{JOIN}$_8$ are the measured \tr{JOIN}$_0$ with the same number of levels ($D = 12$ and $D = 8$), and \tr{JOIN}$_{10}$ is \tr{JOIN}$_8$ less two levels (estimate). Per member is operator-funded; member-funded adds each member's P2TR key-path input ($58\vB$) and the signing round of \S\ref{sec:parties}.}
 \label{tab:graft}
 \setlength{\tabcolsep}{4pt}\scriptsize
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 graft & members & tx (vB) & per member & member-funded \\
 \midrule
-\tr{JOIN}$_0$ & 1 & 980 & 980 & $\approx 1{,}040$ \\
-\tr{JOIN}$_2$ & 4 & 915 & 229 & $\approx 290$ \\
-\tr{JOIN}$_4$ & 16 & 851 & 53 & $\approx 110$ \\
-\tr{JOIN}$_8$ & 256 & 722 & 2.8 & $\approx 61$ \\
-\tr{JOIN}$_{10}$ & 1{,}024 & 657 & 0.64 & $\approx 59$ \\
-sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}644 & 1{,}644 & $\approx 1{,}700$ \\
-sparse \tr{JOINK}$_2$, $D = 32$ & 2 & 2{,}864 & 1{,}432 & $\approx 1{,}490$ \\
+\tr{JOIN}$_0$ & 1 & 937 & 937 & $\approx 995$ \\
+\tr{JOIN}$_2$ & 4 & 872 & 218 & $\approx 276$ \\
+\tr{JOIN}$_4$ & 16 & 808 & 51 & $\approx 109$ \\
+\tr{JOIN}$_8$ & 256 & 679 & 2.7 & $\approx 61$ \\
+\tr{JOIN}$_{10}$ & 1{,}024 & 614 & 0.60 & $\approx 59$ \\
+sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}601 & 1{,}601 & $\approx 1{,}659$ \\
+sparse \tr{JOINK}$_2$, $D = 32$ & 2 & 2{,}821 & 1{,}411 & $\approx 1{,}469$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -62,17 +62,21 @@ sparse \tr{JOINK}$_2$, $D = 32$ & 2 & 2{,}864 & 1{,}432 & $\approx 1{,}490$ \\
 $s_h$ from the input the model already counts and members buy their
 balances off-chain; the operator bears the credit risk of a member who
 never pays, a risk to it and not to other members. In a member-funded
-graft each member adds an input, one absent member stalls the cohort (a
-liveness cost, not a safety one), and the saving against an on-chain
-batch, $43\vB$ per output, is gone. A 256-member operator-funded cohort
-at $D = 16$ is one $722\vB$ transaction, under 30\,sat per member at
+graft each member adds an input and signs one transaction after the
+cohort is fixed, so one absent member stalls the cohort and the rest
+retry (a liveness cost, not a safety one), and the saving against an
+on-chain batch, $43\vB$ per output, is gone. A 256-member
+operator-funded cohort at $D = 16$ is one $679\vB$ transaction, under
+30\,sat per member at
 10\,sat/vB; had the operator grafted a node with no tree behind it, every
 member's check would fail, nobody would pay, and only the operator's own
 coins would be frozen.
 
 \paragraph{Designing a cohort.} The slot the operator picks is what later
 batching depends on, and a cohort should share a lease, since one leaf
-with a NUMS evictor or a later lease blocks the sweep of its subtree.
+the operator admits with a NUMS evictor or a later lease blocks the
+sweep of its subtree (a member cannot create one by carving, which
+keeps the evictor and the lease, spec~0.10.0).
 \tr{REWRITE}$_h$ is a graft that publishes its leaves: grounded by
 construction, at about $117\vB$ per position of the rewritten subtree
 (measured at $h = 6$, \S\ref{sec:batching}) against under 3 per member

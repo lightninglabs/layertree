@@ -3,10 +3,13 @@
 This \thispart{} gives the simulator and the hybrid argument behind
 Theorem~\ref{thm:uc}. We follow the conventions of the composable ledger
 treatment of Badertscher et al.~\cite{bmtz17} and of Generalized
-Channels~\cite{genchannels}: the ideal functionality itself has access to
-the global ledger and posts the transactions that move coins, so that the
-ideal and real worlds agree on what the ledger contains and differ only in
-how the tree state is maintained.
+Channels~\cite{genchannels}. $\Ftree$ is protocol-aware: for an honest
+\iface{EXIT} or \iface{EVICT} it constructs the transaction of
+Figure~\ref{fig:exit} itself, from the honest party's leaf and path and
+the fee coin $f$ named in the call, obtains the signature through
+$\Fsig$, and submits it to $\Gledger$. The simulator never builds an
+honest transaction; it only schedules. The two worlds therefore agree on
+the ledger contents and differ only in how the tree state is kept.
 
 \subsection{The Hybrid World}
 
@@ -19,79 +22,100 @@ The real protocol $\Pi_\tau$ runs in the presence of:
   predicate $\mathsf{Pred}_\tau$ on the input state, the witness and the
   outputs (\S\ref{sec:protocol}). It guarantees persistence, and liveness
   with parameter $\Delta_L$: a valid transaction with sufficient fee that
-  an honest party submits is in the ledger state of every honest party
-  within $\Delta_L$ rounds. The adversary chooses the order of
-  transactions within the rules and may delay a submitted transaction by
-  up to $\Delta_L$.
+  an honest party submits, and that stays valid, is in the ledger state of
+  every honest party within $\Delta_L$ rounds. The adversary orders
+  transactions within the rules, and may get a conflicting spend in first,
+  which invalidates the honest one; [C] bounds how often.
 \item[$\Gclock$] the global clock of Katz et al.~\cite{kmtz13}; rounds are
   blocks.
 \item[$\Fsig$] the ideal signature functionality~\cite{canettiSig}, which
   we use in place of an EUF-CMA reduction; every \texttt{CHECKSIG} and
   \texttt{CHECKSIGFROMSTACK} in the scripts is a call to its verification
-  interface.
+  interface, with one exception: MIN's \op{CHECKSIG} under the generator
+  $G$, whose key has no honest signer, is real BIP-340 verification, and
+  its binding is assumption [MIN] (Table~\ref{tab:assume}).
 \end{description}
 
 Hashes are treated in the idealised model of \S\ref{sec:security}
-(injectivity plus tag separation); the simulator's abort events are
-exactly the collision events this model excludes, so the argument
-transfers to a collision-resistance reduction in the standard way.
+(injectivity plus tag separation), and the taproot commitment in the
+random-oracle model where the two internal keys share a sign
+(Appendix~\ref{app:lean}). Every abort event below is one in which the
+simulator holds two distinct preimages of one digest, so the argument
+transfers to a collision-resistance reduction.
 
-\subsection{The Simulator}
+\subsection{The Simulator and the Invariant}
 
-$\Sim$ runs an internal copy of every honest party's protocol state and of
-the adversary $\Adv$, and interposes between the environment, the ideal
-functionality $\Ftree$ and the hybrids. Its behaviour is driven by two
-kinds of events.
+$\Sim$ runs an internal copy of $\Adv$ and of every honest party's
+protocol state, and keeps a partial tree $\hat T$ equal to $\Ftree$'s.
+Claim~\ref{clm:inv} is the invariant: after each ledger event,
+$\hat T$ has the root the tree output commits to, and every honest
+party's leaf is a known node of $\hat T$ whose path folds to that root.
 
 \paragraph{Ledger events.} Whenever a transaction $\mathsf{tx}$ spending a
-tree output appears in the ledger (honest or adversarial), $\Sim$ parses
-its witness and translates it into $\Ftree$ calls:
+tree output appears in the ledger, $\Sim$ parses its witness:
 
 \begin{enumerate}
-\item Identify the script leaf executed from the control block; this fixes
-  the transition type and its parameters ($K$, $h$, profile, variant).
-\item For each step in the witness, run the fold on the supplied path and
-  node. Because $\mathsf{tx}$ is valid, the old node folds to the
-  committed root (\textsf{CHECK\_OLD} or \textsf{CHECK\_PREV}). By
-  Theorem~\ref{thm:binding} (\lean{fold\_sound}), $\Sim$ recovers the unique
-  position $p$ of that node in its copy of the tree $T$, or detects that
-  no such position exists, which is a collision (abort event
-  $\mathsf{Coll}$).
-\item Map the step to the interface: a leaf node replaced by $\Emp_0$
-  with the owner-flag clear is $\mathsf{EXIT}(p, \mathit{payout})$, with
-  the flag set $\mathsf{EVICT}(p)$; $\Emp_h$ replaced by a node is
-  $\mathsf{JOIN}(p, u)$ for a subtree $u$ that $\Sim$ obtains from the
-  adversary's join messages (or records as ungrounded, see below); a leaf
-  replaced by a leaf is $\mathsf{UPDATE}$; the two-step pattern of
-  \S\ref{sec:protocol} is $\mathsf{CLAIM}$; the post-order pattern is
-  $\mathsf{SWEEP}$; a \tr{REWRITE}$_h$ is one call per changed position
-  ($\mathsf{EXIT}$ for a leaf replaced by $\Emp_0$, $\mathsf{JOIN}$ of a
-  published leaf, $\mathsf{UPDATE}$ otherwise) taking effect together,
-  located by \lean{rewrite\_sound}.
-\item Verify with $\Fsig$ that the authorising signatures are valid for
-  the keys the leaf names. A valid signature for an honest party's key that
-  the honest party did not produce is a forgery (abort event
-  $\mathsf{Forge}$), which $\Fsig$ makes impossible.
-\item Invoke the interface on $\Ftree$ on behalf of the party that
-  authorised the transition (the corrupt party, or, for honest parties'
-  own transactions, by letting the honest party's ideal instruction
-  through).
+\item Identify the script leaf from the control block; this fixes the
+  transition type and its parameters ($K$, $h$, profile, variant).
+\item For each step, fold the supplied node up the supplied path. Where
+  the path passes through an opaque node of $\hat T$, call
+  $\iface{REVEAL}$ for each level with the nodes the witness supplies
+  (they hash to the opaque node because the fold reaches the committed
+  root); where it passes through a known node and the fold disagrees with
+  it, $\Sim$ holds two preimages of one digest (abort event
+  $\mathsf{Coll}$). Otherwise Theorem~\ref{thm:binding} gives the unique
+  position $p$ the step proves.
+\item Map the steps to the interface: a leaf replaced by $\Emp_0$ is
+  \iface{EXIT} (owner flag) or \iface{EVICT} (evictor flag); $\Emp_h$
+  replaced by a node is \iface{JOIN}, with the subtree $\Sim$ obtains from
+  the operator's join messages, or its opaque root; a leaf replaced by a
+  leaf is \iface{UPDATE}; the two-step carve is \iface{VOUCH} followed by
+  \iface{CLAIM} (for \tr{SPLIT}, or a voucher a corrupt owner issued) or
+  \iface{CLAIM} of a recorded voucher; the post-order pattern is
+  \iface{SWEEP}.
+\item Check the authorising signatures with $\Fsig$. A valid signature
+  under an honest key that the honest party did not produce is a forgery
+  (abort event $\mathsf{Forge}$).
+\item If $\mathsf{tx}$ is an honest call that $\Ftree$ posted, let it take
+  effect; otherwise invoke the interface on behalf of the corrupt party
+  that authorised it.
 \end{enumerate}
 
-\paragraph{Functionality events.} When $\Ftree$ executes an interface for
-an honest party, $\Sim$ constructs the corresponding real transaction from
-its copy of the honest state (leaf, path, signature via $\Fsig$) and
-submits it to $\Gledger$ on the honest party's behalf, scheduling it
-within the delay $\Ftree$ permits. $\Ftree$'s payouts are the ledger
-outputs of that transaction, so the two worlds agree on the ledger.
+\paragraph{Honest calls.} When an honest party calls an interface,
+$\Ftree$ builds and posts the transaction and $\Sim$ chooses, within
+$\lat(q)$, when it takes effect, matching the round in which $\Gledger$
+includes it. When a corrupt operator grafts or creates a node whose
+preimage $\Sim$ cannot obtain, $\hat T$ holds it as opaque; an honest
+member never funds such a node without verifying its own path, and
+$\Sim$ reveals that path from the member's state, so the member's leaf
+is known.
 
-\paragraph{Ungrounded grafts.} If a corrupt operator grafts a node whose
-preimage tree $\Sim$ cannot obtain, $\Sim$ records the slot as
-\emph{opaque} in $\Ftree$ (the functionality's $\mathsf{JOIN}$ accepts an
-opaque node of the stated sum). Opaque slots contribute their sum to $A$
-and can be swept or replaced but never exited; this is the real behaviour
-(Theorem~\ref{thm:ground}), and an honest member never funds a join into
-an opaque slot because $\Pi$ verifies its own path before funding.
+\paragraph{The invariant, by case.} Assume Claim~\ref{clm:inv} before an
+accepted spend. \emph{Exit, evict, update, carve.} Each step is valid from
+the committed root, so by Lemma~\ref{lem:step} the new root is the root
+of $\hat T$ with the step's position replaced, which is $\Ftree$'s tree
+after the call; Theorem~\ref{thm:cons} gives that the amounts agree, and
+the bytecode that the destinations do. A drained carve source becomes
+$\Emp_0$ in both (\lean{claimedSource}). \emph{Join and create.} The new
+node is placed at an empty position (\lean{join\_sound}), known or
+opaque. \emph{Sweep.} \lean{evictSubtree\_sound} gives the emptied
+subtree and one payout per leaf. \emph{Reveal.} It changes no root. In
+every case an honest party's leaf outside the changed position keeps a
+valid path by Lemma~\ref{lem:path}, and one inside it was removed by its
+owner's or evictor's own call.
+
+\paragraph{Proof of Lemma~\ref{lem:path}.} Let the step at $p'$ have old
+node $n$, path $\pi_s$ and new node $n'$, and let $k$ be the height at
+which the paths of $p$ and $p'$ meet. Both $\fold(\ell, \pi)$ and
+$\fold(n, \pi_s)$ equal $r$; reading the two folds from the root down,
+injectivity of $\Hnode$ equates, level by level, the two parents'
+preimages, so the siblings above height $k$ coincide, $\ell$'s sibling at
+height $k - 1$ is the node the step's fold reaches at that height, and
+vice versa. Folding $n'$ up $\pi_s$ changes only that node and the nodes
+above it; replacing $\ell$'s sibling at that level by the new node and
+folding with the unchanged siblings above therefore yields $r'$. Below
+height $k - 1$ nothing on $\ell$'s path changed. No real tree is needed,
+only the two folds.
 
 \subsection{Hybrids}
 
@@ -101,90 +125,65 @@ an opaque slot because $\Pi$ verifies its own path before funding.
 \item[$\mathcal{H}_1$] as $\mathcal{H}_0$, but the execution aborts on
   $\mathsf{Forge}$. Indistinguishable by the definition of $\Fsig$.
 \item[$\mathcal{H}_2$] as $\mathcal{H}_1$, but the execution aborts on
-  $\mathsf{Coll}$: a valid witness whose old node is not the node at any
-  position of the honest tree. By Theorem~\ref{thm:binding}, in the
-  idealised hash model $\mathsf{Coll}$ has probability zero; under
-  collision resistance it yields two preimages of $\Hnode$ or $\Hleaf$
-  with equal digests.
+  $\mathsf{Coll}$, on a taproot-commitment collision, and in MIN on a
+  violation of [MIN]. In the idealised hash model and the ROM these have
+  negligible probability; in each, the simulator outputs the colliding
+  preimages.
 \item[$\mathcal{H}_3$] as $\mathcal{H}_2$, but the honest parties' tree
-  state is replaced by $\Ftree$'s and their transactions are produced by
-  $\Sim$ from functionality events. We argue the two are identical
-  transaction by transaction: for every accepted spend, step 2 of $\Sim$
-  finds the position and Theorem~\ref{thm:ground} (\lean{Step.sound}) gives
-  that the new root is the root of $T$ with that subtree replaced, so
-  $\Ftree$'s state after the interface call equals the honest parties'
-  real state. Conservation (\lean{Steps.sum}) gives that the output
-  amounts $\Ftree$ pays are those the transaction carries; the
-  real-tree invariant (\lean{Steps.sound}) gives that $\Ftree$'s $T$ is
-  a tree whenever the real root is; and payability (\lean{payable}) gives
-  that whenever $\Ftree$ executes an honest $\mathsf{EXIT}$, $\Sim$ can
-  produce a valid real transaction. The ledger and clock are shared, so
-  the environment's view of them is unchanged.
+  state is replaced by $\hat T$ and their transactions are built and
+  posted by $\Ftree$. The invariant above makes the two executions
+  identical transaction by transaction; payability
+  (Theorem~\ref{thm:pay}, and Lemma~\ref{lem:path} for a path through an
+  opaque node) gives that every honest exit $\Ftree$ builds is valid.
 \item[$\mathcal{H}_4$] the ideal execution of $\Ftree$ with $\Sim$.
   Identical to $\mathcal{H}_3$ by construction.
 \end{description}
 
-\paragraph{Liveness.} $\Ftree$ permits $\Sim$ to delay an honest
-$\mathsf{EXIT}$ or $\mathsf{EVICT}$ by up to $\Delta(N)$. In the real
-world an honest exit competes for the tree output with at most $N - 1$
-other transitions, of which at most $\kappa$ (the ancestor limit, 25 transactions
-per unconfirmed chain) can be pending per confirmed output; an adversary who front-runs
-maximally therefore delays the honest transaction by at most
-$\lceil N / \kappa \rceil$ confirmations of the tree output, each within
-$\Delta_L$, giving $\Delta(N) = \Delta_L \cdot (\lceil N/\kappa \rceil + 1)$.
-This bound assumes the honest party pays a fee sufficient for
-$\Gledger$'s liveness guarantee; the pinning discussion of
-\S\ref{sec:security} is what happens when it does not.
+\paragraph{Liveness.} $\Ftree$ lets $\Sim$ delay an honest call by up to
+$\lat(q)$. In the real world the honest transaction confirms unless a
+conflicting spend confirms first; under [C] at most $\kappa$ spends of
+the output confirm per block, at most $\beta$ of the conflicting ones are
+adversarial, and $q$ honest calls are queued ahead, so after at most
+$\lceil (\beta + q)/\kappa \rceil$ blocks of $\lat_L$ rounds each the
+honest party's rebuilt transaction, valid by Lemma~\ref{lem:path}, is
+included within one further $\lat_L$. Nothing beyond [C] is claimed: the
+model does not bound $\beta$, and pinning (\S\ref{sec:security}) is one
+way it grows.
 
 \subsection{Per-Tier Remarks}
 
 The argument is the same for every tier because the predicates are the
-same; what differs is which predicates the tier realises
-(Table~\ref{tab:tiers}) and one detail each of the MIN and CCV tiers. In MIN,
-\textsf{CHECK\_OLD} and \textsf{FINAL} are enforced through the
-constructive signature check of \S\ref{sec:min}, whose binding rests on
-collision resistance of the TapSighash and challenge hashes rather than
-on $\Gledger$'s predicate evaluation; $\mathcal{H}_2$ therefore also
-aborts on a collision in those hashes, and $\Sim$ recovers the enforced
-fields from the witness's raw pieces rather than from \texttt{OP\_TX}
-selectors. In CCV, the witness carries neither $r$ nor $m$: the
-input's commitment to the old root and output~0's commitment to the new
-one are checked by \op{CHECKCONTRACTVERIFY} under the input's own
-taptree, so the step of $\Sim$ that reads $r$ and $m$ from the witness
-reads them from the spent output instead, and the binding of
+same; what differs is $\Ftree|_\tau$ (\S\ref{sec:security}) and one
+detail each of MIN and CCV. In MIN, \textsf{CHECK\_OLD} and
+\textsf{FINAL} are enforced through the constructive signature check of
+\S\ref{sec:min}, so $\Sim$ recovers the enforced fields from the witness's
+raw pieces rather than from \op{TX} selectors, and their binding is
+[MIN]. In CCV the witness carries neither $r$ nor $m$: the input's
+commitment to the old root and output~0's to the new one are checked by
+\op{CHECKCONTRACTVERIFY} under the input's own taptree, so $\Sim$ reads
+$r$ and $m$ from the spent output, and the binding of
 \lean{witness\_root\_binds} rests on the BIP-443 data tweak in place of
-$\TreeSpk$, with the same reduction to the discrete logarithm of
-$\NUMS$ and collisions in the tweak hash (\lean{CCVTweak.binding},
-\lean{ccv\_input\_binds}). Its interfaces are FULL's under exact
-payouts, with the voucher message naming the tree's creation-time
-$\mathsf{tree\_id}$ in place of $m$; cross-tree replay is excluded as
-$m$ excludes it, since a voucher for another tree names another
-$\mathsf{tree\_id}$.
-
-\paragraph{The detach.} \tr{DETACH}$_h$ splits the tree output in two,
-which $\Ftree$ as stated, with one output, does not express. A tree whose
-taptree carries it is covered up to the detach; afterwards each output
-is a tree of its own, and \lean{detach\_sound} gives that the detached
-output is a well-formed tree output of depth $h$ holding exactly the
-subtree's leaves and sum, with $\mathit{out}_0 + \mathit{out}_1 = S$, so
-the simulation continues as two instances of $\Ftree$.
+$\TreeSpk$ (\lean{CCVTweak.binding}, \lean{ccv\_input\_binds}). In every
+tier the voucher message names the lineage's $\mathsf{tree\_id}$
+(spec~0.10.0), so a voucher for one instance of $\Ftree$ does not verify
+in another, and $\Ftree$'s \iface{VOUCH} records it per instance.
+\tr{REWRITE}$_h$ and \tr{DETACH}$_h$ are outside the theorem
+(\S\ref{sec:security}).
 
 \subsection{Composition for Channel Leaves}
 
-Theorem~\ref{thm:chan} follows the pattern of Generalized
-Channels~\cite{genchannels}, in the hybrid model with $\Ftree$, $\Gledger$,
-$\Gclock$ and $\Fsig$. The
-channel simulator reuses the channel-level simulator of that work for
-the update and settlement transactions, which are ordinary ledger
-transactions once the funding output exists, and uses $\Ftree$'s
-$\mathsf{EXIT}$ and $\mathsf{EVICT}$ interfaces to materialise it. The
-three tree-layer preconditions of \S\ref{sec:channels} are exactly the
-conditions under which $\Ftree$ guarantees that the materialised output
-carries the full capacity to the channel key: exact payouts
-(\lean{ExitK.exact\_conservation}), non-claimability (the
-\lean{SEQ\_FINAL} facts), and a lease at or below the tip so that
-$\mathsf{EVICT}$ is available to the counterparty. We give this as a
-sketch and leave the full channel-level proof, in particular the HTLC
-deadline argument under $\Delta(N)$, to future work; the argument is
-exercised block by block on the simulator's chain model
-(\lifted{app:channels}), not proved.
+Conjecture~\ref{thm:chan} would follow the pattern of Generalized
+Channels~\cite{genchannels}, in the hybrid model with $\Ftree$,
+$\Gledger$, $\Gclock$ and $\Fsig$. The channel simulator would reuse the
+channel-level simulator of that work for the update and settlement
+transactions, which are ordinary ledger transactions once the funding
+output exists, and use $\Ftree$'s \iface{EXIT} and \iface{EVICT} to
+materialise it. The three tree-layer preconditions of
+\S\ref{sec:channels} are the conditions under which $\Ftree$ guarantees
+that the materialised output carries the full capacity to the channel
+key: exact payouts (\lean{ExitK.exact\_conservation}), non-claimability
+(the \lean{SEQ\_FINAL} facts), and a lease at or below the tip so that
+\iface{EVICT} is available to the counterparty. The missing pieces are
+the HTLC deadline argument under [C] and the rebinding of pre-signed
+states across tree transitions; they are exercised block by block on the
+simulator's chain model (\lifted{app:channels}), not proved.

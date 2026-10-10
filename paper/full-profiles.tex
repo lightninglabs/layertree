@@ -28,8 +28,9 @@ every shape of \S\ref{sec:batching} depend.
 \paragraph{Where the bytes go.} A sparse proof is the smaller witness and
 the larger script, and the script wins: dense \tr{EXIT}$_1$ at $D = 16$
 is $2{,}101$ bytes of script and 902 of witness ($1{,}020\vB$), sparse at
-$D = 32$ is $5{,}147$ and 326 on a six-leaf tree ($1{,}637\vB$), about
-860 bytes of witness and $1{,}800\vB$ at $2^{16}$ members. Both causes
+$D = 32$ is $5{,}147$ and 326 on a six-leaf tree ($1{,}637\vB$), and
+about 900 bytes of witness and $1{,}781\vB$ at $2^{16}$ members
+(estimate: 41 bytes per non-empty sibling). Both causes
 follow from hashing the position. Random positions collide, $N^2/2^{D+1}$
 expected collisions among $N$ members (about one half at $D = 32$ for $N
 = 2^{16}$, about 32{,}000 at $D = 16$), so the sparse tree needs about
@@ -38,10 +39,11 @@ bytes against 88, because it derives the direction bit from the
 position, substitutes $\Emp_k$ for an elided sibling and computes
 $\Emp_{k+1}$ for the next level. The full-width tree of Taproot
 Assets~\cite{mssmt} ($D = 256$) costs $35{,}611$ bytes of script per
-exit, about twelve times dense; MID caps sparse depth at 31.
+exit, about 17 times the dense script and 9 times the dense transaction;
+MID caps sparse depth at 31.
 
-Dense is therefore the default (spec 5.4): 1.6 to 2.7 times cheaper per
-exit, cohort grafts at one price, sweeps at about $160\vB$ per leaf, and
+Dense is therefore the default (spec~5.4, \path{spec/layertree.md}):
+1.7 to 2.8 times cheaper per exit at $2^{16}$ members, cohort grafts at one price, sweeps at about $160\vB$ per leaf, and
 every batch shape, at the price of an operator who keeps the slot map.
 The sparse profile is kept, specified and tested, as the measured
 alternative and for deployments that are key-addressed registries; it
@@ -71,7 +73,7 @@ level. Table~\ref{tab:radix} measures it. Of the radix-4 level's 146 bytes about
 are hashing and sums shared with radix 2 and the rest sibling and
 direction handling, so the fixed part a higher radix amortises is about
 60 bytes while the sibling part is what it multiplies. Radix 4 saves 240
-bytes of script and adds 328 of witness, a net loss of about 3\%, and
+bytes of script and adds 328 of witness, about 2\% larger overall, and
 radix 8 is worse. In the sparse profile most siblings are empty and cost
 one witness byte, so a radix-4 level of about 180 bytes could replace two
 levels of 135, saving about $360\vB$ per exit (estimate; no sparse
