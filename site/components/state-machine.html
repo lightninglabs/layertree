@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../assets/logo-light.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&amp;display=swap">
 <title>The state machine</title>
 <meta name="description" content="How one Bitcoin output can hold a state machine: the chain stores a root, and every spend proves the old state, applies a rule and commits to the new root.">
 <link rel="stylesheet" href="../css/tokens.css">
@@ -12,7 +16,7 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="site-header__inner">
-    <a class="site-name" href="../index.html">LayerTree</a>
+    <a class="site-name" href="../index.html" aria-label="LayerTree, overview"><img class="logo-light" src="../assets/logo-light.svg" alt="" width="28" height="28"><img class="logo-dark" src="../assets/logo-dark.svg" alt="" width="28" height="28"><span>layer<b>tree</b></span></a>
     <nav class="site-nav" aria-label="Pages">
       <ul>
         <li><a href="../index.html">Overview</a></li>
@@ -183,21 +187,22 @@
           <path d="M0,0 L10,5 L0,10 z" class="d-head"/>
         </marker>
       </defs>
-      <rect class="d-chain" x="2" y="2" width="676" height="86" rx="6"/>
-      <text class="d-sm" x="12" y="18">ON-CHAIN</text>
-      <rect class="d-tree" x="12" y="28" width="104" height="48" rx="5"/>
+      <rect class="d-chain" x="2" y="2" width="676" height="86" rx="3"/>
+      <rect class="d-tab" x="2" y="2" width="80" height="18"/>
+      <text class="d-tab-t" x="12" y="15">ON-CHAIN</text>
+      <rect class="d-tree" x="12" y="28" width="104" height="48" rx="3"/>
       <text class="d-b" x="64" y="48" text-anchor="middle">output</text>
       <text class="d-sm" x="64" y="66" text-anchor="middle">root r0 · 20</text>
-      <rect class="d-tx" x="148" y="28" width="118" height="48" rx="5"/>
+      <rect class="d-tx" x="148" y="28" width="118" height="48" rx="3"/>
       <text class="d-b" x="207" y="48" text-anchor="middle">transaction</text>
       <text class="d-sm" x="207" y="66" text-anchor="middle">3 checks</text>
-      <rect class="d-tree" x="298" y="28" width="104" height="48" rx="5"/>
+      <rect class="d-tree" x="298" y="28" width="104" height="48" rx="3"/>
       <text class="d-b" x="350" y="48" text-anchor="middle">output</text>
       <text class="d-sm" x="350" y="66" text-anchor="middle">root r1 · 17</text>
-      <rect class="d-tx" x="434" y="28" width="118" height="48" rx="5"/>
+      <rect class="d-tx" x="434" y="28" width="118" height="48" rx="3"/>
       <text class="d-b" x="493" y="48" text-anchor="middle">transaction</text>
       <text class="d-sm" x="493" y="66" text-anchor="middle">3 checks</text>
-      <rect class="d-tree" x="584" y="28" width="86" height="48" rx="5"/>
+      <rect class="d-tree" x="584" y="28" width="86" height="48" rx="3"/>
       <text class="d-b" x="627" y="48" text-anchor="middle">output</text>
       <text class="d-sm" x="627" y="66" text-anchor="middle">root r2</text>
       <line class="d-line" x1="116" y1="52" x2="146" y2="52" marker-end="url(#sm-arrow)"/>
@@ -205,13 +210,13 @@
       <line class="d-line" x1="402" y1="52" x2="432" y2="52" marker-end="url(#sm-arrow)"/>
       <line class="d-line" x1="552" y1="52" x2="582" y2="52" marker-end="url(#sm-arrow)"/>
       <text class="d-sm" x="12" y="120">OFF-CHAIN</text>
-      <rect class="d-off" x="12" y="128" width="104" height="58" rx="5"/>
+      <rect class="d-off" x="12" y="128" width="104" height="58" rx="3"/>
       <text x="64" y="152" text-anchor="middle">tree 0</text>
       <text class="d-sm" x="64" y="170" text-anchor="middle">A B C D E</text>
-      <rect class="d-off" x="298" y="128" width="104" height="58" rx="5"/>
+      <rect class="d-off" x="298" y="128" width="104" height="58" rx="3"/>
       <text x="350" y="152" text-anchor="middle">tree 1</text>
       <text class="d-sm" x="350" y="170" text-anchor="middle">A C D E</text>
-      <rect class="d-off" x="584" y="128" width="86" height="58" rx="5"/>
+      <rect class="d-off" x="584" y="128" width="86" height="58" rx="3"/>
       <text x="627" y="152" text-anchor="middle">tree 2</text>
       <text class="d-sm" x="627" y="170" text-anchor="middle">…</text>
       <line class="d-dash" x1="64" y1="128" x2="64" y2="78"/>

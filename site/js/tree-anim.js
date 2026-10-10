@@ -128,7 +128,7 @@
   function emptyView() {
     return {
       paths: [], folds: [], regions: [], badges: [], links: [], marks: [],
-      checks: null, commitNow: false, newChips: {}, delay: 0
+      checks: null, commitNow: false, newChips: {}, delay: 0, exits: []
     };
   }
 
@@ -193,7 +193,16 @@
   function stateAt(sc, idx) {
     var st = initialState(sc);
     var view = emptyView();
-    for (var k = 0; k <= idx; k++) applyStep(st, sc.steps[k], k === idx, view);
+    for (var k = 0; k <= idx; k++) {
+      // A slot that held a leaf before this step and is empty after it is
+      // a leaf leaving the tree; the figure draws its exit arrow.
+      var before = k === idx ? st.leaves.slice() : null;
+      applyStep(st, sc.steps[k], k === idx, view);
+      if (before) {
+        view.exits = [];
+        st.leaves.forEach(function (l, p) { if (before[p] && !l) view.exits.push(p); });
+      }
+    }
     return { st: st, view: view };
   }
 
@@ -217,8 +226,11 @@
     return String(s).length * size * 0.61;
   }
 
+  // The layout: rows of nodes from the root down, separated by rowGap, with
+  // each parent's orthogonal bus halfway down the gap. The pad leaves room
+  // at the right for the rail from the root to the on-chain strip.
   function geometry(width, depth) {
-    var pad = 10;
+    var pad = 14;
     var n = 1 << depth;
     var slot = (width - 2 * pad) / n;
     var leafW = Math.min(84, slot - 6);
@@ -226,19 +238,30 @@
     var g = {
       W: width, pad: pad, n: n, slot: slot, depth: depth,
       leafW: leafW, leafH: wideLeaf ? 50 : 38, wideLeaf: wideLeaf,
-      nodeH: 32, rootH: 44, gap: 64, top: 8
+      nodeH: 38, rootH: 44, rowGap: 34, top: 8, rx: 3
     };
     g.cx = function (h, i) { return pad + (i * (1 << h) + (1 << h) / 2) * slot; };
-    g.y = function (h) { return g.top + (depth - h) * g.gap; };
     g.boxW = function (h) {
       if (h === 0) return leafW;
       if (h === depth) return Math.min(178, width - 2 * pad);
       return Math.max(40, Math.min(86, slot * (1 << h) - 10));
     };
     g.boxH = function (h) { return h === 0 ? g.leafH : (h === depth ? g.rootH : g.nodeH); };
+    var ys = [];
+    ys[depth] = g.top;
+    for (var h = depth; h > 0; h--) ys[h - 1] = ys[h] + g.boxH(h) + g.rowGap;
+    g.y = function (h) { return ys[h]; };
+    g.busY = function (h) { return ys[h] + g.boxH(h) + g.rowGap / 2; };
     g.bandTop = g.y(0) + g.leafH + 8;
     g.chainTop = g.bandTop + 60;
     return g;
+  }
+
+  // The orthogonal edge from child (h-1, ci) up to parent (h, i), drawn
+  // from the child so that a fold draws in the direction it computes.
+  function edgePath(g, h, i, ci) {
+    return 'M' + g.cx(h - 1, ci) + ',' + g.y(h - 1) + ' V' + g.busY(h) +
+      ' H' + g.cx(h, i) + ' V' + (g.y(h) + g.boxH(h));
   }
 
   function key(h, i) { return h + ':' + i; }
@@ -256,7 +279,7 @@
       : !root.empty;
 
     // Classify nodes by the highlights of this step.
-    var cls = {}, delays = {}, pathEdges = {}, onPath = {};
+    var cls = {}, delays = {}, pathEdges = {}, drawEdges = {}, onPath = {};
     function add(k, c) { cls[k] = (cls[k] || '') + ' ' + c; }
     var pns = view.paths.map(function (p) { return pathNodes(p.h || 0, p.pos, st.depth); });
     pns.forEach(function (pn) {
@@ -281,12 +304,19 @@
         var k = key(nd[0], nd[1]);
         add(k, 'is-fold');
         delays[k] = j;
-        if (j > 0) pathEdges[k + '>' + key(pn.nodes[j - 1][0], pn.nodes[j - 1][1])] = true;
+        if (j > 0) {
+          var ek = k + '>' + key(pn.nodes[j - 1][0], pn.nodes[j - 1][1]);
+          pathEdges[ek] = true;
+          // The edge into level j draws while the fold climbs to it.
+          drawEdges[ek] = j - 1;
+        }
       });
     });
     view.marks.forEach(function (m) {
       (m.nodes || []).forEach(function (nd) { add(key(nd[0], nd[1]), 'is-' + (m.kind || 'path')); });
     });
+    // An emptied slot whose leaf left in this step is outlined as leaving.
+    view.exits.forEach(function (p) { add(key(0, p), 'is-exit'); });
 
     var svg = svgEl('svg', {
       xmlns: NS, role: 'img', viewBox: '0 0 ' + width + ' 100',
@@ -300,36 +330,99 @@
     });
     marker.appendChild(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', 'class': 'arrowhead' }));
     defs.appendChild(marker);
+    // A section hatch for shaded subtrees, as on a drawing.
+    var hatchId = 'ta-hatch-' + inst.uid;
+    var hatch = svgEl('pattern', {
+      id: hatchId, width: 6, height: 6, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)'
+    });
+    hatch.appendChild(svgEl('line', { x1: 0, y1: 0, x2: 0, y2: 6, 'class': 'hatch-line' }));
+    defs.appendChild(hatch);
     svg.appendChild(defs);
+
+    // Labels placed so far, so that later ones can step clear of them.
+    var placed = [];
+    var badged = {};
+    view.badges.forEach(function (b) { if (b.node) badged[key(b.node[0], b.node[1])] = true; });
 
     // Regions sit behind everything else.
     view.regions.forEach(function (r) {
       var span = (1 << r.h) * g.slot;
       var x = g.pad + r.i * span + 2;
-      var y = g.y(r.h) - 6;
+      var y = g.y(r.h) - 4;
       var grp = svgEl('g', { 'class': 'region' });
       grp.appendChild(svgEl('rect', {
-        x: x, y: y, width: span - 4, height: g.y(0) + g.leafH + 6 - y, rx: 6
+        x: x, y: y, width: span - 4, height: g.y(0) + g.leafH + 4 - y, rx: g.rx,
+        fill: 'url(#' + hatchId + ')'
       }));
-      // The label sits just below the region's top node, clear of its box.
-      if (r.label) grp.appendChild(svgEl('text', { x: x + 5, y: g.y(r.h) + g.boxH(r.h) + 14 }, r.label));
+      // The label is a tab on the region's top edge, left of its top node
+      // and clear of the parent's bus above it. When a badge sits over that
+      // node, the tab hangs under the region instead.
+      if (r.label) {
+        var lw = textW(r.label, 10.5) + 10;
+        var ty = badged[key(r.h, r.i)] ? g.y(0) + g.leafH + 6 : g.y(r.h) - 13;
+        grp.appendChild(svgEl('rect', { 'class': 'region-bg', x: x + 3, y: ty, width: lw, height: 13 }));
+        grp.appendChild(svgEl('text', { x: x + 8, y: ty + 10 }, r.label));
+        placed.push({ x: x + 3, y: ty, w: lw });
+      }
       svg.appendChild(grp);
     });
 
-    // Edges.
+    // Edges: orthogonal buses, with the highlighted ones drawn last so that
+    // they sit on top where a bus is shared.
+    var edges = [], hot = [];
     for (var h = 1; h <= st.depth; h++) {
       for (var i = 0; i < levels[h].length; i++) {
         for (var c = 0; c < 2; c++) {
           var ci = 2 * i + c;
-          var isPath = pathEdges[key(h, i) + '>' + key(h - 1, ci)];
-          svg.appendChild(svgEl('line', {
-            'class': 'edge' + (isPath ? ' is-path' : ''),
-            x1: g.cx(h, i), y1: g.y(h) + g.boxH(h),
-            x2: g.cx(h - 1, ci), y2: g.y(h - 1)
-          }));
+          var ek = key(h, i) + '>' + key(h - 1, ci);
+          var e = svgEl('path', { 'class': 'edge', d: edgePath(g, h, i, ci) });
+          if (pathEdges[ek]) {
+            e.setAttribute('class', 'edge is-path' + (ek in drawEdges ? ' is-draw' : ''));
+            if (ek in drawEdges) {
+              e.setAttribute('pathLength', 1);
+              e.setAttribute('style', '--i:' + drawEdges[ek]);
+            }
+            hot.push(e);
+          } else {
+            edges.push(e);
+          }
         }
       }
     }
+    edges.concat(hot).forEach(function (e) { svg.appendChild(e); });
+
+    // The rail from the root to the strip says "the output commits to this
+    // root". A root not yet committed has no rail.
+    if (st.committed && !pending) {
+      var rx0 = g.cx(st.depth, 0) + g.boxW(st.depth) / 2, ry = g.y(st.depth) + g.rootH / 2;
+      var railX = width - g.pad / 2;
+      var rail = svgEl('path', {
+        'class': 'rail',
+        d: 'M' + rx0 + ',' + ry + ' H' + railX + ' V' + (g.chainTop + 9) + ' H' + (width - g.pad)
+      });
+      if (view.commitNow) rail.setAttribute('style', '--i:' + view.delay);
+      svg.appendChild(rail);
+    }
+
+    // A leaf leaving the tree: an arrow from its slot down to the strip.
+    var exitId = 'ta-exit-' + inst.uid;
+    if (view.exits.length) {
+      var em = svgEl('marker', {
+        id: exitId, viewBox: '0 0 10 10', refX: 8, refY: 5,
+        markerWidth: 5, markerHeight: 5, orient: 'auto'
+      });
+      em.appendChild(svgEl('path', { d: 'M1,1 L8,5 L1,9', 'class': 'exit-head', fill: 'none' }));
+      defs.appendChild(em);
+    }
+    view.exits.forEach(function (p) {
+      var ex = g.cx(0, p);
+      var eg = svgEl('g', { 'class': 'exit-arrow', style: '--i:' + view.delay });
+      eg.appendChild(svgEl('path', {
+        d: 'M' + ex + ',' + (g.y(0) + g.leafH + 3) + ' V' + (g.chainTop - 4),
+        'marker-end': 'url(#' + exitId + ')'
+      }));
+      svg.appendChild(eg);
+    });
 
     // Nodes.
     for (h = 0; h <= st.depth; h++) {
@@ -339,8 +432,7 @@
     }
 
     // Badges and links in the band under the leaves. A badge that would
-    // overlap one already placed moves one row further from its node.
-    var placed = [];
+    // overlap a label already placed moves one row further from its node.
     view.badges.forEach(function (b) {
       var bh = b.node ? b.node[0] : 0, bi = b.node ? b.node[1] : b.pos;
       var x = g.cx(bh, bi);
@@ -354,22 +446,23 @@
       while (placed.some(hits)) y += step;
       placed.push({ x: x - w / 2, y: y, w: w });
       var grp = svgEl('g', { 'class': 'badge k-' + (b.kind || 'sig') });
-      grp.appendChild(svgEl('rect', { x: x - w / 2, y: y, width: w, height: 18, rx: 9 }));
+      grp.appendChild(svgEl('rect', { x: x - w / 2, y: y, width: w, height: 18, rx: 2 }));
       grp.appendChild(svgEl('text', { x: x, y: y + 13, 'text-anchor': 'middle' }, b.text));
       svg.appendChild(grp);
     });
     view.links.forEach(function (l) {
       var x1 = g.cx(0, l.from), x2 = g.cx(0, l.to);
-      var y = g.bandTop + 20;
+      // Down from the payer's slot, across, and up into the payee's.
+      var y = g.y(0) + g.leafH;
       var grp = svgEl('g', { 'class': 'link' });
       grp.appendChild(svgEl('path', {
-        d: 'M' + x1 + ',' + y + ' Q' + ((x1 + x2) / 2) + ',' + (y + 30) + ' ' + x2 + ',' + y,
+        d: 'M' + x1 + ',' + (y + 3) + ' V' + (y + 24) + ' H' + x2 + ' V' + (y + 5),
         'marker-end': 'url(#' + arrowId + ')'
       }));
       if (l.text) {
         var lx = (x1 + x2) / 2, lw = textW(l.text, 11);
         lx = Math.max(g.pad + lw / 2, Math.min(width - g.pad - lw / 2, lx));
-        grp.appendChild(svgEl('text', { x: lx, y: y + 34, 'text-anchor': 'middle' }, l.text));
+        grp.appendChild(svgEl('text', { x: lx, y: y + 40, 'text-anchor': 'middle' }, l.text));
       }
       svg.appendChild(grp);
     });
@@ -394,7 +487,7 @@
       (node.empty ? ' is-empty' : '') + (isRoot && pending ? ' is-pending' : '') + extra;
     var grp = svgEl('g', { 'class': c });
     if (delay !== undefined) grp.setAttribute('style', '--i:' + delay);
-    grp.appendChild(svgEl('rect', { x: x - w / 2, y: y, width: w, height: bh, rx: isRoot ? 8 : 5 }));
+    grp.appendChild(svgEl('rect', { x: x - w / 2, y: y, width: w, height: bh, rx: g.rx }));
     if (h === 0) {
       var leaf = st.leaves[i];
       if (leaf) {
@@ -414,8 +507,14 @@
       grp.appendChild(svgEl('text', { x: x, y: y + 17, 'text-anchor': 'middle', 'class': 't-sm root-tag' }, tag));
       grp.appendChild(svgEl('text', { x: x, y: y + 35, 'text-anchor': 'middle', 'class': 't-lg val' }, 'Σ ' + fmt(node.sum)));
     } else {
-      grp.appendChild(svgEl('text', { x: x, y: y + 21, 'text-anchor': 'middle', 'class': 'val' + (node.empty ? ' t-muted' : '') },
-        fmt(node.sum)));
+      // An interior node carries its short hash over its sum, as on a
+      // datasheet; an empty subtree has no hash and a sum of 0.
+      if (node.empty) {
+        grp.appendChild(svgEl('text', { x: x, y: y + 23, 'text-anchor': 'middle', 'class': 'val t-muted' }, 'Σ 0'));
+      } else {
+        grp.appendChild(svgEl('text', { x: x, y: y + 14, 'text-anchor': 'middle', 'class': 'hash' }, hex4(node.hash)));
+        grp.appendChild(svgEl('text', { x: x, y: y + 30, 'text-anchor': 'middle', 'class': 'val sum' }, 'Σ ' + fmt(node.sum)));
+      }
     }
     return grp;
   }
@@ -423,9 +522,11 @@
   function drawChain(svg, g, st, view) {
     var x0 = g.pad, y0 = g.chainTop, W = g.W - 2 * g.pad;
     var grp = svgEl('g', { 'class': 'chain' });
-    var bg = svgEl('rect', { 'class': 'chain-bg', x: x0, y: y0, width: W, height: 10, rx: 6 });
+    var bg = svgEl('rect', { 'class': 'chain-bg', x: x0, y: y0, width: W, height: 10, rx: g.rx });
     grp.appendChild(bg);
-    grp.appendChild(svgEl('text', { 'class': 'chain-title', x: x0 + 10, y: y0 + 16 }, 'ON-CHAIN'));
+    // The tab is the one solid-filled shape: the only thing that is real on-chain.
+    grp.appendChild(svgEl('rect', { 'class': 'chain-tab', x: x0, y: y0, width: textW('ON-CHAIN', 10.5) + 26, height: 18 }));
+    grp.appendChild(svgEl('text', { 'class': 'chain-title', x: x0 + 10, y: y0 + 13 }, 'ON-CHAIN'));
 
     var chips = [];
     if (st.committed) {
@@ -436,14 +537,14 @@
     }
     st.chips.forEach(function (c) { chips.push(c); });
 
-    var x = x0 + 10, y = y0 + 24, rowH = 44, chipH = 38;
+    var x = x0 + 10, y = y0 + 28, rowH = 44, chipH = 38;
     chips.forEach(function (c) {
       var w = Math.max(textW(c.label, 11), textW(c.value || '', 12.5)) + 18;
       w = Math.min(w, W - 20);
       if (x + w > x0 + W - 10 && x > x0 + 10) { x = x0 + 10; y += rowH; }
       var cg = svgEl('g', { 'class': 'chip k-' + c.kind + (c.commit ? ' is-commit' : '') + (view.newChips[c.id] ? ' is-new' : '') });
       if (c.commit || view.newChips[c.id]) cg.setAttribute('style', '--i:' + view.delay);
-      cg.appendChild(svgEl('rect', { x: x, y: y, width: w, height: chipH, rx: 5 }));
+      cg.appendChild(svgEl('rect', { x: x, y: y, width: w, height: chipH, rx: g.rx }));
       cg.appendChild(svgEl('text', { x: x + 9, y: y + 15, 'class': 't-sm' }, c.label));
       if (c.value) cg.appendChild(svgEl('text', { x: x + 9, y: y + 31, 'class': 't-b' }, c.value));
       grp.appendChild(cg);
@@ -510,6 +611,20 @@
     root.setAttribute('aria-label', (sc.label || 'Animation') + '. Use the left and right arrow keys to change step.');
     inst.root = root;
 
+    // The plate's caption bar. The figure number comes from a CSS counter
+    // shared with the page's static figures.
+    var cap = document.createElement('p');
+    cap.className = 'ta-cap';
+    cap.setAttribute('aria-hidden', 'true');
+    var capL = document.createElement('span');
+    capL.className = 'ta-cap__fig';
+    capL.textContent = sc.label || 'Animation';
+    var capR = document.createElement('span');
+    capR.textContent = 'Depth ' + sc.depth + ' · ' + (1 << sc.depth) + ' slots';
+    cap.appendChild(capL);
+    cap.appendChild(capR);
+    root.appendChild(cap);
+
     inst.stage = document.createElement('div');
     inst.stage.className = 'ta-stage';
     root.appendChild(inst.stage);
@@ -557,10 +672,13 @@
 
     var legend = document.createElement('p');
     legend.className = 'ta-legend';
-    legend.innerHTML = '<span class="lg-path">proof path or fold</span>' +
-      '<span class="lg-sib">sibling supplied by the proof</span>' +
+    legend.innerHTML = '<span class="lg-node">node: hash, sum</span>' +
+      '<span class="lg-leaf">leaf</span>' +
+      '<span class="lg-path">proof path or fold</span>' +
+      '<span class="lg-sib">sibling in the proof</span>' +
+      '<span class="lg-exit">leaf leaving</span>' +
       '<span class="lg-pending">root not yet on-chain</span>' +
-      '<span class="lg-chain">on-chain outputs</span>';
+      '<span class="lg-chain">on-chain</span>';
     root.appendChild(legend);
 
     host.appendChild(root);

@@ -5,9 +5,11 @@ a step-through of a tree's life, and one page per component (the state
 machine, joining, exiting, payments, swaps, eviction, batching and the opcode
 tiers), each with its own step-through and links into the specification.
 
-It is a static site with no build step and no dependencies: plain HTML, CSS,
-one JavaScript file and inline SVG. It loads no fonts or scripts from
-anywhere else.
+It is a static site with no build step: plain HTML, CSS, one JavaScript file
+and inline SVG. Its one external dependency is the IBM Plex Mono and IBM Plex
+Sans stylesheet from Google Fonts, linked in each page's head; the font stacks
+in `css/tokens.css` fall back to system faces, so the site still reads well
+offline. It loads no scripts from anywhere else.
 
 ## Opening it
 
@@ -35,6 +37,8 @@ load module scripts from `file://` URLs.
 | `css/tokens.css` | Every design token: colors for light and dark, fonts, type scale, spacing, motion durations |
 | `css/site.css` | Layout and components, written only in terms of the tokens |
 | `js/tree-anim.js` | The animation engine, the only JavaScript on the site |
+| `assets/` | The logomark and wordmark, copied from `identity/schematic/` (the dark files recoloured to the warm ink, plus a fixed-colour `logo-light.svg` for `<img>` and the favicon) |
+| `identity/` | The record of the three identity explorations (`schematic`, `editorial`, `approachable`), each with its README, tokens, logos and a sample page |
 
 ## Changing the visual identity
 
@@ -43,6 +47,52 @@ the SVG that `tree-anim.js` draws refer to colors, fonts, sizes and durations
 only through its custom properties. Dark mode follows
 `prefers-color-scheme`, and a page can force a theme with
 `data-theme="light"` or `data-theme="dark"` on `<html>`.
+
+## The identity
+
+The site uses identity B, `identity/schematic/`, with the warmth of identity C,
+`identity/approachable/`: B was chosen because a drafting sheet with numbered
+figure plates, mono labels and one signal colour suits a design whose content
+is proofs, sums and scripts, and C's cream paper, brown-black ink and slightly
+softer corners and spacing were folded in so the pages read as an explainer
+rather than a datasheet.
+
+What that means on the page: a 16 px grid on cream paper; IBM Plex Mono for
+headings, labels and every number in a figure, IBM Plex Sans for body text;
+plates and cards ruled in ink with a caption bar (`FIG. n` from one counter
+shared by step-throughs and static figures); orthogonal edges; lightly
+rounded node boxes outlined in their role colour; the proof path and fold in
+the signal colour (vermilion), siblings dashed; a leaving leaf outlined in
+amber with an arrow down to the on-chain strip; and the strip's `ON-CHAIN`
+tab as the one solid-filled shape, joined to a committed root by a dotted
+rail. Text never wears a series colour.
+
+### Palette validation
+
+The five categorical colours are `--color-node`, `--color-accent` (the path),
+`--color-leaf`, `--color-leaf-exit` and `--color-chain`, in that order. They
+were checked with the dataviz skill's `validate_palette.js` against every
+surface they are drawn on (`--color-bg`, `--color-surface`, and
+`--color-surface-2` for the on-chain strip), in both modes:
+
+```
+node validate_palette.js "#2767AE,#D1481A,#1D8A6A,#A67300,#6B4E9B" --mode light --surface "#ede4d3"
+node validate_palette.js "#5A8FD0,#EC6236,#38A586,#B98418,#9B82D4" --mode dark  --surface "#1a1612"
+```
+
+| Check | Light (`#f4ede0`, `#fbf7ef`, `#ede4d3`) | Dark (`#1a1612`, `#221d18`, `#2b251e`) |
+|---|---|---|
+| Lightness band | PASS (0.43 to 0.77) | PASS (0.48 to 0.67) |
+| Chroma floor | PASS | PASS |
+| CVD separation, adjacent | PASS, worst leaf-exit/leaf dE 9.0 (protan) | PASS, worst leaf/path dE 11.6 (deutan) |
+| Normal-vision floor | PASS, worst dE 16.5 | PASS, worst dE 17.1 |
+| Contrast vs surface (3:1) | PASS on all three | PASS on all three |
+
+One fix was needed: with B's amber (`#B07A00`) the leaving-leaf colour fell
+to 2.96:1 on the warmer strip surface, so it was darkened to `#A67300`, which
+passes everywhere and also raises the worst CVD pair from 8.7 to 9.0. The
+figures carry a secondary encoding anyway: siblings are dashed, the leaving
+leaf has an arrow, and every node carries its number.
 
 ## Adding a scenario
 
@@ -93,12 +143,18 @@ Highlight operations apply to their own step only:
 | Operation | Effect |
 |---|---|
 | `{"op": "path", "pos": i, "h": 0}` | Outline the path from node `(h, i)` to the root, with its siblings dashed |
-| `{"op": "fold", "pos": i, "h": 0}` | Pulse the path from `(h, i)` upward one level at a time; a `commit` or new chip in the same step appears after the fold reaches the root |
+| `{"op": "fold", "pos": i, "h": 0}` | Draw the path from `(h, i)` up to the root one level at a time, in the signal colour; a `commit` or new chip in the same step appears after the fold reaches the root |
 | `{"op": "region", "h": h, "i": i, "label"}` | Shade the subtree under node `(h, i)` |
 | `{"op": "badge", "pos": p \| "node": [h, i], "text", "kind"}` | A label under a leaf or above a node; `kind` is `sig`, `voucher`, `hash` or `bad` |
 | `{"op": "link", "from": p, "to": q, "text"}` | An arrow between two leaves, for off-chain payments |
 | `{"op": "mark", "nodes": [[h, i], ...], "kind": "bad"}` | Mark nodes, for a check that fails |
 | `{"op": "checks", "items": [{"text", "state": "ok" \| "fail" \| "pending"}]}` | A list of checks under the caption |
+
+Two things are derived rather than declared. A slot that held a leaf before
+the current step and is empty after it is drawn as a leaf leaving, with an
+arrow down to the on-chain strip. A tree output whose root matches the
+current root is joined to the root by a dotted rail; a root not yet
+committed has none.
 
 Every animation has Prev and Next buttons, a dot per step, and keyboard
 control (left and right arrows, Home, End) when the figure has focus. Each

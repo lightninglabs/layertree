@@ -1,4 +1,9 @@
-/* Layout and components. Every color, font and duration is a token from tokens.css. */
+/* Layout and components. Every color, font and duration is a token from tokens.css.
+
+   The identity is a drafting sheet: a 16 px grid on cream paper, plates and
+   cards ruled in ink with a caption bar, labels in mono, and one signal
+   color (the accent) for the thing to follow. Everything off-chain is drawn
+   outlined; the on-chain strip's tab is the one solid-filled shape. */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -6,7 +11,18 @@ html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
-  background: var(--color-bg);
+  background-color: var(--color-bg);
+  background-image:
+    linear-gradient(var(--color-grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid-major) 1px, transparent 1px),
+    linear-gradient(var(--color-grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid-minor) 1px, transparent 1px);
+  background-size:
+    calc(var(--grid) * 4) calc(var(--grid) * 4),
+    calc(var(--grid) * 4) calc(var(--grid) * 4),
+    var(--grid) var(--grid),
+    var(--grid) var(--grid);
+  background-position: -1px -1px;
   color: var(--color-text);
   font-family: var(--font-body);
   font-size: var(--text-base);
@@ -14,39 +30,43 @@ body {
   overflow-wrap: break-word;
 }
 
-a { color: var(--color-link); text-underline-offset: 0.15em; }
+a { color: var(--color-link); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
 a:hover { text-decoration-thickness: 2px; }
 
 :focus-visible {
-  outline: 3px solid var(--color-focus);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
 code, kbd, .mono {
   font-family: var(--font-mono);
-  font-size: 0.88em;
+  font-size: 0.86em;
 }
 code {
   background: var(--color-surface-2);
   padding: 0.05em 0.3em;
   border-radius: var(--radius-sm);
 }
+a code { color: inherit; }
+
+strong, b { font-weight: 600; }
 
 .skip-link {
   position: absolute;
   left: var(--gutter);
   top: -3rem;
   background: var(--color-surface);
+  border: var(--border-width) solid var(--color-rule);
   padding: var(--space-2) var(--space-3);
   z-index: 10;
 }
 .skip-link:focus { top: var(--space-2); }
 
-/* Header and navigation. */
+/* Header: a title block. */
 
 .site-header {
-  border-bottom: var(--border-width) solid var(--color-border);
+  border-bottom: var(--border-width) solid var(--color-rule);
   background: var(--color-surface);
 }
 .site-header__inner {
@@ -55,17 +75,31 @@ code {
   padding: var(--space-3) var(--gutter);
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2) var(--space-5);
 }
 .site-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 400;
   font-size: var(--text-md);
+  letter-spacing: -0.02em;
   color: var(--color-text);
   text-decoration: none;
-  letter-spacing: 0.01em;
 }
+.site-name b { font-weight: 700; }
+.site-name img { width: 28px; height: 28px; display: block; flex: none; }
+.site-name .logo-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .site-name .logo-light { display: none; }
+  :root:not([data-theme="light"]) .site-name .logo-dark { display: block; }
+}
+:root[data-theme="dark"] .site-name .logo-light { display: none; }
+:root[data-theme="dark"] .site-name .logo-dark { display: block; }
+
+.site-nav { flex: 1 1 24rem; }
 .site-nav ul {
   list-style: none;
   margin: 0;
@@ -73,8 +107,12 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
-  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
+.site-nav li { margin: 0; }
 .site-nav a { color: var(--color-text-muted); text-decoration: none; }
 .site-nav a:hover { color: var(--color-text); text-decoration: underline; }
 .site-nav a[aria-current="page"] {
@@ -83,6 +121,7 @@ code {
   text-decoration: underline;
   text-decoration-color: var(--color-accent);
   text-decoration-thickness: 2px;
+  text-underline-offset: 0.35em;
 }
 
 /* Main column. Prose is held to a measure; figures may run wider. */
@@ -90,7 +129,8 @@ code {
 main {
   max-width: var(--wide);
   margin: 0 auto;
-  padding: var(--space-6) var(--gutter) var(--space-8);
+  padding: var(--space-7) var(--gutter) var(--space-8);
+  counter-reset: fig;
 }
 main > * { max-width: var(--measure); }
 main > .wide, main > .tree-anim, main > .card-grid, main > .table-wrap { max-width: var(--wide); }
@@ -99,10 +139,11 @@ h1, h2, h3 {
   font-family: var(--font-display);
   line-height: var(--leading-tight);
   font-weight: 700;
+  letter-spacing: -0.03em;
 }
-h1 { font-size: var(--text-2xl); margin: 0 0 var(--space-4); letter-spacing: -0.01em; }
-h2 { font-size: var(--text-lg); margin: var(--space-7) 0 var(--space-3); }
-h3 { font-size: var(--text-md); margin: var(--space-5) 0 var(--space-2); }
+h1 { font-size: var(--text-2xl); margin: 0 0 var(--space-5); }
+h2 { font-size: var(--text-lg); margin: var(--space-7) 0 var(--space-3); letter-spacing: -0.02em; }
+h3 { font-size: var(--text-md); margin: var(--space-5) 0 var(--space-2); letter-spacing: -0.02em; }
 p, ul, ol { margin: 0 0 var(--space-4); }
 li { margin-bottom: var(--space-2); }
 
@@ -110,28 +151,51 @@ li { margin-bottom: var(--space-2); }
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--color-text-muted);
-  margin: 0 0 var(--space-2);
+  letter-spacing: 0.1em;
+  color: var(--color-link);
+  margin: 0 0 var(--space-3);
+}
+.eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 1.5rem;
+  height: 2px;
+  background: var(--color-accent);
+  vertical-align: middle;
+  margin-right: var(--space-2);
 }
 
 .takeaway {
   font-size: var(--text-md);
-  line-height: 1.5;
+  line-height: 1.55;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-rule);
   border-left: 4px solid var(--color-accent);
-  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5);
   margin: 0 0 var(--space-6);
 }
 
 .lede { font-size: var(--text-md); line-height: 1.55; }
 
 dl.terms { margin: 0 0 var(--space-5); }
-dl.terms dt { font-weight: 700; margin-top: var(--space-3); }
-dl.terms dd { margin: 0 0 0 var(--space-4); }
+dl.terms dt {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.95em;
+  margin-top: var(--space-4);
+}
+dl.terms dd { margin: var(--space-1) 0 0 var(--space-4); }
 
-/* Tables. The wrapper scrolls on a narrow screen so the page does not. */
+/* Tables: a datasheet block. The wrapper scrolls on a narrow screen so the page does not. */
 
-.table-wrap { overflow-x: auto; margin: 0 0 var(--space-5); }
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 0 var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-rule);
+  border-radius: var(--radius);
+}
 table {
   border-collapse: collapse;
   font-size: var(--text-sm);
@@ -140,7 +204,12 @@ table {
 caption {
   text-align: left;
   color: var(--color-text-muted);
-  padding-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-rule);
 }
 th, td {
   text-align: left;
@@ -148,10 +217,20 @@ th, td {
   padding: var(--space-2) var(--space-3);
   border-bottom: var(--border-width) solid var(--color-border);
 }
-th { font-weight: 700; background: var(--color-surface-2); }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+th {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--color-surface-2);
+  border-bottom: var(--border-width) solid var(--color-rule);
+}
+td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+th.num { font-size: var(--text-xs); }
 
-/* Cards linking to the component pages. */
+/* Cards linking to the component pages: datasheet entries. */
 
 .card-grid {
   list-style: none;
@@ -163,52 +242,103 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 }
 .card-grid li { margin: 0; }
 .card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  padding: var(--space-4);
   background: var(--color-surface);
-  border: var(--border-width) solid var(--color-border);
+  border: var(--border-width) solid var(--color-rule);
   border-radius: var(--radius);
+  overflow: hidden;
   color: var(--color-text);
   text-decoration: none;
-  transition: border-color var(--motion-fast) var(--motion-ease);
+  transition: border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease);
 }
-.card:hover { border-color: var(--color-accent); }
+.card:hover, .card:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: 3px 3px 0 var(--color-accent);
+}
+.card__ref {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border-bottom: var(--border-width) solid var(--color-rule);
+  padding: var(--space-1) var(--space-3);
+}
+.card:hover .card__ref { border-bottom-color: var(--color-accent); }
 .card__title {
   display: block;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--text-md);
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+  margin: var(--space-4) var(--space-4) var(--space-2);
+}
+.card__title::after { content: " \2192"; color: var(--color-accent); font-weight: 400; }
+.card__body {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin: 0 var(--space-4) var(--space-4);
+}
+.card--primary { border-width: 2px; border-color: var(--color-accent); }
+.card--primary .card__ref { color: var(--color-accent-ink); background: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+/* Figures: a numbered plate. Figures and step-throughs share one counter. */
+
+.tree-anim, main figure { counter-increment: fig; }
+
+figure {
+  margin: var(--space-6) 0;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+figure svg { display: block; max-width: 100%; height: auto; padding: var(--space-4); }
+figcaption {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border-top: var(--border-width) solid var(--color-rule);
+  padding: var(--space-3) var(--space-4);
+}
+figcaption::before {
+  content: "FIG. " counter(fig);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
   margin-bottom: var(--space-1);
 }
-.card__title::after { content: " \2192"; color: var(--color-accent); }
-.card__body { display: block; font-size: var(--text-sm); color: var(--color-text-muted); }
-.card--primary { border-color: var(--color-accent); border-width: 2px; }
-
-/* Plain explanatory figures (static SVG). */
-
-figure { margin: var(--space-5) 0; }
-figure svg { display: block; max-width: 100%; height: auto; }
-figcaption { font-size: var(--text-sm); color: var(--color-text-muted); margin-top: var(--space-2); }
 
 /* Static diagrams drawn inline in the pages. */
 .diagram text { fill: var(--color-text); font-family: var(--font-mono); font-size: 12px; }
-.diagram .d-sm { font-size: 11px; fill: var(--color-text-muted); }
+.diagram .d-sm { font-size: 11px; fill: var(--color-text-muted); letter-spacing: 0.02em; }
 .diagram .d-b { font-weight: 700; }
 .diagram .d-box { fill: var(--color-surface); stroke: var(--color-border-strong); stroke-width: 1.5px; }
-.diagram .d-chain { fill: var(--color-chain); stroke: var(--color-border-strong); stroke-width: 1px; }
-.diagram .d-tree { fill: var(--color-surface); stroke: var(--color-accent); stroke-width: 2px; }
-.diagram .d-tx { fill: var(--color-accent-soft); stroke: var(--color-accent); stroke-width: 1.5px; }
-.diagram .d-off { fill: none; stroke: var(--color-border-strong); stroke-width: 1px; stroke-dasharray: 4 3; }
+.diagram .d-chain { fill: var(--color-surface-2); stroke: var(--color-chain); stroke-width: 2px; }
+.diagram .d-tree { fill: var(--color-surface); stroke: var(--color-chain); stroke-width: 2px; }
+.diagram .d-tx { fill: var(--color-surface); stroke: var(--color-text); stroke-width: 1.5px; }
+.diagram .d-off { fill: var(--color-surface); stroke: var(--color-node); stroke-width: 1.5px; stroke-dasharray: 4 3; }
 .diagram .d-line { stroke: var(--color-text-muted); stroke-width: 1.5px; fill: none; }
-.diagram .d-dash { stroke: var(--color-text-muted); stroke-width: 1.2px; fill: none; stroke-dasharray: 3 3; }
+.diagram .d-dash { stroke: var(--color-chain); stroke-width: 1.5px; fill: none; stroke-dasharray: 2 4; }
 .diagram .d-head { fill: var(--color-text-muted); }
+.diagram .d-tab { fill: var(--color-chain); }
+.diagram text.d-tab-t { fill: var(--color-surface); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; }
 
 .callout {
   background: var(--color-surface);
-  border: var(--border-width) solid var(--color-border);
+  border: var(--border-width) solid var(--color-rule);
   border-radius: var(--radius);
-  padding: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   margin: 0 0 var(--space-5);
 }
 .callout > :last-child { margin-bottom: 0; }
@@ -218,12 +348,18 @@ figcaption { font-size: var(--text-sm); color: var(--color-text-muted); margin-t
 .deeper {
   margin-top: var(--space-7);
   padding-top: var(--space-4);
-  border-top: 2px solid var(--color-border);
+  border-top: 2px solid var(--color-rule);
 }
-.deeper h2 { margin-top: 0; font-size: var(--text-md); }
+.deeper h2 {
+  margin-top: 0;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
 .site-footer {
-  border-top: var(--border-width) solid var(--color-border);
+  border-top: var(--border-width) solid var(--color-rule);
+  background: var(--color-surface);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
@@ -234,33 +370,61 @@ figcaption { font-size: var(--text-sm); color: var(--color-text-muted); margin-t
 /* The step-through animation drawn by js/tree-anim.js.                 */
 /* ------------------------------------------------------------------ */
 
-.tree-anim { margin: var(--space-5) 0 var(--space-6); }
+.tree-anim { margin: var(--space-6) 0 var(--space-7); }
 
 .ta {
   background: var(--color-surface);
-  border: var(--border-width) solid var(--color-border);
+  border: var(--border-width) solid var(--color-rule);
   border-radius: var(--radius);
   overflow: hidden;
 }
 .ta:focus-visible { outline-offset: 3px; }
 
+.ta-cap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 var(--space-4);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-2);
+  border-bottom: var(--border-width) solid var(--color-rule);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.ta-cap__fig::before {
+  content: "FIG. " counter(fig) "\00a0\00a0";
+  font-weight: 700;
+  color: var(--color-text);
+}
+
 .ta-stage { padding: var(--space-3) 0 0; }
 .ta-stage svg { display: block; width: 100%; height: auto; }
 
 .ta-panel {
-  border-top: var(--border-width) solid var(--color-border);
+  border-top: var(--border-width) solid var(--color-rule);
   padding: var(--space-3) var(--space-4) var(--space-2);
   min-height: 9.5rem;
 }
 .ta-count {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: var(--color-link);
   margin: 0;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.ta-title { font-family: var(--font-display); font-weight: 700; font-size: var(--text-md); margin: var(--space-1) 0 var(--space-1); }
+.ta-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-md);
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+  margin: var(--space-1) 0 var(--space-2);
+}
 .ta-caption { margin: 0 0 var(--space-2); }
 
 .ta-checks { list-style: none; padding: 0; margin: 0 0 var(--space-2); font-size: var(--text-sm); }
@@ -279,25 +443,28 @@ figcaption { font-size: var(--text-sm); color: var(--color-text-muted); margin-t
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-4) var(--space-3);
-  border-top: var(--border-width) solid var(--color-border);
+  padding: var(--space-2) var(--space-4);
+  border-top: var(--border-width) solid var(--color-rule);
   background: var(--color-surface-2);
 }
 .ta-btn {
-  font: inherit;
-  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--color-text);
   background: var(--color-surface);
-  border: var(--border-width) solid var(--color-border-strong);
+  border: var(--border-width) solid var(--color-rule);
   border-radius: var(--radius);
   padding: var(--space-1) var(--space-3);
   min-height: 2.4rem;
   min-width: 4.8rem;
   cursor: pointer;
+  transition: border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease);
 }
-.ta-btn:hover:not(:disabled) { border-color: var(--color-accent); }
-.ta-btn:disabled { color: var(--color-text-muted); cursor: default; opacity: 0.6; }
+.ta-btn:hover:not(:disabled) { border-color: var(--color-accent); box-shadow: 2px 2px 0 var(--color-accent); }
+.ta-btn:disabled { color: var(--color-text-muted); border-color: var(--color-border-strong); cursor: default; opacity: 0.55; }
 .ta-dots {
   list-style: none; padding: 0; margin: 0 auto;
   display: flex; flex-wrap: wrap; justify-content: center; gap: 2px;
@@ -310,125 +477,151 @@ figcaption { font-size: var(--text-sm); color: var(--color-text-muted); margin-t
 }
 .ta-dot::before {
   content: "";
-  width: 0.62rem; height: 0.62rem; border-radius: 50%;
-  border: 2px solid var(--color-border-strong);
+  width: 0.6rem; height: 0.6rem; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--color-border-strong);
   background: var(--color-surface);
 }
+.ta-dot:hover::before { border-color: var(--color-accent); }
 .ta-dot[aria-current="step"]::before { background: var(--color-accent); border-color: var(--color-accent); }
 .ta-dot.is-done::before { background: var(--color-border-strong); }
 
 .ta-legend {
   display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: var(--border-width) solid var(--color-rule);
 }
+.ta-legend span { white-space: nowrap; }
 .ta-legend span::before {
-  content: ""; display: inline-block; width: 0.9em; height: 0.9em;
-  margin-right: 0.4em; vertical-align: -0.1em; border-radius: 2px;
+  content: ""; display: inline-block; width: 1.2em; height: 0.75em;
+  margin-right: 0.45em; vertical-align: -0.05em; border-radius: var(--radius-sm);
+  background: var(--color-surface);
 }
+.ta-legend .lg-node::before { border: 1.5px solid var(--color-node); }
+.ta-legend .lg-leaf::before { border: 1.5px solid var(--color-leaf); }
 .ta-legend .lg-path::before { border: var(--stroke-strong) solid var(--color-accent); }
-.ta-legend .lg-sib::before { border: var(--stroke-strong) dashed var(--color-sibling); }
-.ta-legend .lg-pending::before { border: var(--stroke-strong) dashed var(--color-pending); }
-.ta-legend .lg-chain::before { background: var(--color-chain); border: var(--border-width) solid var(--color-border-strong); }
+.ta-legend .lg-sib::before { border: var(--stroke) dashed var(--color-sibling); }
+.ta-legend .lg-exit::before { border: var(--stroke-strong) solid var(--color-leaf-exit); }
+.ta-legend .lg-pending::before { border: var(--stroke) dashed var(--color-pending); }
+.ta-legend .lg-chain::before { background: var(--color-chain); border: var(--stroke) solid var(--color-chain); }
 
 .ta-noscript { padding: var(--space-4); }
 
-/* SVG parts. */
+/* SVG parts. Labels are mono; text wears ink, never a series color. */
 
 .ta svg text { fill: var(--color-text); font-family: var(--font-mono); font-size: var(--svg-text); }
 .ta svg .t-sm { font-size: var(--svg-text-sm); fill: var(--color-text-muted); }
 .ta svg .t-lg { font-size: var(--svg-text-lg); font-weight: 700; }
 .ta svg .t-b { font-weight: 700; }
 .ta svg .t-muted { fill: var(--color-text-muted); }
+.ta svg .t-cap { font-size: var(--svg-text-sm); fill: var(--color-text-muted); letter-spacing: 0.08em; }
 
-.ta svg .edge { stroke: var(--color-border-strong); stroke-width: var(--stroke); fill: none; }
-.ta svg .edge.is-path { stroke: var(--color-accent); stroke-width: var(--stroke-strong); }
+/* Edges are orthogonal buses: ink-3 hairlines, the path thick in the signal. */
+.ta svg .edge { stroke: var(--color-border-strong); stroke-width: 1.25px; fill: none; stroke-linejoin: round; }
+.ta svg .edge.is-path { stroke: var(--color-accent); stroke-width: 2.75px; }
 
-.ta svg .node rect { fill: var(--color-surface); stroke: var(--color-border-strong); stroke-width: var(--stroke); }
+/* Nodes: lightly rounded boxes outlined in their role color on paper. */
+.ta svg .node rect { fill: var(--color-surface); stroke: var(--color-node); stroke-width: var(--stroke); }
+.ta svg .node .hash { font-size: var(--svg-text-sm); fill: var(--color-text-muted); }
+.ta svg .node .sum { font-weight: 700; fill: var(--color-node-sum); }
+.ta svg .node.is-leaf rect { stroke: var(--color-leaf); }
 .ta svg .node.is-empty rect { fill: var(--color-bg); stroke: var(--color-empty); stroke-dasharray: 4 3; }
 .ta svg .node.is-empty text { fill: var(--color-text-muted); }
-.ta svg .node.is-leaf rect { fill: var(--color-surface-2); }
-.ta svg .node.is-root rect { stroke-width: var(--stroke-strong); }
+.ta svg .node.is-root rect { stroke-width: 2px; }
 .ta svg .node.is-pending rect { stroke: var(--color-pending); stroke-dasharray: 6 3; stroke-width: var(--stroke-strong); }
-.ta svg .node.is-pending .root-tag { fill: var(--color-pending); }
-.ta svg .node.is-path rect { stroke: var(--color-accent); stroke-width: var(--stroke-strong); stroke-dasharray: none; fill: var(--color-accent-soft); }
-.ta svg .node.is-sib rect { stroke: var(--color-sibling); stroke-width: var(--stroke-strong); stroke-dasharray: 5 3; fill: var(--color-sibling-soft); }
-.ta svg .node.is-bad rect { stroke: var(--color-bad); fill: var(--color-bad-soft); stroke-dasharray: none; }
+.ta svg .node.is-pending .root-tag { fill: var(--color-text); }
+.ta svg .node.is-path rect, .ta svg .node.is-fold rect { stroke: var(--color-accent); stroke-width: var(--stroke-strong); stroke-dasharray: none; fill: var(--color-accent-soft); }
+.ta svg .node.is-sib rect { stroke: var(--color-sibling); stroke-width: var(--stroke); stroke-dasharray: 4 3; fill: var(--color-sibling-soft); }
+.ta svg .node.is-pending.is-fold rect, .ta svg .node.is-pending.is-path rect { stroke-dasharray: 6 3; }
+.ta svg .node.is-exit rect { stroke: var(--color-leaf-exit); stroke-width: var(--stroke-strong); stroke-dasharray: 4 3; fill: var(--color-bg); }
+.ta svg .node.is-bad rect { stroke: var(--color-bad); stroke-width: var(--stroke-strong); fill: var(--color-bad-soft); stroke-dasharray: none; }
 
-.ta svg .region rect { fill: var(--color-accent-soft); opacity: 0.55; stroke: var(--color-accent); stroke-width: var(--border-width); stroke-dasharray: 3 3; }
-.ta svg .region text { fill: var(--color-accent); font-size: var(--svg-text-sm); font-weight: 700; }
+/* A cohort or swept subtree: hatched, like a section on a drawing. */
+.ta svg .region rect { stroke: var(--color-border-strong); stroke-width: var(--border-width); stroke-dasharray: 3 3; }
+.ta svg .hatch-line { stroke: var(--color-border-strong); stroke-width: 1px; opacity: 0.35; }
+.ta svg .region text { fill: var(--color-text-muted); font-size: var(--svg-text-sm); font-weight: 700; }
+.ta svg .region .region-bg { fill: var(--color-surface); stroke: none; }
 
 .ta svg .badge rect { fill: var(--color-surface); stroke: var(--color-text); stroke-width: var(--border-width); }
-.ta svg .badge.k-sig rect { stroke: var(--color-accent); fill: var(--color-accent-soft); }
-.ta svg .badge.k-voucher rect { stroke: var(--color-pending); fill: var(--color-surface); }
-.ta svg .badge.k-hash rect { stroke: var(--color-sibling); fill: var(--color-sibling-soft); }
-.ta svg .badge.k-bad rect { stroke: var(--color-bad); fill: var(--color-bad-soft); }
+.ta svg .badge.k-sig rect { stroke: var(--color-text); }
+.ta svg .badge.k-voucher rect { stroke: var(--color-node); stroke-width: var(--stroke); }
+.ta svg .badge.k-hash rect { stroke: var(--color-leaf-exit); stroke-width: var(--stroke); stroke-dasharray: 3 2; }
+.ta svg .badge.k-bad rect { stroke: var(--color-bad); fill: var(--color-bad-soft); stroke-width: var(--stroke); }
 .ta svg .badge text { font-size: var(--svg-text-sm); }
 
-.ta svg .link path { stroke: var(--color-text-muted); stroke-width: var(--stroke); fill: none; stroke-dasharray: 5 4; }
+.ta svg .link path { stroke: var(--color-text-muted); stroke-width: var(--stroke); fill: none; stroke-dasharray: 5 4; stroke-linejoin: round; }
 .ta svg .link text { font-size: var(--svg-text-sm); fill: var(--color-text-muted); }
 .ta svg .arrowhead { fill: var(--color-text-muted); }
 
-.ta svg .chain-bg { fill: var(--color-chain); stroke: var(--color-border-strong); stroke-width: var(--border-width); }
-.ta svg .chain-title { font-size: var(--svg-text-sm); fill: var(--color-text-muted); letter-spacing: 0.1em; }
+/* A leaving leaf: an arrow straight down from its slot to the strip. */
+.ta svg .exit-arrow path { stroke: var(--color-leaf-exit); stroke-width: var(--stroke-strong); fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ta svg .exit-head { stroke: var(--color-leaf-exit); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The root commits to the strip: a dotted rail in the chain color. */
+.ta svg .rail { stroke: var(--color-chain); stroke-width: var(--stroke); fill: none; stroke-dasharray: 2 4; }
+
+/* The on-chain strip. Its tab is the one solid-filled shape in the figure. */
+.ta svg .chain-bg { fill: var(--color-surface-2); stroke: var(--color-chain); stroke-width: 2px; }
+.ta svg .chain-tab { fill: var(--color-chain); }
+.ta svg .chain-title { font-size: var(--svg-text-sm); font-weight: 700; fill: var(--color-surface); letter-spacing: 0.1em; }
 .ta svg .chip rect { fill: var(--color-surface); stroke: var(--color-border-strong); stroke-width: var(--stroke); }
-.ta svg .chip.k-tree rect { stroke: var(--color-accent); stroke-width: var(--stroke-strong); }
-.ta svg .chip.k-tree2 rect { stroke: var(--color-accent); stroke-width: var(--stroke-strong); stroke-dasharray: 6 3; }
-.ta svg .chip.k-payout rect { stroke: var(--color-good); fill: var(--color-good-soft); }
-.ta svg .chip.k-input rect { stroke-dasharray: 5 3; }
-.ta svg .chip.k-htlc rect { stroke: var(--color-sibling); fill: var(--color-sibling-soft); }
-.ta svg .chip.k-none rect { stroke-dasharray: 3 3; fill: var(--color-chain); }
+.ta svg .chip.k-tree rect { stroke: var(--color-chain); stroke-width: var(--stroke-strong); }
+.ta svg .chip.k-tree2 rect { stroke: var(--color-chain); stroke-width: var(--stroke-strong); stroke-dasharray: 6 3; }
+.ta svg .chip.k-payout rect { stroke: var(--color-leaf-exit); stroke-width: var(--stroke-strong); }
+.ta svg .chip.k-input rect { stroke: var(--color-text-muted); stroke-dasharray: 5 3; }
+.ta svg .chip.k-htlc rect { stroke: var(--color-text); }
+.ta svg .chip.k-none rect { stroke: var(--color-border-strong); stroke-dasharray: 3 3; fill: var(--color-surface-2); }
 
 /* Animation. Each step re-renders the figure, so these run once per step.
-   The fold lights the path from the changed node to the root one level at a time. */
+   The fold draws the path from the changed node to the root one level at a
+   time; nodes on it settle into the signal color. Nothing moves or scales. */
 
-@keyframes ta-pulse {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.12); }
-  100% { transform: scale(1); }
-}
+@keyframes ta-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes ta-settle { from { opacity: 0.3; } to { opacity: 1; } }
 @keyframes ta-fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ta-commit {
-  0% { opacity: 0.2; transform: translateY(-10px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
 
-.ta svg .node.is-fold,
-.ta svg .chip.is-commit,
-.ta svg .chip.is-new {
-  transform-box: fill-box;
-  transform-origin: center;
+.ta svg .edge.is-draw {
+  stroke-dasharray: 1;
+  animation: ta-draw var(--motion-step) linear both;
+  animation-delay: calc(var(--i, 0) * var(--motion-step));
 }
-.ta svg .node.is-fold {
-  animation: ta-pulse var(--motion-pulse) var(--motion-ease) both;
+.ta svg .node.is-fold rect {
+  animation: ta-settle var(--motion-pulse) var(--motion-ease) both;
   animation-delay: calc(var(--i, 0) * var(--motion-step));
 }
 .ta svg .node.is-fold .val {
   animation: ta-fade-in var(--motion-pulse) var(--motion-ease) both;
   animation-delay: calc(var(--i, 0) * var(--motion-step));
 }
-.ta svg .chip.is-commit {
-  animation: ta-commit var(--motion-pulse) var(--motion-ease) both;
-  animation-delay: calc(var(--i, 0) * var(--motion-step));
-}
-.ta svg .chip.is-new, .ta svg .badge, .ta svg .link, .ta svg .region {
+.ta svg .chip.is-commit, .ta svg .chip.is-new, .ta svg .badge, .ta svg .link,
+.ta svg .region, .ta svg .exit-arrow, .ta svg .rail {
   animation: ta-fade-in var(--motion-pulse) var(--motion-ease) both;
   animation-delay: calc(var(--i, 0) * var(--motion-step));
 }
 .ta.no-anim svg * { animation: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ta svg *, .card { animation: none !important; transition: none !important; }
+  .ta svg *, .card, .ta-btn { animation: none !important; transition: none !important; }
 }
 
 @media (max-width: 520px) {
   h1 { font-size: var(--text-xl); }
+  main { padding-top: var(--space-6); }
+  .takeaway { padding: var(--space-3) var(--space-4); font-size: var(--text-base); }
+  .ta-cap { padding: var(--space-2) var(--space-3); }
   .ta-panel { padding: var(--space-3); min-height: 11rem; }
   .ta-controls { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
-  .ta-btn { min-width: 3.6rem; }
+  .ta-btn { min-width: 3.6rem; padding: var(--space-1) var(--space-2); }
+  .ta-dots { gap: 0; }
+  .ta-dot { width: 1.3rem; }
+  .ta-legend { padding: var(--space-2) var(--space-3); gap: var(--space-1) var(--space-3); }
+  figure svg { padding: var(--space-2); }
 }
 
 @media print {
+  body { background-image: none; }
   .ta-controls, .site-nav { display: none; }
 }

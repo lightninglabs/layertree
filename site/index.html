@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="assets/logo-light.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&amp;display=swap">
 <title>LayerTree explained</title>
 <meta name="description" content="An interactive explainer for LayerTree: one shared Bitcoin output, an off-chain Merkle-sum tree, and covenants that let any member leave in one transaction.">
 <link rel="stylesheet" href="css/tokens.css">
@@ -12,7 +16,7 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="site-header__inner">
-    <a class="site-name" href="index.html">LayerTree</a>
+    <a class="site-name" href="index.html" aria-label="LayerTree, overview"><img class="logo-light" src="assets/logo-light.svg" alt="" width="28" height="28"><img class="logo-dark" src="assets/logo-dark.svg" alt="" width="28" height="28"><span>layer<b>tree</b></span></a>
     <nav class="site-nav" aria-label="Pages">
       <ul>
         <li><a href="index.html" aria-current="page">Overview</a></li>
@@ -143,27 +147,35 @@
 
   <ul class="card-grid">
     <li><a class="card card--primary" href="components/state-machine.html">
+      <span class="card__ref" aria-hidden="true"><span>C-01</span><span>SPEC 7.1</span></span>
       <span class="card__title">The state machine</span>
       <span class="card__body">The chain stores only a root. Every spend proves the old state, applies a rule, and commits to the new root.</span></a></li>
     <li><a class="card" href="components/join.html">
+      <span class="card__ref" aria-hidden="true"><span>C-02</span><span>SPEC 7.3</span></span>
       <span class="card__title">Joining</span>
       <span class="card__body">One member or a whole cohort grafted into empty slots, who pays for it, and what a joiner checks before paying.</span></a></li>
     <li><a class="card" href="components/exit.html">
+      <span class="card__ref" aria-hidden="true"><span>C-03</span><span>SPEC 7.2</span></span>
       <span class="card__title">Exiting</span>
       <span class="card__body">The proof, the fold, the new root and the payout, and why exiting in pairs saves only part of the cost.</span></a></li>
     <li><a class="card" href="components/payment.html">
+      <span class="card__ref" aria-hidden="true"><span>C-04</span><span>SPEC 7.5</span></span>
       <span class="card__title">Paying each other</span>
       <span class="card__body">Vouchers, splits, channel leaves and a credit leaf for receiving over Lightning.</span></a></li>
     <li><a class="card" href="components/swap.html">
+      <span class="card__ref" aria-hidden="true"><span>C-05</span><span>SPEC 7.5.1</span></span>
       <span class="card__title">Swaps</span>
       <span class="card__body">A hash-locked voucher and an HTLC that share one secret, and the order in which they must settle.</span></a></li>
     <li><a class="card" href="components/evict.html">
+      <span class="card__ref" aria-hidden="true"><span>C-06</span><span>SPEC 7.7</span></span>
       <span class="card__title">Eviction</span>
       <span class="card__body">Leases, removing one expired leaf, and sweeping a whole cohort for a falling cost per leaf.</span></a></li>
     <li><a class="card" href="components/batching.html">
+      <span class="card__ref" aria-hidden="true"><span>C-07</span><span>SPEC 7.9</span></span>
       <span class="card__title">Batching</span>
       <span class="card__body">Rewriting a cohort in one transaction, detaching it into its own output, and the cost no batch removes.</span></a></li>
     <li><a class="card" href="components/tiers.html">
+      <span class="card__ref" aria-hidden="true"><span>C-08</span><span>SPEC 4.3</span></span>
       <span class="card__title">Opcode tiers</span>
       <span class="card__body">The same transitions built four times, against four sets of proposed opcodes, with what each needs and costs.</span></a></li>
   </ul>
