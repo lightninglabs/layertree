@@ -149,6 +149,24 @@ with numbers.
   replaced the 25 chain limits with a 64 cluster limit. Owner items
   from A: keep the SHOULD shard/detach guidance in 10.5 (kept); split
   MIN extra_outs per output (open, 8.11).
+  C1 landed (design/audit/protocol.md, merge of ce1b85f): eight
+  confirmed findings A1 to A8. Triage: A1 (REWRITE_h rule 3's
+  amount-only exemption lets the operator raise a SEQ_FINAL channel
+  leaf above capacity, making the pre-signed update non-standard under
+  ephemeral anchors; fix: exemption excludes seq = SEQ_FINAL) and A2
+  (0 or sub-dust claim leaves block sweeps and grafts for good; fix:
+  DUST_MIN creation parameter, 7.5 rule 6, same floor on UPDATE if
+  owner-only) are real and cheap: a Fable rule worker is landing both
+  as spec 0.11.0 (no formal/ edits; the Lean worker was messaged the
+  hypotheses). A3 to A8 are text (REWRITE_h^x MUST beside UPDATE^x and
+  CLAIM^x; voucher holders check the source lease; a full-cohort detach
+  strands partial vouchers; NUMS-evictor credit leaves are squat tokens;
+  in-place renewal blocks the sweep; member-funded grafts need an anchor
+  for CPFP): an Opus text worker is applying them to 9, 10, C.4/C.6.6/
+  C.9, receive.md, graft.md and recording F22 to F29 in review.md.
+  Merge order: rule worker, then text worker (both touch spec, different
+  sections), then B, then C2 if it changed generators (or C2 first if
+  it lands before the rule worker).
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
