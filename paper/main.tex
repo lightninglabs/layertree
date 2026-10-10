@@ -113,16 +113,17 @@ cohorts are added or swept in one constant-shape transaction.
 We state what the shared output does as an ideal functionality with
 interfaces \iface{JOIN}, \iface{EXIT}, \iface{EVICT}, \iface{UPDATE} and
 \iface{SWEEP}, give an abstract protocol whose covenant predicates realise
-it, and compile the predicates to three opcode tiers built only from
+it, and compile the predicates to four opcode tiers built only from
 proposals already made for Bitcoin (restored string opcodes,
-introspection, stack signature checks, elliptic-curve tweaks); the
-smallest tier needs \op{CAT} and one point-tweak opcode, recovering
-introspection from a generator-key signature. We prove that the abstract
+introspection, stack signature checks, elliptic-curve tweaks,
+\op{CHECKCONTRACTVERIFY}); the smallest tier needs \op{CAT} and one
+point-tweak opcode, recovering introspection from a generator-key
+signature. We prove that the abstract
 protocol UC-realises the functionality in a global-ledger hybrid model,
 with the tree-level lemmas mechanised in Lean~4 and cited inline.
 Lightning channels compose with the functionality as leaves whose exit
 key is shared, so a hub of $N$ channels occupies one output. A simulator,
-a byte-exact Go implementation and 542 executable checks accompany the
+a byte-exact Go implementation and 885 executable checks accompany the
 design.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and universal
 composability \and payment channels \and formal verification}
@@ -166,12 +167,14 @@ and operator do and what an adversary may influence. Section~\ref{sec:protocol}
 gives an abstract protocol: a data structure, a set of covenant
 \emph{predicates} over the spending transaction, and the behaviour of
 honest parties, independent of any particular opcode. Section~\ref{sec:scripts}
-then realises the predicates against three opcode tiers, from the full
-set of restored string opcodes (BIPs~440 and 441~\cite{bip440,bip441}),
-introspection (\op{TX}~\cite{optx}), stack signature checks
-(\op{CHECKSIGFROMSTACK}~\cite{bip348}) and elliptic-curve
-arithmetic~\cite{ecops,bip449} down to \op{CAT} and one point-tweak
-opcode; several of these exist on Liquid~\cite{elements}. We propose no
+then realises the predicates against four opcode tiers: three descend
+from the full set of restored string opcodes (BIPs~440 and
+441~\cite{bip440,bip441}), introspection (\op{TX}~\cite{optx}), stack
+signature checks (\op{CHECKSIGFROMSTACK}~\cite{bip348}) and
+elliptic-curve arithmetic~\cite{ecops,bip449} down to \op{CAT} and one
+point-tweak opcode, and a fourth replaces the key arithmetic with
+\op{CHECKCONTRACTVERIFY}~\cite{bip443}; several of these exist on
+Liquid~\cite{elements}. We propose no
 opcode of our own. The separation lets the security argument be made
 once, for the predicates, rather than once per tier.
 
@@ -186,12 +189,13 @@ once, for the predicates, rather than once per tier.
   predicate from which every transition is composed, in an
   operator-assigned dense profile (the default) and a key-addressed
   sparse profile kept as the measured alternative.
-\item \textbf{Realisation in three opcode tiers} (\S\ref{sec:scripts}).
-  Every predicate compiled against the full candidate set, every predicate
-  but the cohort sweep against a \texttt{0xC0}-only subset, and the
-  single-leaf exit against \op{CAT} and one point-tweak opcode, by
-  rebuilding the BIP-341 signature message in script and checking it with
-  a generator-key signature. This is an upper bound on the opcodes needed;
+\item \textbf{Realisation in four opcode tiers} (\S\ref{sec:scripts}).
+  Every predicate compiled against the full candidate set (FULL), every
+  predicate but the cohort sweep against a \texttt{0xC0}-only subset
+  (MID), the single-leaf exit against \op{CAT} and one point-tweak opcode
+  by rebuilding the BIP-341 signature message in script and checking it
+  with a generator-key signature (MIN), and every predicate but vouchers
+  with \op{CHECKCONTRACTVERIFY} in place of the key arithmetic (CCV). This is an upper bound on the opcodes needed;
   we prove no lower bound.
 \item \textbf{A UC security proof with mechanised lemmas}
   (\S\ref{sec:security}, Appendix~\ref{app:uc}). The abstract protocol
@@ -267,8 +271,9 @@ lease height). The operator holds no key over the funds, only an
 \emph{operator key} that authorises additions and co-signs cooperative
 changes. Figure~\ref{fig:func} gives the functionality $\Ftree$; the
 parameters are the depth $D$ (the tree has $2^D$ slots), the addressing
-\emph{profile} (dense: the operator assigns slots; sparse: a leaf's slot
-is a hash of its owner key and nonce), the operator key, the payout rule
+\emph{profile} (dense, the default: the operator assigns slots; sparse,
+the measured alternative: a leaf's slot is a hash of its owner key and
+nonce), the operator key, the payout rule
 $\mathsf{exact}$ (whether an owner may leave part of its balance as fee),
 and a liveness bound $\lat(N)$ that grows with the number of members.
 
@@ -503,7 +508,8 @@ four opcode sets (Table~\ref{tab:tiers}), so that the design's dependence
 on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. Coverage is not uniform:
 FULL compiles every predicate in both profiles, MID everything but the
-cohort sweep, MIN the dense single-leaf exit and \tr{SPLIT}. The CCV tier replaces
+cohort sweep, MIN the dense single-leaf exit and \tr{SPLIT}, CCV
+everything but vouchers. The CCV tier replaces
 FULL's key recomputation with \op{CHECKCONTRACTVERIFY}~\cite{bip443}
 calls; a native Merkle-sum update opcode would absorb the fold as well
 (hypothetical, \S\ref{sec:discussion}).
@@ -517,15 +523,18 @@ calls; a native Merkle-sum update opcode would absorb the fold as well
 \toprule
  & \textbf{FULL} & \textbf{MID} & \textbf{MIN} & \textbf{CCV} \\
 \midrule
-Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} & \texttt{0xC2} \\
-Beyond BIP-342 & \op{CAT}, splice, bit ops, & \op{CAT}, \op{TX}, CSFS, & \op{CAT}, & \op{CAT}, splice, bit ops, \\
- & \op{TX}, CSFS, EC ops & \op{TWEAKADD} & \op{TWEAKADD} & \op{TX}, \op{CCV} \\
-Introspection / numerics & \op{TX}, any length & \op{TX}, 4-byte, $2^{31}$ & constructive (\S\ref{sec:min}), 4-byte & \op{TX}, any length \\
-Owner payout & $\le$ amount (fee option) & exact & exact & exact \\
-Predicates / executable checks & all, both, 425 & all but sweeps, 120 & \tr{EXIT}$_1$, \tr{SPLIT} dense, 31 & no vouchers, 309 \\
-Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed & no / yes / free \\
+Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} & \texttt{0xC2} or \texttt{0xC0} \\
+Beyond BIP-342 & \op{CAT}, splice, & \op{CAT}, \op{TX}, & \op{CAT}, & \op{CCV} (BIP-443), \\
+ & bit ops, \op{TX}, & CSFS, & \op{TWEAKADD} & \op{TX} \\
+ & CSFS, EC ops & \op{TWEAKADD} & & \\
+Introspection & \op{TX} & \op{TX} & by signature (\S\ref{sec:min}) & \op{TX}, amounts \\
+Numerics & any length & 4-byte, $< 2^{31}$ & 4-byte, $< 2^{31}$ & as FULL or MID \\
+Owner payout & $\le$ amount & exact & exact & exact \\
+Predicates & all & all but sweeps & \tr{EXIT}$_1$, \tr{SPLIT} & all but vouchers \\
+Executable checks & 425 & 120 & 31 & 309 \\
+Vouchers/channels/shape & yes / yes / free & yes / yes / free & no / no / fixed & no / yes / free \\
 \tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 & 1{,}716 / 838 \\
-\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 & $\approx$925 \\
+\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 & 908 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -587,7 +596,8 @@ of the leaf's exit key and deducts its amount. The state key becomes
 the BIP-443 data tweak of NUMS by the root, so the tier is a
 tree-creation parameter. The fold and the authorisation are FULL's
 unchanged; the EC-ops draft drops out and $r$ and $m$ leave every
-witness. One \op{TX} read per constrained amount survives, so the tier
+witness; the binding is independent of numerics, so the tier also comes
+with MID's \texttt{0xC0} encoding. One \op{TX} read per constrained amount survives, so the tier
 takes MID/MIN's exact-payout rule with exogenous fees; vouchers and
 \tr{CLAIM}$^h$, whose message binds $m$, are not carried; \tr{SPLIT},
 whose transaction signature names no $m$, is. Measured at
@@ -712,7 +722,7 @@ compiled by tier $\tau$, and let $\Gledger[\Pred_\tau]$ be the global
 ledger whose validity predicate, for a spend of a tree output, is that
 tier's predicate. Let $\Ftree|_\tau$ be the functionality restricted to
 the interfaces $\tau$ realises (Table~\ref{tab:tiers}), with
-$\mathsf{exact}$ forced in MID and MIN.
+$\mathsf{exact}$ forced in MID, MIN and CCV.
 
 \begin{theorem}[UC realisation]\label{thm:uc}
 In the idealised hash model, for each tier $\tau$ and any $D$ and
@@ -750,7 +760,7 @@ Appendix~\ref{app:uc}.
 \end{proof}
 
 \paragraph{What the theorem leaves out.} The predicates are matched to
-the bytecode by 542 executable checks (\S\ref{sec:eval}), not by a
+the bytecode by 885 executable checks (\S\ref{sec:eval}), not by a
 verified compiler; the theorem is about $\Pred_\tau$ as specified. Fee
 pinning is outside the ledger model: a low-feerate transition early in the
 chain of unconfirmed spends caps the feerate of everything behind it, and
@@ -822,7 +832,8 @@ The argument (Appendix~\ref{app:uc}) reuses the channel-level simulator
 of~\cite{genchannels} and uses \iface{EXIT} and \iface{EVICT} to
 materialise the funding output; the HTLC deadline argument under $\lat(N)$
 is future work. Channel leaves need \op{TX} and \op{CHECKSIGFROMSTACK},
-hence FULL or MID; MIN's constructive introspection commits to the prevout.
+hence FULL or MID, or CCV with the channel scripts in their own
+outputs; MIN's constructive introspection commits to the prevout.
 
 \section{Evaluation}\label{sec:eval}
 
@@ -834,7 +845,7 @@ against a reference tree with positive and negative cases per rule
 (forged leaf, stale root, attacker-chosen $m$, unconserved amount,
 underfunded join, early eviction, evictor shortfall, unsigned update,
 voucher replay, over-claim, stale second path, wrong preimage): 425 FULL,
-120 MID and 31 MIN checks, failing if any script uses an opcode outside the
+120 MID, 31 MIN and 309 CCV checks, failing if any script uses an opcode outside the
 candidate set. A Go implementation on \texttt{btcd} and \texttt{lnd}
 generates the same scripts, byte-exact against 39 golden vectors, and its
 BIP-341 signature hash equals the simulator's, which makes the MIN tier
@@ -884,6 +895,8 @@ mass exit.
 \addlegendentry{MID}
 \addplot[thick, dotted, mark=diamond*, mark size=1.8pt] coordinates {(16,1456)} node[pin={[font=\scriptsize]above right:MIN}] {};
 \addlegendentry{MIN}
+\addplot[thick, dotted, mark=pentagon*, mark size=1.8pt] coordinates {(16,908)} node[pin={[font=\scriptsize]below right:CCV}] {};
+\addlegendentry{CCV}
 \end{axis}
 \end{tikzpicture}
 \end{minipage}\hfill
@@ -973,7 +986,8 @@ functionality rather than a failure of the protocol, and that $\lat(N)$
 is a consequence of the single-UTXO design rather than a tunable: trees
 should be sized by exit throughput and sharded. The design is hostage
 to proposals (a tapleaf version with restored string opcodes or at
-least \op{CAT}, \op{TX} in \texttt{0xC0}, the EC opcodes' drafts);
+least \op{CAT}, \op{TX} in \texttt{0xC0}, the EC opcodes' drafts, or
+BIP-443 for CCV);
 every selector and opcode number is a named constant, and a Liquid
 prototype of the MID tier is the obvious next experiment. As a thought
 experiment (simulator only, never a proposal), a hypothetical native

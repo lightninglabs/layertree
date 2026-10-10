@@ -137,14 +137,22 @@ $\Gledger$'s liveness guarantee; the pinning discussion of
 
 The argument is the same for every tier because the predicates are the
 same; what differs is which predicates the tier realises
-(Table~\ref{tab:tiers}) and one detail of the MIN tier. In MIN,
+(Table~\ref{tab:tiers}) and one detail each of the MIN and CCV tiers. In MIN,
 \textsf{CHECK\_OLD} and \textsf{FINAL} are enforced through the
 constructive signature check of \S\ref{sec:min}, whose binding rests on
 collision resistance of the TapSighash and challenge hashes rather than
 on $\Gledger$'s predicate evaluation; $\mathcal{H}_2$ therefore also
 aborts on a collision in those hashes, and $\Sim$ recovers the enforced
 fields from the witness's raw pieces rather than from \texttt{OP\_TX}
-selectors.
+selectors. In CCV, the witness carries neither $r$ nor $m$: the
+input's commitment to the old root and output~0's commitment to the new
+one are checked by \op{CHECKCONTRACTVERIFY} under the input's own
+taptree, so the step of $\Sim$ that reads $r$ and $m$ from the witness
+reads them from the spent output instead, and the binding of
+\lean{witness\_root\_binds} rests on the BIP-443 data tweak in place of
+$\TreeSpk$, with the same reduction to the discrete logarithm of
+$\NUMS$ and collisions in the tweak hash. Its interfaces are FULL's,
+with \iface{CLAIM} only in its \tr{SPLIT} form, under exact payouts.
 
 \subsection{Composition for Channel Leaves}
 
