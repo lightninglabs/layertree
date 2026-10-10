@@ -143,7 +143,11 @@ for a P2TR key-path spend, plus 43 for a change output if the member needs
 one. The transaction cannot be broadcast until every member has signed,
 so one absent member stalls the cohort and the operator rebuilds it
 without them. This is a liveness cost, not a safety one: an unsigned or
-unbroadcast graft leaves each member's input theirs.
+unbroadcast graft leaves each member's input theirs. The same signatures
+fix the fee: raising it by replacement needs every member to sign again,
+so spec 9.2 has a member-funded graft carry an operator change output or
+a P2A anchor, which the operator can spend in a child to bump the fee
+without a new round (`design/audit/protocol.md`, A8).
 
 A **mixed** graft has the operator fund some leaves and members fund
 others. By 10.2 this changes nothing for anyone: each member's safety
@@ -199,7 +203,13 @@ sweep of its whole subtree. The operator should therefore put members
 with the same lease terms in the same cohort, and members who want no
 lease in a cohort of their own. Filling a gap inside a cohort's subtree
 later with `JOIN_0` is allowed, since the gap is `E_0`, but a joiner on
-different terms blocks the cohort's sweep.
+different terms blocks the cohort's sweep. So does a member renewed in
+place by `UPDATE`, until its new lease passes, and so does a leaf carved
+into a gap by a member of a later-lease cohort, which 7.5 rule 5 allows
+because the carve inherits the carver's lease. Spec 9.4 therefore has
+renewal move the member into a cohort with the new lease, and has the
+operator keep cohort subtrees full or detached
+(`design/audit/protocol.md`, A7).
 
 The subtree rewrite of `design/batching.md` is itself a graft that
 publishes its leaves. Its witness carries every position of the subtree,

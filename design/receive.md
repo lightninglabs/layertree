@@ -164,10 +164,20 @@ tree-creation parameters. With `UPDATE^x` (7.4 rule 5) the operator
 cannot rewrite the leaf without a signature from its exit key, which is
 the recipient's. With `EXIT^=` (7.2 rule 6) an exit of the leaf pays its
 whole amount to the exit key, so the operator leaving the leaf only pays
-the recipient more than it owed. An evictor key of NUMS removes eviction,
-and it survives the carve rule of spec 7.5 rule 5: a credit leaf created
-by `JOIN` with a NUMS evictor is still fine, since every leaf carved out
-of it inherits that evictor, which is what the recipient wants.
+the recipient more than it owed. Eviction is not a voiding move either:
+it pays the whole balance to the exit key, the recipient's, so it pays
+the recipient at least what any voucher would. A credit leaf should
+therefore carry a finite lease long enough for its purpose, with the
+operator as evictor, and not a NUMS evictor as an earlier draft of this
+page suggested (spec 10.3, 10.8). A voucher binds the claim leaf's bytes
+and not its position, so the recipient chooses the empty position its
+claim lands in, and under spec 7.5 rule 5 the claim inherits the source's
+evictor. Against a NUMS-evictor credit leaf every voucher is then a
+leaf that can be placed in an empty slot of any cohort and never swept;
+against a leased one the claim expires with the credit leaf. The
+operator should also keep cohort subtrees full or detach them: a full
+subtree has no empty slot for a claim, and a detached cohort can be
+carved into only by its own members (`design/audit/protocol.md`, A6).
 The fourth move is not covered: the operator can issue itself a voucher
 against the credit leaf and redeem it with plain `CLAIM`, which needs no
 consent from anyone. That drains the leaf and voids the recipient's
@@ -178,8 +188,10 @@ whose redemption requires a signature over the transaction by the source
 leaf's exit key, alongside the voucher. The recipient is that key, so the
 recipient's own redemptions carry it for free, and the operator cannot
 redeem against the leaf at all. With `UPDATE^x`, `EXIT^=` and `CLAIM^x`
-in the taptree, a credit leaf's balance can only grow or be paid to its
-recipient, and the recipient's exposure is the operator's liveness:
+in the taptree, and with `REWRITE_h^x` in place of the cohort rewrite
+`REWRITE_h` or no rewrite at all, a credit leaf's balance can only grow
+or be paid to its recipient, and the recipient's exposure is the
+operator's liveness:
 nothing worse than a provider that stops issuing. The variant is now spec
 7.5.3, with `CLAIM^hx` as the same addition to the hash-locked form; it
 measures 7 bytes over `CLAIM` in the FULL tier, as `UPDATE^x` over
@@ -187,6 +199,15 @@ measures 7 bytes over `CLAIM` in the FULL tier, as `UPDATE^x` over
 exercises the credit-leaf scenario directly: the operator's own voucher
 plus its own transaction signature fails. The Lean model is unaffected,
 since `Claim` takes an opaque authorisation.
+
+The rewrite matters because plain `REWRITE_h` (spec 7.9) asks for the
+owner's and the operator's signatures and nothing else, and the operator
+is both for a credit leaf: it could rewrite the leaf down to 1 sat and
+keep the rest, which voids the recipient's voucher as surely as a
+`CLAIM` would. `REWRITE_h^x` (7.9 rule 7) adds the exit-key signature,
+as `UPDATE^x` does. A recipient MUST check from `m` that the taptree
+carries no plain `REWRITE_h` before it treats a credit leaf as
+trust-free (spec 10.3; `design/audit/protocol.md`, A3).
 
 ## A bond against equivocation
 
@@ -226,8 +247,8 @@ before accepting.
 
 So the two models pair with two remedies: a slashable bond for the
 shared bond leaf, where equivocation is the risk; and `CLAIM^x` with
-`UPDATE^x` and `EXIT^=` for the dedicated credit leaf, where nothing is
-left to slash.
+`UPDATE^x`, `EXIT^=` and a finite lease for the dedicated credit leaf,
+where nothing is left to slash.
 
 ## Why it is one-way
 
@@ -262,8 +283,9 @@ resolves second, and the operator must not advance `seq` while an HTLC on
 the hash is in flight. The dedicated credit leaf is a deployment choice
 within the current rules, and `CLAIM^x`, the one addition this page
 proposed, is now spec 7.5.3 in the FULL tier. A credit line in a tree
-whose taptree carries it, with `UPDATE^x` and `EXIT^=` and without
-`SPLIT`, no longer carries the voiding race of 10.3; one in a tree
+whose taptree carries it, with `UPDATE^x` and `EXIT^=`, without `SPLIT`
+and without a plain `REWRITE_h`, no longer carries the voiding race of
+10.3; one in a tree
 without it carries the same trust an Ark out-of-round payment carries
 until its next round, but with a consensus-enforced claim behind it
 rather than a ledger entry.
