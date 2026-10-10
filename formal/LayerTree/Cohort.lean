@@ -163,4 +163,72 @@ theorem evictSubtree_sound {auth : Prop} {d h : Nat} (t : Tree d) (path : List (
       have h0 : r'.sum = 0 := by rw [hr]; exact Tree.emptyNode_sum d
       rw [Tree.root_sum]; omega
 
+/-! ## REWRITE_h (`design/batching.md`, Shape 2) -/
+
+/-- What `REWRITE_h` accepts. The witness carries the shared path above an
+aligned subtree of height `h` and, for each position, an old and a new
+element; `old` and `new` are the two published subtrees. Rules: (1) the
+old subtree root folds with the path to the committed root and (2) the
+new root is the fold of the new subtree root, together the one `Step`;
+(3) every position whose element changes is authorised, with `auth` a
+predicate on positions (the old leaf's owner signs); (5) the payouts are
+`rewritePayouts`; (6) output 0 carries the new sum, which `Steps.sum`
+turns into `S − Σ old + Σ new`. -/
+structure Rewrite (h : Nat) (auth : Pos h 0 → Prop) (r : Node H) (path : List (Bool × Node H))
+    (old new : Tree h) (r' : Node H) (out0 : Nat) (payouts : List Payout) : Prop where
+  steps : Steps r [Step.mk h path old.root new.root] r'
+  out0_eq : out0 = r'.sum
+  authorised : ∀ q : Pos h 0, old.get q ≠ new.get q → auth q
+  payouts_eq : payouts = old.rewritePayouts new
+
+/-- **A rewrite replaces exactly the published subtree.** The committed
+tree held the old elements at the published positions, output 0 commits to
+the tree with the new elements there, positions inside the subtree whose
+element did not change keep it, every subtree of height `h` elsewhere is
+untouched, the output amount moves by `Σ new − Σ old` (rule 6, stated
+additively), and the payouts never exceed what left the tree. -/
+theorem rewrite_sound {d h : Nat} {auth : Pos h 0 → Prop} (t : Tree d)
+    (path : List (Bool × Node H)) (old new : Tree h) (r' : Node H) (out0 : Nat)
+    (payouts : List Payout) (hwf : path.length + h = d)
+    (hr : Rewrite h auth t.root path old new r' out0 payouts) :
+    ∃ p : Pos d h, t.getSub p = old ∧
+      r' = (t.setSub p new).root ∧
+      (∀ q : Pos h 0, t.get (p.append q) = old.get q ∧
+        (t.setSub p new).get (p.append q) = new.get q) ∧
+      (∀ q : Pos d h, q ≠ p → (t.setSub p new).getSub q = t.getSub q) ∧
+      out0 + old.total = t.root.sum + new.total ∧
+      out0 + payoutTotal payouts ≤ t.root.sum + new.total := by
+  cases hr.steps with
+  | cons hv hrest =>
+    cases hrest
+    obtain ⟨p, hold, hnew⟩ := Step.sound t (Step.mk h path old.root new.root) r' hwf hv
+    have hu : t.getSub p = old := (Tree.root_inj _ _ hold).symm
+    have hs := Step.sum _ _ _ hv
+    simp only [Tree.root_sum] at hs
+    have hle : payoutTotal payouts ≤ old.total := by
+      rw [hr.payouts_eq]; exact Tree.rewritePayouts_le old new
+    refine ⟨p, hu, hnew new rfl, fun q => ⟨?_, ?_⟩, fun q hq => ?_, ?_, ?_⟩
+    · rw [Tree.get_append, hu]
+    · rw [Tree.get_append, Tree.getSub_setSub]
+    · exact Tree.getSub_setSub_ne t p q new (Ne.symm hq)
+    · rw [hr.out0_eq, Tree.root_sum t]; omega
+    · rw [hr.out0_eq, Tree.root_sum t]; omega
+
+/-- **Exit-only rewrites conserve exactly.** When no new element is a leaf
+(the new subtree is empty) every old leaf is paid and output 0 plus the
+payouts equals the input amount: the same statement as
+`ExitK.exact_conservation`, for a whole cohort at once. Needs no tree:
+`Steps.sum` holds for any step list. -/
+theorem rewrite_exit_conservation {h : Nat} {auth : Pos h 0 → Prop} {r r' : Node H}
+    {path : List (Bool × Node H)} {old : Tree h} {out0 : Nat} {payouts : List Payout}
+    (hr : Rewrite h auth r path old (Tree.empty h) r' out0 payouts) :
+    out0 + payoutTotal payouts = r.sum := by
+  have hs := hr.steps.sum
+  simp only [oldSum, newSum, Tree.root_sum] at hs
+  have hp : payoutTotal payouts = old.total := by
+    rw [hr.payouts_eq]; exact Tree.rewritePayouts_empty old
+  have h0 : (Tree.empty h).total = 0 := by
+    rw [← Tree.root_sum]; exact Tree.emptyNode_sum h
+  rw [hr.out0_eq]; omega
+
 end LayerTree

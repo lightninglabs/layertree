@@ -31,6 +31,8 @@ open LayerTree
 #print axioms sparseJoin_sound
 #print axioms Tree.sweepPayouts_total
 #print axioms evictSubtree_sound
+#print axioms rewrite_sound
+#print axioms rewrite_exit_conservation
 #print axioms witness_root_binds
 #print axioms ccv_input_binds
 #print axioms Encoding.serializeLeaf_inj
