@@ -5,7 +5,7 @@ stands, what is in flight, what is next, and what is undecided. Update it
 whenever the answer to "where are we" changes. `design/status.md` is the
 formal hand-off with the decision log; this file is the informal one.
 
-Last updated 2026-10-09, main at the commit that adds this file.
+Last updated 2026-10-09, main at 74d6526 (all four PRs merged, spec 0.8.5, PDF rebuilt).
 
 ## What we are trying to do
 
@@ -29,53 +29,38 @@ with numbers.
 
 | Area | State |
 |---|---|
-| Spec | 0.8.4 on main after #8, #10 and #6 merged (swap rules in 9.6.2; SPLIT in all four tiers; 11.1 script-set cost; the CCV tier in 4.6). 0.8.5 after the sparse demotion. Editorial fixes landed today: check counts, channel tag strings, 5.5 sibling element is 41 bytes, 13.2 radix note replaced by the measured result. |
-| Python simulator | 425 / 120 / 31 / 309 checks on main (FULL / MID / MIN / CCV); 47 MSU on #7. |
-| Go | 34 golden scripts byte-exact; EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
+| Spec | 0.8.5 on main: #8, #10, #6 and #7 merged (swap rules in 9.6.2; SPLIT in all four tiers; 11.1 script-set cost; the CCV tier in 4.6; the hypothetical opcode quarantined), then the editorial pass (dense is the default profile in 1, 5.4 and 11; 10.1 trust table lists grafting; 9.2 off-chain buyer checks; 4.5 says the MIN dashes mean not built). |
+| Python simulator | 425 / 120 / 31 / 309 checks on main (FULL / MID / MIN / CCV); 61 for the hypothetical opcode, outside every tier. |
+| Go | 56 golden scripts byte-exact (FULL, MID, MIN, CCV); EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
 | Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
-| Paper | 15 body pages, six appendices, PDF stamped 8d8ccc0 and stale against today's source edits. The 15-page FC limit is being lifted into a two-version build (see below). |
+| Paper | 15 body pages (References on page 16), 44 pages with appendices, PDF stamped 52ec594 and current. Still says "three opcode tiers" in the intro and section titles although the tier table carries CCV; the two-version build and the reviewer-profile pass are queued (see below). |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
-| PR stack | #8, #10 and #6 merged. #7 (hypothetical native opcode) is being landed from the stalled worker's worktree. |
+| PR stack | Empty. #8 (72e9846), #10 (54d094f), #6 (f23f193) and #7 (3ef8128) all merged. |
 
 ## In flight right now
 
-- #8 merged with one added fix: 9.6.2 rule 3 now holds from the HTLC
-  offer until redemption or HTLC failure, not only "while in flight".
-- #10 merged with four added commits: SPLIT voids vouchers (9.6, 10.3,
-  5.2), the MIN tier SPLIT measured (6,441 script / 2,010 witness at
-  D=16), new negatives in every tier, spec 0.8.3.
-- Opus writer on `design/graft.md`: grafting and its trust model.
-- Resume note (2026-10-10): #6 merged at f23f193 (spec 0.8.4; CCV suite
-  309 checks; Lean `CCVTweak` binding instance; SPLIT and UPDATE^x under
-  CCV measured; [A-6] pinned; four-tier wording). #7 is the last PR: the
-  worker stalled with its work in `.claude/worktrees/agent-ae0ecacb4cf73f727`
-  on branch `msu-work` (f3d1a16 canonical leaf-first proofs, quarantine
-  test, links and counts; a2ccc0b merge of main). The orchestrator is
-  running the full matrix there (log:
-  `/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-roasbeef-layertree--claude-worktrees-repo-overview-context-66c267/7fef6c07-7626-454e-b539-2d2e6cb835b5/scratchpad/pr7-matrix.log`,
-  expected 425/120/31/309/47, golden clean, listings clean, go ok, lake
-  rc 0). On green, from that worktree: `git push origin
-  msu-work:msu-hypothetical`, then `gh pr merge 7 --repo
-  lightninglabs/layertree --merge`, then fast-forward this session branch
-  to origin/main. Then the post-merge editorial pass (item 3 below), the
-  PDF rebuild, and the two builds (items 2 and 4).
-- TeX: works on this machine as of today. TeX Live 2020 basic at
-  /Library/TeX/texbin plus a user tree under ~/Library/texmf with
-  multirow, cm-super (tlmgr --usermode from the 2020 historic repo),
-  pgfplots 1.18.3 and the current cryptocode (unpacked from CTAN), and
-  latexmk fetched from CTAN into ~/bin. Build with
-  `PATH=$HOME/bin:/Library/TeX/texbin:$PATH make` in paper/. A scratch
-  build of the current sources gives 43 pages with References on page 16.
-- Figure agent: the batching-shapes figure and corrected multiproof
-  points on the amortisation figure.
+- A Sonnet worker is adding the MID join negatives (occupied slot, no
+  operator signature, stale `JOINK_2` second path) in its own worktree;
+  it commits without pushing and the orchestrator lands the commit on
+  main with the count updates.
+- Zoom-out discussion with the owner on the batching open questions and
+  on what is not implemented, before any new build starts.
+- TeX works on this machine (see `layertree-tex-build` in memory):
+  `PATH=$HOME/bin:/Library/TeX/texbin:$PATH make` in paper/.
 
 ## Next, in order
 
-1. Merge #6 then #7 after their worker reports ready and a dry merge is
-   clean. Reconcile counts and the spec version on main after the last
-   merge, run the full matrix, rebuild the paper PDF.
-2. Paper, two versions from one source. A `\fullversion` toggle like the
+1. Done: all PRs merged, counts and version reconciled (0.8.5), matrix
+   green, PDF rebuilt at 52ec594.
+2. Paper, two versions from one source, then a review pass by Opus
+   agents acting as reviewer profiles (FC programme-committee style:
+   a cryptographer on the UC argument, a Bitcoin protocol engineer on
+   the scripts and assumptions, a systems reviewer on the measurements
+   and comparisons), each producing findings the writer agent then
+   addresses, as `paper/review.md` and `paper/review-response.md` did
+   for the first draft. Fix the "three opcode tiers" wording while at
+   it. A `\fullversion` toggle like the
    existing `\anontrue`: the short build keeps the FC body under the
    limit and sends the rest to appendices; the full build lifts the limit
    to roughly 25 to 30 body pages and pulls the functionality proof, the
@@ -84,17 +69,8 @@ with numbers.
    Makefile targets `main.pdf` and `main-full.pdf`, both stamped. Build
    order stays: sources first, then make, then commit PDFs with
    version.tex.
-3. Editorial pass after the merges, one commit: demote sparse in the spec
-   (5.4 wording, 4.5 ordering, 11), CONCEPTS (also fix "256 members cost
-   the same script as one" and "up to 256 members" since the reference
-   taptree carries only JOIN_0 and JOIN_2), README and the paper; spec
-   10.1 trust table should list JOIN among the operator's powers and
-   qualify "cannot freeze" with "other than value it grafts"; 9.2 should
-   state the off-chain buyer's checks; 4.5 should say why MIN has no
-   JOIN; the MIN generator docstring cites 4.6 for the tiers section,
-   now 4.5. Spec 0.8.5.
-3b. MID join negatives are thin (only an underfunded JOIN_2): add
-   occupied slot, join without operator, and JOINK_2 stale second path.
+3. Done: the editorial pass landed as 52ec594 (spec 0.8.5).
+3b. MID join negatives: in flight (Sonnet worker).
 4. Build `REWRITE_h`, the cohort rewrite with per-leaf signatures
    (owner's call: build it). FULL tier first, MID stated as unsupported
    for the sweep's reason. Generator from the `EVICT_SUBTREE_h` post-order
