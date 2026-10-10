@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="LayerTree">
+  <title>LayerTree</title>
+  <!-- Fixed paper-white variant for use on dark backgrounds regardless of the viewer's colour scheme. -->
+  <g fill="none" stroke="#F1ECDF" stroke-width="2" stroke-linejoin="miter">
+    <path d="M16 8V12M7 17V12H25V17"/>
+    <path d="M3 22V17H11V22M21 22V17H29"/>
+    <path d="M2 30H23"/>
+    <circle cx="28" cy="27.5" r="2.2"/>
+  </g>
+  <g fill="#F1ECDF">
+    <circle cx="16" cy="5" r="3"/>
+    <circle cx="3" cy="25" r="2"/>
+    <circle cx="11" cy="25" r="2"/>
+    <circle cx="21" cy="25" r="2"/>
+  </g>
+</svg>

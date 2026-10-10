@@ -1,0 +1,83 @@
+/*
+ * LayerTree identity: editorial.
+ * Replace this file to swap identities; the variable names are the contract.
+ * Fonts are named, not loaded: each stack falls back to faces that ship with
+ * macOS, Windows and Linux, so nothing here needs a network request.
+ */
+:root {
+  /* Surfaces and ink: warm paper, near-black ink. */
+  --surface:   #F7F3EA;
+  --surface-2: #EEE8D9;
+  --ink:       #1B1A17;
+  --ink-2:     #47443B;
+  --ink-3:     #6C675A;
+
+  /* One spot colour. Oxblood. Links, emphasis rules, primary actions. */
+  --accent:     #B5361C;
+  --accent-ink: #FFF8EE;
+
+  /* Diagram colours (validated as a categorical set, see README). */
+  --node:      #2F6DB5;   /* a sibling node: a proof item            */
+  --node-sum:  #DCE5EF;   /* tint behind the amount inside a node    */
+  --path:      #C2401F;   /* the highlighted proof path              */
+  --leaf:      #8A4FA8;   /* a leaf that stays                       */
+  --leaf-exit: #B07A12;   /* a leaf that leaves                      */
+  --chain:     #009089;   /* the on-chain output                     */
+
+  /* Status. Always paired with an icon or a word, never colour alone. */
+  --ok:   #2E7048;
+  --warn: #9A6200;
+
+  /* Type. */
+  --font-display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-body:    "Source Serif 4", "Charter", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Type scale: modest steps for text, opening up for display. */
+  --size-1: 0.8125rem;                                  /* 13px: captions, labels  */
+  --size-2: 1.0625rem;                                  /* 17px: body              */
+  --size-3: 1.3125rem;                                  /* 21px: lead, card titles */
+  --size-4: clamp(1.625rem, 1.2rem + 1.6vw, 2.125rem);
+  --size-5: clamp(2.125rem, 1.4rem + 3vw, 3.25rem);
+  --size-6: clamp(2.75rem, 1.5rem + 5.2vw, 5rem);
+
+  /* Space: a 4px base, wide at the top end on purpose. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 2rem;
+  --space-5: 4rem;
+  --space-6: 7rem;
+
+  /* Drafted corners. Nearly square. */
+  --radius: 2px;
+
+  /* Motion. Settled, no overshoot. */
+  --dur-fast: 120ms;
+  --dur:      240ms;
+  --dur-slow: 640ms;
+  --ease:     cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface:   #15140F;
+    --surface-2: #1F1D16;
+    --ink:       #F1ECDF;
+    --ink-2:     #C7C1B0;
+    --ink-3:     #968F7E;
+
+    --accent:     #EE7B5E;
+    --accent-ink: #15140F;
+
+    --node:      #4A87D6;
+    --node-sum:  #1E2B3F;
+    --path:      #DB5E3B;
+    --leaf:      #A06AC8;
+    --leaf-exit: #B38418;
+    --chain:     #1F9E97;
+
+    --ok:   #5FB383;
+    --warn: #E0A23A;
+  }
+}

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="LayerTree">
+  <title>LayerTree</title>
+  <style>
+    svg { color: #1B1A17; }
+    @media (prefers-color-scheme: dark) { svg { color: #F1ECDF; } }
+  </style>
+  <!-- One root point; orthogonal branches, drafted not drawn. -->
+  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter">
+    <path d="M16 8V12M7 17V12H25V17"/>
+    <path d="M3 22V17H11V22M21 22V17H29"/>
+    <!-- The sum: the single output beneath every leaf that stays. -->
+    <path d="M2 30H23"/>
+    <!-- The leaf that leaves: detached from its branch and from the sum. -->
+    <circle cx="28" cy="27.5" r="2.2"/>
+  </g>
+  <g fill="currentColor">
+    <circle cx="16" cy="5" r="3"/>
+    <circle cx="3" cy="25" r="2"/>
+    <circle cx="11" cy="25" r="2"/>
+    <circle cx="21" cy="25" r="2"/>
+  </g>
+</svg>
