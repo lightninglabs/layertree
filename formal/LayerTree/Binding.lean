@@ -58,9 +58,21 @@ theorem output_binds (B : BindingModel H) (rNew : H) (m m' : B.TapRoot) (rOut : 
   B.treeSpk_inj hout
 
 /-- The CCV tier's binding (spec 4.6, 6.3 `TREE_SPK_CCV`) as a two-stage
-construction. BIP-443 builds the tree output key from the root `r` in two
-tweaks: the data tweak `P = NUMS + sha256(NUMS ‖ r)·G` (`dataTweak`), then
-the taproot tweak `Q = P + H_taptweak(P, m)·G` wrapped as a P2TR
+construction, from which a *second* `BindingModel` is built
+(`CCVTweak.binding`). The FULL tier's `BindingModel` takes `TREE_SPK`
+injective in `(r, m)` as one hypothesis; the CCV tier does not get to
+assume that, because its scriptPubKey is not computed by the script at
+all: `OP_CHECKCONTRACTVERIFY` recomputes it inside the interpreter from
+`(NUMS, r, m)`, so what the covenant relies on is the injectivity of
+BIP-443's own construction, stage by stage. This structure states the
+two stages and their hypotheses; `binding` composes them into a
+`BindingModel` whose `treeSpk_inj` is a theorem, so that
+`witness_root_binds` and `output_binds` apply to a CCV tree with no
+new assumption beyond the two below.
+
+BIP-443 builds the tree output key from the root `r` in two tweaks: the
+data tweak `P = NUMS + sha256(NUMS ‖ r)·G` (`dataTweak`), then the
+taproot tweak `Q = P + H_taptweak(P, m)·G` wrapped as a P2TR
 scriptPubKey (`tapTweak`). Each stage carries its own injectivity
 hypothesis, which is where the assumptions live:
 

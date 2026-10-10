@@ -435,6 +435,149 @@ theorem getSub_empty {d h : Nat} (p : Pos d h) : (empty d).getSub p = empty h :=
 theorem get_empty {d : Nat} (p : Pos d 0) : (empty d).get p = none := by
   simp [get, getSub_empty, empty]
 
+/-- The child of a non-tip tree in direction `b`: `true` is the right
+child, as in `Pos.cons`. -/
+def child : {k : Nat} → Bool → Tree (k + 1) → Tree k
+  | _, b, bin l r => if b then r else l
+
+@[simp] theorem child_bin {k : Nat} (b : Bool) (l r : Tree k) :
+    (bin l r).child b = if b then r else l := rfl
+
+theorem getSub_cons {d h : Nat} (t : Tree (d + 1)) (b : Bool) (p : Pos d h) :
+    t.getSub (.cons b p) = (t.child b).getSub p := by
+  cases t with
+  | bin l r => cases b <;> simp [getSub]
+
+/-- Replacing the subtree at a position inside the subtree at `c` is
+replacing the subtree at `c` by its own update. -/
+theorem setSub_append {d h k : Nat} (t : Tree d) (c : Pos d h) (q : Pos h k) (s : Tree k) :
+    t.setSub (c.append q) s = t.setSub c ((t.getSub c).setSub q s) := by
+  induction c with
+  | nil => simp [getSub, setSub]
+  | cons b c ih =>
+    cases t with
+    | bin l r => cases b <;> simp [getSub, setSub, ih]
+
+end Tree
+
+/-!
+## Proof maintenance (section 9.7)
+
+A participant who holds a leaf and its sibling path for the root `r_k`
+must be able to compute the path for `r_{k+1}` from the witness of the
+transition alone. Section 9.7 states why: the only sibling that can change
+is the one at the level where the participant's path and the modified
+position's path diverge, and its new value is the modified subtree's new
+root, which the witness determines. The theorems below make that exact for
+a replacement of the subtree at any position `p : Pos d h`, which covers
+every transition: a leaf-level step has `h = 0`, a `JOIN_h`, sweep,
+rewrite or detach has `h > 0`.
+
+Two positions either lie one inside the other's subtree or *fork*: they
+share a prefix `c` and then take opposite directions. `Pos.fork` is that
+case split, and `path_maintenance` is the statement for each case. Inside
+the modified subtree the participant's proof is not maintained by the
+parent's witness (a sweep or rewrite re-publishes the subtree, a detach
+moves the proof to the new tree, `detach_sound`); at a fork it is
+maintained by replacing one sibling.
+-/
+
+/-- A position `p` of height `h` and a leaf position `q` are either nested
+(`q` inside the subtree at `p`) or fork after a common prefix `c`, with
+`p` continuing in direction `b` and `q` in direction `!b`. -/
+theorem Pos.fork : {d h : Nat} → (p : Pos d h) → (q : Pos d 0) →
+    (∃ q' : Pos h 0, q = p.append q') ∨
+    ∃ (k : Nat) (c : Pos d (k + 1)) (b : Bool) (p' : Pos k h) (q' : Pos k 0),
+      p = c.append (.cons b p') ∧ q = c.append (.cons (!b) q')
+  | _, _, .nil, q => Or.inl ⟨q, rfl⟩
+  | _, _, .cons b p, .cons c q => by
+    cases b <;> cases c
+    · rcases Pos.fork p q with ⟨q', hq⟩ | ⟨k, c, b, p', q', hp, hq⟩
+      · exact Or.inl ⟨q', by rw [hq]; rfl⟩
+      · exact Or.inr ⟨k, .cons false c, b, p', q', by rw [hp]; rfl, by rw [hq]; rfl⟩
+    · exact Or.inr ⟨_, .nil, false, p, q, rfl, rfl⟩
+    · exact Or.inr ⟨_, .nil, true, p, q, rfl, rfl⟩
+    · rcases Pos.fork p q with ⟨q', hq⟩ | ⟨k, c, b, p', q', hp, hq⟩
+      · exact Or.inl ⟨q', by rw [hq]; rfl⟩
+      · exact Or.inr ⟨k, .cons true c, b, p', q', by rw [hp]; rfl, by rw [hq]; rfl⟩
+
+namespace Tree
+
+/-- The sibling path of a position that forks from `c` in direction `!b`:
+the path to `c`, then the sibling at the fork (the `b` child of the
+subtree at `c`), then the path inside the `!b` child. -/
+theorem pathSub_fork {d k h : Nat} (t : Tree d) (c : Pos d (k + 1)) (b : Bool) (q' : Pos k h) :
+    (t.pathSub (c.append (.cons (!b) q')) : List (Bool × Node H)) =
+      t.pathSub c ++ (!b, ((t.getSub c).child b).root) :: ((t.getSub c).child (!b)).pathSub q' := by
+  rw [pathSub_append]
+  generalize t.getSub c = v
+  cases v with
+  | bin l r => cases b <;> simp [pathSub]
+
+/-- After the subtree at `c.append (cons b p')` is replaced by `s`, the
+path of a position forking at `c` in direction `!b` changes in exactly one
+entry: the sibling at the fork, which becomes the root of the `b` child
+with `s` set at `p'`. -/
+theorem pathSub_setSub_fork {d k h h' : Nat} (t : Tree d) (c : Pos d (k + 1)) (b : Bool)
+    (p' : Pos k h) (q' : Pos k h') (s : Tree h) :
+    ((t.setSub (c.append (.cons b p')) s).pathSub (c.append (.cons (!b) q')) :
+        List (Bool × Node H)) =
+      t.pathSub c ++ (!b, (((t.getSub c).child b).setSub p' s).root) ::
+        ((t.getSub c).child (!b)).pathSub q' := by
+  rw [setSub_append, pathSub_append, pathSub_setSub, getSub_setSub]
+  generalize t.getSub c = v
+  cases v with
+  | bin l r => cases b <;> simp [setSub, pathSub]
+
+/-- **Proof maintenance** (section 9.7). Replace the subtree at `p` by `s`
+and consider the holder of leaf position `q`. Either `q` lies inside the
+replaced subtree, or the two positions fork at a prefix `c`, and then: the
+leaf at `q` is unchanged; `q`'s old path is `c`'s path, the sibling at the
+fork, and the path inside its own side; `p`'s path has the same shape with
+the sides swapped; and `q`'s new path differs from its old path in the fork
+sibling only, whose new value is `s.root` folded up the part of `p`'s path
+below the fork. Both `s.root` and `p`'s path are in the transition's
+witness, so the holder of `q` updates one entry from public data and holds
+a valid proof against the new root (`path_maintenance_valid`). -/
+theorem path_maintenance {d h : Nat} (t : Tree d) (p : Pos d h) (s : Tree h) (q : Pos d 0) :
+    (∃ q' : Pos h 0, q = p.append q') ∨
+    ∃ (k : Nat) (c : Pos d (k + 1)) (b : Bool) (p' : Pos k h) (q' : Pos k 0),
+      p = c.append (.cons b p') ∧ q = c.append (.cons (!b) q') ∧
+      (t.setSub p s).get q = t.get q ∧
+      (t.path q : List (Bool × Node H)) =
+        t.pathSub c ++ (!b, ((t.getSub c).child b).root) ::
+          ((t.getSub c).child (!b)).pathSub q' ∧
+      (t.pathSub p : List (Bool × Node H)) =
+        t.pathSub c ++ (b, ((t.getSub c).child (!b)).root) ::
+          ((t.getSub c).child b).pathSub p' ∧
+      ((t.setSub p s).path q : List (Bool × Node H)) =
+        t.pathSub c ++ (!b, fold s.root (((t.getSub c).child b).pathSub p')) ::
+          ((t.getSub c).child (!b)).pathSub q' := by
+  rcases Pos.fork p q with hin | ⟨k, c, b, p', q', hp, hq⟩
+  · exact Or.inl hin
+  · refine Or.inr ⟨k, c, b, p', q', hp, hq, ?_, ?_, ?_, ?_⟩
+    · subst hp; subst hq
+      rw [setSub_append, get_append, get_append, getSub_setSub]
+      generalize t.getSub c = v
+      cases v with
+      | bin l r => cases b <;> simp [setSub, get, getSub]
+    · subst hq; exact pathSub_fork t c b q'
+    · subst hp
+      have := pathSub_fork t c (!b) p'
+      simpa using this
+    · subst hp; subst hq
+      unfold path
+      rw [pathSub_setSub_fork, fold_setSub]
+
+/-- The maintained proof verifies: with the leaf unchanged and the one
+sibling replaced, the holder's fold reaches the new root. -/
+theorem path_maintenance_valid {d h : Nat} (t : Tree d) (p : Pos d h) (s : Tree h) (q : Pos d 0)
+    (hq : ∀ q' : Pos h 0, q ≠ p.append q') :
+    fold (leafNode (t.get q)) ((t.setSub p s).path q) = ((t.setSub p s).root : Node H) := by
+  rcases path_maintenance t p s q with ⟨q', h⟩ | ⟨_, _, _, _, _, _, _, hget, _⟩
+  · exact absurd h (hq q')
+  · rw [← hget]; exact fold_path _ q
+
 end Tree
 
 end LayerTree
