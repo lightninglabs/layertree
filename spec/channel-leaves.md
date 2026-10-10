@@ -3,7 +3,7 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.2.1
+Version:  0.3.0
 Requires: spec/layertree.md 0.7.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
@@ -360,12 +360,17 @@ REBIND_n  (tapleaf 0xC2, 81 bytes)     # witness: <upd_sig_m>, m > n
 <ctx_upd> OP_SWAP OP_CAT OP_SHA256     # upd_sig_m msg
 <P_chan> OP_CHECKSIGFROMSTACK          # 1
 
-SETTLE_n  (tapleaf 0xC2, 80 bytes)     # witness: <set_sig_n>
+SETTLE_n  (tapleaf 0xC2, 79 bytes)     # witness: <set_sig_n>
 <csv_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
 <SEL_CHAN_SET> OP_TX                   # set_sig_n blob
 <ctx_set> OP_SWAP OP_CAT OP_SHA256     # set_sig_n msg
 <P_chan> OP_CHECKSIGFROMSTACK          # 1
 ```
+
+The sizes are measured at `csv_delay = 144` (C.12). `SETTLE_n` is 80 bytes
+under tapleaf `0xC0`, where 144 is the two-byte `CScriptNum` `9000` rather
+than the one-byte BIP-441 number `90`; the other scripts are the same size
+in both versions.
 
 The ratchet is exactly the eltoo one:
 
@@ -506,6 +511,15 @@ payment is final on both sides at the moment the states are exchanged and
 never touches the chain. Channel leaves are the settlement-grade instrument;
 vouchers are the zero-setup one.
 
+*(informative)* The swap of 9.6.2, which pairs a channel-leaf HTLC with a
+hash-locked voucher over one payment hash, is exercised end to end by
+`tools/test_chan.py` (C.12): the channel is forced on-chain, the HTLC payee's
+sweep publishes the preimage, and the voucher redeems second with it. The
+three orderings 9.6.2 forbids (a `cltv_expiry_delta` below the budget of
+C.4.4, an HTLC left waiting on a preimage that only the voucher's redemption
+reveals, and an issuer advancing `seq` before the voucher is redeemed) each
+leave the honest party's transaction invalid.
+
 ### C.4.4 Deadlines
 
 The number of blocks between an in-flight HTLC's `cltv_expiry` and the moment
@@ -523,6 +537,24 @@ claim. With `csv_delay = 144` and a conservative `G_exit = 72`, a channel
 leaf needs `cltv_expiry_delta ≥ ~220` blocks against the ~40 typical on the
 public network. Operators and users MUST set `cltv_expiry_delta` for channel
 leaves accordingly, and MUST NOT accept forwards that leave less headroom.
+
+*(informative)* The deadline reasoning above is exercised block by block in
+`tools/test_chan.py` (C.12), on a chain model that enforces BIP-65 and BIP-68.
+Counting as those rules do, the payee is safe at
+
+```
+cltv_expiry_delta  =  G_exit + 1 + csv_delay + G_sweep
+```
+
+because the update confirms in the block after the exit, BIP-68 admits the
+settlement in the `csv_delay`-th block after the update (so the settlement's
+own block is inside `csv_delay`), and the offerer's timeout sweep, whose
+`nLockTime` is `cltv_expiry`, is final first in block `cltv_expiry + 1`, so
+the payee's sweep may confirm in block `cltv_expiry` itself. The bound above
+therefore carries two blocks of margin. With `G_exit = 72`,
+`csv_delay = 144` and `G_sweep = 2` the test confirms the payee's sweep at
+`t + 219`, against a bound of 221, and at a delta of 218 shows the
+offerer's refund becoming final first and the payee's claim failing.
 
 ## C.5 Lifecycle
 
@@ -646,8 +678,12 @@ taptree, and no HTLCs in flight:
 | **total, no HTLCs** | **≈ 1,681** | **≈ 146 blocks** |
 | `update_n` bound to an earlier update output (contested) | 161 | per contest |
 | `settle_n` with `h` HTLC outputs | `204 + 43h` | |
-| HTLC-success sweep | 146 | after settlement |
-| HTLC-timeout sweep | 130 | after `cltv_expiry` |
+| HTLC-success sweep | 155 | after settlement |
+| HTLC-timeout sweep | 138 | after `cltv_expiry` |
+
+The channel rows are measured by `tools/test_chan.py` (C.12). The HTLC sweeps
+spend a two-leaf output, so their control block is 65 bytes; version 0.2 of
+this table counted a 33-byte one and gave 146 and 130 vB.
 
 Dominated by the `EXIT`: the channel machinery itself is ≈ 660 vB, but
 materialising the funding output costs about 1 kvB because it carries the
@@ -858,8 +894,20 @@ are the same transition with different fields; only splicing (which changes
 | CCV (4.6) | yes (amounts) | not assumed by the tree's scripts | **yes, hosted** — the channel scripts are FULL or MID scripts in their own outputs, so they need `OP_TX` and `OP_CHECKSIGFROMSTACK` wherever they run; the CCV tree itself only pays the leaf out exactly (C.6.1 holds by construction) and has no `CLAIM` (C.6.5 does not arise); the other rules of C.6 apply as in FULL |
 
 The channel scripts of C.3 use no BIP-441 numerics, no splice opcode beyond
-`OP_CAT`, and no EC opcode, so they are byte-identical in the FULL and MID
-tiers; only the tapleaf version differs (`0xC2` / `0xC0`). The tier of the
+`OP_CAT`, and no EC opcode, so they are the same token lists in the FULL and
+MID tiers. The tapleaf version differs (`0xC2` / `0xC0`), and so does the
+encoding of a number whose minimal form differs between BIP-441 and
+`CScriptNum`: `csv_delay = 144` is one byte in `SETTLE_n` under `0xC2` and two
+under `0xC0` (C.3.3). The state operands `S + n + 1` are four bytes in both.
+
+Under `0xC0` every stack element is limited to 520 bytes, and that includes
+the `OP_TX` collation and `ctx || collation` after `OP_CAT`. A settlement
+collation is `156 + 43h` bytes for two P2TR payouts, `h` P2TR HTLC outputs and
+the anchor, so a MID channel can carry at most seven HTLC outputs in one
+state. A MID implementation MUST NOT sign a state whose settlement
+collation exceeds 488 bytes: its `SETTLE_n` could never succeed, and the
+state's funds would be recoverable only by the cooperative key path. FULL has
+no such limit. The tier of the
 channel scripts is independent of the tier of the tree that hosts the leaf —
 they are different outputs — but a MID tree is the natural floor, since a MIN
 tree has no `CLAIM` to defend against (C.6.5) and already requires exact
@@ -1059,3 +1107,69 @@ trust of C.6.6. The list is kept for the record.
 * Sizes assume the reference script set of 6.2, eight tapleaves and so a
   129-byte control block (11.1); each doubling of the set adds 8 vB,
   `D = 16` dense, 64-byte Schnorr signatures, and P2TR payout outputs.
+
+## C.12 Executable reference *(informative)*
+
+Appendix C is implemented and tested alongside the tree scripts. Every
+normative script claim above is backed by one of these files.
+
+| file | contents |
+|---|---|
+| `tools/script_sim.py` | `OP_CHECKSEQUENCEVERIFY` (BIP-112, the script half) and `OP_TX` with `TXSELECT_COLLATE` laid out as [C-A1]; `collate()` is also the off-chain serialiser |
+| `tools/layertree_chan.py` | generators for `UPD_F`, `REBIND_n` and `SETTLE_n` with stack comments, `chan_id` / `ctx_upd` / `ctx_set`, `msg_upd` / `msg_set`, the funding and update output keys, the update and settlement templates of C.3.3 and C.3.4, HTLC outputs (the C.4.1 leaves are imported from `tools/layertree_scripts.py`), and the two deadline budgets of C.4.4 |
+| `tools/test_chan.py` | the whole state machine on a chain model: 149 checks |
+| `script/chan.go` | the Go mirror, byte-exact against the `chan` section of `spec/golden.json` in both tapleaf versions, with `ChanCollate` and the signed messages |
+| `msg/chan.go` | TLV messages: `ChanOpen`, `StateProposal`, `StateSig` with the `SigningRound` order check of C.3.6, `HtlcAdd`, `HtlcFulfill`, `HtlcFail`, `RebindAnnounce` (C.5.4) and `SpliceProposal` (C.5.2) |
+
+The chain model under `tools/test_chan.py` keeps a UTXO set with
+confirmation heights, checks each input's control block against the spent
+scriptPubKey, runs the tapscript, and enforces value conservation,
+`nLockTime` finality and BIP-68. Fee children of the P2A anchors are not
+modelled. The test covers, in both tapleaf versions:
+
+* **open**: a channel leaf with `seq = SEQ_FINAL` and `evict_after = 0`
+  leaves a FULL tree through `EXIT_1^=` and creates `P2TR(exit_key)` with
+  exactly `C`; the `update_n` signed before the exit binds both to that
+  output and to the output an eviction 50 blocks later creates at another
+  outpoint (requirement R); a funding output short of `C` carries no state
+  (C.6.1);
+* **uncontested close**: `update_n`, `settle_n` refused one block before
+  `csv_delay` and accepted at it, an HTLC-success sweep with the preimage,
+  and an HTLC-timeout sweep refused in block `cltv_expiry` and accepted in
+  the next;
+* **contested close**: a stale `update_j` is answered in the last block of
+  its window by `update_n` bound to `U_j`; `settle_j` then fails on `U_j`
+  (spent) and on `U_n` (`SEL_CHAN_SET` commits the spent scriptPubKey);
+  `update_j` with `j < n` and `update_n` itself fail against `U_n`; and
+  `settle_n` waits a full `csv_delay` from `U_n`;
+* **negatives**: altered balances, `nSequence < csv_delay`, an update
+  signature as a settlement witness and the reverse, each collation signed
+  under the other context, states signed for a `chan_id` with another `m`,
+  capacity, epoch or nonce, a changed `nLockTime`, `nVersion` or output, a
+  height-range `nLockTime` (C.3.5), `settle_n` against the funding output,
+  and two funding outputs with the same script spent by one transaction
+  (C.2.3);
+* **MID numerics**: the 520-byte limit of C.7, seven HTLC outputs accepted
+  and eight refused under `0xC0`;
+* **deadlines**: C.4.4 and the swap of 9.6.2 as block sequences, as
+  described in C.4.3 and C.4.4.
+
+Measured sizes, `csv_delay = 144`, 64-byte signatures:
+
+| leaf | script B (`0xC2` / `0xC0`) | stack B | control block B |
+|---|---|---|---|
+| `UPD_F` | 81 / 81 | 64 | 33 |
+| `REBIND_n` | 81 / 81 | 64 | 65 |
+| `SETTLE_n` | 79 / 80 | 64 | 65 |
+| `HTLC_SUCCESS` | 73 / 73 | 96 | 65 |
+| `HTLC_TIMEOUT` | 40 / 40 | 64 | 65 |
+
+| transaction | vB |
+|---|---|
+| `update_n` bound to the funding output | 153 |
+| `update_n` bound to `U_j` | 161 |
+| `settle_n` with two HTLC outputs | 290 |
+| HTLC-success sweep | 155 |
+| HTLC-timeout sweep | 138 |
+
+`SETTLE_n` under `0xC0` adds one byte and leaves the vsize rows unchanged.
