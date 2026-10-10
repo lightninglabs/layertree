@@ -27,6 +27,7 @@ test suite fails if a script uses anything else.
 | [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and where it does not: exit, entry and lifetime bytes against bare UTXOs, Lightning and transaction trees, with generated figures |
 | [`design/tree-comparison.md`](design/tree-comparison.md) | Dense or sparse: what the two profiles share, where the sparse bytes go, and what a higher radix would change, with a measured radix-4 level |
 | [`design/batching.md`](design/batching.md) | Batching: what a batch costs, the owner multiproof, the cohort rewrite and detaching a subtree into its own output |
+| [`design/graft.md`](design/graft.md) | Grafting: what `JOIN_h` checks and what it does not, who has to trust whom, funding modes and their cost per member, and a 256-member worked example |
 | [`design/native-opcodes.md`](design/native-opcodes.md) | The CCV tier and a *hypothetical* `OP_MERKLESUMUPDATE`: what a native Merkle-sum state-machine opcode would buy, measured in the simulator only and never part of a tier |
 | [`design/receive.md`](design/receive.md) | Receiving over Lightning into a tree: cumulative hash-locked vouchers against an Ark client's out-of-round payments and credits |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |

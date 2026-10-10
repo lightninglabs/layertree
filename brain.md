@@ -34,7 +34,7 @@ with numbers.
 | Go | 34 golden scripts byte-exact; EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
 | Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
 | Paper | 15 body pages, six appendices, PDF stamped 8d8ccc0 and stale against today's source edits. The 15-page FC limit is being lifted into a two-version build (see below). |
-| Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
+| Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
 | PR stack | #8 and #10 merged on 2026-10-09. #6 (CCV tier) and #7 (hypothetical native opcode) remain, with an Opus worker merging main into them and adding the Lean binding instance, the CCV capability column and the measured UPDATE^x and SPLIT under CCV. |
 
@@ -46,6 +46,17 @@ with numbers.
   5.2), the MIN tier SPLIT measured (6,441 script / 2,010 witness at
   D=16), new negatives in every tier, spec 0.8.3.
 - Opus writer on `design/graft.md`: grafting and its trust model.
+- Resume note (2026-10-09 evening): main is at the CONCEPTS update
+  (411fd23 or later). #8 and #10 are merged. The #6/#7 worker's worktree
+  (`.claude/worktrees/agent-ae0ecacb4cf73f727`, branch `ccv-work`) holds
+  three new CCV commits (Lean `BindingModel` instance 1747c17; SPLIT and
+  measured UPDATE^x under CCV plus BIP-443 pins and two-tree-input tests
+  310ca4b; 4.5 capability column and four-tier wording cc11c89) and was
+  mid-merge of origin/main when the laptop closed. If the worker does not
+  resume: finish that merge by hand (spec version 0.8.4, keep main's MIN
+  SPLIT cell and 425/120/31 counts, add the CCV column and rows), run the
+  matrix, push `ccv-work` to `ccv-tier`, merge #6, then merge
+  `ccv-tier` into `msu-hypothetical`, run test_msu, push, merge #7.
 - Opus worker on #6 and #7: add the CCV `BindingModel` instance in Lean,
   add the CCV column to the 4.5 capability table, measure UPDATE^x under
   CCV, implement SPLIT under CCV if bounded, update the four-tier wording,
@@ -74,9 +85,17 @@ with numbers.
    Makefile targets `main.pdf` and `main-full.pdf`, both stamped. Build
    order stays: sources first, then make, then commit PDFs with
    version.tex.
-3. Demote sparse in the spec (5.4 wording, 4.5 matrix ordering, 11),
-   CONCEPTS, README and the paper, as one editorial commit after the
-   merges; spec 0.8.3.
+3. Editorial pass after the merges, one commit: demote sparse in the spec
+   (5.4 wording, 4.5 ordering, 11), CONCEPTS (also fix "256 members cost
+   the same script as one" and "up to 256 members" since the reference
+   taptree carries only JOIN_0 and JOIN_2), README and the paper; spec
+   10.1 trust table should list JOIN among the operator's powers and
+   qualify "cannot freeze" with "other than value it grafts"; 9.2 should
+   state the off-chain buyer's checks; 4.5 should say why MIN has no
+   JOIN; the MIN generator docstring cites 4.6 for the tiers section,
+   now 4.5. Spec 0.8.5.
+3b. MID join negatives are thin (only an underfunded JOIN_2): add
+   occupied slot, join without operator, and JOINK_2 stale second path.
 4. Build `REWRITE_h`, the cohort rewrite with per-leaf signatures
    (owner's call: build it). FULL tier first, MID stated as unsupported
    for the sweep's reason. Generator from the `EVICT_SUBTREE_h` post-order

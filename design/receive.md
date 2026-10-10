@@ -64,7 +64,13 @@ by advancing the source leaf's `seq`, with the recipient's consent under
 case the operator batches this: every so often it grafts a cohort of
 leaves for the recipients whose credit has accumulated, at about one
 vbyte per recipient, and the recipients' vouchers are replaced by leaves
-they can exit from alone. The on-chain `CLAIM^h` is what the recipient
+they can exit from alone. The graft itself does not retire the vouchers:
+each credit leaf's `seq` must still advance, which today is one `UPDATE`
+per credit leaf (1,073 vbytes at `D = 16`), and would be about 120 to 240
+vbytes per recipient once the cohort rewrite of `design/batching.md`
+advances a whole subtree of credit leaves in one transaction. Until a
+voucher is retired the operator, not the recipient, carries the risk of
+paying twice (`design/graft.md`). The on-chain `CLAIM^h` is what the recipient
 does if the operator stops cooperating, and the fact that it exists is
 what makes the off-chain settlement safe to accept.
 
@@ -75,7 +81,7 @@ what makes the off-chain settlement safe to accept.
 | On-chain bytes per receive | 0 | 0 |
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none beyond dust at redemption; sub-floor amounts accumulate in the voucher |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
-| Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort and retires the voucher, about 1 vbyte |
+| Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf today, 1,073 vbytes, or about 120 to 240 per recipient once a cohort rewrite exists (`design/batching.md`) |
 | Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,652 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
@@ -91,8 +97,8 @@ is cheapest. A dense graft (`JOIN_h`) admits a whole cohort for the cost
 of the levels above its subtree, about 657 vbytes for 1,024 slots at
 `D = 16`, and the covenant requires only that the slot was empty and the
 new sum is funded. When the operator funds the graft from one of its own
-inputs, the whole cohort costs that one input, about 58 vbytes, on top of
-the graft, and the members need no on-chain funds at all: each buys their
+inputs, the whole cohort costs that one input, which the fee model already
+counts as the fee input, and the members need no on-chain funds at all: each buys their
 balance off-chain, paying a Lightning invoice whose preimage unlocks a
 hash-locked voucher for their leaf, or simply receiving into the credit
 leaf described above. A user who has never held a UTXO is in the tree for
@@ -101,20 +107,14 @@ own leaf, every member adds an input to the graft transaction, and the
 saving against an on-chain batch shrinks to the output side.
 
 Is a graft safe when only the operator signs it? Yes, for everyone who
-holds a leaf already, because a graft can only fill an empty slot; it
-cannot touch, move or shrink an existing leaf, and the Lean theorem
-`join_sound` says exactly that. The party at risk is a funder, because
-the covenant does not read the grafted subtree: an operator could graft
-a node with no tree behind it, or one in which a member's leaf is absent
-or wrong. The protection is that nobody funds before verifying. A member
-who contributes an input signs the graft transaction and can check that
-output 0 commits to a root containing their leaf before signing, so their
-signature is the sign-off. A member who buys in off-chain verifies the
-inclusion path the operator gives them against the confirmed root before
-paying, or pays through a hash-locked voucher whose redemption the
-covenant enforces. An operator funding its own leaves into the same
-cohort changes nothing for the others: the worst it can do with a bad
-graft is freeze its own money (spec 9.2 and the design review's F18).
+holds a leaf already, because a graft can only fill an empty slot; the
+Lean theorem `join_sound` says exactly that. The party at risk is a
+funder, because the covenant does not read the grafted subtree, and the
+protection is that nobody funds before verifying their own path: a member
+who contributes an input checks the transaction before signing it, and a
+member who buys in off-chain checks the confirmed root before paying or
+pays through a hash-locked voucher. `design/graft.md` gives the full
+trust model, the funding modes and their costs.
 
 ## Making redemption cheaper
 

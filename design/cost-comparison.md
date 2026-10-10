@@ -133,12 +133,13 @@ At `D = 16` a four-member graft costs 915 vbytes, a 256-member graft 722,
 and a 1,024-member graft 657. Per member that is under 1 vbyte at a
 thousand members, against 43 vbytes for one output in an on-chain batch
 and 154 for a channel open in its own transaction. The value grafted in
-has to come from somewhere, and the figure does not include the funding
-input. When the operator funds the graft from one input the whole cohort
-costs one extra input of about 58 vbytes, and members buy their balances
+has to come from somewhere. The fee model's skeleton already counts one
+fee input, so when the operator funds the graft from that input the whole
+cohort costs nothing beyond the figure, and members buy their balances
 off-chain with a hash-locked voucher paid over Lightning. When each member
-funds their own leaf they each add an input, and the saving against an
-on-chain batch shrinks to the output side.
+funds their own leaf they each add an input of about 58 vbytes, and the
+saving against an on-chain batch shrinks to the output side
+(`design/graft.md`).
 
 Two caveats bound the graft. Members must verify their own path inside the
 subtree before funding, because a grafted node with no real tree behind
