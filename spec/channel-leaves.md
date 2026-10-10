@@ -798,9 +798,16 @@ fee; the cure is worse than the disease.
 `UPDATE`, and signs vouchers. `exit_key` is the *channel* authority. They are
 deliberately different fields (5.2) and MUST be different keys for a channel
 leaf: `owner_key` is a hot key that must be online to exit, `exit_key` is a
-2-of-2 that must never be single-party-spendable. A compromise of
-`owner_key` costs the user an unwanted force-close; a compromise of
-`U_chan` costs at most the user's channel balance, and only with the
+2-of-2 that must never be single-party-spendable. In a tree whose owner
+exits pay exactly (`EXIT^=` of 7.2 rule 6, as in the MID, MIN and CCV
+tiers), a compromise of `owner_key` costs the user an unwanted
+force-close. In a lenient tree it costs the whole capacity: 7.2 rule 3
+lets an owner exit pay any amount down to zero to `P2TR(exit_key)`, the
+script accepts a zero payout, and the rest of the leaf goes wherever the
+holder of the stolen key sends it, so `owner_key` there controls the
+counterparty's balance as well as the user's (C.6.1). A tree that hosts
+channel leaves SHOULD therefore use `EXIT^=`. A compromise of `U_chan`
+costs at most the user's channel balance, and only with the
 counterparty's cooperation.
 
 ### C.6.3 `evictor_key`
@@ -917,7 +924,7 @@ are the same transition with different fields; only splicing (which changes
 | FULL | yes (`0xC2`) | yes | **yes** — as specified here |
 | MID | yes (`0xC0`, **[A-5]**) | yes | **yes** — identical scripts; only `OP_CAT`, `OP_SHA256`, `OP_TX`, `OP_CHECKSIGFROMSTACK`, `OP_CHECKLOCKTIMEVERIFY`, `OP_CHECKSEQUENCEVERIFY` are used, all of which MID has |
 | MIN | no | no | **no** |
-| CCV (4.6) | yes (amounts) | not assumed by the tree's scripts | **yes, hosted** — the channel scripts are FULL or MID scripts in their own outputs, so they need `OP_TX` and `OP_CHECKSIGFROMSTACK` wherever they run; the CCV tree itself only pays the leaf out exactly (C.6.1 holds by construction) and has no `CLAIM` (C.6.5 does not arise); the other rules of C.6 apply as in FULL |
+| CCV (4.6) | yes (amounts) | not assumed by the tree's scripts | **yes, hosted** — the channel scripts are FULL or MID scripts in their own outputs, so they need `OP_TX` and `OP_CHECKSIGFROMSTACK` wherever they run; the CCV tree itself only pays the leaf out exactly (C.6.1 holds by construction); it may carry `CLAIM` and `CLAIM^h` as tree-creation parameters (4.6), so C.6.5 applies as in FULL, with `SEQ_FINAL` `0xFFFFFFFF` under `0xC2` numerics and `0x7FFFFFFF` under `0xC0`, or a taptree that omits both; the other rules of C.6 apply as in FULL |
 
 The channel scripts of C.3 use no BIP-441 numerics, no splice opcode beyond
 `OP_CAT`, and no EC opcode, so they are the same token lists in the FULL and
