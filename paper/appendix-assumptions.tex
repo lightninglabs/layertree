@@ -1,0 +1,23 @@
+% The deployment-assumptions table, mirroring spec 4.1's [A-1] to [A-6].
+% Input in section 5 of the full version and in Appendix C of the short
+% one, so that both cite it as Table~\ref{tab:assume}.
+\begin{table}[tbp]
+\centering
+\caption{Deployment assumptions (spec 4.1, \texttt{spec/layertree.md}). A proposal \emph{defines} its opcode for one tapleaf version; a tier may \emph{assume} it in another.}
+\label{tab:assume}
+\setlength{\tabcolsep}{2pt}\scriptsize
+\begin{tabular}{@{}lp{8.9cm}l@{}}
+\toprule
+ & assumption & tiers \\
+\midrule
+{[A-1]} & \op{TX}~\cite{optx} (a draft on a personal fork, defined for \texttt{0xC2} with BIP-440 costs) pushes amounts as 8-byte little-endian strings, which FULL compares with BIP-441 numerics & FULL, MID, CCV \\
+{[A-2]} & CSFS (BIP-348, defined for \texttt{0xC0}) available in \texttt{0xC2} at the cost of one signature check & FULL, CCV \\
+{[A-3]} & the EC-ops draft~\cite{ecops} available in \texttt{0xC2} at its stated costs & FULL \\
+{[A-4]} & opcode numbers: \op{TX} and \op{EC\_POINT\_NEGATE} both claim \texttt{0xbd}, BIP-443 and \op{EC\_POINT\_ADD} both \texttt{0xbb}; the simulator parks \op{TX}, \op{TWEAKADD} and CCV at \texttt{0xbf}, \texttt{0xc0}, \texttt{0xc1}, so the golden scripts are byte-exact under that numbering only (sizes are unaffected) & all \\
+{[A-5]} & \op{TX} in \texttt{0xC0} with \texttt{CScriptNum} outputs, which no proposal defines & MID, CCV \\
+{[A-6]} & BIP-443 (defined for \texttt{0xC0}) also in \texttt{0xC2}; its sigop cost, open upstream, charged as one signature check; amount rules as of \texttt{bitcoin/bips} commit \texttt{24e96e87}. Conservation rests on the tier's \op{TX} equalities, so a change to BIP-443 can only make honest spends fail & CCV \\
+{[MIN]} & \op{CHECKSIG} under key $G$ with $s = e + 1$ accepts only if the script-built message is the real one, barring a collision in the TapSighash or challenge hash & MIN \\
+{[C]} & contention: $\kappa$ and $\beta$ of \S\ref{sec:func} (policy and fees, not consensus) & all \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -23,16 +23,18 @@ voucher that the operator reissues for the running total; the recipient
 keeps the latest, and needs no contest window because only it can redeem
 and it never prefers a smaller state.
 
-\paragraph{Settlement.} The voucher is insurance. Normally the operator
+\paragraph{Settlement.} The voucher is redeemed only if the operator
+fails to settle it. Normally the operator
 puts the claim leaf into the next cohort graft at about one vbyte per
 recipient (\S\ref{sec:graft}) and retires the voucher by advancing the
-credit leaf's $\mathsf{seq}$: one \tr{UPDATE} each ($1{,}073\vB$), or
+credit leaf's $\mathsf{seq}$: one \tr{UPDATE} each ($1{,}030\vB$), or
 one \tr{REWRITE}$_h$ for a subtree of credit leaves at about $133\vB$
 per changed leaf and $16\vB$ more under the exit-consent form (measured
 at $h = 6$, \S\ref{sec:batching}).
-Unilaterally the recipient redeems one \tr{CLAIM}$^{h}$: $1{,}652\vB$ at
-$D = 16$, about 16{,}500\,sat at 10\,sat/vB, no timelock, against about
-$2{,}511\vB$ and a timelock to unroll an Ark round tree. The redemption
+Unilaterally the recipient redeems one \tr{CLAIM}$^{h}$: $1{,}609\vB$% TODO(0.10.0 sizes): CLAIM^h grows with tree_id and the carve constraint.
+ at $D = 16$, about 16{,}100\,sat at 10\,sat/vB, no timelock, against
+1{,}311 to $2{,}511\vB$ and a timelock to unroll an Ark round tree of 256
+to 65{,}536 members. The redemption
 proves two positions; if the credit leaf's sibling slot is reserved for
 the recipient's claim leaf, a sibling-pair \tr{CLAIM} shares fifteen of
 sixteen levels and costs about $1{,}130\vB$ (estimate, not built). Per
