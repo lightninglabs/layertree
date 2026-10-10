@@ -1,4 +1,4 @@
-# CLAIM (sparse, D=8): 3443 bytes
+# CLAIM (sparse, D=8): 3458 bytes
 # macros in CAPITALS are defined in MACROS_FULL.txt; raw opcodes are wrapped and indented
 
 PROLOGUE
@@ -19,7 +19,7 @@ SPARSE_SETUP
 LEAF_ACC
 OP_ROT
 LEAF_ACC
-OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_0> OP_SWAP OP_ENDIF
+DRAIN_RULE
 LEVEL_S(k)  for k = 0 to 7
 CHECK_OLD_S
 OP_FROMALTSTACK OP_2 OP_ROLL OP_2 OP_ROLL OP_SWAP OP_TOALTSTACK OP_TOALTSTACK

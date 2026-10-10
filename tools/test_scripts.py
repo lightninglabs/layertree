@@ -368,6 +368,22 @@ def test_all(depth, profile, verbose=True):
         ctx_e = w.ctx([(t_e.root()[1], w.spk(t_e.root()))], extra_in=(600, P2WPKH))
         expect_fail(lambda: w.run("CLAIM", w.path_witness(t_e.path(s_e)) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(t_e.path(s_e)) + [lf.serialize(), esig, root[0], w.m], ctx_e),
                     f"CLAIM of a leaf with {label} than its source")
+    # 7.5 rule 6: the claim leaf is at least DUST_MIN and the residual is
+    # zero or at least DUST_MIN, so a sub-dust leaf, which no standard
+    # transaction can remove, cannot be planted by a voucher
+    for label, lf in (("one satoshi", carve_of(src, "dust1", 1)), ("zero satoshis", carve_of(src, "dust0", 0)),
+                      ("a one-satoshi residual", carve_of(src, "dustr", src.amount - 1))):
+        dsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, lf), sk("operator-owner"))
+        t_d = w.clone(); s_d = w.slot(lf, 3); lt.apply_claim(t_d, s_oper, s_d, lf)
+        ctx_d = w.ctx([(t_d.root()[1], w.spk(t_d.root()))], extra_in=(600, P2WPKH))
+        expect_fail(lambda: w.run("CLAIM", w.path_witness(t_d.path(s_d)) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(t_d.path(s_d)) + [lf.serialize(), dsig, root[0], w.m], ctx_d),
+                    f"CLAIM of {label} (7.5 rule 6)")
+    floor = carve_of(src, "floor", lt.DUST_MIN)
+    t_f = w.clone(); s_fl = w.slot(floor, 3); lt.apply_claim(t_f, s_oper, s_fl, floor)
+    ctx_f = w.ctx([(t_f.root()[1], w.spk(t_f.root()))], extra_in=(600, P2WPKH))
+    w.run("CLAIM", w.path_witness(t_f.path(s_fl)) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(t_f.path(s_fl)) +
+          [floor.serialize(), schnorr_sign(lt.voucher_msg(w.tree_id, src, floor), sk("operator-owner")), root[0], w.m], ctx_f)
+    check(True, "CLAIM of exactly DUST_MIN succeeds")
     bsig = schnorr_sign(vmsg, sk("bob-owner"))
     expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), bsig, root[0], w.m], ctx), "voucher wrong signer")
     # the voucher binds this tree's tree_id (6.2, 7.5): one signed for a
@@ -1371,6 +1387,27 @@ def test_split(depth, profile, verbose=True):
     expect_fail(lambda: w.run("SPLIT", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
                               [alice.serialize()] + w.bm(cpath) + [greedy.serialize(), asig, root[0], w.m], ctx),
                 "SPLIT over-split underflow")
+
+    # 7.5 rule 6: the new leaf is at least DUST_MIN and the residual is zero
+    # (the source position becomes E_0) or at least DUST_MIN
+    def carve(lf):
+        """A correct SPLIT witness and context for carving lf out of alice's leaf."""
+        t = w.clone(); s_n = w.slot(lf, 3)
+        if lf.amount == alice.amount:
+            del t.leaves[s_alice]
+        else:
+            lt.apply_update(t, s_alice, alice.with_amount_seq(alice.amount - lf.amount, alice.seq + 1))
+        cp = t.path(s_n); t.leaves[s_n] = lf
+        ctx_c = w.ctx([(t.root()[1], w.spk(t.root()))], extra_in=(600, P2WPKH))
+        return (w.path_witness(cp) + w.path_witness(spath) + w.bm(spath) + [alice.serialize()] + w.bm(cp) +
+                [lf.serialize(), schnorr_sign(ctx_c.sighash(), sk("alice-owner")), root[0], w.m]), ctx_c
+    for label, amt in (("one satoshi", 1), ("zero satoshis", 0), ("a one-satoshi residual", alice.amount - 1)):
+        wit_d, ctx_d = carve(carve_of(alice, f"dust{amt}", amt))
+        expect_fail(lambda: w.run("SPLIT", wit_d, ctx_d), f"SPLIT of {label} (7.5 rule 6)")
+    for label, amt in (("exactly DUST_MIN", lt.DUST_MIN), ("the whole balance", alice.amount)):
+        wit_d, ctx_d = carve(carve_of(alice, f"ok{amt}", amt))
+        w.run("SPLIT", wit_d, ctx_d)
+        check(True, f"SPLIT of {label} succeeds")
     # destination already occupied: prove the claim step against a non-empty slot
     occupied = w.tree.path(s_oper)
     expect_fail(lambda: w.run("SPLIT", w.path_witness(occupied) + w.path_witness(spath) + w.bm(spath) +
@@ -1399,13 +1436,14 @@ def test_split(depth, profile, verbose=True):
 def test_carve_rules(depth, verbose=True):
     """The carve rule of spec 7.5 rule 5 against the cohort sweep (7.7).
 
-    A member of an evictable cohort cannot plant a non-evictable dust leaf
-    in an empty position of the cohort by SPLIT (the finding 9 attack of
+    A member of an evictable cohort cannot plant a non-evictable leaf in
+    an empty position of the cohort by SPLIT (the finding 9 attack of
     paper/reviews/crypto.md): a NUMS evictor or a later lease fails. A
     carve that keeps the member's terms lands there and is swept with the
     cohort by EVICT_SUBTREE_2. The rule is per balance, not per tree: a
-    leaf the operator admitted with a NUMS evictor can still carve NUMS
-    dust into the cohort and block the sweep, which 10.8 states.
+    leaf the operator admitted with a NUMS evictor can still carve a NUMS
+    leaf into the cohort and block the sweep, which 10.8 states. The
+    planted leaf is DUST_MIN, the smallest 7.5 rule 6 admits.
     """
     w = World(depth, "D")
     height = 2
@@ -1431,11 +1469,11 @@ def test_carve_rules(depth, verbose=True):
         return t, wit, ctx
 
     member, s_member = cohort[base], base
-    for label, dust in (("a NUMS evictor", mk_leaf("dust", 1)),
-                        ("a later evict_after", mk_leaf("dust", 1, w.op_pk, 800_001))):
+    for label, dust in (("a NUMS evictor", mk_leaf("dust", lt.DUST_MIN)),
+                        ("a later evict_after", mk_leaf("dust", lt.DUST_MIN, w.op_pk, 800_001))):
         _, wit, ctx = split(member, s_member, dust, "c0-owner")
         expect_fail(lambda: w.run("SPLIT", wit, ctx), f"cohort member plants dust with {label}")
-    dust = carve_of(member, "dust", 1)
+    dust = carve_of(member, "dust", lt.DUST_MIN)
     t1, wit, ctx = split(member, s_member, dust, "c0-owner")
     w.run("SPLIT", wit, ctx)
     check(True, "a carve that keeps the member's evictor and lease lands in the cohort")
@@ -1458,7 +1496,7 @@ def test_carve_rules(depth, verbose=True):
     w.tree = lt.Tree(depth); w.tree.leaves = dict(cohort); w.tree.leaves[0] = alice
     w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
     root = w.tree.root()
-    nums_dust = carve_of(alice, "dust", 1)
+    nums_dust = carve_of(alice, "dust", lt.DUST_MIN)
     t2, wit, ctx = split(alice, 0, nums_dust, "alice-owner")
     w.run("SPLIT", wit, ctx)
     w.tree = t2

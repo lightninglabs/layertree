@@ -255,7 +255,7 @@ def update_script_ccv(depth, operator_key, profile="D", exit_consent=False):
     return s + check_old_ccv(profile) + final_ccv(depth)
 
 
-def split_script_ccv(depth, profile="D"):
+def split_script_ccv(depth, profile="D", dust_min=lt.DUST_MIN):
     """SPLIT (spec 7.5.2) under CCV: the owner-authorised carve.
 
     Witness (bottom..top): [claim path] [source path] src_leaf new_leaf
@@ -273,7 +273,7 @@ def split_script_ccv(depth, profile="D"):
     """
     return prologue_ccv() + [
         2, "OP_PICK", F.OFF_OWNER_KEY, 32, "OP_SUBSTR",     # src claim sig owner_key
-        "OP_CHECKSIGVERIFY"] + _carve_body_ccv(depth, profile)
+        "OP_CHECKSIGVERIFY"] + _carve_body_ccv(depth, profile, dust_min)
 
 
 # ------------------------------------------------- vouchers: tree_id --
@@ -285,7 +285,7 @@ def split_script_ccv(depth, profile="D"):
 tree_id = lt.tree_id
 
 
-def claim_script_ccv(depth, tid, profile="D", hashlock=False):
+def claim_script_ccv(depth, tid, profile="D", hashlock=False, dust_min=lt.DUST_MIN):
     """CLAIM (7.5) or CLAIM^h (7.5.1) under CCV (0xC2).
 
     Witness (bottom..top): [claim path] [source path] src_leaf claim_leaf
@@ -297,14 +297,14 @@ def claim_script_ccv(depth, tid, profile="D", hashlock=False):
     if hashlock:
         s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
               "OP_TOALTSTACK"]                              # src claim vsig     | phash
-    return s + F.voucher_auth(tid, hashlock) + _carve_body_ccv(depth, profile)
+    return s + F.voucher_auth(tid, hashlock) + _carve_body_ccv(depth, profile, dust_min)
 
 
-def _carve_body_ccv(depth, profile):
+def _carve_body_ccv(depth, profile, dust_min=lt.DUST_MIN):
     """[src claim] -> [1], after the authorisation: F._carve_body's two
     steps bound by CHECK_INPUT and final_ccv. Shared by SPLIT, CLAIM and
     CLAIM^h under 0xC2."""
-    s = F.carve_leaf_rules() + [                           # src claim
+    s = F.carve_leaf_rules(dust_min) + [                   # src claim
         # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
         "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB"] + F.LE64 + [
         2, "OP_PICK", F.OFF_EXIT_KEY, F.OFF_SEQ - F.OFF_EXIT_KEY, "OP_SUBSTR", "OP_CAT",
@@ -316,9 +316,8 @@ def _carve_body_ccv(depth, profile):
         s += ["OP_OVER"] + F.leaf_pos() + ["OP_NIP"] + F.sparse_setup()  # | claim pos E_0
     s += [F.NODE_PREFIX, "OP_ROT", "OP_ROT",                # T src new_src
           "OP_SWAP"] + F.leaf_acc() + [                     # T new_src oh os
-          "OP_ROT"] + F.leaf_acc() + [                      # T oh os nh ns
-          "OP_DUP", "OP_NOT", "OP_IF", "OP_SWAP", "OP_DROP",
-          lt.EMPTY_LEAF_HASH, "OP_SWAP", "OP_ENDIF"]        # drained -> E_0
+          "OP_ROT"] + F.leaf_acc()                          # T oh os nh ns
+    s += F.drain_rule(dust_min)                             # drained -> E_0, else ns >= DUST_MIN
     s += F.levels(profile, depth)
     s += check_old_ccv(profile)                             # T nh1 ns1 | claim
     s += ["OP_FROMALTSTACK",                                # T nh1 ns1 claim
@@ -533,17 +532,17 @@ def _evict_subtree_script_ccv0(depth, height, operator_key):
     return s + _check_old_ccv0(False) + _final_ccv0(depth)
 
 
-def _split_script_ccv0(depth, sparse=False):
+def _split_script_ccv0(depth, sparse=False, dust_min=lt.DUST_MIN):
     """SPLIT (7.5.2) under c0: MID's carve with the owner's transaction
     signature, no r and no m. Witness: MID's SPLIT witness minus r and m,
     so src.ok is M.CARVE_OWNER_DEPTH deep under the signature. MID's
     carve_source runs with alt_r=False, CHECK_INPUT replaces the
     parked-root comparison of step 1, and _final_ccv0 replaces FINAL."""
     s = [M.CARVE_OWNER_DEPTH, "OP_PICK", "OP_CHECKSIGVERIFY"]         # src(10) claim(10) extras(13)
-    return s + _carve_body_ccv0(depth, sparse)
+    return s + _carve_body_ccv0(depth, sparse, dust_min)
 
 
-def _claim_script_ccv0(depth, tid, sparse=False, hashlock=False):
+def _claim_script_ccv0(depth, tid, sparse=False, hashlock=False, dust_min=lt.DUST_MIN):
     """CLAIM / CLAIM^h under c0: MID's carve witness minus r and m, with the
     MID tier's voucher check (M.voucher_auth) over the tree's tree_id.
 
@@ -553,13 +552,13 @@ def _claim_script_ccv0(depth, tid, sparse=False, hashlock=False):
     if hashlock:
         s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
               "OP_TOALTSTACK"]                                       # ... extras(7) vsig  | phash
-    return s + M.voucher_auth(tid, hashlock) + _carve_body_ccv0(depth, sparse)
+    return s + M.voucher_auth(tid, hashlock) + _carve_body_ccv0(depth, sparse, dust_min)
 
 
-def _carve_body_ccv0(depth, sparse):
+def _carve_body_ccv0(depth, sparse, dust_min=lt.DUST_MIN):
     """[src(10) claim(10) extras(7)] -> [1]: MID's two carve steps bound by
     CCV. Shared by SPLIT, CLAIM and CLAIM^h under c0."""
-    s = M.carve_source(depth, sparse, alt_r=False)                   # T oh os nh ns     | claim_leaf amt_c
+    s = M.carve_source(depth, sparse, alt_r=False, dust_min=dust_min)   # T oh os nh ns  | claim_leaf amt_c
     s += _check_old_ccv0(sparse)                                     # T nh1 ns1
     s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
     return s + M.carve_claim(depth, sparse) + _final_ccv0(depth)

@@ -296,12 +296,8 @@ func ccvCarveBody(depth int, sparse bool) []Token {
 		},
 		fullLeafAcc(), // T new_src oh os
 		[]Token{Op(ts.OP_ROT)},
-		fullLeafAcc(), // T oh os nh ns
-		[]Token{
-			Op(ts.OP_DUP), Op(ts.OP_NOT), Op(ts.OP_IF), Op(ts.OP_SWAP),
-			Op(ts.OP_DROP), Data(fullEmptyLeafHash), Op(ts.OP_SWAP),
-			Op(ts.OP_ENDIF), // a drained source becomes E_0
-		},
+		fullLeafAcc(),   // T oh os nh ns
+		fullDrainRule(), // a drained source becomes E_0, else ns >= DUST_MIN
 		fullLevels(sparse, depth, 0),
 		ccvCheckOld(sparse), // T nh1 ns1 | claim
 		[]Token{

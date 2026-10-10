@@ -54,6 +54,15 @@ const MaxAmount = uint64(1) << 51
 // MidTierMaxSum is the per-tree sum cap of the 0xC0 tiers (spec 4.5).
 const MidTierMaxSum = uint64(1)<<31 - 1
 
+// DustMin is the RECOMMENDED value of the tree-creation parameter DUST_MIN
+// (spec 6.2): the smallest amount a non-operator transition may write into
+// a leaf (7.5 rule 6). It is the P2TR dust threshold of Bitcoin Core's
+// default policy, 3000 sat/kvB over the 110 bytes of a P2TR output and its
+// spending input, since every transition that removes a leaf pays it to
+// exactly one P2TR output. The carve scripts carry it as a constant; the
+// Go generators compile this value.
+const DustMin = uint64(330)
+
 // Node is a merkle-sum node: a 32-byte hash and a satoshi sum.
 type Node struct {
 	Hash [32]byte

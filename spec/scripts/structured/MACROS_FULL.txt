@@ -59,10 +59,15 @@ TAGGED(POS)
 TREE_SPK
 <SEL_IN_SPK> OP_TX OP_EQUALVERIFY OP_TOALTSTACK OP_TOALTSTACK
 
-## CARVE_RULES   ([src claim] -> [src claim]: both 116 bytes, claim.evictor_key == src.evictor_key, claim.evict_after <= src.evict_after (7.5 rule 5))
+## CARVE_RULES   ([src claim] -> [src claim]: both 116 bytes, claim.evictor_key == src.evictor_key, claim.evict_after <= src.evict_after (7.5 rule 5), claim.amount >= DUST_MIN (7.5 rule 6))
 OP_SIZE 116 OP_EQUALVERIFY OP_SWAP OP_SIZE 116 OP_EQUALVERIFY OP_SWAP OP_2DUP
   72 32 OP_SUBSTR OP_SWAP 72 32 OP_SUBSTR OP_EQUALVERIFY OP_2DUP 104 OP_4
-  OP_SUBSTR OP_SWAP 104 OP_4 OP_SUBSTR OP_LESSTHANOREQUAL OP_VERIFY
+  OP_SUBSTR OP_SWAP 104 OP_4 OP_SUBSTR OP_LESSTHANOREQUAL OP_VERIFY 330
+  OP_OVER OP_8 OP_LEFT OP_LESSTHANOREQUAL OP_VERIFY
+
+## DRAIN_RULE   ([.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6))
+OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_0> OP_SWAP OP_ELSE 330 OP_OVER
+  OP_LESSTHANOREQUAL OP_VERIFY OP_ENDIF
 
 ## LEVEL   (dense level: dir sc T oh os nh ns -> T oh' os' nh' ns')
 OP_6 OP_ROLL OP_6 OP_ROLL OP_SIZE 41 OP_EQUALVERIFY OP_DUP 32 OP_8 OP_SUBSTR

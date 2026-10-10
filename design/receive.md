@@ -79,18 +79,26 @@ what makes the off-chain settlement safe to accept.
 | | Ark client today | Tree with cumulative vouchers |
 |---|---|---|
 | On-chain bytes per receive | 0 | 0 |
-| Minimum receivable amount | the VTXO floor; below it, a ledger credit | none beyond dust at redemption; sub-floor amounts accumulate in the voucher |
+| Minimum receivable amount | the VTXO floor; below it, a ledger credit | none on what can be received; `DUST_MIN` (spec 6.2, 7.5 rule 6, 330 sat recommended) on what can be redeemed, so sub-floor amounts accumulate in the voucher until they reach it |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
-| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,652 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
+| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,656 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
 
-The redemption cost is the economic floor. At 10 sat/vB a `CLAIM^h`
-costs about 16,500 sat, so a recipient would not redeem a small balance
-alone; they would let it accumulate, have the operator graft it as a leaf
-in a cohort, or redeem it straight into a channel leaf whose exit key is a
-2-of-2 and pay onward over Lightning from there.
+The redemption cost is the economic floor, and `DUST_MIN` is the hard
+one: a voucher whose amount is below it cannot be carved at all, and one
+that would leave less than `DUST_MIN` behind in the source leaf cannot be
+carved either unless it drains the leaf (spec 7.5 rule 6), because a leaf
+below the dust threshold could never be removed by a standard
+transaction. Small receives therefore accumulate in the cumulative
+voucher until they reach the floor, and the issuer keeps a credit leaf's
+balance clear of the residual case. At 10 sat/vB a `CLAIM^h` costs about
+16,500 sat, so a recipient would not redeem a small balance alone even
+once it is redeemable; they would let it accumulate, have the operator
+graft it as a leaf in a cohort, or redeem it straight into a channel
+leaf whose exit key is a 2-of-2 and pay onward over Lightning from
+there.
 
 The entry row deserves its own paragraph, because it is where the design
 is cheapest. A dense graft (`JOIN_h`) admits a whole cohort for the cost
@@ -118,13 +126,13 @@ trust model, the funding modes and their costs.
 
 ## Making redemption cheaper
 
-The 1,652 vbytes is the FULL tier at `D = 16` with no help, and it is
+The 1,656 vbytes is the FULL tier at `D = 16` with no help, and it is
 large for a structural reason: a `CLAIM^h` proves two positions, the
 source leaf and the claim slot, so it carries two full paths of sixteen
 unrolled levels each, two leaves, the voucher signature and the preimage.
 The CCV tier reduces it a little: with `r` and `m` gone from the
-witness it carries `CLAIM^h` at 3,455 bytes of script and 1,658 of
-witness at `D = 16`, about 1,550 vbytes against the FULL tier's 1,652.
+witness it carries `CLAIM^h` at 3,495 bytes of script and 1,658 of
+witness at `D = 16`, about 1,560 vbytes against the FULL tier's 1,656.
 
 The largest saving needs no new opcode. A credit leaf dedicated to one
 recipient can have its sibling slot reserved for that recipient's claim

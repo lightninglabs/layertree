@@ -272,16 +272,17 @@ def update_script(depth, operator_key, sparse=False, exit_consent=False):
     return s + check_old(sparse) + final(depth)
 
 
-def claim_script(depth, tree_id, sparse=False, hashlock=False):
+def claim_script(depth, tree_id, sparse=False, hashlock=False, dust_min=lt.DUST_MIN):
     """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script. tree_id is the
-    tree's 32-byte voucher binding (6.2), a constant of the script."""
-    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher", tree_id)
+    tree's 32-byte voucher binding (6.2), a constant of the script, and
+    dust_min its DUST_MIN (7.5 rule 6)."""
+    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher", tree_id, dust_min)
 
 
-def split_script(depth, sparse=False):
+def split_script(depth, sparse=False, dust_min=lt.DUST_MIN):
     """SPLIT (7.5.2): CLAIM with the owner's transaction signature in place
     of a voucher. Needs no OP_CHECKSIGFROMSTACK."""
-    return _carve_script(depth, sparse, "owner")
+    return _carve_script(depth, sparse, "owner", dust_min=dust_min)
 
 
 # The carve witness holds, below the authorisation element, src(10)
@@ -316,7 +317,7 @@ def voucher_auth(tree_id, hashlock=False):
     return s + [32, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # src(10) claim(10) extras(13)
 
 
-def _carve_script(depth, sparse=False, auth="voucher", tree_id=None):
+def _carve_script(depth, sparse=False, auth="voucher", tree_id=None, dust_min=lt.DUST_MIN):
     """witness (bottom..top):
        zf wf [claim levels] [sparse claim: ck cnonce cplo cphi]
        zi wi [src levels] [sparse src: sk snonce splo sphi]
@@ -348,13 +349,13 @@ def _carve_script(depth, sparse=False, auth="voucher", tree_id=None):
             s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
                   "OP_TOALTSTACK"]                                    # ... vsig | m r phash
         s += voucher_auth(tree_id, hashlock)                         # src(10) claim(10) extras(13)
-    s += carve_source(depth, sparse) + check_old(sparse)            # T nh1 ns1        | m claim_leaf amt_c
+    s += carve_source(depth, sparse, dust_min=dust_min) + check_old(sparse)   # T nh1 ns1  | m claim_leaf amt_c
     s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
     return s + carve_claim(depth, sparse) + final(depth)
 
 
-def carve_rules():
-    """The carve rule of spec 7.5 rule 5 under 0xC0 numerics:
+def carve_rules(dust_min=lt.DUST_MIN):
+    """The carve rules of spec 7.5 rules 5 and 6 under 0xC0 numerics:
     [src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)].
 
     The claim leaf's evictor_key must equal the source's (the fourth field
@@ -362,24 +363,28 @@ def carve_rules():
     than the source's. The raw le32 fields are not numbers under
     CScriptNum, so, as EXIT_1 does for the lock time, the witness supplies
     each evict_after as a minimal number with a PADZ pad; the pad is
-    checked against the leaf's own field and the two numbers compared."""
+    checked against the leaf's own field and the two numbers compared.
+    The claim amount is already a number (the block's amt_num, which
+    LEAF_JOIN binds to the amount field), so the DUST_MIN floor of rule 6
+    is one comparison against the constant."""
     return ([19, "OP_PICK", 30, "OP_PICK", "OP_EQUALVERIFY",         # claim.evk == src.evk
              2, "OP_PICK", "OP_TOALTSTACK"] + padz() +               # ... sea zse wse le32(cea)   | cea
             [16, "OP_PICK", "OP_EQUALVERIFY",                        # le32(cea) == claim.ea
              2, "OP_PICK", "OP_TOALTSTACK"] + padz() +               # ... le32(sea)               | cea sea
             [23, "OP_PICK", "OP_EQUALVERIFY",                        # le32(sea) == src.ea
              "OP_FROMALTSTACK", "OP_FROMALTSTACK",                   # ... sea cea
-             "OP_GREATERTHANOREQUAL", "OP_VERIFY"])                  # src(10) claim(10) extras(7)
+             "OP_GREATERTHANOREQUAL", "OP_VERIFY",                   # src(10) claim(10) extras(7)
+             dust_min, 10, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_VERIFY"])     # DUST_MIN <= claim.amt_num
 
 
-def carve_source(depth, sparse=False, alt_r=True):
+def carve_source(depth, sparse=False, alt_r=True, dust_min=lt.DUST_MIN):
     """Step 1 of CLAIM, CLAIM^h and SPLIT, after the authorisation check.
     Stack on entry: src(10) claim(10) extras(13) ; altstack: .. m r.
     On exit: T oh os nh ns over the source path ; altstack: .. m claim_leaf amt_c r.
     Shared with the MIN tier, which differs only in how the result is bound
     to the transaction, and with the CCV tier's 0xC0 numerics, which carry
     no r (alt_r=False: the altstack holds .. claim_leaf amt_c on exit)."""
-    s = carve_rules()                                                # src(10) claim(10) extras(7)
+    s = carve_rules(dust_min)                                        # src(10) claim(10) extras(7)
     # seq consistency: le32(seq_num) == src.seq ; consumes zq0 wq0
     s += [20, "OP_PICK", 7, "OP_PICK"] + roll(7, 2) + padz() + ["OP_EQUALVERIFY"]   # extras -> seq_num zq1 wq1 zs2 ws2
     s += ["OP_TOALTSTACK"] * 5                                       # src(10) claim(10) | m r ws2 zs2 wq1 zq1 seq_num
@@ -400,7 +405,7 @@ def carve_source(depth, sparse=False, alt_r=True):
     s += roll(4) + ["OP_1ADD"] + roll(4, 2) + padz()                 # oh amt_s mid amt_new le64 le32(seq+1)
     s += roll(3) + ["OP_SWAP", "OP_CAT", "OP_CAT"]                   # oh amt_s amt_new new_src
     s += tagged(F.LEAF_PREFIX) + ["OP_SWAP"]                         # oh os nh ns
-    s += ["OP_DUP", "OP_NOT", "OP_IF", "OP_SWAP", "OP_DROP", lt.EMPTY_LEAF_HASH, "OP_SWAP", "OP_ENDIF"]
+    s += F.drain_rule(dust_min)                                      # drained -> E_0, else ns >= DUST_MIN
     if sparse:
         s += roll(7, 4) + sparse_setup()
     s += [F.NODE_PREFIX] + roll(4, 4)                                # T oh os nh ns
@@ -565,16 +570,16 @@ def w_evict_subtree(tree, depth, height, idx):
 
 
 def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,),
-                tree_id=None):
+                tree_id=None, dust_min=lt.DUST_MIN):
     """The reference script set (spec 6.2) under MID; tree_id is the
-    tree's voucher binding, a constant of CLAIM."""
+    tree's voucher binding, a constant of CLAIM, and dust_min its DUST_MIN."""
     out = {f"EXIT_{k}": exit_script(depth, k, sparse) for k in exit_ks}
     for h in (join_heights if not sparse else (0,)):
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key, sparse)
     for k in join_ks:
         out[f"JOINK_{k}"] = join_script(depth, 0, operator_key, sparse, k)
     out["UPDATE"] = update_script(depth, operator_key, sparse)
-    out["CLAIM"] = claim_script(depth, tree_id, sparse)
+    out["CLAIM"] = claim_script(depth, tree_id, sparse, dust_min=dust_min)
     return out
 
 

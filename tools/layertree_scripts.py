@@ -356,7 +356,8 @@ def update_script(depth, operator_key, profile="D", exit_consent=False):
     return s + check_old_root_from_alt(profile) + final_output(depth)
 
 
-def claim_script(depth, tree_id, profile="D", hashlock=False, exit_consent=False):
+def claim_script(depth, tree_id, profile="D", hashlock=False, exit_consent=False,
+                 dust_min=lt.DUST_MIN):
     """CLAIM (spec 7.5), or CLAIM^h (7.5.1) with hashlock=True.
 
     Witness: [claim path] [source path] src_leaf claim_leaf voucher_sig
@@ -373,12 +374,15 @@ def claim_script(depth, tree_id, profile="D", hashlock=False, exit_consent=False
     directly below root is one more signature, exit_sig, which MUST be valid
     over the transaction by src_leaf.exit_key, exactly as UPDATE^x (7.4 rule
     5) adds exit-key consent to UPDATE. Both flags together give CLAIM^hx.
+
+    dust_min is the tree's DUST_MIN (6.2), a constant of the script: the
+    claim leaf's amount and a non-zero residual are at least it (7.5 rule 6).
     """
     return _carve_script(depth, profile, "hashlock" if hashlock else "voucher",
-                         exit_consent, tree_id)
+                         exit_consent, tree_id, dust_min)
 
 
-def split_script(depth, profile="D"):
+def split_script(depth, profile="D", dust_min=lt.DUST_MIN):
     """SPLIT (spec 7.5.2): CLAIM authorised by the owner's transaction
     signature instead of a voucher.
 
@@ -388,7 +392,7 @@ def split_script(depth, profile="D"):
     shares CLAIM's body. It needs no OP_CHECKSIGFROMSTACK, so unlike CLAIM
     it is not barred from the MIN tier on opcode grounds.
     """
-    return _carve_script(depth, profile, "owner")
+    return _carve_script(depth, profile, "owner", dust_min=dust_min)
 
 
 def voucher_auth(tree_id, hashlock=False):
@@ -410,7 +414,7 @@ def voucher_auth(tree_id, hashlock=False):
                 "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]             # src claim
 
 
-def _carve_script(depth, profile, auth, exit_consent=False, tree_id=None):
+def _carve_script(depth, profile, auth, exit_consent=False, tree_id=None, dust_min=lt.DUST_MIN):
     """Shared body of CLAIM, CLAIM^h and SPLIT: carve a new leaf out of an
     existing one. `auth` selects the authorisation and nothing else.
 
@@ -431,35 +435,50 @@ def _carve_script(depth, profile, auth, exit_consent=False, tree_id=None):
         # the owner signs the transaction, so no message is rebuilt
         s += [2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",      # src claim sig owner_key
               "OP_CHECKSIGVERIFY"]                               # src claim
-        return s + _carve_body(depth, profile)
+        return s + _carve_body(depth, profile, dust_min)
     if hashlock:
         # park SHA256(preimage) on the altstack so every depth below is as in CLAIM
         s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
               "OP_TOALTSTACK"]                                   # src claim vsig | m r phash
-    return s + voucher_auth(tree_id, hashlock) + _carve_body(depth, profile)
+    return s + voucher_auth(tree_id, hashlock) + _carve_body(depth, profile, dust_min)
 
 
-def carve_leaf_rules():
+def carve_leaf_rules(dust_min=lt.DUST_MIN):
     """Opens every carve body: [src claim] -> [src claim]. Both leaves are
     116 bytes, and the claim leaf is no easier to keep than the source
     (spec 7.5 rule 5): its evictor_key equals the source's and its
     evict_after is no later. Without this an owner facing eviction could
     move its balance into a leaf with a NUMS evictor or a far lease, and
-    anyone could plant a one-satoshi NUMS leaf in a cohort's empty slot
-    and block EVICT_SUBTREE_h on it for good. Shared with the CCV tier."""
+    anyone could plant a NUMS leaf in a cohort's empty slot and block
+    EVICT_SUBTREE_h on it for good. The claim leaf's amount is at least
+    DUST_MIN (7.5 rule 6): a leaf below the dust threshold can be removed
+    only by a transaction no default node relays, so it would block its
+    cohort's sweep and every graft over it for the life of the tree.
+    Shared with the CCV tier."""
     return ["OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
             "OP_SWAP", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",   # src claim
             "OP_2DUP", OFF_EVICTOR_KEY, 32, "OP_SUBSTR",
             "OP_SWAP", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", "OP_EQUALVERIFY",  # claim.evk == src.evk
             "OP_2DUP", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
             "OP_SWAP", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
-            "OP_LESSTHANOREQUAL", "OP_VERIFY"]                               # claim.ea <= src.ea
+            "OP_LESSTHANOREQUAL", "OP_VERIFY",                               # claim.ea <= src.ea
+            dust_min, "OP_OVER", 8, "OP_LEFT", "OP_LESSTHANOREQUAL", "OP_VERIFY"]   # DUST_MIN <= claim.amt
 
 
-def _carve_body(depth, profile):
+def drain_rule(dust_min=lt.DUST_MIN):
+    """[T oh os nh ns] -> [T oh os nh' ns]: the drained-source rule of spec
+    7.5 rule 2 with the residual floor of rule 6. A residual of zero makes
+    the new node E_0; any other residual is at least DUST_MIN. The tokens
+    are numerics-neutral (ns is a number in every tier), so the MID, MIN
+    and CCV carves share them."""
+    return ["OP_DUP", "OP_NOT", "OP_IF", "OP_SWAP", "OP_DROP", lt.EMPTY_LEAF_HASH, "OP_SWAP",
+            "OP_ELSE", dust_min, "OP_OVER", "OP_LESSTHANOREQUAL", "OP_VERIFY", "OP_ENDIF"]
+
+
+def _carve_body(depth, profile, dust_min=lt.DUST_MIN):
     """Everything after the authorisation check: both steps and FINAL.
     Stack on entry: src claim ; altstack: m r."""
-    s = carve_leaf_rules() + [                                        # src claim
+    s = carve_leaf_rules(dust_min) + [                                # src claim
           # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
           "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB"] + LE64 + [
           2, "OP_PICK", OFF_EXIT_KEY, OFF_SEQ - OFF_EXIT_KEY, "OP_SUBSTR", "OP_CAT",
@@ -471,9 +490,8 @@ def _carve_body(depth, profile):
         s += ["OP_OVER"] + leaf_pos() + ["OP_NIP"] + sparse_setup()  # src new_src | .. pos E_0
     s += [NODE_PREFIX, "OP_ROT", "OP_ROT",                       # T src new_src
           "OP_SWAP"] + leaf_acc() + [                            # T new_src oh os
-          "OP_ROT"] + leaf_acc() + [                             # T oh os nh ns
-          "OP_DUP", "OP_NOT", "OP_IF", "OP_SWAP", "OP_DROP",
-          lt.EMPTY_LEAF_HASH, "OP_SWAP", "OP_ENDIF"]             # drained -> E_0
+          "OP_ROT"] + leaf_acc()                                 # T oh os nh ns
+    s += drain_rule(dust_min)                                    # drained -> E_0, else ns >= DUST_MIN
     s += levels(profile, depth)
     s += check_old_root_from_alt(profile)                        # T nh1 ns1 | m claim
     s += ["OP_FROMALTSTACK",                                     # T nh1 ns1 claim
@@ -517,17 +535,17 @@ def htlc_timeout_script(cltv_expiry, claim_key):
 
 
 def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,), profile="D", join_ks=(2,),
-                tree_id=None):
+                tree_id=None, dust_min=lt.DUST_MIN):
     """Return ordered dict name -> token list for a tree's reference script
     set (spec 6.2). tree_id is the tree's 32-byte voucher binding (6.2),
-    which CLAIM carries as a constant."""
+    which CLAIM carries as a constant, and dust_min its DUST_MIN."""
     out = {f"EXIT_{k}": exit_script(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key, profile)
     for k in join_ks:
         out[f"JOINK_{k}"] = join_script(depth, 0, operator_key, profile, k)
     out["UPDATE"] = update_script(depth, operator_key, profile)
-    out["CLAIM"] = claim_script(depth, tree_id, profile)
+    out["CLAIM"] = claim_script(depth, tree_id, profile, dust_min=dust_min)
     return out
 
 
@@ -823,8 +841,8 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
 # ---------------------------------------------------------------------------
 class TreeOptions:
     """A tree's creation parameters other than its depth (spec 6.2): the
-    profile, OPERATOR_KEY, tree_id, the JOIN heights, EXIT_K sizes and
-    JOINK sizes, and the variants a taptree may carry (7.6): exact payouts
+    profile, OPERATOR_KEY, tree_id, DUST_MIN, the JOIN heights, EXIT_K
+    sizes and JOINK sizes, and the variants a taptree may carry (7.6): exact payouts
     (7.2 rule 6, in place of EXIT_K), UPDATE^x (7.4 rule 5, in place of
     UPDATE), the four CLAIM forms (7.5, 7.5.1, 7.5.3), SPLIT (7.5.2),
     EVICT_SUBTREE_h (7.7), REWRITE_h and REWRITE_h^x (7.9) and DETACH_h
@@ -840,8 +858,9 @@ class TreeOptions:
     def __init__(self, operator_key, tree_id, profile="D", join_heights=(0,), exit_ks=(1, 2),
                  join_ks=(2,), exact=False, update_x=False, claim=True, claim_h=False,
                  claim_x=False, claim_hx=False, split=False, evict_heights=(),
-                 rewrite_heights=(), rewrite_x=False, detach_heights=()):
+                 rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN):
         self.operator_key, self.tree_id, self.profile = operator_key, tree_id, profile
+        self.dust_min = dust_min
         self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
         self.exact, self.update_x = exact, update_x
         self.claim, self.claim_h, self.claim_x, self.claim_hx = claim, claim_h, claim_x, claim_hx
@@ -865,9 +884,10 @@ class TreeOptions:
         for name, hl, xc, on in (("CLAIM", False, False, self.claim), ("CLAIM_H", True, False, self.claim_h),
                                  ("CLAIM_X", False, True, self.claim_x), ("CLAIM_HX", True, True, self.claim_hx)):
             if on:
-                out[name] = claim_script(depth, self.tree_id, prof, hashlock=hl, exit_consent=xc)
+                out[name] = claim_script(depth, self.tree_id, prof, hashlock=hl, exit_consent=xc,
+                                         dust_min=self.dust_min)
         if self.split:
-            out["SPLIT"] = split_script(depth, prof)
+            out["SPLIT"] = split_script(depth, prof, dust_min=self.dust_min)
         if prof == "D":
             for h in self.evict_heights:
                 if h <= depth:
