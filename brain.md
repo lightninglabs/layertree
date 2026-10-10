@@ -174,6 +174,18 @@ with numbers.
   sent to the rule worker for 7.5 and 5.2; 10.3's "seq only advances"
   is a bookkeeping rule, not a covenant property: fix in 10.3 after the
   rule worker lands. Paper rebuild pending the rule worker (sizes).
+  C2 landed (merge 4531729, design/audit/script.md, tools/test_probe.py
+  kept): one real bug, MID/MIN/CCV-0xC0 accepted negative CScriptNum
+  sums (sign-magnitude `00 00 00 81` passes PADZ as 2^31+2^24; JOIN
+  new_sum, JOIN_0 amount and SPLIT claim amount could be short or rich
+  by 2^24); fixed with NONNEG (OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY, +4 B
+  per level, MID EXIT_1 D=16 3,367 B, 1,355 vB, +33% over FULL), plus a
+  simulator negative-CLTV fix and MID sparse 25 <= D <= 31. Counts now
+  FULL 1,017, MID 250, MIN 47, CCV 886. Spec header is 0.11.0 (shared
+  with the rule worker's changes). Stale after merge, fix once
+  weights.md is regenerated: fee-analysis.md:38, spec 11 measured rows
+  (MID 1,381/1,338), CONCEPTS.md MID 1,338. The rule worker was told to
+  merge main first and recompute golden/counts once.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
