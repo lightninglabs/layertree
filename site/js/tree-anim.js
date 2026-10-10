@@ -302,7 +302,8 @@
       grp.appendChild(svgEl('rect', {
         x: x, y: y, width: span - 4, height: g.y(0) + g.leafH + 6 - y, rx: 6
       }));
-      if (r.label) grp.appendChild(svgEl('text', { x: x + 5, y: y + 13 }, r.label));
+      // The label sits just below the region's top node, clear of its box.
+      if (r.label) grp.appendChild(svgEl('text', { x: x + 5, y: g.y(r.h) + g.boxH(r.h) + 14 }, r.label));
       svg.appendChild(grp);
     });
 
@@ -328,16 +329,21 @@
       }
     }
 
-    // Badges and links in the band under the leaves.
-    var badgeCount = {};
+    // Badges and links in the band under the leaves. A badge that would
+    // overlap one already placed moves one row further from its node.
+    var placed = [];
     view.badges.forEach(function (b) {
       var bh = b.node ? b.node[0] : 0, bi = b.node ? b.node[1] : b.pos;
       var x = g.cx(bh, bi);
-      var n = badgeCount[key(bh, bi)] || 0;
-      badgeCount[key(bh, bi)] = n + 1;
-      var y = bh === 0 ? g.bandTop + n * 20 : g.y(bh) - 22 - n * 20;
       var w = textW(b.text, 11) + 12;
       x = Math.max(g.pad + w / 2, Math.min(width - g.pad - w / 2, x));
+      var y = bh === 0 ? g.bandTop : g.y(bh) - 20;
+      var step = bh === 0 ? 20 : -20;
+      var hits = function (p) {
+        return x - w / 2 < p.x + p.w + 2 && p.x - 2 < x + w / 2 && Math.abs(p.y - y) < 18;
+      };
+      while (placed.some(hits)) y += step;
+      placed.push({ x: x - w / 2, y: y, w: w });
       var grp = svgEl('g', { 'class': 'badge k-' + (b.kind || 'sig') });
       grp.appendChild(svgEl('rect', { x: x - w / 2, y: y, width: w, height: 18, rx: 9 }));
       grp.appendChild(svgEl('text', { x: x, y: y + 13, 'text-anchor': 'middle' }, b.text));
@@ -383,7 +389,9 @@
     if (h === 0) {
       var leaf = st.leaves[i];
       if (leaf) {
-        grp.appendChild(svgEl('text', { x: x, y: y + 16, 'text-anchor': 'middle', 'class': 't-b' }, leaf.label));
+        // A label wider than a narrow leaf is compressed to fit rather than clipped.
+        var fit = textW(leaf.label, 12.5) > w - 6 ? { textLength: w - 6, lengthAdjust: 'spacingAndGlyphs' } : {};
+        grp.appendChild(svgEl('text', Object.assign({ x: x, y: y + 16, 'text-anchor': 'middle', 'class': 't-b' }, fit), leaf.label));
         grp.appendChild(svgEl('text', { x: x, y: y + 31, 'text-anchor': 'middle', 'class': 'val' }, fmt(leaf.amount)));
         if (leaf.note && g.wideLeaf) {
           grp.appendChild(svgEl('text', { x: x, y: y + 44, 'text-anchor': 'middle', 'class': 't-sm' }, leaf.note));
