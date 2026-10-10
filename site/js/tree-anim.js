@@ -339,6 +339,11 @@
     defs.appendChild(hatch);
     svg.appendChild(defs);
 
+    // Labels placed so far, so that later ones can step clear of them.
+    var placed = [];
+    var badged = {};
+    view.badges.forEach(function (b) { if (b.node) badged[key(b.node[0], b.node[1])] = true; });
+
     // Regions sit behind everything else.
     view.regions.forEach(function (r) {
       var span = (1 << r.h) * g.slot;
@@ -350,11 +355,14 @@
         fill: 'url(#' + hatchId + ')'
       }));
       // The label is a tab on the region's top edge, left of its top node
-      // and clear of the parent's bus above it.
+      // and clear of the parent's bus above it. When a badge sits over that
+      // node, the tab hangs under the region instead.
       if (r.label) {
-        var lw = Math.min(textW(r.label, 10.5) + 10, span - 8);
-        grp.appendChild(svgEl('rect', { 'class': 'region-bg', x: x + 3, y: g.y(r.h) - 13, width: lw, height: 12 }));
-        grp.appendChild(svgEl('text', { x: x + 8, y: g.y(r.h) - 4 }, r.label));
+        var lw = textW(r.label, 10.5) + 10;
+        var ty = badged[key(r.h, r.i)] ? g.y(0) + g.leafH + 6 : g.y(r.h) - 13;
+        grp.appendChild(svgEl('rect', { 'class': 'region-bg', x: x + 3, y: ty, width: lw, height: 13 }));
+        grp.appendChild(svgEl('text', { x: x + 8, y: ty + 10 }, r.label));
+        placed.push({ x: x + 3, y: ty, w: lw });
       }
       svg.appendChild(grp);
     });
@@ -424,8 +432,7 @@
     }
 
     // Badges and links in the band under the leaves. A badge that would
-    // overlap one already placed moves one row further from its node.
-    var placed = [];
+    // overlap a label already placed moves one row further from its node.
     view.badges.forEach(function (b) {
       var bh = b.node ? b.node[0] : 0, bi = b.node ? b.node[1] : b.pos;
       var x = g.cx(bh, bi);
@@ -518,7 +525,7 @@
     var bg = svgEl('rect', { 'class': 'chain-bg', x: x0, y: y0, width: W, height: 10, rx: g.rx });
     grp.appendChild(bg);
     // The tab is the one solid-filled shape: the only thing that is real on-chain.
-    grp.appendChild(svgEl('rect', { 'class': 'chain-tab', x: x0, y: y0, width: textW('ON-CHAIN', 10.5) + 20, height: 18 }));
+    grp.appendChild(svgEl('rect', { 'class': 'chain-tab', x: x0, y: y0, width: textW('ON-CHAIN', 10.5) + 26, height: 18 }));
     grp.appendChild(svgEl('text', { 'class': 'chain-title', x: x0 + 10, y: y0 + 13 }, 'ON-CHAIN'));
 
     var chips = [];

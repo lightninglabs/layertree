@@ -331,6 +331,8 @@ figcaption::before {
 .diagram .d-line { stroke: var(--color-text-muted); stroke-width: 1.5px; fill: none; }
 .diagram .d-dash { stroke: var(--color-chain); stroke-width: 1.5px; fill: none; stroke-dasharray: 2 4; }
 .diagram .d-head { fill: var(--color-text-muted); }
+.diagram .d-tab { fill: var(--color-chain); }
+.diagram text.d-tab-t { fill: var(--color-surface); font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; }
 
 .callout {
   background: var(--color-surface);
@@ -540,7 +542,7 @@ figcaption::before {
 /* A cohort or swept subtree: hatched, like a section on a drawing. */
 .ta svg .region rect { stroke: var(--color-border-strong); stroke-width: var(--border-width); stroke-dasharray: 3 3; }
 .ta svg .hatch-line { stroke: var(--color-border-strong); stroke-width: 1px; opacity: 0.35; }
-.ta svg .region text { fill: var(--color-text-muted); font-size: var(--svg-text-sm); font-weight: 700; letter-spacing: 0.06em; }
+.ta svg .region text { fill: var(--color-text-muted); font-size: var(--svg-text-sm); font-weight: 700; }
 .ta svg .region .region-bg { fill: var(--color-surface); stroke: none; }
 
 .ta svg .badge rect { fill: var(--color-surface); stroke: var(--color-text); stroke-width: var(--border-width); }
@@ -613,6 +615,8 @@ figcaption::before {
   .ta-panel { padding: var(--space-3); min-height: 11rem; }
   .ta-controls { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
   .ta-btn { min-width: 3.6rem; padding: var(--space-1) var(--space-2); }
+  .ta-dots { gap: 0; }
+  .ta-dot { width: 1.3rem; }
   .ta-legend { padding: var(--space-2) var(--space-3); gap: var(--space-1) var(--space-3); }
   figure svg { padding: var(--space-2); }
 }
