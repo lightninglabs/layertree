@@ -161,6 +161,19 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     signs each of them (7.8). Counts: FULL 1,054, MID 268, MIN 55, CCV
     972.
 
+23. **Two audiences, two versions** (2026-10-10). The short paper
+    (`paper/main.pdf`, the 15-page FC body) is written for developers and
+    enthusiasts: how the system works, every major operation described
+    in a digestible block ordered by a member's life in the tree, the
+    flows, the trust model, the opcode packages, prior work, and the
+    voucher system (cumulative vouchers advancing `seq`, credit leaves,
+    hash-locked cheques, the receive flow) as a section of its own; Lean
+    and the UC result appear in a short "what is proved" section with a
+    pointer to the full version. The full version (`main-full.pdf`) keeps
+    the functionality-first body of decision 17 with the simulator, the
+    proofs and the Lean signatures. One source, `\iffullversion` at
+    section granularity, shared text factored into files both include.
+
 ## Assumptions that could change the design
 
 Listed in spec 4.1 as [A-1]..[A-5], Appendix C.11 as [C-A1]..[C-A4]. The

@@ -5,7 +5,7 @@ stands, what is in flight, what is next, and what is undecided. Update it
 whenever the answer to "where are we" changes. `design/status.md` is the
 formal hand-off with the decision log; this file is the informal one.
 
-Last updated 2026-10-10, after the A1/A2 rule worker's branch landed (spec 0.11.0, Appendix C 0.4.0 header).
+Last updated 2026-10-10, after both handoff branches landed (spec 0.11.0, Appendix C 0.4.0) and the paper restructure started.
 
 ## What we are trying to do
 
@@ -39,6 +39,21 @@ with numbers.
 | PR stack | Empty. #8 (72e9846), #10 (54d094f), #6 (f23f193) and #7 (3ef8128) all merged. |
 
 ## In flight right now
+
+- Paper restructure (owner's decision 2026-10-10): the short version
+  (`main.pdf`) becomes a developer paper: how the system works, a
+  digestible description of every major operation ordered by a member's
+  life in the tree (join, move value, settle, leave, be evicted, batch),
+  the flows, the trust model (10.1), the opcode packages (tiers), prior
+  work, and the voucher system as a first-class section (cumulative
+  vouchers advancing `seq`, credit leaves, `CLAIM^h` cheques, the
+  receive flow, issuer risk, `DUST_MIN`); Lean and UC in a short "what
+  is proved" section only. The full version (`main-full.pdf`) keeps the
+  functionality-first body and the proofs (decision 17 now applies to it
+  alone). An Opus writer is doing it in a worktree (commit, never push;
+  sources only, the orchestrator rebuilds the PDFs after merging). Body
+  limit 15 LNCS pages; shared text factored into files both versions
+  include.
 
 - Explainer website track (owner's request 2026-10-10), all under
   `site/`, static with no build step: an Opus builder writes the site
@@ -339,14 +354,16 @@ unmerged work. Both were killed by the session spend limit, not by errors.
 
 ## Next, in order
 
-1. Spec follow-up pass for the review hand-offs (list under "Handed off
-   by the paper writer" above): 10.1, 10.5/C.9.5 liveness as [C], 11
-   witness prefixes and sweep rows, 9.6.1/9.6.2 "atomic", 10.10, 4.1,
-   fee-analysis leaf count; then the tools, formal and design items.
-2. Paper: verify the citations the writer could not pin down, fix the
-   overfull bibliography line, trim the full version toward 30 body
-   pages. Owner decisions outstanding: relative lock on value-neutral
-   transitions (P1c), outpoint-independent exit authorisation (P8).
+1. Paper: merge the developer-facing short version when the writer
+   reports, rebuild both PDFs, check the short body ends by page 15.
+   Then: the repository citation in refs.bib needs a public URL; trim
+   the full version toward 30 body pages. Owner decisions outstanding:
+   relative lock on value-neutral transitions (P1c),
+   outpoint-independent exit authorisation (P8), B6 `chan_id` binds `m`
+   or `tree_id`, MIN `extra_outs` split per output (8.11).
+2. Next audit round: a Go/`txn` builder audit; re-run the protocol and
+   script audits against 0.11.0 (A1 to A8 and the script findings are
+   all fixed or recorded; `design/audit/` holds the three reports).
 3. Cohort transitions beyond FULL (status.md open work 9): MID
    `REWRITE_STEP`, CCV `DETACH_h` second output, the one-byte "unchanged"
    marker for `REWRITE_h` (about 29 vB per unchanged position).
