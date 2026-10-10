@@ -124,6 +124,24 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     says what a detach can and cannot do. Go gained the exact-payout
     `EXIT_K^=` generator it needed for this, which closes that part of
     open item 4.
+21. **Editorial pass 0.10.1** (2026-10-10, no rule change; Appendix C
+    0.3.1). The three paper reviews' spec-level items: exit latency is
+    the explicit contention assumption [C] in 10.5 and C.9.5 with
+    `kappa` (spends of one output confirming per block, a relay policy
+    parameter) and `beta` (adversarial spends confirmed ahead),
+    `Delta(q) = Delta_L (ceil((beta + q)/kappa) + 1)`, and C.4.4 ties
+    `G_exit` to the leaf count; section 11 states one cost model (946 WU
+    skeleton, 172 per further payout, 774 without a payout, vB =
+    ceil(WU/4), witness prefixes excluded and measured per tier in
+    `spec/scripts/weights.md`) and recomputes the sweep, rewrite and
+    sparse rows on it (UPDATE 1,030, depth-8 exit 762, break-even near
+    D = 3); 4.1 pins the EC-ops draft (commit `8df28249`, operands
+    written top of stack first) and BIP-443 (`24e96e87`); 9.6 calls a
+    hash-locked voucher a cheque and the pairing an ordered exchange,
+    not atomic; 9.2 says a self-funded graft is a signing round; 10.10
+    carries measured element sizes and new 8.11 the 80-byte policy cap
+    on MIN's `extra_outs`; 10.1 bounds "cannot delay" by [C]. Open from
+    the pass: split MIN's `extra_outs` per output (8.11).
 
 ## Assumptions that could change the design
 

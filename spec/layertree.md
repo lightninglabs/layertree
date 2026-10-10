@@ -2459,11 +2459,13 @@ a policy assumption with two parameters it does not derive:
 confirm per block, and while an honest transition is pending at the
 prevailing fee rate at most `beta` conflicting spends confirm ahead of it.
 
-`kappa` is mempool policy, not consensus: 25 under Bitcoin Core's default
-ancestor and descendant count limits (section 15, Bitcoin Core policy); a
-per-cluster limit under cluster mempool, which replaces the chain limit
-with a bound on the size and count of the connected component the tree's
-chain belongs to; and as low as 1 once any participant attaches
+`kappa` is mempool policy, not consensus: 25 under the ancestor and
+descendant count limits of Bitcoin Core releases before 31.0 (section 15,
+Bitcoin Core policy); at most 64 under cluster mempool, which Bitcoin Core
+31.0 (April 2026) shipped in place of the chain limits and which bounds
+the size and count of the connected component the tree's chain belongs
+to, the old limits remaining only for wallet coin selection; a deployment
+MUST assume the lower of what its relay peers enforce; and as low as 1 once any participant attaches
 unconfirmed descendants to a payout or change output, which every
 transition leaves free. `beta` is economic: it is bounded by the
 adversary's fee budget against the honest bid and by nothing else, so
@@ -3200,11 +3202,11 @@ and signature-hash models are simplified as documented in its header.
 
 ## 15. References
 
-* BIP-340, BIP-341, BIP-342 — Schnorr signatures, Taproot, Tapscript.
-* BIP-440 — Varops Budget For Script Runtime Constraint (Russell, Moik).
-* BIP-441 — Restoration of disabled script (Tapleaf 0xC2) (Russell, Moik).
-* BIP-348 — `OP_CHECKSIGFROMSTACK` (Black, Rubin).
-* BIP-349 — `OP_INTERNALKEY` (Black, Rubin).
+* BIP-340, BIP-341, BIP-342, Schnorr signatures, Taproot, Tapscript.
+* BIP-440, Varops Budget For Script Runtime Constraint (Russell, Moik).
+* BIP-441, Restoration of disabled script (Tapleaf 0xC2) (Russell, Moik).
+* BIP-348, `OP_CHECKSIGFROMSTACK` (Black, Rubin).
+* BIP-349, `OP_INTERNALKEY` (Black, Rubin).
 * Draft "OP_TX" and "New Opcodes for Tapscript v2" (Russell, Moik),
   `https://github.com/rustyrussell/bips/pull/1`.
 * Draft "Elliptic Curve Operations for Bitcoin Script" (Osuntokun),
@@ -3212,19 +3214,20 @@ and signature-hash models are simplified as documented in its header.
   bitcoin/bips PR #1945; the scripts assume commit `8df28249` (4.1).
 * "[0/4] A Bitcoin Scripting Proposal BIP Quartet", bitcoindev,
   `https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ`.
-* BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala), pinned at `bitcoin/bips`
+* BIP-443, `OP_CHECKCONTRACTVERIFY` (Ingala), pinned at `bitcoin/bips`
   commit `24e96e87` (4.1): the data-tweaked internal key used here follows
   the same pattern.
 * Bitcoin Core mempool policy: the ancestor and descendant count limits
   (`src/policy/policy.h`, `DEFAULT_ANCESTOR_LIMIT` and
-  `DEFAULT_DESCENDANT_LIMIT`, 25) and the 80-byte tapscript witness item
-  limit (`MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE`),
-  `https://github.com/bitcoin/bitcoin`.
+  `DEFAULT_DESCENDANT_LIMIT`, 25, deprecated since 31.0), the cluster
+  limit of 64 that replaced them in 31.0, and the 80-byte tapscript
+  witness item limit (`MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE`),
+  `https://github.com/bitcoin/bitcoin/blob/v31.1/src/policy/policy.h`.
 * Cluster mempool (Wuille, Daftuar, Zhao), Delving Bitcoin,
   `https://delvingbitcoin.org/t/an-overview-of-the-cluster-mempool-proposal/393`.
 * BIP-125, Opt-in Full Replace-by-Fee Signaling; BIP-431, Topology
   Restrictions for Pinning (TRUC).
 * Merkle Sum Sparse Merkle Trees, Taproot Assets BIP draft (Osuntokun).
 * Ark protocol documentation (Ark Labs; Second).
-* `design/unified-batching.md` — the essay in which LayerTree was first
-  described; `design/review.md` — the scrutiny that produced this document.
+* `design/unified-batching.md`, the essay in which LayerTree was first
+  described; `design/review.md`, the scrutiny that produced this document.
