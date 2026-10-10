@@ -1478,15 +1478,21 @@ redeemable until the issuer advances the source leaf's `seq`.
    on-chain, because the voucher has no deadline and the HTLC does: the
    HTLC would expire while the voucher sat unredeemed. Where this ordering
    cannot be arranged, the parties MUST use two HTLCs instead.
-3. A voucher issuer MUST NOT advance the source leaf's `seq` while an HTLC
-   naming the same `payment_hash` is in flight, since that leaves the
-   counterparty having revealed a preimage for a voucher it can no longer
-   redeem.
-4. A recipient holding a redeemable hash-locked voucher SHOULD redeem it
-   promptly (9.6.1). Its exposure is the window between learning the
-   preimage and confirming the `CLAIM^h`, during which the issuer can void
-   the voucher; that window includes contention for the tree output and is
-   therefore governed by the bound of 10.5, not by a constant.
+3. A voucher issuer MUST NOT advance the source leaf's `seq` from the
+   moment an HTLC naming the same `payment_hash` is offered to it until
+   either the voucher has been redeemed or that HTLC has failed or timed
+   out. Settling the HTLC does not end this obligation: an issuer that
+   collects the HTLC and then voids the voucher has been paid for a voucher
+   the counterparty can no longer redeem. Once the HTLC has failed or timed
+   out, the issuer retires the voucher as 9.6.1 requires.
+4. Rule 3 binds the issuer but no script enforces it, so the voucher holder
+   carries the issuer risk of 9.6.1 and 10.3 from the moment it offers the
+   HTLC until its `CLAIM^h` confirms. It SHOULD therefore redeem as soon as
+   it learns the preimage, and SHOULD NOT treat the swap as complete until
+   the `CLAIM^h` is buried deeply enough that the issuer cannot replace it
+   in a reorganisation with a transition that advances `seq`. The interval
+   between learning the preimage and confirmation includes contention for
+   the tree output and is governed by the bound of 10.5, not by a constant.
 
 *(informative)* Under rule 2 the chain sees at most one leg. In the usual
 flow the channel HTLC is settled off-chain by exchanging the preimage, and
