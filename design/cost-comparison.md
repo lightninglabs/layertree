@@ -97,11 +97,16 @@ four owners in one aligned height-2 subtree the estimate from the sweep's
 measured sizes plus 64 bytes of signature per leaf is about 350 vbytes per
 leaf; for sixteen owners in a height-4 subtree, about 194.
 
-The reason it is not built is the fixed-shape rule of the design review (F15): every
-shape is its own taptree leaf, a flag-driven variable shape did not reduce
-script size when measured, and each extra leaf in the taptree costs every
-spend 8 vbytes per doubling. Which shapes to carry is a tree-creation
-choice, and the reference taptree carries `K = 1` and `K = 2`.
+What a script fixes is the height and alignment of the subtree, not
+which of its leaves exit. As in the sweep, the witness supplies every
+position of the subtree, and a flag per position marks the leaves that
+leave, so one script per height covers every subset of owners in that
+subtree; owners in different subtrees need separate steps, as `EXIT_K`
+does today. Each height is its own taptree leaf (design review F15), and
+each doubling of the taptree costs every spend 8 vbytes, so which heights
+to carry is a tree-creation choice; the reference taptree carries only
+`K = 1` and `K = 2`. The owner multiproof is unbuilt for lack of a
+measurement, not because of an obstacle in the design.
 
 Batching does not lift the serialisation limit, but it changes what the
 limit counts. Every transition spends the same output, so unconfirmed
@@ -180,6 +185,43 @@ aggregate-key version out because MuSig2 nonce coordination reintroduces
 the interactive rounds the design otherwise avoids; the per-leaf-signature
 version has no such obstacle and is the natural next shape after the owner
 multiproof.
+
+### What `UPDATE` is for, and how to make it cheaper
+
+`UPDATE` is maintenance, not payment. It rewrites one leaf in place with
+the owner's and the operator's signatures: resize a balance, renew a
+lease, rotate a key, change the evictor. Sending value to another member
+does not use it. A sender issues a voucher, which the recipient redeems
+with `CLAIM` or, more often, never redeems because the operator settles
+it off-chain; a sender who knows the recipient can use `SPLIT` (PR #10);
+and channel leaves move value as HTLC forwards with no transition at all.
+
+An `UPDATE` at `D = 16` is 1,073 vbytes because it carries one path, two
+116-byte leaves, two signatures, and the same unrolled script as an exit.
+Four things reduce it, in increasing order of change.
+
+- The `OP_INTERNALKEY` fast path of spec 13.8 saves one `OP_TX` and one
+  `TREE_SPK` evaluation, about 200 bytes, on the old-root check, with the
+  binding caveat of 10.4.
+- The `OP_MULTI OP_CAT` form of the level macro in 13.3 saves about a
+  quarter of each level, roughly 350 bytes at `D = 16`.
+- The CCV tier of PR #6 replaces the state binding and saves about a
+  tenth; the native opcode of PR #7 removes the unrolled path and brings a
+  single-leaf transition near 400 vbytes.
+- The subtree rewrite of 13.5 publishes a subtree's old and new leaves and
+  folds each once, so the per-leaf cost approaches the sweep's: the
+  interior is paid once and each rewritten leaf adds its 116 bytes twice
+  and a signature, about 100 vbytes. Leaves in the subtree that do not
+  change need no signature; they are supplied for the fold or stand behind
+  a sibling hash. The spec left this out because its aggregate-key form
+  needs MuSig2 nonce rounds; a per-leaf-signature form has no such
+  obstacle and is the natural next shape after the owner multiproof.
+
+The subtree rewrite is also a batch of intra-tree payments: moving an
+amount from one leaf to another inside the rewritten subtree conserves
+the sum, and only the leaves whose content changes must sign. That is the
+on-chain settlement an Ark round performs, at about the cost of a bare
+spend per touched leaf, without a round and without every member signing.
 
 ## Lifetime cost per member
 
