@@ -52,8 +52,14 @@ with numbers.
   worker stalled with its work in `.claude/worktrees/agent-ae0ecacb4cf73f727`
   on branch `msu-work` (f3d1a16 canonical leaf-first proofs, quarantine
   test, links and counts; a2ccc0b merge of main). The orchestrator is
-  running the full matrix there; on green: push `msu-work` to
-  `msu-hypothetical`, merge #7, then the post-merge editorial pass.
+  running the full matrix there (log:
+  `/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-roasbeef-layertree--claude-worktrees-repo-overview-context-66c267/7fef6c07-7626-454e-b539-2d2e6cb835b5/scratchpad/pr7-matrix.log`,
+  expected 425/120/31/309/47, golden clean, listings clean, go ok, lake
+  rc 0). On green, from that worktree: `git push origin
+  msu-work:msu-hypothetical`, then `gh pr merge 7 --repo
+  lightninglabs/layertree --merge`, then fast-forward this session branch
+  to origin/main. Then the post-merge editorial pass (item 3 below), the
+  PDF rebuild, and the two builds (items 2 and 4).
 - TeX: works on this machine as of today. TeX Live 2020 basic at
   /Library/TeX/texbin plus a user tree under ~/Library/texmf with
   multirow, cm-super (tlmgr --usermode from the 2020 historic repo),
