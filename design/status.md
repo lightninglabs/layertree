@@ -7,7 +7,7 @@ Last updated 2026-10-09 (spec 0.8.5, Appendix C 0.2.0, paper v0.1).
 | Area | State |
 |---|---|
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
-| Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
+| Appendix C channel leaves | Complete, 0.3.0: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. Executable (C.12): `tools/layertree_chan.py` generates `UPD_F` / `REBIND_n` / `SETTLE_n`, and `tools/test_chan.py` (149 checks) runs the state machine on a chain model with BIP-65 / BIP-68, from a tree exit through contest, settlement and HTLC sweeps, in both tapleaf versions, plus the C.4.4 / 9.6.2 deadlines as block sequences. Go mirror `script/chan.go` byte-exact against the golden `chan` section; TLV messages in `msg/chan.go`. Measured: `SETTLE_n` is 79 B under 0xC2 (80 under 0xC0), HTLC sweeps 155 / 138 vB (the old table missed the 65-byte control block), the C.4.4 bound has two blocks of margin, and a MID channel carries at most seven HTLC outputs per state (520-byte collation). |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
 | Python reference and simulator | 425 + 125 + 31 + 309 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
@@ -123,16 +123,19 @@ ones most likely to move:
 4. **Go: transaction builders for every transition.** `txn/` builds and
    signs EXIT_1 end to end; JOIN, UPDATE, CLAIM and EVICT_SUBTREE have
    witness assemblers but no end-to-end sign-and-verify test yet.
-5. **Off-chain message set.** `msg/` covers proofs, vouchers and join
-   offers; channel-leaf messages (C.2, C.3 signing rounds) are unspecified
-   as TLV.
-6. **Channel-leaf scripts beyond the HTLC outputs.** The voucher/HTLC swap
-   of 13.9 is specified in 9.6.2 and tested: `HTLC_SUCCESS` and
-   `HTLC_TIMEOUT` (C.4.1) are implemented and one preimage settles them
-   together with a `CLAIM^h`. What is still absent is the rest of Appendix
-   C in executable form, the `REBIND_n` and `SETTLE_n` update machine, so
-   the deadline reasoning of 9.6.2 and C.4.4 is argued rather than
-   exercised. The Go side carries no Appendix C scripts at all.
+5. **Off-chain message set.** `msg/` covers proofs, vouchers, join
+   offers and, since Appendix C 0.3.0, the channel-leaf messages
+   (`ChanOpen`, `StateProposal`, `StateSig` with the C.3.6 order check,
+   HTLC add / fulfil / fail, `RebindAnnounce`, `SpliceProposal`). Still
+   open: a message-type registry and framing shared by all of them, and
+   the MuSig2 session itself (nonce handling is carried as opaque bytes).
+6. **Channel leaves beyond the reference.** The update machine, the HTLC
+   outputs and the deadlines of C.4.4 and 9.6.2 are now exercised
+   (C.12). Not modelled: the P2A fee children and TRUC package relay
+   ([C-A2]), PTLCs, and pre-signed second-stage HTLC transactions
+   (C.2.5). Spec 9.6.2 still says the deadline reasoning has no
+   end-to-end test; its closing paragraph should point at
+   `tools/test_chan.py`.
 7. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and

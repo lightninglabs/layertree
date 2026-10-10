@@ -13,6 +13,7 @@ jobs:
       - run: python3 tools/test_min.py
       - run: python3 tools/test_ccv.py
       - run: python3 tools/test_msu.py
+      - run: python3 tools/test_chan.py
       - run: python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json
   go:
     runs-on: ubuntu-latest
