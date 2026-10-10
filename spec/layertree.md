@@ -2408,7 +2408,13 @@ exits in a batch" as `EXIT_K` (section 13).
   operator, a garbage or absent `exit_sig`, a witness without the voucher,
   a transaction signature in place of the voucher, the operator draining
   the leaf with a voucher to itself and, under the hash lock, a wrong
-  preimage all fail), 528 checks in
+  preimage all fail) and the sibling-sum binding regression test (dense at
+  `D = 4` and `16`, sparse at `D = 8` and `32`: at every level, a proof
+  element that keeps the sibling's hash and inflates or deflates its
+  declared sum is rejected even when input 0 and output 0 are made to
+  match the forged total, because `H_node` commits to both children's
+  sums; the sparse cases include an explicitly supplied empty sibling
+  with a non-zero sum), 765 checks in
   total. Run: `python3 tools/test_scripts.py`.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,

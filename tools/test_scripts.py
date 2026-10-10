@@ -465,6 +465,71 @@ def test_minimal(depth, verbose=True):
     return script, wit, it
 
 
+def test_sibling_sum_binding(depth, profile, verbose=True):
+    """Regression test for taproot-assets-private issue 112 (sibling-sum binding).
+
+    A proof element carries a sibling's hash and its declared sum. If the
+    parent hash did not commit to the children's sums, a prover could keep a
+    sibling's hash and inflate its sum, and the fold would reach the right
+    root hash with a wrong total. LayerTree's node format excludes this:
+    `H_node(lh || enc64(ls) || rh || enc64(rs))` hashes both sums into the
+    parent, so a sibling whose sum is altered produces a different parent
+    hash at that level and the fold cannot reach `r` (spec 5.3, 10.2).
+
+    The test must not be satisfied by the amount checks alone. `CHECK_OLD`
+    compares the folded old sum with input 0's amount, which an inflated
+    sibling would also fail, so each forged proof is paired with a
+    transaction whose input 0 carries the forged total and whose output 0
+    commits to the forged new root. Under a sum-blind node hash that
+    transaction would validate; here it must fail at every level, in both
+    profiles, and an explicitly supplied empty sibling with a non-zero sum
+    (the sparse profile's version of the forgery) must fail as well.
+    """
+    w = World(depth, profile)
+    bob = mk_leaf("bob", 125_000)
+    others = [mk_leaf(n, a) for n, a in (("alice", 50_000), ("carol", 30_000), ("dave", 70_000),
+                                         ("erin", 15_000), ("operator", 1_000_000))]
+    s_bob = w.slot(bob, 5)
+    w.tree.leaves = {s_bob: bob}
+    for i, lf in enumerate(others):
+        w.tree.leaves[w.slot(lf, [0, 3, 9, 12, (1 << depth) - 1][i])] = lf
+    root = w.tree.root()
+    S = root[1]
+    path = w.tree.path(s_bob)
+    t1 = w.clone(); del t1.leaves[s_bob]
+    r1 = t1.root()
+
+    def spend(forged, S_in):
+        """Witness and transaction for an owner exit of bob against `forged`,
+        with input 0 carrying S_in and output 0 the forged new root."""
+        new_root = lt.fold(lt.EMPTY_NODE, forged)
+        ctx = TxContext([(S_in, w.spk(root)), (50_000, P2WPKH)],
+                        [(new_root[1], w.spk(new_root)), (bob.amount - 1_000, lt.p2tr_spk(bob.exit_key))])
+        sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+        return w.path_witness(forged) + w.bm(forged) + [bob.serialize(), sig, b"", root[0], w.m], ctx
+
+    # control: the honest proof under the same harness succeeds
+    wit, ctx = spend(path, S)
+    w.run("EXIT_1", wit, ctx)
+    check(lt.fold(lt.EMPTY_NODE, path) == r1, "sibling-sum control: honest fold reaches r1")
+    n_levels = 0
+    for k, (d, sib) in enumerate(path):
+        for delta in (+1, -1):
+            if sib[1] + delta < 0:
+                continue
+            forged = list(path)
+            forged[k] = (d, (sib[0], sib[1] + delta))
+            # the forgery is arithmetically consistent: only the hash binding is left
+            check(lt.fold(bob.node(), forged)[1] == S + delta, f"level {k}: forged total is S{delta:+d}")
+            check(lt.fold(bob.node(), forged)[0] != root[0], f"level {k}: forged fold misses r (sums are hashed)")
+            wit, ctx = spend(forged, S + delta)
+            expect_fail(lambda: w.run("EXIT_1", wit, ctx),
+                        f"{profile} D={depth} level {k}: sibling hash kept, sum {delta:+d} (issue 112)")
+            n_levels += 1
+    if verbose:
+        print(f"sibling-sum binding {profile} D={depth}: {n_levels} forged proofs rejected")
+
+
 def test_evict_subtree(depth, height, verbose=True):
     """Cohort sweep: evict every leaf of an aligned subtree in one spend."""
     w = World(depth, "D")
@@ -967,6 +1032,8 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
         test_minimal(d)
         test_channel_rules(d)
         test_swap(d)
+    for prof, d in (("D", 4), ("D", 16), ("S", 8), ("S", 32)):
+        test_sibling_sum_binding(d, prof)
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
         test_claim_h(d, prof)
