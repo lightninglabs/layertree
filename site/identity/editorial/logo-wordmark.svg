@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 176 32" width="176" height="32" role="img" aria-label="LayerTree">
+  <title>LayerTree</title>
+  <style>
+    svg { color: #1B1A17; }
+    @media (prefers-color-scheme: dark) { svg { color: #F1ECDF; } }
+    text { font-family: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif; font-size: 27px; letter-spacing: -0.01em; }
+  </style>
+  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter">
+    <path d="M16 8V12M7 17V12H25V17"/>
+    <path d="M3 22V17H11V22M21 22V17H29"/>
+    <path d="M2 30H23"/>
+    <circle cx="28" cy="27.5" r="2.2"/>
+  </g>
+  <g fill="currentColor">
+    <circle cx="16" cy="5" r="3"/>
+    <circle cx="3" cy="25" r="2"/>
+    <circle cx="11" cy="25" r="2"/>
+    <circle cx="21" cy="25" r="2"/>
+  </g>
+  <!-- Name treatment: "Layer" upright, "Tree" italic, one word, no space. -->
+  <text x="42" y="25" fill="currentColor"><tspan font-weight="500">Layer</tspan><tspan font-style="italic" font-weight="400">Tree</tspan></text>
+</svg>

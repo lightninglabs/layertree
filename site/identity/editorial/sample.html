@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>LayerTree: editorial identity sample</title>
+<style>
+@import url("tokens.css");
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--size-2);
+  line-height: 1.6;
+  font-feature-settings: "kern", "liga", "onum";
+  text-rendering: optimizeLegibility;
+}
+a { color: var(--accent); text-underline-offset: 0.18em; text-decoration-thickness: 1px; transition: text-decoration-color var(--dur) var(--ease); }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.wrap { max-width: 64rem; margin: 0 auto; padding: 0 var(--space-3); }
+@media (min-width: 48rem) { .wrap { padding: 0 var(--space-4); } }
+
+/* Header: a running head, ruled below. */
+.head { border-bottom: 1px solid var(--ink); }
+.head .wrap { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.brand { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink); text-decoration: none; }
+.brand svg { width: 28px; height: 28px; display: block; }
+.wordmark { font-family: var(--font-display); font-size: var(--size-3); letter-spacing: -0.01em; line-height: 1; }
+.wordmark b { font-weight: 500; }
+.wordmark i { font-weight: 400; }
+.head nav { display: flex; gap: var(--space-3); font-family: var(--font-mono); font-size: var(--size-1); letter-spacing: 0.04em; text-transform: uppercase; }
+.head nav a { color: var(--ink-2); text-decoration: none; }
+.head nav a:hover { color: var(--accent); }
+@media (max-width: 30rem) { .head nav a:nth-child(n+3) { display: none; } }
+
+/* Opening. */
+.open { padding: var(--space-5) 0 var(--space-4); }
+@media (min-width: 48rem) { .open { padding-top: var(--space-6); } }
+.kicker { font-family: var(--font-mono); font-size: var(--size-1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 var(--space-3); }
+h1 { font-family: var(--font-display); font-weight: 400; font-size: var(--size-6); line-height: 1.02; letter-spacing: -0.025em; margin: 0; max-width: 14ch; text-wrap: balance; }
+h1 em { font-style: italic; }
+.takeaway { max-width: 38rem; margin: var(--space-4) 0 0; font-size: var(--size-3); line-height: 1.5; color: var(--ink-2); }
+.takeaway::first-letter { font-family: var(--font-display); float: left; font-size: 4.1em; line-height: 0.82; padding: 0.06em 0.1em 0 0; color: var(--accent); }
+
+/* Figure. */
+.fig { margin: var(--space-5) 0 var(--space-4); border-top: 1px solid var(--ink); padding-top: var(--space-2); }
+.fig-label { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); letter-spacing: 0.04em; }
+.fig svg { display: block; width: 100%; height: auto; margin: var(--space-3) 0 var(--space-2); overflow: visible; }
+.fig figcaption { font-size: var(--size-1); color: var(--ink-2); max-width: 40rem; line-height: 1.5; }
+.fig figcaption b { font-family: var(--font-mono); font-weight: 500; color: var(--ink); letter-spacing: 0.02em; }
+
+.legend { list-style: none; margin: var(--space-3) 0 var(--space-3); padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); font-size: var(--size-1); color: var(--ink-2); }
+.legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
+.legend svg { width: 22px; height: 14px; margin: 0; overflow: visible; }
+
+/* Diagram vocabulary: hairlines, mono figures, no shadows. */
+.t-edge { fill: none; stroke: var(--ink-3); stroke-width: 1; }
+.t-edge.on { stroke: var(--path); stroke-width: 2.5; }
+.t-box { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1; }
+.t-box.sib { fill: var(--node-sum); stroke: var(--node); stroke-width: 1.5; }
+.t-box.on { fill: var(--path); stroke: var(--path); }
+.t-box.leaf { stroke: var(--leaf); stroke-width: 1.5; }
+.t-box.exit { stroke: var(--leaf-exit); stroke-width: 2.5; }
+.t-num { font-family: var(--font-mono); font-size: 13px; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+.t-num.on { fill: var(--accent-ink); font-weight: 600; }
+.t-note { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-3); letter-spacing: 0.03em; }
+.t-note.k { fill: var(--ink-2); }
+.t-dim { stroke: var(--ink-3); stroke-width: 1; fill: none; }
+.t-chain { stroke: var(--chain); stroke-width: 1.5; fill: var(--surface-2); }
+.t-hatch { stroke: var(--chain); stroke-width: 1; opacity: 0.4; }
+.t-commit { stroke: var(--chain); stroke-width: 1.5; stroke-dasharray: 4 3; fill: none; }
+.t-arrow-fill { fill: var(--chain); }
+.t-out { stroke: var(--leaf-exit); stroke-width: 2; fill: none; }
+.t-out-fill { fill: var(--leaf-exit); }
+
+@media (max-width: 36rem) {
+  .t-num { font-size: 16px; }
+  .t-note { font-size: 13px; }
+}
+
+/* Motion: the proof path is drawn once, root to leaf. Nothing else moves. */
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.t-edge.on { stroke-dasharray: 1; stroke-dashoffset: 0; animation: draw var(--dur-slow) var(--ease) backwards; }
+.t-edge.on.d1 { animation-delay: 240ms; }
+.t-edge.on.d2 { animation-delay: 560ms; }
+.t-edge.on.d3 { animation-delay: 880ms; }
+@media (prefers-reduced-motion: reduce) { .t-edge.on { animation: none; } }
+
+/* Components: ruled entries, not boxed cards. */
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); border-top: 1px solid var(--ink); padding-top: var(--space-2); margin: var(--space-5) 0 var(--space-3); }
+.section-head h2 { font-family: var(--font-display); font-weight: 400; font-size: var(--size-4); letter-spacing: -0.015em; line-height: 1.1; margin: 0; }
+.section-head span { font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); }
+.grid { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ink-3); }
+@media (min-width: 40rem) { .grid { grid-template-columns: repeat(2, 1fr); column-gap: var(--space-4); } }
+@media (min-width: 60rem) { .grid { grid-template-columns: repeat(3, 1fr); } }
+.card { position: relative; padding: var(--space-3) 0 var(--space-4); border-bottom: 1px solid var(--ink-3); transition: background var(--dur) var(--ease); }
+.card a { color: inherit; text-decoration: none; display: block; }
+.card .n { font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); letter-spacing: 0.04em; }
+.card h3 { font-family: var(--font-display); font-weight: 500; font-size: var(--size-4); line-height: 1.1; letter-spacing: -0.015em; margin: var(--space-1) 0 var(--space-2); transition: color var(--dur) var(--ease); }
+.card p { margin: 0; font-size: var(--size-2); color: var(--ink-2); line-height: 1.5; max-width: 26rem; }
+.card .who { display: inline-block; margin-top: var(--space-3); font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); border-top: 1px solid currentColor; padding-top: var(--space-1); letter-spacing: 0.03em; }
+.card:hover h3, .card:focus-within h3 { color: var(--accent); }
+.card::after { content: ""; position: absolute; left: 0; bottom: -1px; height: 2px; width: 0; background: var(--accent); transition: width var(--dur) var(--ease); }
+.card:hover::after, .card:focus-within::after { width: 100%; }
+
+/* Footer: a colophon. */
+footer { margin-top: var(--space-6); border-top: 1px solid var(--ink); padding: var(--space-3) 0 var(--space-5); color: var(--ink-3); font-size: var(--size-1); }
+footer .wrap { display: grid; gap: var(--space-3); }
+@media (min-width: 48rem) { footer .wrap { grid-template-columns: 2fr 1fr 1fr; } }
+footer p { margin: 0; max-width: 32rem; }
+footer .m { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.status { display: inline-flex; gap: var(--space-2); align-items: center; }
+.status::before { content: "\25CF"; color: var(--warn); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 32 32">
+    <g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter">
+      <path d="M16 8V12M7 17V12H25V17"/>
+      <path d="M3 22V17H11V22M21 22V17H29"/>
+      <path d="M2 30H23"/>
+      <circle cx="28" cy="27.5" r="2.2"/>
+    </g>
+    <g fill="currentColor">
+      <circle cx="16" cy="5" r="3"/><circle cx="3" cy="25" r="2"/>
+      <circle cx="11" cy="25" r="2"/><circle cx="21" cy="25" r="2"/>
+    </g>
+  </symbol>
+</svg>
+
+<header class="head">
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="LayerTree, home">
+      <svg aria-hidden="true"><use href="#mark"/></svg>
+      <span class="wordmark"><b>Layer</b><i>Tree</i></span>
+    </a>
+    <nav aria-label="Primary">
+      <a href="#fig-1">Idea</a><a href="#parts">Parts</a><a href="#">Spec</a><a href="#">Paper</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="open">
+    <p class="kicker">A shared-UTXO design</p>
+    <h1>One output, many owners, <em>anyone may leave.</em></h1>
+    <p class="takeaway">Balances live in an off-chain tree of sums, and a single Bitcoin output commits to its root. To leave, you hand the output your leaf and its proof; the script checks them against the root and recreates the output under the next one. One transaction, no timelock, and the operator holds no key that can take or freeze your balance.</p>
+  </section>
+
+  <figure class="fig" id="fig-1">
+    <div class="fig-label"><span>FIG. 1</span><span>DEPTH 3, EIGHT LEAVES</span></div>
+    <svg viewBox="0 0 500 400" role="img" aria-labelledby="fig1t fig1d">
+      <title id="fig1t">A Merkle-sum tree with one proof path</title>
+      <desc id="fig1d">Eight leaves hold 40, 25, 10, 30, 15, 20, 35 and 25. Their sums combine to a root of 200, which the on-chain output commits to. The path from the sixth leaf, 20, to the root is highlighted, with its three siblings, 15, 60 and 105, shown as the proof. The sixth leaf exits with 20.</desc>
+      <defs>
+        <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="7" class="t-hatch"/>
+        </pattern>
+        <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="t-arrow-fill"/></marker>
+        <marker id="ax" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="t-out-fill"/></marker>
+      </defs>
+
+      <!-- Edges: parent stem, bar, child stem. -->
+      <g>
+        <path class="t-edge" d="M248 52V75H136V99"/>
+        <path class="t-edge" d="M136 122V145H80V169M136 122V145H192V169"/>
+        <path class="t-edge" d="M360 122V145H416V169"/>
+        <path class="t-edge" d="M80 192V215H52V239M80 192V215H108V239"/>
+        <path class="t-edge" d="M192 192V215H164V239M192 192V215H220V239"/>
+        <path class="t-edge" d="M416 192V215H388V239M416 192V215H444V239"/>
+        <path class="t-edge" d="M304 192V215H276V239"/>
+      </g>
+      <!-- The proof path, root to leaf. -->
+      <g>
+        <path class="t-edge on d1" pathLength="1" d="M248 52V75H360V99"/>
+        <path class="t-edge on d2" pathLength="1" d="M360 122V145H304V169"/>
+        <path class="t-edge on d3" pathLength="1" d="M304 192V215H332V239"/>
+      </g>
+
+      <!-- Root and interior nodes. -->
+      <rect class="t-box on" x="224" y="28" width="48" height="24" rx="2"/><text class="t-num on" x="248" y="40">200</text>
+      <rect class="t-box sib" x="116" y="99" width="40" height="23" rx="2"/><text class="t-num" x="136" y="110.5">105</text>
+      <rect class="t-box on" x="340" y="99" width="40" height="23" rx="2"/><text class="t-num on" x="360" y="110.5">95</text>
+      <rect class="t-box" x="60" y="169" width="40" height="23" rx="2"/><text class="t-num" x="80" y="180.5">65</text>
+      <rect class="t-box" x="172" y="169" width="40" height="23" rx="2"/><text class="t-num" x="192" y="180.5">40</text>
+      <rect class="t-box on" x="284" y="169" width="40" height="23" rx="2"/><text class="t-num on" x="304" y="180.5">35</text>
+      <rect class="t-box sib" x="396" y="169" width="40" height="23" rx="2"/><text class="t-num" x="416" y="180.5">60</text>
+
+      <!-- Leaves. -->
+      <rect class="t-box leaf" x="32"  y="239" width="40" height="23" rx="2"/><text class="t-num" x="52"  y="250.5">40</text>
+      <rect class="t-box leaf" x="88"  y="239" width="40" height="23" rx="2"/><text class="t-num" x="108" y="250.5">25</text>
+      <rect class="t-box leaf" x="144" y="239" width="40" height="23" rx="2"/><text class="t-num" x="164" y="250.5">10</text>
+      <rect class="t-box leaf" x="200" y="239" width="40" height="23" rx="2"/><text class="t-num" x="220" y="250.5">30</text>
+      <rect class="t-box leaf sib" x="256" y="239" width="40" height="23" rx="2"/><text class="t-num" x="276" y="250.5">15</text>
+      <rect class="t-box exit" x="312" y="239" width="40" height="23" rx="2"/><text class="t-num" x="332" y="250.5" style="font-weight:600">20</text>
+      <rect class="t-box leaf" x="368" y="239" width="40" height="23" rx="2"/><text class="t-num" x="388" y="250.5">35</text>
+      <rect class="t-box leaf" x="424" y="239" width="40" height="23" rx="2"/><text class="t-num" x="444" y="250.5">25</text>
+
+      <!-- Dimension line: depth. -->
+      <g class="t-dim"><path d="M488 40V250M484 40H492M484 110H492M484 180H492M484 250H492"/></g>
+      <text class="t-note" transform="translate(481 145) rotate(-90)" text-anchor="middle">log2 N levels</text>
+
+      <!-- The exit: a leaf leaves, in one move. -->
+      <path class="t-out" d="M332 262V292H462" marker-end="url(#ax)"/>
+      <text class="t-note k" x="344" y="286">exit: 20</text>
+
+      <!-- Commitment from root to the output. -->
+      <path class="t-commit" d="M224 40H22V326" marker-end="url(#ah)"/>
+      <text class="t-note" transform="translate(14 190) rotate(-90)" text-anchor="middle">commits to root</text>
+
+      <!-- On-chain strip. -->
+      <rect class="t-chain" x="10" y="330" width="480" height="58"/>
+      <rect x="10" y="330" width="480" height="58" fill="url(#hatch)"/>
+      <text class="t-note k" x="26" y="351" style="font-size:12px">ONE OUTPUT ON CHAIN</text>
+      <text class="t-num" x="26" y="372" style="text-anchor:start;font-size:13px">200 sat</text>
+      <text class="t-note k" x="474" y="372" text-anchor="end" style="font-size:12px">P = NUMS + H(root)·G</text>
+    </svg>
+
+    <ul class="legend" aria-label="Legend">
+      <li><svg viewBox="0 0 22 14"><rect x="1" y="1" width="20" height="12" rx="2" fill="var(--path)"/></svg>Proof path</li>
+      <li><svg viewBox="0 0 22 14"><rect x="1" y="1" width="20" height="12" rx="2" fill="var(--node-sum)" stroke="var(--node)" stroke-width="1.5"/></svg>Sibling, supplied in the proof</li>
+      <li><svg viewBox="0 0 22 14"><rect x="1" y="1" width="20" height="12" rx="2" fill="none" stroke="var(--leaf)" stroke-width="1.5"/></svg>Leaf that stays</li>
+      <li><svg viewBox="0 0 22 14"><rect x="1" y="1" width="20" height="12" rx="2" fill="none" stroke="var(--leaf-exit)" stroke-width="2.5"/></svg>Leaf that leaves</li>
+      <li><svg viewBox="0 0 22 14"><rect x="1" y="1" width="20" height="12" fill="var(--surface-2)" stroke="var(--chain)" stroke-width="1.5"/></svg>On-chain output</li>
+    </ul>
+
+    <figcaption><b>Fig. 1.</b> Each node holds a hash and an amount; a parent's amount is the sum of its children. The owner of the leaf holding 20 presents it with three siblings, 15, 60 and 105. The output recomputes 200, finds it matches the committed root, recomputes again without the leaf, and pays 20 out.</figcaption>
+  </figure>
+
+  <div id="parts">
+    <div class="section-head"><h2>Six moves, one machine</h2><span>§ 7</span></div>
+    <ul class="grid">
+      <li class="card"><a href="#"><span class="n">i.</span><h3>Join</h3><p>The operator grafts a new member, or a whole prebuilt subtree, into an empty slot.</p><span class="who">operator</span></a></li>
+      <li class="card"><a href="#"><span class="n">ii.</span><h3>Exit</h3><p>Present your leaf and proof; one transaction pays your balance to your exit key.</p><span class="who">leaf owner</span></a></li>
+      <li class="card"><a href="#"><span class="n">iii.</span><h3>Pay</h3><p>Channel leaves forward payments between members without touching the tree.</p><span class="who">any two leaves</span></a></li>
+      <li class="card"><a href="#"><span class="n">iv.</span><h3>Swap</h3><p>Hash-locked vouchers trade tree balance for Lightning sats, atomically.</p><span class="who">buyer and seller</span></a></li>
+      <li class="card"><a href="#"><span class="n">v.</span><h3>Evict</h3><p>After the lease height, anyone holding the evictor key removes a leaf and pays its owner exactly.</p><span class="who">evictor</span></a></li>
+      <li class="card"><a href="#"><span class="n">vi.</span><h3>Batch</h3><p>Several exits, or a whole expired cohort, share one transaction and one fee.</p><span class="who">same machine, repeated</span></a></li>
+    </ul>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>LayerTree is a design with a reference implementation. The opcodes it relies on are proposals, not consensus.</p>
+    <p class="m">Spec 0.9.0<br>BSD-3-Clause</p>
+    <p class="m"><span class="status">Draft, not deployed</span></p>
+  </div>
+</footer>
+
+</body>
+</html>
