@@ -73,6 +73,8 @@
 \makeatother
 \newcommand{\lifted}[1]{\iffullversion\S\ref{#1}\else Appendix~\ref{#1}\fi}
 \newcommand{\thispart}{\iffullversion section\else appendix\fi}
+% Headline theorems in formal/LayerTree/Axioms.lean (one #print axioms each).
+\newcommand{\LeanTheoremCount}{32}
 % A numbered claim (llncs's claim environment is unnumbered).
 \spnewtheorem{simclaim}{Claim}{\bfseries}{\itshape}
 
@@ -152,7 +154,7 @@ stated assumption on how many competing spends of the shared output can
 confirm ahead of an honest one, with the tree-level lemmas mechanised in
 Lean~4. Lightning channels compose with the functionality as leaves whose
 exit key is shared, so a hub sized by exit throughput occupies one
-output. A simulator, a byte-exact Go implementation and 1{,}879
+output. A simulator, a byte-exact Go implementation and 2{,}083
 executable checks accompany the design.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and universal
 composability \and payment channels \and formal verification}
@@ -201,8 +203,8 @@ string opcodes (BIPs~440 and 441~\cite{bip440,bip441}), introspection
 arithmetic~\cite{ecops,bip449} down to \op{CAT} and one point-tweak
 opcode, plus one built on \op{CHECKCONTRACTVERIFY}~\cite{bip443}. We
 propose no opcode for this design, but the tiers are not deployable as
-proposals stand: MID and both CCV variants assume opcodes in a tapleaf
-version their proposals do not define, and two drafts claim the same
+proposals stand: FULL, MID and both CCV variants assume opcodes in a
+tapleaf version their proposals do not define, and two drafts claim the same
 opcode numbers (\S\ref{sec:scripts}).\ifanon\else{} The elliptic-curve
 draft~\cite{ecops} is by the author of this paper.\fi{} The separation
 lets the security argument be made once, for the predicates.
@@ -338,9 +340,9 @@ state it under an assumption whose parameters we do not derive. \emph{[C] (conte
 $\kappa \ge 1$ spends of a tree output confirm per block, and while an
 honest transition is pending at the prevailing feerate at most $\beta$
 conflicting adversarial spends confirm ahead of it. $\kappa$ is mempool
-policy: 25 under Bitcoin Core's ancestor and descendant
-limits~\cite{corepolicy}, a cluster limit under cluster
-mempool~\cite{clustermempool}, and as low as 1 once anyone hangs
+policy: 25 under Bitcoin Core's chain limits before version 31, at
+most 64 under its cluster limit since~\cite{corepolicy,clustermempool},
+and as low as 1 once anyone hangs
 descendants off a payout or change output. $\beta$ is economic, the
 adversary's fee budget against the honest bid; unbounded, it makes exit
 a fee auction. Under [C] an honest call with $q$ honest calls queued
@@ -544,11 +546,12 @@ and \tr{SPLIT}; \tr{CLAIM}$^{x}$, \tr{REWRITE}$_h$ and \tr{DETACH}$_h$ are
 FULL's alone. Table~\ref{tab:assume}\iffullversion\else{}
 (Appendix~\ref{app:scripts})\fi{} lists what each tier assumes of the
 proposals it uses, mirroring the assumptions [A-1] to [A-6] of the
-specification. MIN is the tier closest to the proposals as written:
-\op{CAT} is BIP-347's, for the current tapleaf version, and it needs only
-\op{TWEAKADD} besides. MID and CCV in \texttt{0xC0} need \op{TX} in a
+specification. MIN is the tier closest to the proposals as written: it
+needs only \op{CAT} (BIP-347) and \op{TWEAKADD} (BIP-449), both defined
+for the current tapleaf version. MID and CCV in \texttt{0xC0} need \op{TX} in a
 version its draft does not define; CCV in \texttt{0xC2} needs BIP-443
-there; FULL needs two drafts whose opcode numbers collide.
+there; FULL needs CSFS and EC ops in \texttt{0xC2} and two drafts
+whose opcode numbers collide.
 
 \iffullversion
 \input{appendix-assumptions}
@@ -781,6 +784,9 @@ After each ledger event, $\Ftree$'s partial tree has the root the tree
 output commits to, and agrees with every honest party's leaf and path.
 \end{simclaim}
 
+\iffullversion
+The proof is the next section.
+\else
 \begin{proof}[sketch of Theorem~\ref{thm:uc}]
 $\Sim$ runs $\Adv$ and the honest parties internally and maintains
 Claim~\ref{clm:inv}. For every accepted spend of the tree output it folds
@@ -796,9 +802,10 @@ and posted by the protocol-aware $\Ftree$; $\Sim$ only schedules them,
 within $\lat(q)$ by [C]. Ungrounded creations and grafts become opaque
 nodes. The cases and hybrids are in \lifted{app:uc}.
 \end{proof}
+\fi
 
 \paragraph{What the theorem leaves out.} The bytecode is matched to
-$\Pred_\tau$ by 1{,}879 executable checks, not a verified compiler. Fee
+$\Pred_\tau$ by 2{,}083 executable checks, not a verified compiler. Fee
 pinning is outside the ledger model: a low-feerate transition early in
 the chain caps the feerate behind it, a descendant hung off any payout or
 change output consumes the chain's policy limit, and TRUC
@@ -886,12 +893,12 @@ varops, computes the real BIP-341 signature message and enforces
 \texttt{MINIMALDATA}; it models consensus limits, not standardness.
 Every compiled predicate runs against a reference tree with positive and
 negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
-unconserved amount, early eviction, voucher replay, and others): 852
-FULL, 198 MID, 31 MIN and 798 CCV checks, failing if a script uses an
+unconserved amount, early eviction, voucher replay, and others): 956
+FULL, 228 MID, 35 MIN and 864 CCV checks, failing if a script uses an
 opcode outside its tier, plus 149 for channel leaves and 61 for the
 hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
 \texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
-against 77 golden scripts, and builds, signs and verifies every FULL
+against 79 golden scripts, and builds, signs and verifies every FULL
 transition (42 cases); its BIP-341 signature hash equals the
 simulator's.
 
@@ -903,8 +910,8 @@ P2WPKH change output, version, lock time and counts) and $172\WU$ per
 further payout, with $\mathrm{vB} = \lceil \mathrm{WU}/4 \rceil$;
 transitions without a payout (joins, updates, carves) are charged
 $172\WU$ less. The witness item count and per-item length prefixes are
-excluded, about 10 to $14\vB$ on a dense $D = 16$ exit (1 to 1.4\%), and
-the baselines omit the same overhead. A deployment that carries the
+excluded (on a dense $D = 16$ exit, $10.5\vB$ in FULL, 10 in CCV, 42.5
+in MID, 44.75 in MIN), and the baselines omit the same overhead. A deployment that carries the
 sweeps, rewrites and variants needs 16 to 32 tapleaves, which adds 8 to
 $16\vB$ to every spend.
 
@@ -995,9 +1002,9 @@ sigop budget.
 \paragraph{Artefact.} Every number here is regenerated from the
 repository~\cite{layertreerepo} at the revision on the title page
 (\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
-(852 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
-cohort shapes), \path{test_mid.py} (198), \path{test_min.py} (31),
-\path{test_ccv.py} (798), \path{test_chan.py} (149), \path{test_msu.py}
+(956 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
+cohort shapes), \path{test_mid.py} (228), \path{test_min.py} (35),
+\path{test_ccv.py} (864), \path{test_chan.py} (149), \path{test_msu.py}
 (61), \path{gen_listings.py} (the size table), \path{fee_analysis.py}
 (the fee model), \path{gen_golden.py} and \path{experiments/radix4.py}
 (55); by \texttt{go test ./...}; and by \texttt{lake build} in
@@ -1027,8 +1034,8 @@ eviction, cohort grafts, channel leaves and a composable statement.
 \emph{Transaction trees.} Channel factories~\cite{factories} need all $N$
 members to sign every change. Ark~\cite{ark}, deployed today~\cite{arkd},
 batches users into rounds whose outputs are leaves of a pre-signed MuSig2
-tree; covenant Ark~\cite{clark} replaces the signing with CTV or CCV
-templates but keeps the tree, its unrolled exit and its expiry. Timeout
+tree; covenant Ark replaces the signing with CTV
+templates~\cite{clark} but keeps the tree, its unrolled exit and its expiry. Timeout
 trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
 expiries and Decker-Wattenhofer factories; MATT-style
 trees~\cite{matt,bip443} replace signatures by templates.
@@ -1052,8 +1059,8 @@ directly.
 
 The functionality is deliberately modest, and its liveness more so:
 all activity is serialised through one output, so an honest exit's delay
-is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} replaces the 25-transaction
-chain limit with per-cluster limits, which raises $\kappa$ for a
+is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} (Bitcoin Core 31) replaced the
+25-transaction chain limit with a 64-transaction cluster limit, which raises $\kappa$ for a
 cooperative tree but shares the cluster with every descendant anyone
 attaches. Two open design changes would narrow the dependence: a relative
 lock on transitions that remove no value, so that only removals chain,
@@ -1074,7 +1081,10 @@ work: a verified compiler, a proof of Conjecture~\ref{thm:chan},
 mechanising Lemma~\ref{lem:path}, and a P model~\cite{plang}.
 
 \bibliographystyle{splncs04}
-\bibliography{refs}
+% Let long URLs in the references break after a hyphen; scoped to the
+% bibliography so that body text and paths are set as before.
+{\expandafter\def\expandafter\UrlBreaks\expandafter{\UrlBreaks\do\-}%
+\bibliography{refs}}
 
 \appendix
 \iffullversion\else

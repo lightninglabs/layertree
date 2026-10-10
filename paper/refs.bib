@@ -17,22 +17,22 @@
   howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki}}
 }
 @misc{bip440,
-  author = {Rusty Russell and Anthony Towns},
+  author = {Rusty Russell and Julian Moik},
   title  = {{BIP-440}: Varops Budget for Script Runtime Constraint},
   year   = {2025},
-  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0440.md}}
+  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0440.mediawiki}}
 }
 @misc{bip441,
-  author = {Rusty Russell and Anthony Towns},
-  title  = {{BIP-441}: Restoration of Disabled Script Opcodes (Tapleaf {0xC2})},
+  author = {Rusty Russell and Julian Moik},
+  title  = {{BIP-441}: Restoration of Disabled Script (Tapleaf {0xC2})},
   year   = {2025},
-  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0441.md}}
+  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0441.mediawiki}}
 }
 @misc{optx,
   author = {Rusty Russell},
-  title  = {{OP\_TX}: Transaction Introspection for Tapscript},
-  year   = {2025},
-  howpublished = {Draft BIP, \url{https://github.com/rustyrussell/bips/pull/1}}
+  title  = {{OP\_TX}},
+  year   = {2024},
+  howpublished = {Draft BIP on a personal fork, \url{https://github.com/rustyrussell/bips/blob/guilt/varops/bip-unknown-optx.mediawiki}}
 }
 @misc{bip348,
   author = {Brandon Black and Jeremy Rubin},
@@ -41,22 +41,22 @@
   howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0348.md}}
 }
 @misc{bip449,
-  author = {Rearden Code and others},
-  title  = {{BIP-449}: {OP\_TWEAKADD}},
-  year   = {2025},
-  howpublished = {\url{https://github.com/bitcoin/bips/}}
+  author = {Jeremy Rubin},
+  title  = {{BIP-449}: {OP\_TWEAKADD}, x-only Key Tweak Addition},
+  year   = {2026},
+  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0449.md}}
 }
 @misc{ecops,
   author = {Olaoluwa Osuntokun},
-  title  = {Elliptic Curve Operations for Bitcoin Script},
+  title  = {Elliptic Curve Operations for {Bitcoin} Script},
   year   = {2025},
-  howpublished = {Draft BIP, \url{https://github.com/bitcoin/bips/pull/1945}}
+  howpublished = {Draft BIP, \texttt{bitcoin/bips} PR \#1945 (closed unmerged), \url{https://github.com/bitcoin/bips/pull/1945}}
 }
 @misc{bip443,
   author = {Salvatore Ingala},
   title  = {{BIP-443}: {OP\_CHECKCONTRACTVERIFY}},
   year   = {2025},
-  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0443.md}}
+  howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0443.mediawiki}}
 }
 @misc{bip118,
   author = {Christian Decker and Anthony Towns},
@@ -114,9 +114,9 @@
 }
 @misc{ark,
   author = {Burak Keceli},
-  title  = {Ark: An Off-Chain Payment Protocol},
+  title  = {Ark: An Alternative Privacy-preserving Second Layer Solution},
   year   = {2023},
-  howpublished = {\url{https://arkdev.info/}}
+  howpublished = {bitcoin-dev mailing list, 22 May 2023, \url{https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2023-May/021694.html}}
 }
 @misc{timeouttrees,
   author = {John Law},
@@ -132,9 +132,9 @@
 }
 @misc{mssmt,
   author = {Olaoluwa Osuntokun},
-  title  = {Taproot Assets: Merkle Sum Sparse Merkle Trees},
-  year   = {2022},
-  howpublished = {\url{https://github.com/lightninglabs/taproot-assets/blob/main/docs/bip-tap-ms-smt.mediawiki}}
+  title  = {Merkle Sum Sparse {Merkle} Trees},
+  year   = {2021},
+  howpublished = {Draft BIP (Taproot Assets), \url{https://github.com/Roasbeef/bips/blob/bip-tap/bip-tap-ms-smt.mediawiki}}
 }
 @inproceedings{smt,
   author    = {Rasmus Dahlberg and Tobias Pulls and Roel Peeters},
@@ -181,11 +181,14 @@
   year      = {2018}
 }
 @misc{lnsymmetry,
-  author = {Richard Myers and others},
-  title  = {{LN-Symmetry} ({eltoo}) Implementation Notes},
+  author = {Greg Sanders},
+  title  = {{LN-Symmetry} ({eltoo}) Transaction Formats, Draft},
   year   = {2023},
   howpublished = {\url{https://github.com/instagibbs/bolts/blob/eltoo_draft/XX-eltoo-transactions.md}}
 }
+% UNVERIFIED for readers: as of 2026-10-10 this URL redirects to the
+% private repository lightninglabs/layertree, so it does not resolve
+% without access. Point it at the public location before submission.
 @misc{layertreerepo,
   author = {Olaoluwa Osuntokun},
   title  = {{LayerTree}: Specification, Reference Implementation and Formal Model},
@@ -193,16 +196,16 @@
   howpublished = {\url{https://github.com/roasbeef/layertree}}
 }
 @misc{coinpool,
-  author = {Antoine Riard and Gleb Naumenko},
+  author = {Gleb Naumenko and Antoine Riard},
   title  = {{CoinPool}: Efficient Off-Chain Payment Pools for {Bitcoin}},
   year   = {2022},
-  howpublished = {\url{https://coinpool.dev/v0.1.pdf}}
+  howpublished = {\url{https://github.com/coinpool-dev/paper/blob/master/coinpool-v0.1.pdf}; \op{MERKLESUB} draft BIP, \url{https://github.com/ariard/bips/blob/coinpool-bips/bip-merklesub.mediawiki}}
 }
 @misc{clark,
-  author = {Ark Labs},
-  title  = {Covenant-Based {Ark} ({clArk}): Rounds Without Presigning},
-  year   = {2024},
-  howpublished = {\url{https://arkdev.info/docs/learn/concepts}}
+  author = {Steven Roose},
+  title  = {The {Ark} Case for {CTV}},
+  year   = {2025},
+  howpublished = {Delving Bitcoin, \url{https://delvingbitcoin.org/t/the-ark-case-for-ctv/1528}}
 }
 @misc{superscalar,
   author = {ZmnSCPxj},
@@ -223,7 +226,7 @@
   howpublished = {PLAS 2017, \url{https://blockstream.com/simplicity.pdf}}
 }
 @misc{bip345,
-  author = {James O'Beirne and Greg Sanders and Anthony Towns},
+  author = {James O'Beirne and Greg Sanders},
   title  = {{BIP-345}: {OP\_VAULT}},
   year   = {2023},
   howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0345.mediawiki}}
@@ -241,9 +244,9 @@
   howpublished = {\url{https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki}}
 }
 @misc{clustermempool,
-  author = {Pieter Wuille and Suhas Daftuar and Gloria Zhao},
-  title  = {Cluster Mempool},
-  year   = {2023},
+  author = {Suhas Daftuar},
+  title  = {An Overview of the Cluster Mempool Proposal},
+  year   = {2024},
   howpublished = {Delving Bitcoin, \url{https://delvingbitcoin.org/t/an-overview-of-the-cluster-mempool-proposal/393}}
 }
 @inproceedings{canettiUC,
@@ -322,21 +325,19 @@
   author = {Anthony Towns},
   title  = {{TAPLEAF\_UPDATE\_VERIFY} Covenant Opcode},
   year   = {2021},
-  month  = sep,
-  howpublished = {bitcoin-dev mailing list}
+  howpublished = {bitcoin-dev mailing list, 9 Sep 2021, \url{https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019419.html}}
 }
 @misc{opevict,
   author = {ZmnSCPxj},
   title  = {{OP\_EVICT}: An Alternative to {OP\_TAPLEAFUPDATEVERIFY}},
   year   = {2022},
-  month  = feb,
-  howpublished = {bitcoin-dev mailing list}
+  howpublished = {bitcoin-dev mailing list, 18 Feb 2022, \url{https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-February/019926.html}}
 }
 @misc{catschnorr,
   author = {Andrew Poelstra},
-  title  = {{CAT} and {Schnorr} Tricks {I}},
+  title  = {{CAT} and {Schnorr} Tricks {I} and {II}},
   year   = {2021},
-  howpublished = {Blog post, Blockstream Research}
+  howpublished = {Blog posts, 20 Jan and 10 Feb 2021, \url{https://www.wpsoftware.net/andrew/blog/cat-and-schnorr-tricks-i.html}, \url{https://www.wpsoftware.net/andrew/blog/cat-and-schnorr-tricks-ii.html}}
 }
 @misc{plasma,
   author = {Joseph Poon and Vitalik Buterin},
@@ -361,15 +362,15 @@
 }
 @misc{corepolicy,
   author = {{Bitcoin Core}},
-  title  = {Mempool Policy: Ancestor and Descendant Count Limits (src/policy/policy.h)},
-  year   = {2024},
-  howpublished = {Repository, \url{https://github.com/bitcoin/bitcoin}}
+  title  = {Mempool Policy Defaults: Ancestor and Descendant Count Limits (25) and Cluster Limit (64)},
+  year   = {2026},
+  howpublished = {\texttt{src/policy/policy.h} at v31.1, \url{https://github.com/bitcoin/bitcoin/blob/v31.1/src/policy/policy.h}}
 }
 @misc{taprootchans,
   author = {Olaoluwa Osuntokun},
-  title  = {Simple Taproot Channels},
-  year   = {2022},
-  howpublished = {Draft, \url{https://github.com/lightning/bolts/pull/995}}
+  title  = {Simple Taproot Channels (extension {BOLT}, feature bits 80/81)},
+  year   = {2026},
+  howpublished = {\texttt{lightning/bolts} PR \#995, merged May 2026, \url{https://github.com/lightning/bolts/blob/master/bolt-simple-taproot.md}}
 }
 @misc{bolt3,
   author = {{Lightning Network specification}},
@@ -379,7 +380,7 @@
 }
 @misc{arkd,
   author = {{Ark Labs}},
-  title  = {Ark Protocol Server Implementation},
-  year   = {2024},
-  howpublished = {Repository, \url{https://github.com/ark-network/ark}}
+  title  = {arkd: Backend Services Powering {Arkade}},
+  year   = {2023},
+  howpublished = {Repository, \url{https://github.com/arkade-os/arkd}}
 }

@@ -6,7 +6,7 @@ in enough detail that a reader can judge what has been proved, under
 what assumptions, and what has not. The development is about 1{,}900
 lines of Lean~4~\cite{lean4} in eight modules and depends on nothing but the
 core library: no Mathlib, no external tactics. It builds in seconds and
-prints an axiom audit for 31 headline theorems; as \texttt{lake build}
+prints an axiom audit for \LeanTheoremCount{} headline theorems; as \texttt{lake build}
 prints it, every theorem lists a subset of \lean{propext},
 \lean{Quot.sound} and \lean{Classical.choice}, and none lists
 \lean{sorryAx}. The code is in the artefact~\cite{layertreerepo}.
@@ -84,7 +84,9 @@ transfers to any adversary that cannot exhibit a collision.
 
 \subsection{Theorem Statements}
 
-The statements below are verbatim from the development. \lean{t.root} is
+The statements below are verbatim from the development\iffullversion; those
+shown with their theorems in \S\ref{sec:security} are not repeated\fi.
+\lean{t.root} is
 the root node of a tree, \lean{t.getSub p} the subtree at position
 \lean{p}, \lean{t.setSub p u} the tree with that subtree replaced by
 \lean{u}, \lean{t.pathSub p} the honest sibling path, and \lean{t.get},
@@ -93,7 +95,9 @@ the root node of a tree, \lean{t.getSub p} the subtree at position
 \begin{lstlisting}
 theorem fold_pathSub (t : Tree d) (p : Pos d h) :
     fold (t.getSub p).root (t.pathSub p) = t.root
-
+\end{lstlisting}
+\iffullversion\else
+\begin{lstlisting}
 theorem fold_setSub (t : Tree d) (p : Pos d h) (s : Tree h) :
     fold s.root (t.pathSub p) = (t.setSub p s).root
 
@@ -108,8 +112,10 @@ theorem fold_sound (t : Tree d) (m : Node H) (π : List (Bool × Node H)) :
 place the hash axioms are used: a non-empty path claims an internal node,
 so the tree is not a tip by tag separation, and injectivity of
 \lean{hNode} equates both children's hashes and sums with the claimed
-ones. Note that the conclusion equates \emph{nodes}, so the sum the
-prover presented is the true sum of the subtree.
+ones.
+\fi
+Note that the conclusion of \lean{fold\_sound} equates \emph{nodes}, so
+the sum the prover presented is the true sum of the subtree.
 
 A \lean{Step} is a path, a height, an old node and a new node; it is
 valid for roots $r, r'$ when the old node folds to $r$ and the new node to
@@ -121,7 +127,9 @@ theorem Step.sound (t : Tree d) (s : Step H) (r' : Node H)
     (hwf : s.WF d) (hv : s.valid t.root r') :
     ∃ p : Pos d s.height, s.old = (t.getSub p).root ∧
       ∀ (u : Tree s.height), u.root = s.new → r' = (t.setSub p u).root
-
+\end{lstlisting}
+\iffullversion\else
+\begin{lstlisting}
 theorem Steps.sum (h : Steps r ss r') :
     r'.sum + oldSum ss = r.sum + newSum ss
 
@@ -129,6 +137,7 @@ theorem Steps.sound (t : Tree d) (h : Steps t.root ss r')
     (hwf : ∀ s ∈ ss, s.WF d) (hg : ∀ s ∈ ss, s.Grounded) :
     ∃ t' : Tree d, t'.root = r'
 \end{lstlisting}
+\fi
 
 \lean{Steps.sum} is Theorem~\ref{thm:cons} and needs no hash assumption.
 \lean{Steps.sound} is Theorem~\ref{thm:ground}; \lean{s.Grounded} says
@@ -139,6 +148,7 @@ which a \tr{JOIN} graft must be given.
 The transitions are structures bundling the steps with the output rule
 and an opaque authorisation. Their theorems:
 
+\iffullversion\else
 \begin{lstlisting}
 theorem payable (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = some l) :
     (leafStep (t.path p) (some l) none).valid t.root (t.set p none).root ∧
@@ -147,16 +157,22 @@ theorem payable (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = some l) :
 
 theorem ExitK.no_inflation (h : ExitK exact r blocks r' out0) :
     out0 + payoutSum blocks ≤ r.sum
-
+\end{lstlisting}
+\fi
+\begin{lstlisting}
 theorem ExitK.exact_conservation (h : ExitK true r blocks r' out0) :
     out0 + payoutSum blocks = r.sum
-
+\end{lstlisting}
+\iffullversion\else
+\begin{lstlisting}
 theorem join_sound (t : Tree d) (hwf : path.length + h = d)
     (hj : Join auth h t.root path new r' out0) :
     ∃ p : Pos d h, t.getSub p = Tree.empty h ∧
       out0 = t.root.sum + new.sum ∧
       ∀ u : Tree h, u.root = new → r' = (t.setSub p u).root
-
+\end{lstlisting}
+\fi
+\begin{lstlisting}
 theorem claim_sound (t : Tree d) (hwf₁ : srcPath.length = d)
     (hwf₂ : claimPath.length = d)
     (hc : Claim auth t.root srcPath claimPath src claim r' out0) :
@@ -241,7 +257,7 @@ hypothesis & stands for & used by \\
 real-tree invariant & creation check + grounded grafts (off-chain) & every theorem stated for a \lean{Tree} \\
 \midrule
 \multicolumn{3}{@{}l}{\emph{used by Theorem~\ref{thm:uc} but outside Lean}} \\
-compiler correctness & the bytecode implements $\Pred_\tau$ (tested, 1{,}879 checks) & $\Gledger[\Pred_\tau]$ \\
+compiler correctness & the bytecode implements $\Pred_\tau$ (tested, 2{,}083 checks) & $\Gledger[\Pred_\tau]$ \\
 opcode semantics & [A-1] to [A-6] (Table~\ref{tab:assume}) & every tier \\
 {[C]} & contention: $\kappa$, $\beta$ (\S\ref{sec:func}) & liveness \\
 {[MIN]} & CR of TapSighash and the challenge hash & MIN \\

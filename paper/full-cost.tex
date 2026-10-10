@@ -46,33 +46,31 @@ measured sizes for scripts or populations not measured directly.
 \label{fig:anatomy}
 \end{figure}
 
-\paragraph{Exit.} Figure~\ref{fig:anatomy} decomposes exits. The FULL
-exit at $D = 16$ is $1{,}020\vB$, or $921\vB$ with the fee taken from the
-payout. The hypothetical native opcode's $388\vB$ is measured on the
-six-leaf tree, whose compressed proof is $56\vB$ of witness; with $2^{16}$
-members the proof grows by about 14 non-empty siblings to roughly
-$530\vB$, which is the better estimate of the floor for a design that
-publishes a proof in script. The transaction-tree model and its
-sensitivity to radix and round size are in \S\ref{sec:eval} and
-Table~\ref{tab:ark}; it ignores the leaf's timelock and the fee of each
-of the exiter's transactions. In bulk the cost per leaf depends on who
-signs. With \tr{EXIT}$_K$ every leaf carries its own path, so a second
-exit adds $665\vB$; the operator's sweep of expired leases shares the
-path and costs $203$ and $158\vB$ per leaf for 13 and 51 leaves at
-$D = 16$ (and $147\vB$ for 206 leaves at $D = 20$), within 1.4 times a
-bare spend, but only for members who accepted a lease. The owner-side
-equivalent is the cohort rewrite of \S\ref{sec:batching}, at 359, 195 and
-$158\vB$ per leaf for 4, 16 and 64 owners leaving together. The chain
-limit counts transactions, not leaves.
+\paragraph{Exit.} Figure~\ref{fig:anatomy} decomposes exits; taking the
+fee from the payout brings the FULL exit at $D = 16$ to $921\vB$. The
+hypothetical native opcode's $388\vB$ is measured on the six-leaf tree,
+whose compressed proof is $56\vB$ of witness; with $2^{16}$ members the
+proof grows by about 14 non-empty siblings to roughly $530\vB$, the
+better estimate of the floor for a design that publishes a proof in
+script. The transaction-tree model (Table~\ref{tab:ark}) ignores the
+leaf's timelock and the fee of each of the exiter's transactions. In
+bulk the cost per leaf depends on who signs: with \tr{EXIT}$_K$ every
+leaf carries its own path, so a second exit adds $665\vB$, while the
+operator's sweep of expired leases (only for members who accepted a
+lease) and the owners' cohort rewrite share the path and reach about
+$158\vB$ per leaf, within 1.4 times a bare spend
+(\S\ref{sec:batching}). The chain limit counts transactions, not
+leaves.
 
 \paragraph{Entry and moving value.} \tr{JOIN}$_h$ walks only the levels
 above its slot, so at $D = 16$ an operator-funded 1{,}024-member graft
-costs $614\vB$ (estimate), under $1\vB$ per member, against $43\vB$ for
+costs $614\vB$ (estimate, without a payout output), under $1\vB$ per member, against $43\vB$ for
 one output in an on-chain batch and about $154\vB$ for a channel opened
 in its own transaction (\S\ref{sec:graft}); a self-funded member adds
 its own $58\vB$ input and the signing round of \S\ref{sec:parties}. An
 on-chain \tr{UPDATE} is $1{,}030\vB$ and a voucher redemption
-$1{,}614\vB$, so moving value by rewriting leaves would cost about ten times a bare
+$1{,}614\vB$ (neither has a payout output; on the skeleton that carries
+one, an \tr{UPDATE} is $1{,}073\vB$), so moving value by rewriting leaves would cost about ten times a bare
 spend per payment. Value moves off-chain instead, as it does in
 Lightning and Ark: in channel leaves as HTLC forwards
 (\S\ref{sec:channels}), or by vouchers that the issuer usually settles
@@ -81,7 +79,7 @@ maintenance, not payment.
 
 \begin{table}[tbp]
 \centering
-\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row is an estimate at $2^{16}$ members. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
+\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
 \label{tab:lifetime}
 \setlength{\tabcolsep}{3pt}\scriptsize
 \begin{tabular}{@{}lrrrlll@{}}
@@ -103,11 +101,8 @@ bare UTXO & 154 & 154 & 154 & 1 & 1 & nobody \\
 
 \paragraph{Lifetime and latency.} Table~\ref{tab:lifetime} adds entry and
 exit. The dense tree wins outright for a member who never exits alone or
-who is swept, loses to Lightning and to a bare UTXO for a member who exits
-alone, and beats an Ark unroll there by 1.3 to 2.5 times, depending on
-the round's size; the sparse profile is the most expensive design in
-every column. A LayerTree exit has no pre-signed transaction to lose, no
-counterparty and no timelock, and the shared output does not expire,
-though the member's lease does. It loses on the solo exit, the on-chain
-per-leaf update, the sparse profile and serialisation through one
-output.
+who is swept, and loses to Lightning and to a bare UTXO for a member who
+exits alone, though it beats an Ark unroll there; the sparse profile is
+the most expensive design in every column. A LayerTree exit has no
+pre-signed transaction to lose, no counterparty and no timelock, and the
+shared output does not expire, though the member's lease does.
