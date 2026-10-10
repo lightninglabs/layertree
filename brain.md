@@ -53,7 +53,12 @@ with numbers.
   README, logo and wordmark SVGs, `tokens.css` with the shared variable
   names, a `sample.html`, and a palette validation. The owner picks an
   identity; then its `tokens.css` and logo replace the placeholders.
-  Later: GitHub Pages deployment.
+  Landed 2026-10-10: the site (d22de96, nine pages, one engine) and all
+  three explorations. The owner chose B (schematic: drafting grid, IBM
+  Plex, vermilion, datasheet cards) with the warmth of C (cream surfaces,
+  softer shapes) folded in; an Opus worker is applying it across the
+  site. Later: GitHub Pages deployment; update the payment and batching
+  pages once `tree_id` lands (they still say vouchers bind `m`).
 - Paper round two landed (merge of 800a245): every finding of the three
   reviews answered in `paper/review-response.md`; the liveness bound is
   now assumption [C] with parameters kappa (chain limit) and beta
