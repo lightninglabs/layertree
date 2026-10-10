@@ -476,10 +476,13 @@ theorem claimedSource_amount (src : Leaf) (v : Nat) (hv : v ≤ src.amount) :
   · simp; omega
 
 /-- What `CLAIM` accepts: the source step then the claim step (rules 2 and
-3), output 0 carrying the final sum, the voucher authorisation, and the
-carve rule (rule 5): the claim leaf keeps the source's evictor key and a
-lease no longer than the source's, so nothing carved out of a leaf is
-harder to evict than the leaf itself.
+3), output 0 carrying the final sum, the voucher authorisation, the
+`seq` check of rule 2 (`seq + 1` must encode in four bytes, so the source
+`seq` is below the tier's `SEQ_FINAL`, `seqFinal`; `Leaf.seqFinalFull`
+and `Leaf.seqFinalMid` are the two values and `LayerTree.Encoding` shows
+why) and the carve rule (rule 5): the claim leaf keeps the source's
+evictor key and a lease no longer than the source's, so nothing carved out
+of a leaf is harder to evict than the leaf itself.
 
 `auth` is opaque, so this structure covers both voucher forms of the spec.
 Plain `CLAIM` (7.5) instantiates it with "`voucher_sig` verifies under
@@ -490,9 +493,11 @@ Plain `CLAIM` (7.5) instantiates it with "`voucher_sig` verifies under
 who may redeem and when, never what the redemption does to the tree, so
 `claim_sound` below applies verbatim to both and the model needs no case
 for the variant. -/
-structure Claim (auth : Prop) (r : Node H) (srcPath claimPath : List (Bool × Node H))
-    (src claim : Leaf) (r' : Node H) (out0 : Nat) : Prop where
+structure Claim (auth : Prop) (seqFinal : Nat) (r : Node H)
+    (srcPath claimPath : List (Bool × Node H)) (src claim : Leaf) (r' : Node H) (out0 : Nat) :
+    Prop where
   amount_le : claim.amount ≤ src.amount
+  seq_lt : src.seq < seqFinal
   evictorKey_eq : claim.evictorKey = src.evictorKey
   evictAfter_le : claim.evictAfter ≤ src.evictAfter
   steps : Steps r [leafStep srcPath (some src) (claimedSource src claim.amount),
@@ -504,22 +509,32 @@ structure Claim (auth : Prop) (r : Node H) (srcPath claimPath : List (Bool × No
 may evict the source leaf at height `h` may evict the claim leaf there too,
 with the same key. Eviction is therefore a property of a balance, not of
 one leaf: no sequence of carves escapes it. -/
-theorem claim_evictable {auth : Prop} {r r' : Node H}
+theorem claim_evictable {auth : Prop} {seqFinal : Nat} {r r' : Node H}
     {srcPath claimPath : List (Bool × Node H)} {src claim : Leaf} {out0 : Nat}
-    (hc : Claim auth r srcPath claimPath src claim r' out0)
+    (hc : Claim auth seqFinal r srcPath claimPath src claim r' out0)
     (h : Nat) (hsrc : src.evictAfter ≤ h) :
     claim.evictorKey = src.evictorKey ∧ claim.evictAfter ≤ h :=
   ⟨hc.evictorKey_eq, Nat.le_trans hc.evictAfter_le hsrc⟩
+
+/-- **A final leaf is never a source** (5.2, rule 2): no `CLAIM` or `SPLIT`
+accepts a source leaf whose `seq` is the tier's `SEQ_FINAL`, because the
+script requires `seq + 1` to encode in four bytes.
+`Encoding.seqFinalFull_succ_length` and `Encoding.seqFinalMid_succ_length`
+show the two constants are exactly the values whose successor needs five. -/
+theorem claim_not_final {auth : Prop} {seqFinal : Nat} {r r' : Node H}
+    {srcPath claimPath : List (Bool × Node H)} {src claim : Leaf} {out0 : Nat}
+    (hc : Claim auth seqFinal r srcPath claimPath src claim r' out0) : src.seq ≠ seqFinal :=
+  Nat.ne_of_lt hc.seq_lt
 
 /-- **A claim conserves the total** (rule 4) and **rewrites exactly the
 source and claim positions**: the source position held the source leaf,
 the claim position was empty *after* the source step (so a drained source
 may be re-used as the claim position, and nothing else), and output 0
 commits to the tree with both rewritten. -/
-theorem claim_sound {auth : Prop} {d : Nat} (t : Tree d) (srcPath claimPath : List (Bool × Node H))
-    (src claim : Leaf) (r' : Node H) (out0 : Nat)
+theorem claim_sound {auth : Prop} {seqFinal : Nat} {d : Nat} (t : Tree d)
+    (srcPath claimPath : List (Bool × Node H)) (src claim : Leaf) (r' : Node H) (out0 : Nat)
     (hwf₁ : srcPath.length = d) (hwf₂ : claimPath.length = d)
-    (hc : Claim auth t.root srcPath claimPath src claim r' out0) :
+    (hc : Claim auth seqFinal t.root srcPath claimPath src claim r' out0) :
     out0 = t.root.sum ∧
     ∃ (p₁ p₂ : Pos d 0), t.get p₁ = some src ∧
       (t.set p₁ (claimedSource src claim.amount)).get p₂ = none ∧

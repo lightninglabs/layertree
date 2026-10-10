@@ -170,6 +170,31 @@ theorem scriptNum_neg_max31 : scriptNum (-(2 ^ 31 - 1)) = [0xff, 0xff, 0xff, 0xf
 theorem scriptNum_neg_max31_succ : scriptNum (-(2 ^ 31 - 1) + 1) = [0xfe, 0xff, 0xff, 0xff] := by
   decide
 
+/-! ### The `SEQ_FINAL` constants of `LayerTree.Leaf`
+
+`Claim` (`LayerTree.Transitions`) requires `src.seq < seqFinal`, the
+model's reading of "`seq + 1` must encode in four bytes". The two theorems
+below say that `Leaf.seqFinalFull` and `Leaf.seqFinalMid` are the least
+values for which that encoding fails in their tiers, so a leaf at
+`SEQ_FINAL` is exactly the leaf that `claim_not_final` says is never a
+source, and every lower `seq` has a four-byte successor. -/
+
+/-- In FULL, `SEQ_FINAL + 1 = 2^32` needs five bytes, while `SEQ_FINAL`
+itself fits in four. -/
+theorem seqFinalFull_succ_length :
+    (minimalLE (LayerTree.Leaf.seqFinalFull + 1)).length = 5 ∧
+      (minimalLE LayerTree.Leaf.seqFinalFull).length = 4 :=
+  ⟨by unfold LayerTree.Leaf.seqFinalFull; simpa using minimalLE_two_pow_32_length,
+   minimalLE_max32_length⟩
+
+/-- In MID, `SEQ_FINAL + 1 = 2^31` needs five bytes as a `CScriptNum`,
+while `SEQ_FINAL` itself fits in four. -/
+theorem seqFinalMid_succ_length :
+    (scriptNum (LayerTree.Leaf.seqFinalMid + 1)).length = 5 ∧
+      (scriptNum LayerTree.Leaf.seqFinalMid).length = 4 := by
+  unfold LayerTree.Leaf.seqFinalMid
+  exact ⟨by decide, by decide⟩
+
 /-! ## Leaf serialisation (section 5.2) -/
 
 /-- The 116-byte leaf record: `le64 amount || be32 exit || be32 owner ||

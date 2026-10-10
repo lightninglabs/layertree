@@ -50,6 +50,16 @@ structure WF (l : Leaf) : Prop where
   nonce_lt : l.nonce < 2 ^ 32
   seq_lt : l.seq < 2 ^ 32
 
+/-- `SEQ_FINAL` of section 5.1 for the FULL tier: the largest `seq` whose
+successor still encodes in four bytes under BIP-441 numerics is
+`0xFFFFFFFE`, so `0xFFFFFFFF` is the value no `CLAIM` or `SPLIT` can
+advance (`Encoding.seqFinalFull_succ_length`). -/
+def seqFinalFull : Nat := 2 ^ 32 - 1
+
+/-- `SEQ_FINAL` for the MID and MIN tiers: `0x7FFFFFFF`, the largest
+positive four-byte `CScriptNum` (`Encoding.seqFinalMid_succ_length`). -/
+def seqFinalMid : Nat := 2 ^ 31 - 1
+
 end Leaf
 
 /-- A Merkle-sum node: a digest and the sum of all leaf amounts below it
