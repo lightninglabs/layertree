@@ -162,7 +162,7 @@ revision narrows the claim to what the model supports:
    `tree_id` in every tier, which is the spec 0.10.0 rule (a tree and
    the cohorts detached from it share it; separate creations do not),
    so cross-instance replay is excluded in FULL and MID as in CCV.
-   Section 5 and Appendix E describe the rule without sizes; the `CLAIM`
+   Section 4.3 and Appendix E describe the rule without sizes; the `CLAIM`
    sizes it changes carry a `TODO(0.10.0 sizes)` comment in the source.
 7. **DETACH_h and REWRITE_h outside the functionality.** We chose to
    exclude them. Theorem 5 is stated for trees whose taptree carries
@@ -206,9 +206,10 @@ revision narrows the claim to what the model supports:
     transitions). The budget is instantiated consistently: with
     Delta_L = 1, beta = 0 and kappa = 25, G_exit = 72 lets about 1,775
     channel leaves close in one window; section 7 states the sizing rule
-    (leaves / kappa < cltv_expiry_delta - csv_delay - 3 - G_sweep, spec
-    C.9.5), and the 10,000-leaf example of section 3 is stated as
-    outside that budget, a case for sharding.
+    in the form beta + q <= 71 kappa (spec C.9.5's leaves / kappa <
+    cltv_expiry_delta - csv_delay - 3 - G_sweep at beta = 0) and says
+    larger hubs shard; the 10,000-leaf example of section 3 is a
+    cooperative drain time (400 blocks), outside that budget.
 13. **Page limit; no invariant in the body.** The short body now ends
     on page 15 (see "Length"). Section 6.2 states the simulation
     invariant as Claim 1 ("after each ledger event, F_LT's partial tree
@@ -246,16 +247,21 @@ revision narrows the claim to what the model supports:
    as unusable for transitions, since it caps an unconfirmed chain at
    two; throughput stated as a cooperative-case number. Handed off
    (spec): the same in spec 10.5 and C.9.5.
-3. **"Only proposals already made" overstated.** Fixed. Section 5 has a
-   compact assumptions table mirroring spec 4.1's [A-1] to [A-6] plus
-   [MIN]: which proposal each tier's opcodes come from, the leaf version
+3. **"Only proposals already made" overstated.** Fixed. A compact
+   assumptions table (in section 5 of the full version; Table 4 in
+   Appendix C of the short one, cited from section 5) mirrors spec 4.1's
+   [A-1] to [A-6] plus [MIN] and [C]: which proposal each tier's opcodes come from, the leaf version
    each is defined for against the one the tier assumes, the opcode
    number collisions (0xbd for `OP_TX` and `OP_EC_POINT_NEGATE`, 0xbb for
    CCV and `OP_EC_POINT_ADD`) and the simulator's placeholders, and the
    BIP-443 commit the CCV tier pins (`24e96e87`). The abstract and the
    introduction now say the opcodes are proposed ones, some assumed in a
-   leaf version their proposal does not define, and section 5 says MIN
-   is the only tier whose opcodes are all used where proposed. The
+   leaf version their proposal does not define, and section 5 says which
+   tier needs what: MIN is the tier closest to the proposals as written
+   (BIP-347's `OP_CAT` plus `OP_TWEAKADD`; we could not confirm BIP-449's
+   leaf version and do not claim it), MID and CCV in 0xC0 need `OP_TX`
+   where its draft does not define it, CCV in 0xC2 needs BIP-443 there,
+   and FULL needs two drafts whose opcode numbers collide. The
    EC-ops draft's authorship is disclosed in section 1 (omitted under
    `\anontrue`). [A-1]'s dependency (FULL compares 8-byte `OP_TX`
    amounts numerically, which BIP-441's numerics must accept) is in the
@@ -349,9 +355,10 @@ revision narrows the claim to what the model supports:
 3. **Serialisation overhead.** As protocol 6: stated with its size;
    re-measurement handed off.
 4. **Ark baseline in opposite directions, at one round size.** Fixed.
-   Both versions use one sensitivity table (Appendix E in the short
-   version, section 12 in the full): radix 2 and 4, isolated and
-   amortised exit, round sizes 2^8, 2^12 and 2^16, every cell derived
+   Both versions use one sensitivity table (Table 7, Appendix E, in
+   both; section 8 and the full version's section 11 cite it): radix 2
+   and 4, isolated and amortised exit, round sizes 2^8, 2^12 and 2^16,
+   every cell derived
    from a stated shape (a level is one key-path P2TR input and r P2TR
    outputs, 68 + 43r vB, rounded to 150 vB at radix 2 as before; the
    claim is a plain P2TR spend, 111 vB; anchors and their children
@@ -410,9 +417,10 @@ revision narrows the claim to what the model supports:
 14. **"Tier matters more than depth".** Replaced by "one tier step
     costs as much as 10 (MID) to 14 (MIN) levels of depth".
 15. **Figures hard to read.** Figure 3: the right panel is replaced by
-    Table 4 of section 8, and the left panel labels MID, MIN and CCV
-    beside their markers, without legend entries, and draws the model
-    line without markers. Figure 5 (full): patterned fills, 8 pt bars,
+    the batch-shapes table of section 8, and the remaining panel labels
+    MID, MIN and CCV beside their markers, without legend entries, puts
+    the legend beside the plot and draws the model line without
+    markers. Figure 5 (full): patterned fills, 8 pt bars,
     labels clear of the bars. Figure 6 (full): every point labelled, the
     bare-spend annotation moved.
 16. **Reproducibility.** Fixed in part. Section 8 has an "Artefact"
@@ -441,8 +449,8 @@ revision narrows the claim to what the model supports:
     names them; the sigop sentence has its noun; "(design notes)" and the
     full version's "spec 5.4", "spec 11" and "spec 13.4" cite the
     repository with a file path.
-21. **Fourteen numbers in prose.** Fixed: Table 4 of section 8 gives the
-    batching, join and sweep figures in vB per member at the transaction
+21. **Fourteen numbers in prose.** Fixed: a table in section 8 (Table 3
+    of the short version) gives the batching, join and sweep figures in vB per member at the transaction
     level, on one model. The member funding input is a P2TR key-path
     input (58 vB), stated as such next to the skeleton's P2WPKH fee
     input.
@@ -456,8 +464,9 @@ revision narrows the claim to what the model supports:
     Section 8 now states the off-chain cost: a member follows every
     spend of the tree output, about 1 kB of witness per transition, and
     the operator stores the whole tree.
-24. **Nits.** Table 3's column is "witness (WU)"; the sparse varops
-    range is 3.6 to 4.7% over the tabulated depths; Table 5's opcode row
+24. **Nits.** The measured-sizes table's column is "witness (WU)"; the
+    sparse varops range is 3.6 to 4.7% over the tabulated depths (in
+    Appendix E of the short version, section 8 of the full); Table 5's opcode row
     lists each LayerTree tier; "hostage to proposals", "honest weak spot"
     and "The voucher is insurance" are rewritten literally; this file
     carries the dated note above.
@@ -477,15 +486,25 @@ handed off.
 
 ### Length
 
-Short version: the body ends on page 15 and References start on
-page 15 or at the top of page 16, checked with `pdftotext -layout` per
-page. What moved to make room: the inline Lean signature blocks of
-section 6.1 (kept in Appendix B), the comparison paragraph of section 8
-(Appendix E, as the sensitivity table), Figure 3's right panel
-(replaced by a table), and Appendix F (dropped from the short version).
-Full version: body at or under 30 pages before References; the Lean
-development is an appendix in the full version too (it was a section),
-while the UC proof and the channel scripts stay sections.
+Short version (`main.pdf`, 35 pages): the body ends at the foot of
+page 15 and References start at the top of page 16, checked with
+`pdftotext -layout` page by page. Full version (`main-full.pdf`, 73
+pages): References start on page 29, so the body is under 29 pages.
+
+What moved or was cut in the short version to make room for the new
+material (the partial-tree functionality, assumption [C], Lemmas 2 and
+3, Claim 1, the model paragraph, the batch table and the artefact
+paragraph): the inline Lean signature blocks of section 6.1 (now shown
+in the full version only, where they were previously absent; Appendix B
+has the statements in both); the proof sketch of Theorem 1 (full version
+only); the assumptions table (Appendix C); the fees and varops paragraph
+(Appendix E); Figure 3's right panel (replaced by the batch table); the
+long comparison paragraph of section 8 (shortened; the sensitivity table
+is Appendix E's Table 7); Appendix F (full version only). The rest is
+tighter prose throughout: the contributions list, background, sections
+4, 5 and 7, related work, discussion and conclusion. In the full
+version the Lean development moved from a body section to Appendix B,
+as in the short one.
 
 ### Handed off, by owner
 
