@@ -192,9 +192,11 @@ instead of two, and the owner's decision (2026-10-09) is to build
 `REWRITE_h` with the exit rule and not a separate `EXIT_SUBTREE_h`. It
 is built: spec 7.9 states the seven rules (the exit payout is exact, as
 in the sweep), 8.9 gives the script, and the measured sizes at `D = 16`
-are 2,731 / 5,336 / 16,444 bytes of script for `h = 2, 4, 6` with
+are 2,775 / 5,512 / 17,148 bytes of script for `h = 2, 4, 6` with
 1,643 / 4,329 / 15,139 bytes of witness on the mixed cohort of the test
-suite. The `^x` form adds 16 vbytes to every signed position.
+suite (spec 0.11.0 added 11 bytes per position so that the amount-only
+exemption of 7.9 rule 3 stops at a `SEQ_FINAL` leaf). The `^x` form adds
+16 vbytes to every signed position.
 
 The Lean argument is the same as for Shape 1: one `Step` with a published
 old and new subtree, conservation from `Steps.sum` unconditionally,

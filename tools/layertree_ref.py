@@ -108,6 +108,12 @@ NUMS = lift_x(int.from_bytes(NUMS_X, "big"))
 assert NUMS is not None
 
 LEAF_VERSION_GSR = 0xC2
+# DUST_MIN (spec 6.2): the smallest amount a non-operator transition may
+# write into a leaf, a tree-creation parameter carried by the carve scripts
+# as a constant. The RECOMMENDED value is the P2TR dust threshold of
+# Bitcoin Core's default policy (3000 sat/kvB over 110 bytes), since every
+# transition that removes a leaf pays it to exactly one P2TR output.
+DUST_MIN = 330
 EMPTY_LEAF_HASH = bytes(32)
 LEAF_LEN = 116
 

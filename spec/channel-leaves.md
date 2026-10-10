@@ -3,8 +3,8 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.3.1
-Requires: spec/layertree.md 0.7.0, FULL or MID tier (section C.7)
+Version:  0.4.0
+Requires: spec/layertree.md 0.11.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
 
@@ -245,9 +245,18 @@ value only if update transactions are exactly zero-fee, which they are
   funding output only — silently breaking the ratchet;
 * nothing is lost. The update transaction's outputs are fully committed and
   sum to `C`, so attaching it to an input worth less than `C` is invalid by
-  consensus, and attaching it to an input worth more than `C` (which can only
-  be another output of the same channel) merely burns the difference to fees,
-  at the expense of the party that does it.
+  consensus. Attaching it to an input worth more than `C` is valid by
+  consensus and burns the difference to fees, but under the zero-value
+  ephemeral anchor of [C-A2] it is not standard: a transaction with a dust
+  output must pay no fee (Bitcoin Core's ephemeral-dust policy), so an
+  update bound to a funding output of `C + 1` is one no default node
+  relays, and neither party can repair it
+  without the other's signature. The funding output's value is therefore
+  not a matter of indifference, which is why 7.9 rule 3 withholds
+  `REWRITE_h`'s amount-only exemption from a `SEQ_FINAL` leaf: without it
+  the operator alone could raise a channel leaf's capacity by one satoshi
+  and strand every pre-signed state at the relay layer
+  (`design/audit/protocol.md`, A1).
 
 `SEL_CHAN_SET` does commit `INPUT_AMOUNT` and `INPUT_SCRIPTPUBKEY`. The
 scriptPubKey commitment is what pins a settlement transaction to the update
@@ -882,7 +891,9 @@ this requires no protocol change:
 | FULL | `0xFFFFFFFF` | `4294967295 + 1` is 5 bytes under BIP-441 unsigned numerics |
 | MID | `0x7FFFFFFF` | `2147483647 + 1` is 5 bytes as a `CScriptNum` |
 
-Setting `seq` this way is consistent with 5.2's "`seq` MUST NOT wrap".
+Setting `seq` this way is consistent with 5.2's "`seq` MUST NOT wrap", and
+it is also what keeps the owner's signature on every `REWRITE_h` change to
+the leaf, including an amount increase (7.9 rule 3, C.2.4).
 Alternatively the tree's taptree may simply omit `CLAIM`, which is visible in
 `m`; a counterparty MUST verify one of the two before accepting a leaf as a
 channel leaf. The `seq` marker is preferred because it is per leaf and leaves

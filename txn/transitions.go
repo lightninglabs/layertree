@@ -511,11 +511,13 @@ type carveStack func(claimPath, sourcePath [][]byte, source *tree.Leaf,
 	rootHash, merkleRoot [32]byte) ([][]byte, []SigSlot)
 
 // buildCarve is the shared body of CLAIM, CLAIM^h and SPLIT (spec 7.5 rules
-// 2 to 5). Step 1 lowers the source leaf by the claim's amount and advances
+// 2 to 6). Step 1 lowers the source leaf by the claim's amount and advances
 // its seq, emptying the position if nothing is left; step 2 places the
 // claim leaf at a position that is empty after step 1. The total is
-// conserved, and the claim leaf keeps the source's evictor and a lease no
-// longer than the source's, so eviction holds per balance.
+// conserved, the claim leaf keeps the source's evictor and a lease no
+// longer than the source's, so eviction holds per balance, and neither the
+// claim leaf nor a non-zero residual is below tree.DustMin, so no carve
+// leaves a leaf that only a non-standard transaction can remove.
 func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	name string, assemble carveStack, opts *TxOpts) (*Spend, *tree.Tree,
 	error) {
@@ -538,6 +540,15 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 		return nil, nil, fmt.Errorf("txn: the claim leaf's evict_after "+
 			"%d is later than the source's %d (spec 7.5 rule 5)",
 			claim.EvictAfter, src.EvictAfter)
+	case claim.Amount < tree.DustMin:
+		return nil, nil, fmt.Errorf("txn: the claim leaf's amount %d is "+
+			"below DUST_MIN %d (spec 7.5 rule 6)", claim.Amount,
+			tree.DustMin)
+	case src.Amount-claim.Amount > 0 &&
+		src.Amount-claim.Amount < tree.DustMin:
+		return nil, nil, fmt.Errorf("txn: the carve leaves a residual of "+
+			"%d, below DUST_MIN %d (spec 7.5 rule 6)",
+			src.Amount-claim.Amount, tree.DustMin)
 	}
 	if err := st.checkPos(claimPos, claim); err != nil {
 		return nil, nil, err

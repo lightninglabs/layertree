@@ -161,6 +161,14 @@ def test_split(depth, verbose=True):
     greedy = carve_of(alice, "greedy", alice.amount + 1)
     g, w_ = build(greedy, 3)
     expect_fail(lambda: run(g[0], w_), "min: SPLIT over-split underflow")
+    # 7.5 rule 6: the new leaf is at least DUST_MIN and the residual is zero
+    # (the full drain above) or at least DUST_MIN
+    for label, amt in (("one satoshi", 1), ("zero satoshis", 0), ("a one-satoshi residual", alice.amount - 1)):
+        g, w_ = build(carve_of(alice, f"dust{amt}", amt), 3)
+        expect_fail(lambda: run(g[0], w_), f"min: SPLIT of {label} (7.5 rule 6)")
+    g, w_ = build(carve_of(alice, "floor", lt.DUST_MIN), 3)
+    run(g[0], w_)
+    check(True, "min: SPLIT of exactly DUST_MIN succeeds")
     # 7.5 rule 5: the new leaf keeps alice's evictor (NUMS) and lease (0)
     g, w_ = build(mk_leaf("escape", 200_000, op_pk, alice.evict_after), 3)
     expect_fail(lambda: run(g[0], w_), "min: SPLIT into a leaf with another evictor key than its source")

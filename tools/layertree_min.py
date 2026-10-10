@@ -104,7 +104,7 @@ def sighash_tail():
     return s
 
 
-def split_script(depth):
+def split_script(depth, dust_min=lt.DUST_MIN):
     """SPLIT (spec 7.5.2), dense: CLAIM authorised by the owner's transaction
     signature. The authorisation and both steps are the MID tier's
     (layertree_mid.carve_source and carve_claim); what changes is how the
@@ -121,7 +121,7 @@ def split_script(depth):
     s = ["OP_2DUP"] + F.tree_spk_min() + ["OP_TOALTSTACK",          # .. osig r m       | spk0
          "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK",     # .. osig m         | spk0 m r
          "OP_DROP", M.CARVE_OWNER_DEPTH, "OP_PICK", "OP_CHECKSIGVERIFY"]   # src(10) new(10) extras(13)
-    s += M.carve_source(depth)                                       # T oh os nh ns     | spk0 m new amt_c r
+    s += M.carve_source(depth, dust_min=dust_min)                    # T oh os nh ns     | spk0 m new amt_c r
     # as MID check_old, but the input amount is kept for the message
     s += ["OP_2SWAP"] + roll(6, 2) + M.le64()                        # T nh ns oh S8
     s += ["OP_SWAP", "OP_FROMALTSTACK", "OP_EQUALVERIFY",            # T nh ns S8        | spk0 m new amt_c

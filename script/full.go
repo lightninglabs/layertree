@@ -63,6 +63,11 @@ var (
 
 	// fullEnc0 is enc64(0), the encoded sum of an empty node.
 	fullEnc0 = tree.Enc64(0)
+
+	// fullSeqFinal is the FULL tier's non-claimable marker SEQ_FINAL
+	// (spec 5.2) as the le32 seq field: REWRITE_h's amount-only
+	// exemption (7.9 rule 3) does not reach a leaf carrying it.
+	fullSeqFinal = tree.Le32(0xFFFFFFFF)
 )
 
 // Leaf field offsets and lengths (spec 5.2).
@@ -574,7 +579,9 @@ func FullSplitScript(depth int, sparse bool) []Token {
 // fullCarveLeafRules opens every carve body: [src claim] -> [src claim],
 // both leaves 116 bytes, and the claim leaf no easier to keep than the
 // source (spec 7.5 rule 5): its evictor_key equals the source's and its
-// evict_after is no later. Shared with the CCV tier
+// evict_after is no later. The claim leaf's amount is at least DUST_MIN
+// (7.5 rule 6), since a leaf below the dust threshold can be removed only
+// by a transaction no default node relays. Shared with the CCV tier
 // (tools/layertree_scripts.py carve_leaf_rules).
 func fullCarveLeafRules() []Token {
 	return []Token{
@@ -587,6 +594,22 @@ func fullCarveLeafRules() []Token {
 		Op(ts.OP_2DUP), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
 		Op(ts.OP_SWAP), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
 		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // claim.evict_after <= src.evict_after
+		Num(int64(tree.DustMin)), Op(ts.OP_OVER), Num(8), Op(OP_LEFT),
+		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // DUST_MIN <= claim.amount
+	}
+}
+
+// fullDrainRule: [T oh os nh ns] -> [T oh os nh' ns], the drained-source
+// rule of spec 7.5 rule 2 with the residual floor of rule 6: a residual of
+// zero makes the new node E_0, any other residual is at least DUST_MIN. The
+// tokens are numerics-neutral (ns is a number in every tier), so the MID,
+// MIN and CCV carves share them (tools/layertree_scripts.py drain_rule).
+func fullDrainRule() []Token {
+	return []Token{
+		Op(ts.OP_DUP), Op(ts.OP_NOT), Op(ts.OP_IF), Op(ts.OP_SWAP),
+		Op(ts.OP_DROP), Data(fullEmptyLeafHash), Op(ts.OP_SWAP),
+		Op(ts.OP_ELSE), Num(int64(tree.DustMin)), Op(ts.OP_OVER),
+		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), Op(ts.OP_ENDIF),
 	}
 }
 
@@ -690,12 +713,8 @@ func fullCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
 		},
 		fullLeafAcc(), // T new_src oh os
 		[]Token{Op(ts.OP_ROT)},
-		fullLeafAcc(), // T oh os nh ns
-		[]Token{
-			Op(ts.OP_DUP), Op(ts.OP_NOT), Op(ts.OP_IF), Op(ts.OP_SWAP),
-			Op(ts.OP_DROP), Data(fullEmptyLeafHash), Op(ts.OP_SWAP),
-			Op(ts.OP_ENDIF), // a drained source becomes E_0
-		},
+		fullLeafAcc(),   // T oh os nh ns
+		fullDrainRule(), // a drained source becomes E_0, else ns >= DUST_MIN
 		fullLevels(sparse, depth, 0),
 		fullCheckOldRootFromAlt(sparse), // T nh1 ns1 | m claim
 		[]Token{
@@ -889,14 +908,17 @@ func fullRewriteStep(d int, exitConsent bool) []Token {
 			Op(ts.OP_IF), // old is a leaf?
 			Op(ts.OP_DUP), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
 			Op(ts.OP_IF), // new is a leaf: rewrite
-			// Exempt from the owner signature iff new[8:] == old[8:] and
-			// old.amount <= new.amount.
+			// Exempt from the owner signature iff new[8:] == old[8:],
+			// old.amount <= new.amount and old.seq != SEQ_FINAL (7.9 rule
+			// 3); same_rest makes new.seq equal old.seq.
 			Op(ts.OP_2DUP), Num(fullOffExitKey), Num(fullLeafLen - fullOffExitKey),
 			Op(OP_SUBSTR),
 			Op(ts.OP_SWAP), Num(fullOffExitKey), Num(fullLeafLen - fullOffExitKey),
 			Op(OP_SUBSTR), Op(ts.OP_EQUAL), // old new same_rest
 			Op(ts.OP_IF), Op(ts.OP_2DUP), Op(ts.OP_SWAP), Num(8), Op(OP_LEFT),
 			Op(ts.OP_SWAP), Num(8), Op(OP_LEFT), Op(ts.OP_LESSTHANOREQUAL),
+			Op(ts.OP_OVER), Num(4), Op(OP_RIGHT), Data(fullSeqFinal),
+			Op(ts.OP_EQUAL), Op(ts.OP_NOT), Op(ts.OP_BOOLAND),
 			Op(ts.OP_ELSE), Op(ts.OP_0), Op(ts.OP_ENDIF), // old new exempt
 			Op(ts.OP_NOTIF),
 		},

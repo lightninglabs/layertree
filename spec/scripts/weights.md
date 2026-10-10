@@ -25,35 +25,35 @@ The difference column is measured minus model. For a row whose shape is the mode
 | FULL/D | 16 | JOIN_0 | 2017 | 826 | 39 | 3918 | 980 | 42 | 990 | -296 | 3664 | 916 | -64 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/D | 16 | JOINK_2 | 3545 | 1525 | 73 | 6145 | 1537 | 76 | 1556 | -296 | 5925 | 1482 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/D | 16 | UPDATE | 2137 | 1080 | 40 | 4292 | 1073 | 43 | 1084 | -296 | 4039 | 1010 | -63 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| FULL/D | 16 | CLAIM | 3859 | 1690 | 71 | 6624 | 1656 | 74 | 1675 | -296 | 6402 | 1601 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| FULL/D | 16 | CLAIM | 3874 | 1690 | 71 | 6639 | 1660 | 74 | 1679 | -296 | 6417 | 1605 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/D | 16 | EXIT_2 | 3747 | 1741 | 74 | 6563 | 1641 | 77 | 1660 | 48 | 6688 | 1672 | +31 | 2 in / 3 out (3 P2TR, 0 P2WPKH) |
 | FULL/D | 16 | EXIT_1 (terminal) | 2101 | 0 | 39 | 3176 | 794 | 42 | 805 | -172 | 3947 | 987 | +193 | 2 in / 2 out (1 P2TR, 1 P2WPKH); witness data 901 B, model row says 0 |
 | FULL/D | 16 | UPDATE_X | 2144 | 1144 | 41 | 4363 | 1091 | 44 | 1102 | -296 | 4111 | 1028 | -63 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| FULL/D | 16 | CLAIM_H | 3867 | 1722 | 72 | 6664 | 1666 | 75 | 1685 | -296 | 6443 | 1611 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| FULL/D | 16 | SPLIT | 3750 | 1674 | 71 | 6499 | 1625 | 74 | 1644 | -296 | 6277 | 1570 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| FULL/D | 16 | CLAIM_H | 3882 | 1722 | 72 | 6679 | 1670 | 75 | 1689 | -296 | 6458 | 1615 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| FULL/D | 16 | SPLIT | 3765 | 1674 | 71 | 6514 | 1629 | 74 | 1647 | -296 | 6292 | 1573 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/S | 32 | EXIT_1 (owner) | 5147 | 326 | 39 | 6548 | 1637 | 42 | 1648 | 0 | 6590 | 1648 | +11 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | FULL/S | 32 | EXIT_1 (evict) | 5147 | 327 | 39 | 6549 | 1638 | 42 | 1648 | -124 | 6467 | 1617 | -21 | 2 in / 2 out (2 P2TR, 0 P2WPKH) |
 | FULL/S | 32 | JOIN_0 | 5131 | 367 | 38 | 6573 | 1644 | 41 | 1654 | -296 | 6318 | 1580 | -64 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/S | 32 | JOINK_2 | 9773 | 606 | 71 | 11454 | 2864 | 74 | 2882 | -296 | 11232 | 2808 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/S | 32 | UPDATE | 5347 | 547 | 40 | 6969 | 1743 | 43 | 1753 | -296 | 6716 | 1679 | -64 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| FULL/S | 32 | CLAIM | 9953 | 688 | 71 | 11716 | 2929 | 74 | 2948 | -296 | 11494 | 2874 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| FULL/S | 32 | CLAIM | 9968 | 688 | 71 | 11731 | 2933 | 74 | 2952 | -296 | 11509 | 2878 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/S | 32 | EXIT_2 | 9839 | 630 | 74 | 11544 | 2886 | 77 | 2906 | 48 | 11669 | 2918 | +32 | 2 in / 3 out (3 P2TR, 0 P2WPKH) |
 | FULL/S | 32 | EXIT_1 (terminal) | 5147 | 0 | 39 | 6222 | 1556 | 42 | 1566 | -172 | 6336 | 1584 | +28 | 2 in / 2 out (1 P2TR, 1 P2WPKH); witness data 244 B, model row says 0 |
 | FULL/S | 32 | UPDATE_X | 5354 | 611 | 41 | 7040 | 1760 | 44 | 1771 | -296 | 6788 | 1697 | -63 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| FULL/S | 32 | CLAIM_H | 9961 | 515 | 72 | 11551 | 2888 | 75 | 2907 | -296 | 11330 | 2833 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| FULL/S | 32 | SPLIT | 9844 | 483 | 71 | 11402 | 2851 | 74 | 2869 | -296 | 11180 | 2795 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| FULL/S | 32 | CLAIM_H | 9976 | 515 | 72 | 11566 | 2892 | 75 | 2911 | -296 | 11345 | 2837 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| FULL/S | 32 | SPLIT | 9859 | 483 | 71 | 11417 | 2855 | 74 | 2873 | -296 | 11195 | 2799 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | FULL/D | 16 | EVICT_SUBTREE_2 (3 swept) | 2709 | 1051 | 37 | 4835 | 1209 | 40 | 1219 | 344 | 5219 | 1305 | +96 | 2 in / 5 out (4 P2TR, 1 P2WPKH) |
 | FULL/D | 16 | EVICT_SUBTREE_4 (13 swept) | 5281 | 2129 | 45 | 8485 | 2122 | 48 | 2134 | 2064 | 10597 | 2650 | +528 | 2 in / 15 out (14 P2TR, 1 P2WPKH) |
 | FULL/D | 16 | EVICT_SUBTREE_6 (51 swept) | 16097 | 6455 | 89 | 23627 | 5907 | 92 | 5930 | 8600 | 32319 | 8080 | +2173 | 2 in / 53 out (52 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_2 (exit, 4 changed) | 2731 | 1423 | 45 | 5229 | 1308 | 48 | 1320 | 516 | 5793 | 1449 | +141 | 2 in / 6 out (5 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_2 (update, 4 changed) | 2731 | 1887 | 45 | 5693 | 1424 | 48 | 1436 | -172 | 5569 | 1393 | -31 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_2 (mixed, 3 changed) | 2731 | 1643 | 43 | 5449 | 1363 | 46 | 1374 | 0 | 5495 | 1374 | +11 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_4 (exit, 16 changed) | 5336 | 3501 | 77 | 9912 | 2478 | 80 | 2498 | 2580 | 12572 | 3143 | +665 | 2 in / 18 out (17 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_4 (update, 16 changed) | 5336 | 5357 | 77 | 11768 | 2942 | 80 | 2962 | -172 | 11676 | 2919 | -23 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_4 (mixed, 13 changed) | 5336 | 4329 | 70 | 10740 | 2685 | 73 | 2704 | 172 | 10985 | 2747 | +62 | 2 in / 4 out (3 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_6 (exit, 64 changed) | 16444 | 12059 | 217 | 29578 | 7395 | 220 | 7450 | 10836 | 40634 | 10159 | +2764 | 2 in / 66 out (65 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_6 (update, 64 changed) | 16444 | 19483 | 217 | 37002 | 9251 | 220 | 9306 | -172 | 37050 | 9263 | +12 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_6 (mixed, 51 changed) | 16444 | 15139 | 189 | 32658 | 8165 | 192 | 8213 | 1376 | 34226 | 8557 | +392 | 2 in / 11 out (10 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_2 (exit, 4 changed) | 2775 | 1423 | 45 | 5273 | 1319 | 48 | 1331 | 516 | 5837 | 1460 | +141 | 2 in / 6 out (5 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_2 (update, 4 changed) | 2775 | 1887 | 45 | 5737 | 1435 | 48 | 1447 | -172 | 5613 | 1404 | -31 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_2 (mixed, 3 changed) | 2775 | 1643 | 43 | 5493 | 1374 | 46 | 1385 | 0 | 5539 | 1385 | +11 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_4 (exit, 16 changed) | 5512 | 3501 | 77 | 10088 | 2522 | 80 | 2542 | 2580 | 12748 | 3187 | +665 | 2 in / 18 out (17 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_4 (update, 16 changed) | 5512 | 5357 | 77 | 11944 | 2986 | 80 | 3006 | -172 | 11852 | 2963 | -23 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_4 (mixed, 13 changed) | 5512 | 4329 | 70 | 10916 | 2729 | 73 | 2748 | 172 | 11161 | 2791 | +62 | 2 in / 4 out (3 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_6 (exit, 64 changed) | 17148 | 12059 | 217 | 30282 | 7571 | 220 | 7626 | 10836 | 41338 | 10335 | +2764 | 2 in / 66 out (65 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_6 (update, 64 changed) | 17148 | 19483 | 217 | 37706 | 9427 | 220 | 9482 | -172 | 37754 | 9439 | +12 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_6 (mixed, 51 changed) | 17148 | 15139 | 189 | 33362 | 8341 | 192 | 8389 | 1376 | 34930 | 8733 | +392 | 2 in / 11 out (10 P2TR, 1 P2WPKH) |
 | FULL/D | 16 | DETACH_8 | 1548 | 497 | 23 | 3120 | 780 | 26 | 787 | 0 | 3146 | 787 | +7 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | FULL/D | 8 | EXIT_1 from the detached tree (owner) | 1397 | 573 | 23 | 3045 | 762 | 26 | 768 | -124 | 2947 | 737 | -25 | 2 in / 2 out (2 P2TR, 0 P2WPKH) |
 | MID/D | 16 | EXIT_1 (owner) | 3367 | 978 | 167 | 5420 | 1355 | 170 | 1398 | 0 | 5590 | 1398 | +43 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
@@ -61,24 +61,24 @@ The difference column is measured minus model. For a row whose shape is the mode
 | MID/D | 16 | JOIN_2 | 2884 | 794 | 137 | 4753 | 1189 | 140 | 1224 | -296 | 4597 | 1150 | -39 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | JOINK_2 | 5885 | 1637 | 301 | 8597 | 2150 | 306 | 2226 | -296 | 8607 | 2152 | +2 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | UPDATE | 3479 | 1156 | 174 | 5710 | 1428 | 177 | 1472 | -296 | 5591 | 1398 | -30 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| MID/D | 16 | CLAIM | 6512 | 1840 | 330 | 9427 | 2357 | 335 | 2441 | -296 | 9466 | 2367 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/D | 16 | CLAIM | 6526 | 1840 | 330 | 9441 | 2361 | 335 | 2444 | -296 | 9480 | 2370 | +9 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | UPDATE_X | 3483 | 1225 | 175 | 5783 | 1446 | 178 | 1491 | -296 | 5665 | 1417 | -29 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| MID/D | 16 | CLAIM_H | 6520 | 1869 | 331 | 9464 | 2366 | 336 | 2450 | -296 | 9504 | 2376 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| MID/D | 16 | SPLIT | 6353 | 1821 | 330 | 9249 | 2313 | 335 | 2396 | -296 | 9288 | 2322 | +9 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/D | 16 | CLAIM_H | 6534 | 1869 | 331 | 9478 | 2370 | 336 | 2454 | -296 | 9518 | 2380 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/D | 16 | SPLIT | 6367 | 1821 | 330 | 9263 | 2316 | 335 | 2400 | -296 | 9302 | 2326 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | EXIT_1 (owner) | 9402 | 796 | 306 | 11273 | 2819 | 311 | 2896 | 0 | 11584 | 2896 | +77 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | MID/S | 31 | EXIT_1 (evict) | 9402 | 797 | 306 | 11274 | 2819 | 311 | 2897 | -124 | 11461 | 2866 | +47 | 2 in / 2 out (2 P2TR, 0 P2WPKH) |
 | MID/S | 31 | JOIN_0 | 9382 | 783 | 302 | 11240 | 2810 | 307 | 2887 | -296 | 11251 | 2813 | +3 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | JOINK_2 | 18241 | 1433 | 595 | 20749 | 5188 | 600 | 5338 | -296 | 21053 | 5264 | +76 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | UPDATE | 9525 | 1002 | 313 | 11602 | 2901 | 318 | 2980 | -296 | 11624 | 2906 | +5 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| MID/S | 31 | CLAIM | 18582 | 1551 | 608 | 21208 | 5302 | 613 | 5456 | -296 | 21525 | 5382 | +80 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/S | 31 | CLAIM | 18596 | 1551 | 608 | 21222 | 5306 | 613 | 5459 | -296 | 21539 | 5385 | +79 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | UPDATE_X | 9529 | 1032 | 314 | 11636 | 2909 | 319 | 2989 | -296 | 11659 | 2915 | +6 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| MID/S | 31 | CLAIM_H | 18590 | 1446 | 609 | 21111 | 5278 | 614 | 5432 | -296 | 21429 | 5358 | +80 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| MID/S | 31 | SPLIT | 18423 | 1420 | 608 | 20918 | 5230 | 613 | 5383 | -296 | 21235 | 5309 | +79 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/S | 31 | CLAIM_H | 18604 | 1446 | 609 | 21125 | 5282 | 614 | 5435 | -296 | 21443 | 5361 | +79 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/S | 31 | SPLIT | 18437 | 1420 | 608 | 20932 | 5233 | 613 | 5387 | -296 | 21249 | 5313 | +80 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | EVICT_SUBTREE_2 | 4169 | 1157 | 182 | 6401 | 1601 | 185 | 1647 | 344 | 6930 | 1733 | +132 | 2 in / 5 out (4 P2TR, 1 P2WPKH) |
 | MID/D | 16 | EVICT_SUBTREE_4 | 7977 | 2417 | 330 | 11469 | 2868 | 335 | 2951 | 2064 | 13868 | 3467 | +599 | 2 in / 15 out (14 P2TR, 1 P2WPKH) |
 | MID/D | 16 | EVICT_SUBTREE_6 | 24169 | 7461 | 950 | 32705 | 8177 | 955 | 8415 | 8600 | 42260 | 10565 | +2388 | 2 in / 53 out (52 P2TR, 1 P2WPKH) |
 | MIN/D | 16 | EXIT_1 (owner) | 3640 | 1175 | 176 | 5890 | 1473 | 179 | 1518 | 0 | 6069 | 1518 | +45 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
-| MIN/D | 16 | SPLIT | 6637 | 2018 | 339 | 9730 | 2433 | 344 | 2519 | -172 | 9902 | 2476 | +43 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| MIN/D | 16 | SPLIT | 6651 | 2018 | 339 | 9744 | 2436 | 344 | 2522 | -172 | 9916 | 2479 | +43 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 37 | 3629 | 908 | 40 | 918 | 0 | 3669 | 918 | +10 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | CCV/D | 16 | EXIT_1 (evict) | 1716 | 839 | 37 | 3630 | 908 | 40 | 918 | -396 | 3274 | 819 | -89 | 1 in / 2 out (2 P2TR, 0 P2WPKH) |
 | CCV/D | 16 | EXIT_1 (terminal) | 1716 | 837 | 37 | 3628 | 907 | 40 | 917 | -172 | 3496 | 874 | -33 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
@@ -88,9 +88,9 @@ The difference column is measured minus model. For a row whose shape is the mode
 | CCV/D | 16 | EXIT_2 | 3362 | 1677 | 72 | 6114 | 1529 | 75 | 1548 | 48 | 6237 | 1560 | +31 | 2 in / 3 out (3 P2TR, 0 P2WPKH) |
 | CCV/D | 16 | EVICT_SUBTREE_1 | 1962 | 681 | 35 | 3718 | 930 | 38 | 939 | -320 | 3436 | 859 | -71 | 1 in / 3 out (1 P2TR, 2 P2WPKH) |
 | CCV/D | 16 | UPDATE_X | 1759 | 1080 | 39 | 3914 | 979 | 42 | 989 | -296 | 3660 | 915 | -64 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| CCV/D | 16 | SPLIT | 3363 | 1610 | 69 | 6048 | 1512 | 72 | 1530 | -296 | 5824 | 1456 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| CCV/D | 16 | CLAIM | 3472 | 1626 | 69 | 6173 | 1544 | 72 | 1562 | -296 | 5949 | 1488 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| CCV/D | 16 | CLAIM_H | 3480 | 1658 | 70 | 6213 | 1554 | 73 | 1572 | -296 | 5990 | 1498 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/D | 16 | SPLIT | 3378 | 1610 | 69 | 6063 | 1516 | 72 | 1534 | -296 | 5839 | 1460 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/D | 16 | CLAIM | 3487 | 1626 | 69 | 6188 | 1547 | 72 | 1565 | -296 | 5964 | 1491 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/D | 16 | CLAIM_H | 3495 | 1658 | 70 | 6228 | 1557 | 73 | 1576 | -296 | 6005 | 1502 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | EXIT_1 (owner) | 4762 | 262 | 37 | 6099 | 1525 | 40 | 1535 | 0 | 6139 | 1535 | +10 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | CCV/S | 32 | EXIT_1 (evict) | 4762 | 263 | 37 | 6100 | 1525 | 40 | 1535 | -396 | 5744 | 1436 | -89 | 1 in / 2 out (2 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | EXIT_1 (terminal) | 4762 | 180 | 37 | 6017 | 1505 | 40 | 1515 | -172 | 5885 | 1472 | -33 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
@@ -99,9 +99,9 @@ The difference column is measured minus model. For a row whose shape is the mode
 | CCV/S | 32 | UPDATE | 4962 | 483 | 38 | 6520 | 1630 | 41 | 1641 | -296 | 6265 | 1567 | -63 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | EXIT_2 | 9454 | 566 | 72 | 11095 | 2774 | 75 | 2793 | 48 | 11218 | 2805 | +31 | 2 in / 3 out (3 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | UPDATE_X | 4969 | 547 | 39 | 6591 | 1648 | 42 | 1659 | -296 | 6337 | 1585 | -63 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| CCV/S | 32 | SPLIT | 9457 | 419 | 69 | 10951 | 2738 | 72 | 2756 | -296 | 10727 | 2682 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| CCV/S | 32 | CLAIM | 9566 | 419 | 69 | 11060 | 2765 | 72 | 2783 | -296 | 10836 | 2709 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
-| CCV/S | 32 | CLAIM_H | 9574 | 451 | 70 | 11100 | 2775 | 73 | 2794 | -296 | 10877 | 2720 | -55 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/S | 32 | SPLIT | 9472 | 419 | 69 | 10966 | 2742 | 72 | 2760 | -296 | 10742 | 2686 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/S | 32 | CLAIM | 9581 | 419 | 69 | 11075 | 2769 | 72 | 2787 | -296 | 10851 | 2713 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/S | 32 | CLAIM_H | 9589 | 451 | 70 | 11115 | 2779 | 73 | 2797 | -296 | 10892 | 2723 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 
 ## Per-exit prefix overhead, EXIT_1 (owner), dense D = 16
 
@@ -123,12 +123,12 @@ The measured transaction divided by the leaves that leave or change (`EVICT_SUBT
 | EVICT_SUBTREE_2 (3 swept) | 3 | 1305 | 435.0 | 431.7 |
 | EVICT_SUBTREE_4 (13 swept) | 13 | 2650 | 203.8 | 202.9 |
 | EVICT_SUBTREE_6 (51 swept) | 51 | 8080 | 158.4 | 158.0 |
-| REWRITE_2 (exit, 4 changed) | 4 | 1449 | 362.2 | 359.2 |
-| REWRITE_2 (update, 4 changed) | 4 | 1393 | 348.2 | 356.0 |
-| REWRITE_2 (mixed, 3 changed) | 3 | 1374 | 458.0 | 454.3 |
-| REWRITE_4 (exit, 16 changed) | 16 | 3143 | 196.4 | 195.2 |
-| REWRITE_4 (update, 16 changed) | 16 | 2919 | 182.4 | 183.9 |
-| REWRITE_4 (mixed, 13 changed) | 13 | 2747 | 211.3 | 209.8 |
-| REWRITE_6 (exit, 64 changed) | 64 | 10159 | 158.7 | 157.9 |
-| REWRITE_6 (update, 64 changed) | 64 | 9263 | 144.7 | 144.5 |
-| REWRITE_6 (mixed, 51 changed) | 51 | 8557 | 167.8 | 166.8 |
+| REWRITE_2 (exit, 4 changed) | 4 | 1460 | 365.0 | 362.0 |
+| REWRITE_2 (update, 4 changed) | 4 | 1404 | 351.0 | 358.8 |
+| REWRITE_2 (mixed, 3 changed) | 3 | 1385 | 461.7 | 458.0 |
+| REWRITE_4 (exit, 16 changed) | 16 | 3187 | 199.2 | 197.9 |
+| REWRITE_4 (update, 16 changed) | 16 | 2963 | 185.2 | 186.6 |
+| REWRITE_4 (mixed, 13 changed) | 13 | 2791 | 214.7 | 213.2 |
+| REWRITE_6 (exit, 64 changed) | 64 | 10335 | 161.5 | 160.6 |
+| REWRITE_6 (update, 64 changed) | 64 | 9439 | 147.5 | 147.3 |
+| REWRITE_6 (mixed, 51 changed) | 51 | 8733 | 171.2 | 170.3 |

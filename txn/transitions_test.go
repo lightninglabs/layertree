@@ -538,48 +538,48 @@ func allCases() []txCase {
 // pythonSighash is the BIP-341 digest tools/script_sim.py computes for each
 // case's transaction; see the comment at the top of this file.
 var pythonSighash = map[string]string{
-	"FULL/D/D16/CLAIM":              "54756f4f1ee0da0844bbbe9ff3a5a6ad488258181c71ca1babac2565d1c1decf",
-	"FULL/D/D16/CLAIM drain":        "07ed6946f663888232eb0b376c2e617132dc85477ead6b43ff8be87ace550543",
-	"FULL/D/D16/CLAIM_H":            "365ed6234a2e23e022390a176366e14f118af6b0c283d30f956882e23b4625e6",
-	"FULL/D/D16/EVICT_SUBTREE_2":    "6b566ea16527b6295a4be6fd6365887073bdde9f6ac8200077dc9c1cd3e92872",
-	"FULL/D/D16/EVICT_SUBTREE_4":    "3a880d0e746cde7939ad66667e5cce7b170a89dd140e97b8e0362610f84f5933",
-	"FULL/D/D16/EXIT_1 evict":       "1bdcd2a3669c20a13d2928a63aa99a4b31a60551c72892f987c2bd04ed42f7b7",
-	"FULL/D/D16/EXIT_1 owner":       "bf1f76c5c73acc8899c61db7d4cafc0b5be18da9e904f6fa732e94f036c61a7e",
-	"FULL/D/D16/EXIT_1 terminal":    "c5295b497559d1491b0029faf3c94a171de8bc18512b3389afc9b14821e880b0",
-	"FULL/D/D16/EXIT_2 owner+evict": "04e18a962aaa154fc2302a7e56a2818aa2887e64c3b49a302a79f982d78374fa",
-	"FULL/D/D16/JOINK_2":            "fa6fd630580bc8f2ca07f7138a6590f412df02be0ead845ccff5bbfc249c7cea",
-	"FULL/D/D16/JOIN_0":             "55288246c6242bcb33b7214c11c82faa0fa8a24d4b76a032d537465490445ba2",
-	"FULL/D/D16/JOIN_2":             "b905bad23e173aa43e99166c1242ec906fa4c431a19dcde511b8f285f341d311",
-	"FULL/D/D16/SPLIT":              "40a0f0085532d6e1b0be13fa521efd3a9ef264d92db587fef7ca046d61fe85f4",
-	"FULL/D/D16/UPDATE":             "30ed8fd25b1df275dea4bc5566876c40c80c059ec9135a5cc31bbfe1f5337dad",
-	"FULL/D/D16/UPDATE_X":           "b129108be7971e85a46c80afd8084d16c4588fa51f9d531135fe32b24b856a2f",
-	"FULL/D/D4/CLAIM":               "25735f3d5e2b12132d8df77a47200d4b161768b435f9a82294b59cd1d8765992",
-	"FULL/D/D4/CLAIM drain":         "8ccabcaa9c9f21632979cdef3e2737ceb30cc8b99bc0d103847b664a71a7002d",
-	"FULL/D/D4/CLAIM_H":             "11de99baf14f3127db503131d60dfe14a526faf0455777a853cf49159a2f1d6f",
-	"FULL/D/D4/EVICT_SUBTREE_2":     "7015e6b9da699f26c404551710ee0c8e7edf5dc7a509f6f94e4c543371b2d0a2",
-	"FULL/D/D4/EVICT_SUBTREE_4":     "c4bdd981ced24ec277664e3df88697a6cc358caf235d3d0f806b392227477f17",
-	"FULL/D/D4/EXIT_1 evict":        "0f900543752896f6774e05571b6c68d7da5356e22a87458de132746922779f5a",
-	"FULL/D/D4/EXIT_1 owner":        "68ddfdcb92c6433316647b791dc2213627820a65d75415f838a46cde907ef5fe",
-	"FULL/D/D4/EXIT_1 terminal":     "62198908e52cadd19a929486de9491efbba1046982548e1837e402e3271d166c",
-	"FULL/D/D4/EXIT_2 owner+evict":  "adbd763b0704755c4f0bb33581be87bb8653319fe2335b16da0e97ced053b654",
-	"FULL/D/D4/JOINK_2":             "41f295c233afcd3239b7f206b94d70f40052d812316f908689bbd105615816cb",
-	"FULL/D/D4/JOIN_0":              "c218de4b71fd2e9ced037c338d6ba12bb2cc4fa73a3be2534d55cc8cf77f5191",
-	"FULL/D/D4/JOIN_2":              "83922e516251a776e2e60c10990f7d92b18ed200fab3316520901790c8e3c8bf",
-	"FULL/D/D4/SPLIT":               "2b675f2564db177a6b3b5e174068fa83d3d94d6cce9b1b18378b97c8cfa6d6e9",
-	"FULL/D/D4/UPDATE":              "415f16b0d5614be7b1a534ef522c0f9c350587012dd4532770981a38d6008a79",
-	"FULL/D/D4/UPDATE_X":            "e83bb578ef4d62dc5254e69a9a85daeb020a10c0107f4d737dc8a369c279b058",
-	"FULL/S/D8/CLAIM":               "643efd96fef391bb3529702b0199b3344a573b05b2ae0181a946030fbb291329",
-	"FULL/S/D8/CLAIM drain":         "228f1e5342784bef274ccdad7d93c1722706720388ee9f5594159fc4b644c13a",
-	"FULL/S/D8/CLAIM_H":             "17c1431d8529abf0f17acc22fca204532fce402d13c266f27c73741490022683",
-	"FULL/S/D8/EXIT_1 evict":        "6d1b149f4908a4d5e03fb7eed037b15cf1e151ab5201e879f5eafe21615ca918",
-	"FULL/S/D8/EXIT_1 owner":        "dede1619a39785048fda3ca5adebac0a61a926ecc1a7ba535bbc983da7e35564",
-	"FULL/S/D8/EXIT_1 terminal":     "dc656c1c9608bec950a559133e393cc54b60b75655d26234122076371f50581f",
-	"FULL/S/D8/EXIT_2 owner+evict":  "3fbcd994e0a92650dd5deba4874d99be476b46f9798e960df144211bf7c5d7b7",
-	"FULL/S/D8/JOINK_2":             "a26a6ffc26e2c8338cf84f679b1d70a67abd13420eff14b10fed1a8e29025d9b",
-	"FULL/S/D8/JOIN_0":              "21c452a387fe4344f366861ad4620b0e2f6526251aef0ae0999b228218d5247c",
-	"FULL/S/D8/SPLIT":               "b3c0d444ee0c633b5f15f0f4fd9afa01216e35d4c8abdb115f3dcabb1f78e7ba",
-	"FULL/S/D8/UPDATE":              "b5230b111ea1c27a5388ef23829ff20b2eecd8dda51d795e9b80dd5bef1b1a24",
-	"FULL/S/D8/UPDATE_X":            "9e1efed547bdb750ca7b5448bea5cf4beaf2d922ce6b9d13af51c744ffcf40c0",
+	"FULL/D/D16/CLAIM":              "73c981f2e589ba78505254d95dcc91538ede17acba962afceb004781cac2a4fd",
+	"FULL/D/D16/CLAIM drain":        "586d68da4aec87911b6a7c0b672cada17d83411d9c27711823168c02cc9ebeb8",
+	"FULL/D/D16/CLAIM_H":            "28b74b62d83ad060bc086ce479bfaefcdae89fcd96e010228351e9db35a768a5",
+	"FULL/D/D16/EVICT_SUBTREE_2":    "f040c9afe7870fd7c1c3f1c636d39c7b15acd8b2471c7c9113fd282d843675b1",
+	"FULL/D/D16/EVICT_SUBTREE_4":    "f82b9245bb52c87d6956fab817a52e3f1e26502f579d9aec7fc86c1a65e02137",
+	"FULL/D/D16/EXIT_1 evict":       "29d028b4580f662f56ff5fe46645eff034a77df9f577ee4617e498bdca350c8b",
+	"FULL/D/D16/EXIT_1 owner":       "f42dbba5a5f59d300b7405014e59fd3802270c429a4aa3b35126f3810fdcfba4",
+	"FULL/D/D16/EXIT_1 terminal":    "60d208a09f18ec2b1e5161ee3b70f452b2173370e7c5b6766b1df88437dce826",
+	"FULL/D/D16/EXIT_2 owner+evict": "14f39cc331096a30cc23d77b20ab4059c54d4d687583db3832d204f4a011505f",
+	"FULL/D/D16/JOINK_2":            "22729d0a12a49869e27ec937d357b794a6d04ff389d7a0e6cd065d2d56dd093f",
+	"FULL/D/D16/JOIN_0":             "f91fe7e956226364b9755e1aa993377a25dda6d675c2c6a4d0bb3ced3c961768",
+	"FULL/D/D16/JOIN_2":             "85fe28a507d853da30d208a0262882f5f9741323fa402abd60039c2380f67bc0",
+	"FULL/D/D16/SPLIT":              "2dc68955410870feb5adf98cfc32a7880754b9c28627c8608ce95c91229bffd1",
+	"FULL/D/D16/UPDATE":             "2a3501a5d4d241f949f5a41b3731a1af89632d0820db7db1745fe14a46eb1269",
+	"FULL/D/D16/UPDATE_X":           "d375a4f4a736148f2929342a7f767765e1e59f67b32773cff5c2e05987e452d3",
+	"FULL/D/D4/CLAIM":               "a8824b600d5ab37bea96a55dcd4c98167829ab69b26ea66a8e8daac4084cdeaf",
+	"FULL/D/D4/CLAIM drain":         "8cca97e03d11031a15b55deb97ea8ca74cd661b998a1cf8941f5841a6d9950c7",
+	"FULL/D/D4/CLAIM_H":             "b9d189c5603405e063f89f519c7b83de75ae41b8958faa0a8d96c2a31570aa05",
+	"FULL/D/D4/EVICT_SUBTREE_2":     "1be854c05eaf1d69f342a27a53df9bec420fb4af398d4da118ececa740e9c198",
+	"FULL/D/D4/EVICT_SUBTREE_4":     "c5ea2fe56ec4745af217858b7fa48cc70d0894ff512d24b85d3c68f8e9e4cb52",
+	"FULL/D/D4/EXIT_1 evict":        "8f4fa7815ec3f20de47d04b036b236fc925dd74a58864c3c0772f14df54edfca",
+	"FULL/D/D4/EXIT_1 owner":        "2da79fd6c9fa2a7da03b091e4c3d2f62655fae5beb6bf08a7b1bfea92db446e9",
+	"FULL/D/D4/EXIT_1 terminal":     "5b0d36c4beab9386a7bac57041a362fa1dc6663b48bb3d7dc71f1152ef9213ff",
+	"FULL/D/D4/EXIT_2 owner+evict":  "73f44f06344f483e3f368529d357518f504fca1bb50b1247602c92cff3c3072b",
+	"FULL/D/D4/JOINK_2":             "18fc7128bffeff7c48872a55df392915d55de44b895416d601b450be3ad75a47",
+	"FULL/D/D4/JOIN_0":              "2a7a783552abcfcea5fb5f09cf095fdb72d842eae1527a0fe4d41223f8daed1f",
+	"FULL/D/D4/JOIN_2":              "cd29c3b3449ae741684a50dca4f894311d877c4974e5cf4ea21190f60fb74385",
+	"FULL/D/D4/SPLIT":               "57bf72ae39a598c4cbdd81fddea1b30cac03d524aa83c03089ba6101a10645c1",
+	"FULL/D/D4/UPDATE":              "0999ea497177755a136cf8e1912712ff100fa754e1e1768e6de05d78442482dc",
+	"FULL/D/D4/UPDATE_X":            "583bfca4aa4f8947be77805051575ea714d3eaae261c73cf8da1ee03a4c6a4c6",
+	"FULL/S/D8/CLAIM":               "4cb2f98f1770b5f57ab56df725711f50f4f92baff9bac54e53d4697a7fc27232",
+	"FULL/S/D8/CLAIM drain":         "79a6cbf06c0f87ced18de5f83d8f0b9794ad8e131f895afccfc1d8328c4c0571",
+	"FULL/S/D8/CLAIM_H":             "69f5d4708e4a1962cb959a4d9fe21f668d6e381f52fa5200816786bb8cb027b9",
+	"FULL/S/D8/EXIT_1 evict":        "590c70f75a01deba293abf21334501670adfb0de838219c29b540998e77d3b27",
+	"FULL/S/D8/EXIT_1 owner":        "44fb950ba3ce933f8f3660cd0709918c8da0d257a93dbe254687f6bed051fed9",
+	"FULL/S/D8/EXIT_1 terminal":     "5d1511a29eff07af42dc57373e8f9a9ec9c343a7ebb6164ee9d1c2d86f62a257",
+	"FULL/S/D8/EXIT_2 owner+evict":  "58728f5705a9b6d8b9b3db346a37fdfb788a2860639549815736ddccbe45b7dd",
+	"FULL/S/D8/JOINK_2":             "bb24be2851385057450075fc792947106ec6271b2350933a68779ebde01981fe",
+	"FULL/S/D8/JOIN_0":              "8448c92b31cc4f092956bceaf0a9069f1dea464201a9a08bee0563c1f34af735",
+	"FULL/S/D8/SPLIT":               "ad1287437a83fd876895cca19f289af0e3af0bd009f1c951668ccabcb6345083",
+	"FULL/S/D8/UPDATE":              "162b2bc4dbd5fb40043de7c4b47e6d1b4fcb01e741ecf73c07a74c46947b46b1",
+	"FULL/S/D8/UPDATE_X":            "cf3ec3a338f9da0633d4f933affaa562a17541f19aced4a00691604084aa5829",
 }
 
 // dumpCase is one case as LAYERTREE_TXN_DUMP writes it.
@@ -884,6 +884,24 @@ func TestBuilderRejects(t *testing.T) {
 			greedy := w.mkLeaf("greedy", alice.Amount+1, nil, 0)
 			_, _, err := BuildClaim(w.st, sAlice, 3, greedy,
 				make([]byte, 64), &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		name: "claim below DUST_MIN",
+		build: func(w *world) error {
+			_, _, _, sAlice, _, _ := w.base()
+			dust := w.mkLeaf("dust", tree.DustMin-1, nil, 0)
+			_, _, err := BuildClaim(w.st, sAlice, 3, dust,
+				make([]byte, 64), &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		name: "split leaving a residual below DUST_MIN",
+		build: func(w *world) error {
+			alice, _, _, sAlice, _, _ := w.base()
+			most := w.mkLeaf("most", alice.Amount-1, nil, 0)
+			_, _, err := BuildSplit(w.st, sAlice, 3, most,
+				&TxOpts{Inputs: w.fee(600)})
 			return err
 		},
 	}, {

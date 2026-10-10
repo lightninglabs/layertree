@@ -232,7 +232,7 @@ An operator holding outstanding vouchers from Lightning receives can put
 every recipient's claim leaf into the next cohort, and each recipient
 checks their path against the confirmed root as an off-chain buyer does.
 That settles a batch of credit at about one vbyte per recipient for a
-cohort of a thousand, against 1,652 vbytes for one `CLAIM^h` redemption at
+cohort of a thousand, against 1,656 vbytes for one `CLAIM^h` redemption at
 `D = 16`.
 
 The graft does not void the vouchers it settles. A voucher stays

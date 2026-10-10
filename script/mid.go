@@ -602,7 +602,12 @@ func midCarveRules() []Token {
 	s = append(s, midPadz()...) // ... le32(sea)
 	return append(s, Num(23), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
 		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK), // sea cea
-		Op(txscript.OP_GREATERTHANOREQUAL), Op(txscript.OP_VERIFY)) // sea >= cea
+		Op(txscript.OP_GREATERTHANOREQUAL), Op(txscript.OP_VERIFY), // sea >= cea
+		// The claim amount is the block's amt_num, bound to the amount
+		// field by LEAF_JOIN, so the DUST_MIN floor of 7.5 rule 6 is one
+		// comparison against the constant.
+		Num(int64(tree.DustMin)), Num(10), Op(txscript.OP_PICK),
+		Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_VERIFY)) // DUST_MIN <= claim.amt_num
 }
 
 // midCarveSource is step 1 of CLAIM, CLAIM^h and SPLIT, after the
@@ -662,10 +667,7 @@ func midCarveSourceAlt(depth int, sparse, altR bool) []Token {
 		Op(txscript.OP_CAT))
 	s = append(s, midTagged(midLeafPrefix)...)
 	s = append(s, Op(txscript.OP_SWAP))
-	s = append(s, Op(txscript.OP_DUP), Op(txscript.OP_NOT),
-		Op(txscript.OP_IF), Op(txscript.OP_SWAP), Op(txscript.OP_DROP),
-		Data(midEmptyLeafHash), Op(txscript.OP_SWAP),
-		Op(txscript.OP_ENDIF))
+	s = append(s, fullDrainRule()...) // drained -> E_0, else ns >= DUST_MIN
 	if sparse {
 		s = append(s, midRoll(7, 4)...)
 		s = append(s, midSparseSetup()...)

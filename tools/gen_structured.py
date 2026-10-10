@@ -61,6 +61,7 @@ def full_macros():
           ("TREE_SPK", F.tree_spk()), ("TREE_SPK_MIN", F.tree_spk_min()),
           ("LEAF_ACC", F.leaf_acc()), ("LEAF_POS", F.leaf_pos()),
           ("PROLOGUE", F.prologue()), ("CARVE_RULES", F.carve_leaf_rules()),
+          ("DRAIN_RULE", F.drain_rule()),
           ("LEVEL", F.level_dense()), ("LEVEL_MIN", F.level_min()),
           ("SPARSE_SETUP", F.sparse_setup()), ("SPARSE_TEARDOWN", F.sparse_teardown()),
           ("CHECK_OLD", F.check_old_root_from_alt("D")), ("CHECK_OLD_S", F.check_old_root_from_alt("S")),
@@ -95,7 +96,8 @@ def mid_macros():
           ("SPARSE_SETUP", M.sparse_setup()), ("SPARSE_TEARDOWN", M.sparse_teardown()),
           ("CHECK_OLD", M.check_old(False)), ("CHECK_OLD_S", M.check_old(True)),
           ("CHECK_PREV", M.check_prev(False)), ("CHECK_PREV_S", M.check_prev(True)),
-          ("LEAF_JOIN", M.leaf_join()), ("CARVE_RULES", M.carve_rules())]
+          ("LEAF_JOIN", M.leaf_join()), ("CARVE_RULES", M.carve_rules()),
+          ("DRAIN_RULE", F.drain_rule())]
     t += [("FINAL", M.final(d)) for d in (4, 8, 16, 31, 32)]
     t += [("EVICT_LEAF_STEP", M._evict_leaf_step(OP_KEY))]
     t += [(f"EVICT_HASH_STEP({k})", M._evict_hash_step(k, False)) for k in range(4, 40)]
@@ -117,7 +119,8 @@ def ccv_macros():
           ("SPARSE_SETUP", F.sparse_setup()), ("SPARSE_TEARDOWN", F.sparse_teardown()),
           ("CHECK_PREV", F.check_prev_root_from_alt("D")), ("CHECK_PREV_S", F.check_prev_root_from_alt("S")),
           ("CHECK_OLD", CV.check_old_ccv("D")), ("CHECK_OLD_S", CV.check_old_ccv("S")),
-          ("PROLOGUE_CCV", CV.prologue_ccv()), ("CARVE_RULES", F.carve_leaf_rules())]
+          ("PROLOGUE_CCV", CV.prologue_ccv()), ("CARVE_RULES", F.carve_leaf_rules()),
+          ("DRAIN_RULE", F.drain_rule())]
     t += [(f"LEVEL_S({k})", F.level_sparse(k)) for k in range(0, 64)]
     t += [("FINAL", CV.final_ccv(d)) for d in (4, 8, 12, 16, 20, 32)]
     t += [("LEVEL_MIN", F.level_min()), ("LEAF_STEP", CV.leaf_step_ccv(OP_KEY))]
@@ -132,7 +135,7 @@ def min_macros():
         t.append((f"TAGGED({tag})", M.tagged(pre)))
     t += [("NONNEG", M.nonneg()), ("PADZ", M.padz()), ("LE64", M.le64()), ("TREE_SPK_MIN", F.tree_spk_min()),
           ("LEVEL_MID", M.level(False)), ("LEAF_JOIN", M.leaf_join()),
-          ("CARVE_RULES", M.carve_rules())]
+          ("CARVE_RULES", M.carve_rules()), ("DRAIN_RULE", F.drain_rule())]
     return [(n, words(x, "c0")) for n, x in t]
 
 
@@ -262,7 +265,8 @@ MIN = min_macros()
 
 NOTES_FULL = {
     "TAGGED": "[msg] -> [H_tag(msg)]",
-    "CARVE_RULES": "[src claim] -> [src claim]: both 116 bytes, claim.evictor_key == src.evictor_key, claim.evict_after <= src.evict_after (7.5 rule 5)",
+    "CARVE_RULES": "[src claim] -> [src claim]: both 116 bytes, claim.evictor_key == src.evictor_key, claim.evict_after <= src.evict_after (7.5 rule 5), claim.amount >= DUST_MIN (7.5 rule 6)",
+    "DRAIN_RULE": "[.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6)",
     "PAD8": "[n] -> [enc64(n)]: minimal encoding of n + 2^64 is le64(n)||01",
     "LE64": "[n] -> [le64(n)]",
     "PAD4": "[n] -> [le32(n)]",
@@ -292,7 +296,8 @@ NOTES_FULL = {
 }
 NOTES_MID = {
     "TAGGED": "[msg] -> [H_tag(msg)]",
-    "CARVE_RULES": "[src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ (7.5 rule 5)",
+    "CARVE_RULES": "[src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ (7.5 rule 5), and claim.amt_num >= DUST_MIN (rule 6)",
+    "DRAIN_RULE": "[.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6)",
     "NONNEG": "[x] -> [x]: x == |x|, a minimal non-negative CScriptNum (rejects a negative, a negative zero and a non-minimal encoding)",
     "PADZ": "[x z w] -> [le32(x)]: z||w == 00000000 and size(x)+size(z) == 4",
     "ENC64": "[x z w] -> [enc64(x)]",
@@ -316,7 +321,8 @@ NOTES_MID = {
 
 CCV = ccv_macros()
 NOTES_CCV = {
-    "CARVE_RULES": "[src claim] -> [src claim]: both 116 bytes, claim.evictor_key == src.evictor_key, claim.evict_after <= src.evict_after (7.5 rule 5)",
+    "CARVE_RULES": "[src claim] -> [src claim]: both 116 bytes, claim.evictor_key == src.evictor_key, claim.evict_after <= src.evict_after (7.5 rule 5), claim.amount >= DUST_MIN (7.5 rule 6)",
+    "DRAIN_RULE": "[.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6)",
     "CCV_CHECK_INPUT": "BIP-443 CHECK_INPUT: [data] -> [], binds the old root to the current input under its own taptree",
     "CCV_PAYOUT": "BIP-443 CHECK_OUTPUT|DEDUCT: bare P2TR to leaf.exit_key, deducts from the residual",
     "CHECK_OLD": "the input-amount equality plus one CCV_CHECK_INPUT on the folded old root",

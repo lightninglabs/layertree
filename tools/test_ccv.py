@@ -744,6 +744,26 @@ def test_split_ccv(depth, profile):
     expect_fail(lambda: w.run("SPLIT", w.path_witness(occupied) + w.path_witness(spath) +
                               [alice.serialize(), bob.serialize(), asig], ctx),
                 "SPLIT into an occupied position")
+
+    # 7.5 rule 6: the new leaf is at least DUST_MIN and the residual is zero
+    # (the source position becomes E_0) or at least DUST_MIN
+    def carve(lf):
+        t_c = w.clone(); s_c = w.slot(lf, 3)
+        if lf.amount == alice.amount:
+            del t_c.leaves[s_alice]
+        else:
+            t_c.leaves[s_alice] = alice.with_amount_seq(alice.amount - lf.amount, alice.seq + 1)
+        cp_c = t_c.path(s_c); t_c.leaves[s_c] = lf; r_c = t_c.root()
+        ctx_c = w.ctx([(r_c[1], w.spk(r_c))], extra_in=(600, P2WPKH))
+        return (w.path_witness(cp_c) + w.path_witness(spath) +
+                [alice.serialize(), lf.serialize(), schnorr_sign(ctx_c.sighash(), sk("alice-owner"))]), ctx_c
+    for label, amt in (("one satoshi", 1), ("zero satoshis", 0), ("a one-satoshi residual", alice.amount - 1)):
+        wit_d, ctx_d = carve(carve_of(alice, f"dust{amt}", amt))
+        expect_fail(lambda: w.run("SPLIT", wit_d, ctx_d), f"SPLIT of {label} (7.5 rule 6)")
+    for label, amt in (("exactly DUST_MIN", lt.DUST_MIN), ("the whole balance", alice.amount)):
+        wit_d, ctx_d = carve(carve_of(alice, f"ok{amt}", amt))
+        w.run("SPLIT", wit_d, ctx_d)
+        check(True, f"SPLIT of {label} succeeds")
     # output 0 must still equal ns (= os: a SPLIT moves no value).
     ctxu = w.ctx([(r1[1] - 1, w.spk(r1))], extra_in=(600, P2WPKH))
     expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctxu.sighash(), sk("alice-owner"))], ctxu),
@@ -1138,6 +1158,29 @@ def test_split_ccv0(depth, profile):
         occ = mk("bob", 200_000, alice.evictor_key, alice.evict_after)
         expect_fail(lambda: w.run("SPLIT", head(occ, s_o, src2.node(), alice.amount - occ.amount) + [asig], ctx),
                     "c0: SPLIT into an occupied position")
+
+    # 7.5 rule 6: the new leaf is at least DUST_MIN and the residual is zero
+    # (the source position becomes E_0) or at least DUST_MIN
+    def carve(lf):
+        amt_new = alice.amount - lf.amount
+        t_c = w.clone(); s_c = w.slot(lf, 3)
+        if amt_new == 0:
+            del t_c.leaves[s_a]; cnode = lt.EMPTY_NODE
+        else:
+            src_c = alice.with_amount_seq(amt_new, alice.seq + 1); t_c.leaves[s_a] = src_c; cnode = src_c.node()
+        cp_c = t_c.path(s_c); t_c.leaves[s_c] = lf; r_c = t_c.root()
+        ctx_c = w.ctx([(r_c[1], w.spk(r_c))], (600, P2WPKH))
+        return (list(M.pad(r_c[1])) + M.w_levels(cp_c, lt.EMPTY_NODE, lf.node(), S) + w.pos(lf) +
+                w.pads_for(root[1]) + M.w_levels(spath, alice.node(), cnode, S) + w.pos(alice) +
+                M.w_leaf(alice) + M.w_leaf(lf) + M.w_carve_extras(alice, lf, amt_new=amt_new) +
+                [schnorr_sign(ctx_c.sighash(), sk("alice-owner"))]), ctx_c
+    for label, amt in (("one satoshi", 1), ("zero satoshis", 0), ("a one-satoshi residual", alice.amount - 1)):
+        wit_d, ctx_d = carve(mk(f"dust{amt}", amt, alice.evictor_key, alice.evict_after))
+        expect_fail(lambda: w.run("SPLIT", wit_d, ctx_d), f"c0: SPLIT of {label} (7.5 rule 6)")
+    for label, amt in (("exactly DUST_MIN", lt.DUST_MIN), ("the whole balance", alice.amount)):
+        wit_d, ctx_d = carve(mk(f"ok{amt}", amt, alice.evictor_key, alice.evict_after))
+        w.run("SPLIT", wit_d, ctx_d)
+        check(True, f"c0: SPLIT of {label} succeeds")
     ctxu = w.ctx([(r1[1] - 1, w.spk(r1))], (600, P2WPKH))
     expect_fail(lambda: w.run("SPLIT", h0 + [schnorr_sign(ctxu.sighash(), sk("alice-owner"))], ctxu),
                 "c0: SPLIT with output 0 below ns")
@@ -1275,6 +1318,20 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
         ctx_e = w.ctx([(r_e[1], w.spk(r_e))], (600, P2WPKH))
         expect_fail(lambda: w.run(name, head(w.tree, src, lf, s_o, s_e) + tail(vsig(TREE_ID, src, lf)), ctx_e),
                     f"{tag} claim of a leaf with {label} than its source")
+    # 7.5 rule 6: a sub-dust claim leaf or residual fails; exactly DUST_MIN passes
+    for label, amt in (("one satoshi", 1), ("zero satoshis", 0), ("a one-satoshi residual", src.amount - 1)):
+        lf = mk(f"dust{amt}", amt, src.evictor_key, src.evict_after)
+        s_d = w.slot(lf, 3)
+        t_d = w.clone(); lt.apply_claim(t_d, s_o, s_d, lf); r_d = t_d.root()
+        ctx_d = w.ctx([(r_d[1], w.spk(r_d))], (600, P2WPKH))
+        expect_fail(lambda: w.run(name, head(w.tree, src, lf, s_o, s_d) + tail(vsig(TREE_ID, src, lf)), ctx_d),
+                    f"{tag} claim of {label} (7.5 rule 6)")
+    floor = mk("floor", lt.DUST_MIN, src.evictor_key, src.evict_after)
+    s_fl = w.slot(floor, 3)
+    t_f = w.clone(); lt.apply_claim(t_f, s_o, s_fl, floor); r_f = t_f.root()
+    ctx_f = w.ctx([(r_f[1], w.spk(r_f))], (600, P2WPKH))
+    w.run(name, head(w.tree, src, floor, s_o, s_fl) + tail(vsig(TREE_ID, src, floor)), ctx_f)
+    check(True, f"{tag} claim of exactly DUST_MIN succeeds")
     # wrong signer, other tree_id, FULL-style voucher over m
     expect_fail(lambda: w.run(name, h0 + tail(vsig(TREE_ID, src, frank, "alice-owner")), ctx),
                 f"{tag} wrong signer")
@@ -1366,17 +1423,17 @@ def test_carve_rules_ccv(depth, numeric="c2"):
 
     reset()
     member, s_member = cohort[base], base
-    for label, dust in (("a NUMS evictor", mk_leaf("dust", 1)),
-                        ("a later evict_after", mk_leaf("dust", 1, w.op_pk, 800_001))):
+    for label, dust in (("a NUMS evictor", mk_leaf("dust", lt.DUST_MIN)),
+                        ("a later evict_after", mk_leaf("dust", lt.DUST_MIN, w.op_pk, 800_001))):
         _, wit, ctx = split(member, s_member, dust, "c0-owner")
         expect_fail(lambda: w.run("SPLIT", wit, ctx), f"{tag}: cohort member plants dust with {label}")
-    t1, wit, ctx = split(member, s_member, carve_of(member, "dust", 1), "c0-owner")
+    t1, wit, ctx = split(member, s_member, carve_of(member, "dust", lt.DUST_MIN), "c0-owner")
     w.run("SPLIT", wit, ctx)
     check(True, f"{tag}: a carve that keeps the member's evictor and lease lands in the cohort")
     w.tree = t1
     sweep(True, f"{tag}: EVICT_SUBTREE_2 sweeps the cohort including the carved dust leaf")
     reset()
-    t2, wit, ctx = split(alice, 0, carve_of(alice, "dust", 1), "alice-owner")
+    t2, wit, ctx = split(alice, 0, carve_of(alice, "dust", lt.DUST_MIN), "alice-owner")
     w.run("SPLIT", wit, ctx)
     w.tree = t2
     sweep(False, f"{tag}: a non-evictable member's NUMS dust still blocks the sweep (10.8)")

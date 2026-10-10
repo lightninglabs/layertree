@@ -416,37 +416,38 @@ script / witness data:
 | `JOINK_2` | 3,545 / 1,525 | 5,885 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 18,241 / 1,433 | 9,388 / 542 |
 | `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,962 / 483 |
 | `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,969 / 547 |
-| `CLAIM` | 3,859 / 1,690 | 6,512 / 1,840 | n/a | 3,472 / 1,626 | 9,953 / 688 | 18,582 / 1,551 | 9,566 / 419 |
-| `CLAIM^h` | 3,867 / 1,722 | 6,520 / 1,869 | n/a | 3,480 / 1,658 | 9,961 / 515 | 18,590 / 1,446 | 9,574 / 451 |
-| `SPLIT` | 3,750 / 1,674 | 6,353 / 1,821 | 6,637 / 2,018 | 3,363 / 1,610 | 9,844 / 483 | 18,423 / 1,420 | 9,457 / 419 |
+| `CLAIM` | 3,874 / 1,690 | 6,526 / 1,840 | n/a | 3,487 / 1,626 | 9,968 / 688 | 18,596 / 1,551 | 9,581 / 419 |
+| `CLAIM^h` | 3,882 / 1,722 | 6,534 / 1,869 | n/a | 3,495 / 1,658 | 9,976 / 515 | 18,604 / 1,446 | 9,589 / 451 |
+| `SPLIT` | 3,765 / 1,674 | 6,367 / 1,821 | 6,651 / 2,018 | 3,378 / 1,610 | 9,859 / 483 | 18,437 / 1,420 | 9,472 / 419 |
 | `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,169 / 1,157 | — | 2,340 / 987 | — | — | — |
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
-| `CLAIM^x` | 3,866 / 1,754 | — | n/a | — | 9,960 / 547 | — | — |
-| `REWRITE_4` (16 positions, mixed) | 5,336 / 4,329 | — | — | — | n/a | n/a | n/a |
+| `CLAIM^x` | 3,881 / 1,754 | — | n/a | — | 9,975 / 547 | — | — |
+| `REWRITE_4` (16 positions, mixed) | 5,512 / 4,329 | — | — | — | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
 3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,111 / 1,092, `UPDATE^x`
-3,115 / 1,156, `CLAIM` 6,142 / 1,773, `CLAIM^h` 6,150 / 1,805, `SPLIT`
-5,983 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
+3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `SPLIT`
+5,997 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
 24,057 / 7,397; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
 9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
-18,212 / 1,350, `CLAIM^h` 18,220 / 1,382, `SPLIT` 18,053 / 1,356. The CCV call saves about 360 bytes of script
+18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `SPLIT` 18,067 / 1,356. The CCV call saves about 360 bytes of script
 over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
 because the `TREE_SPK_MIN` recomputation and the spk introspection read
 drop out.
 
 At `D = 4` (dense) and `D = 8` (sparse) the `0xC2` `CLAIM` measures
-1,360 / 630 and 3,056 / 419, `CLAIM^h` 1,368 / 662 and 3,064 / 451. The
+1,375 / 630 and 3,071 / 419, `CLAIM^h` 1,383 / 662 and 3,079 / 451. The
 voucher check costs 109 bytes of script over `SPLIT` under `0xC2`
 numerics and 159 under `0xC0`, in every tier: the 33-byte `tree_id` push
 is a constant of the script, and the check takes nothing but the two
 leaves and the signature from the witness, which is why the CCV tier,
 whose witness carries no `m`, runs the same check token for token. The
 carve rule of 7.5 rule 5 costs 25 bytes under `0xC2` and 60 under
-`0xC0`, where it also adds six witness elements (8.6).
+`0xC0`, where it also adds six witness elements, and the `DUST_MIN`
+floor of 7.5 rule 6 a further 15 and 14 (8.6).
 
 The MID `EVICT_SUBTREE_h` (8.7) carries each occupied position as
 fourteen witness elements (the ten of a MID leaf, the minimal
@@ -620,7 +621,12 @@ A leaf is a fixed-length 116-byte record:
 
 Requirements:
 
-* `amount` MUST be greater than 0 and less than 2^51.
+* `amount` MUST be greater than 0 and less than 2^51. A leaf written by
+  `CLAIM`, `CLAIM^h`, `CLAIM^x`, `CLAIM^hx` or `SPLIT`, and the residual
+  those transitions leave in the source position, MUST be at least
+  `DUST_MIN` (6.2, 7.5 rule 6); the scripts enforce it. Leaves written by
+  the operator-signed transitions (`JOIN`, `UPDATE`, `REWRITE_h`) SHOULD
+  be at least `DUST_MIN` too, for the reason 7.8 gives.
 * `exit_key`, `owner_key` and `evictor_key` MUST each be the x coordinate of
   a point on secp256k1 (i.e. `lift_x` succeeds).
 * `evict_after` MUST be less than 500,000,000. A leaf that MUST NOT be
@@ -637,7 +643,10 @@ Requirements:
   and fail when the result does not fit in four bytes, which is the case
   exactly for `SEQ_FINAL`. Creators MUST set `seq = SEQ_FINAL` on any
   leaf whose `amount` is not the owner's alone (channel leaves, Appendix
-  C.6.5) and MAY set it on any other leaf. `SEQ_FINAL` differs between tiers because MID
+  C.6.5) and MAY set it on any other leaf. The same marker keeps the
+  owner's signature on every change to the leaf under `REWRITE_h`: the
+  amount-only exemption of 7.9 rule 3 does not reach a leaf whose `seq`
+  is `SEQ_FINAL`. `SEQ_FINAL` differs between tiers because MID
   interprets `0xFFFFFFFF` as a negative `CScriptNum` whose successor still
   fits; the reference tests check both values in both tiers.
 * `evict_after` is a *deferral* of the evictor's right, not a guarantee to
@@ -768,6 +777,15 @@ parameters:
 * the profile (dense or sparse);
 * `D`, the depth;
 * `OPERATOR_KEY`, a 32-byte x-only key;
+* `DUST_MIN`, the smallest amount a carve may write into a leaf or leave
+  in its source (7.5 rule 6), a constant of the `CLAIM` and `SPLIT`
+  scripts and never a witness element. It MUST be greater than 0. The
+  RECOMMENDED value is 330 sat, the P2TR dust threshold under Bitcoin
+  Core's default policy (3,000 sat/kvB over the 110 bytes of a P2TR
+  output and the input that spends it): every transition that removes a
+  leaf pays it to exactly one P2TR output, and a transaction that pays a
+  fee and carries an output below the threshold is one no default node
+  relays (7.8). Operators who size cohorts by 11.2 MAY set it higher.
 * the set of supported `JOIN` heights (dense) and `EXIT_K` sizes;
 * `tree_id`, a 32-byte value that every voucher against the tree binds
   (7.5) and that the `CLAIM` scripts carry as a constant (8.6), never as
@@ -1035,11 +1053,14 @@ Rules:
    `claim_leaf.evict_after` MUST be no later than
    `source_leaf.evict_after`: nothing carved out of a leaf is harder to
    evict than the leaf itself.
+6. `claim_leaf.amount` MUST be at least `DUST_MIN` (6.2), and the
+   residual `amount'` of step 1 MUST be either 0 (the position becomes
+   `E_0`) or at least `DUST_MIN`.
 
 *(informative)* Rule 5 makes eviction a property of a balance rather than
 of one leaf. Without it an owner facing eviction could move its balance
 into a fresh leaf with a `NUMS` evictor or a far lease, and any member
-could plant a one-satoshi `NUMS` leaf in an empty position of a cohort
+could plant a `NUMS` leaf in an empty position of a cohort
 and block `EVICT_SUBTREE_h` (7.7) on that cohort for good. The rule is
 per balance, not per tree: a leaf the operator admitted as non-evictable
 can still carve leaves of the same terms into any empty position, which
@@ -1047,22 +1068,47 @@ can still carve leaves of the same terms into any empty position, which
 carries it as two hypotheses of `Claim` (`claim_evictable`,
 `formal/README.md`).
 
-*(informative)* Replay is impossible because step 1 changes the source leaf:
-once redeemed, no tree state contains `source_leaf` at the source position,
-so the signed message can never verify against the tree again. `seq` is
-incremented so that a source leaf whose balance later returns to a previous
-value still differs from every previously signed voucher. Honouring a
-voucher by other means (for example a `JOIN` of the same `claim_leaf`
-elsewhere) does *not* invalidate it; issuers MUST track outstanding vouchers
-as liabilities until the source leaf's `seq` has advanced past them
+*(informative)* Rule 6 keeps every leaf a carve writes removable by a
+standard transaction. A leaf below the dust threshold can leave the tree
+only through a payout output below it, which default policy relays only
+in a zero-fee package whose child spends that output, and only the
+leaf's owner can sign that child; so a sub-dust leaf would block
+`EVICT_SUBTREE_h` on its cohort and `JOIN_h` over every subtree that
+contains it for the life of the tree, at a cost to the planter of one
+`SPLIT` and one satoshi. The residual case covers the member who splits
+all but a satoshi of its own leaf and leaves the rest behind in its
+cohort. The floor costs 15 bytes under `0xC2` and 14 under `0xC0` (8.6).
+`JOIN`, `UPDATE` and `REWRITE_h` carry no such rule, since the operator
+signs each of them and would be squatting its own tree (7.8). The Lean
+model states the rule as `Reachable.dust` (`formal/README.md`).
+
+*(informative)* Replay is prevented by step 1 changing the source leaf:
+once redeemed, the source position holds `source_leaf'` rather than
+`source_leaf`, so the signed message no longer verifies against the tree
+there. Two bookkeeping rules carry the rest of the argument, and neither
+is enforced by covenant. The first is 5.2's rule that no two leaves share
+`(owner_key, nonce)`, which the dense profile does not check on chain:
+the voucher binds the source leaf by content, not position, so two
+identical leaves would let one voucher be redeemed against each (it is
+the hypothesis the Lean model's non-replay theorem takes,
+`formal/README.md`; in the sparse profile it holds structurally). The
+second is 9.6's rule that a source leaf's `seq` only ever advances: every
+carve increments it so that a source leaf whose balance later returns to
+a previous value still differs from every previously signed voucher, and
+an `UPDATE` or `REWRITE_h` that wound it back, which the scripts do not
+forbid, would revive them. One voucher is replayable and harmless: a
+self-voucher whose `claim_leaf` equals `source_leaf` for the whole amount
+drains the source position and may place the identical leaf back into
+it, which leaves the tree unchanged and moves no value
+(`self_voucher_fixed` in the Lean model). Honouring a voucher by other
+means (for example a `JOIN` of the same `claim_leaf` elsewhere) does
+*not* invalidate it; issuers MUST track outstanding vouchers as
+liabilities until the source leaf's `seq` has advanced past them
 (section 9.6). The voucher binds `tree_id` rather than `m` because `m`
 names a rule set that two trees can share, so a voucher over `m` could be
 redeemed in both against identical source-leaf bytes (10.3); binding
 `tree_id` also lets a voucher survive a `DETACH_h`, which preserves it
-(7.10). The voucher binds the source leaf by content, not position,
-which is why section 5.2 forbids two leaves with the same
-`(owner_key, nonce)`: two identical leaves would let one voucher be redeemed
-against each. In the sparse profile this cannot occur.
+(7.10).
 
 #### 7.5.1 CLAIM^h (hash-locked voucher)
 
@@ -1091,9 +1137,9 @@ Rules: as 7.5, with rule 1 replaced by
    `OP_CHECKSIGFROMSTACK`) under `source_leaf.owner_key` over
    `H_voucher_h( tree_id || source_leaf || claim_leaf || SHA256(preimage) )`.
 
-Rules 2 to 5 of 7.5 are unchanged, so `CLAIM^h` conserves the total, is
-single-use, keeps the carve rule and empties a drained source position
-exactly as `CLAIM` does.
+Rules 2 to 6 of 7.5 are unchanged, so `CLAIM^h` conserves the total, is
+single-use, keeps the carve rule and the dust floor and empties a drained
+source position exactly as `CLAIM` does.
 
 *(informative)* The script does not compare a witness-supplied payment hash
 against the preimage. It computes `SHA256(preimage)` and feeds the result
@@ -1131,11 +1177,12 @@ Rules: as 7.5, with rule 1 replaced by
    `source_leaf.owner_key` over the spending transaction, and MUST commit
    to all outputs (10.7).
 
-Rules 2 to 5 of 7.5 are unchanged: the source leaf's amount falls by the
+Rules 2 to 6 of 7.5 are unchanged: the source leaf's amount falls by the
 new leaf's amount, its `seq` advances by one, a drained source position
 becomes `E_0`, the new leaf is placed at a position proven empty *after*
-the source step, the total is conserved, and the new leaf keeps the
-source's `evictor_key` and a lease no later than the source's.
+the source step, the total is conserved, the new leaf keeps the
+source's `evictor_key` and a lease no later than the source's, and
+neither the new leaf nor a non-zero residual is below `DUST_MIN`.
 
 *(informative)* `SPLIT` is `CLAIM` with the authorisation swapped, and the
 spec states it that way rather than restating the steps because the
@@ -1156,7 +1203,7 @@ it.
 It needs no `OP_CHECKSIGFROMSTACK`. `CLAIM` is excluded from the MIN tier
 only because that opcode is unavailable there (4.5); `SPLIT` is not, and
 is the first member-to-member transition MIN supports (8.6.2). It costs
-6,501 bytes of script at `D = 16`, about 1.8 times `EXIT_1`: the two fold
+6,651 bytes of script at `D = 16`, about 1.8 times `EXIT_1`: the two fold
 passes are MID's, and the sighash reconstruction is paid once.
 
 `owner_sig` is the only thing that binds the new leaf to its recipient: the
@@ -1180,14 +1227,15 @@ hash-locked form, above `preimage`.
 
 Rules: as 7.5 (or 7.5.1), plus
 
-6. `exit_sig` MUST be a valid BIP-340 signature over `tx` by
+7. `exit_sig` MUST be a valid BIP-340 signature over `tx` by
    `source_leaf.exit_key`, with the same hash-type requirement as 7.2
    rule 3.
 
-Rules 1 to 5 are unchanged, so `CLAIM^x` conserves the total, is
-single-use, advances `seq`, keeps the carve rule and empties a drained
-source position exactly as `CLAIM` does; the voucher is still required,
-and a transaction signature by the source owner does not stand in for it.
+Rules 1 to 6 are unchanged, so `CLAIM^x` conserves the total, is
+single-use, advances `seq`, keeps the carve rule and the dust floor and
+empties a drained source position exactly as `CLAIM` does; the voucher
+is still required, and a transaction signature by the source owner does
+not stand in for it.
 
 *(informative)* The variant exists for the **dedicated credit leaf** of
 10.3: a source leaf the issuer owns (`owner_key`) whose `exit_key` is the
@@ -1195,9 +1243,13 @@ recipient's. Every voucher against such a leaf pays the same recipient,
 so the recipient's own redemptions carry `exit_sig` at no cost, and the
 issuer cannot carve the leaf at all, not even with a voucher it signs to
 itself, because it does not hold the exit key. With `UPDATE^x` and
-`EXIT^=` in the same taptree and a `NUMS` evictor, the credit leaf's
-balance can only grow or be paid to its recipient, which removes the
-voiding race of 10.3 for that leaf. The reference generator exposes the
+`EXIT^=` in the same taptree, `REWRITE_h^x` in place of `REWRITE_h` or
+no `REWRITE_h` at all (7.9 rule 7), and a finite lease with the operator
+as evictor rather than a `NUMS` evictor (10.3: eviction pays the whole
+balance to the recipient's key, while a `NUMS` evictor turns every
+voucher against the leaf into a leaf no cohort can sweep), the credit
+leaf's balance can only grow or be paid to its recipient, which removes
+the voiding race of 10.3 for that leaf. The reference generator exposes the
 variant as `claim_script(…, exit_consent=True)`. It costs 7 bytes over
 `CLAIM` or `CLAIM^h` in the FULL tier, as `UPDATE^x` over `UPDATE`, and
 64 bytes of witness.
@@ -1277,12 +1329,22 @@ produce `E_D`; no other transition can. Scripts MUST take this branch
 only when `r' = E_D` exactly; the reference `FINAL` macro compares against
 the constant `E_D` of the tree's depth.
 
-Section 5.2 requires `amount > 0`. The scripts do not enforce this, and
-zero-amount leaves are harmless to the total but useless:
-an `EXIT` of such a leaf requires a zero-value payout output. Participants
-SHOULD refuse to create or accept zero-amount leaves; an operator that finds
-one MAY remove it with `UPDATE` (with the owner) or leave it in place, since
-it contributes nothing to the total.
+Section 5.2 requires `amount > 0`, and 7.5 rule 6 requires every leaf a
+carve writes, and every residual it leaves, to be at least `DUST_MIN`
+(6.2). Zero and sub-dust leaves are not harmless. Every transition that
+removes a leaf pays it to a P2TR output of exactly its amount (7.2 rule
+6, 7.7, 7.9 rule 5), and under default policy a transaction that pays a
+fee and carries an output below the dust threshold is not relayed, so
+such a leaf blocks `EVICT_SUBTREE_h` on its cohort and `JOIN_h` over
+every subtree that contains it for as long as it sits there, and its
+owner cannot exit it by a standard transaction either. The carve scripts
+enforce the floor because any member can run them; `JOIN`, `UPDATE` and
+`REWRITE_h` do not, because the operator signs each of them and would be
+squatting its own tree. Operators SHOULD NOT co-sign a leaf below
+`DUST_MIN`, since the blocked sweeps and grafts are their own. A leaf
+that nevertheless exists can be removed only with its
+owner's cooperation (an `UPDATE` that raises it, or a `REWRITE_h` the
+owner signs) or by a miner that accepts the non-standard removal.
 
 ### 7.9 REWRITE_h (cohort rewrite)
 
@@ -1315,7 +1377,9 @@ Rules:
    `tx` by `old_i.owner_key` (hash type as in 7.2 rule 3), **except** that
    a position whose new element is a leaf identical to the old one in
    every field but `amount`, with `new_i.amount ≥ old_i.amount`, needs no
-   signature. A position whose old element is `E_0` needs none.
+   signature. The exception MUST NOT apply when `old_i.seq` equals the
+   tier's `SEQ_FINAL` (5.2): such a position needs `sig_i` like any other
+   change. A position whose old element is `E_0` needs none.
 4. `sig_op` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 5. For every position whose old element is a leaf and whose new element
    is `E_0`, in position order, the next unused output starting from
@@ -1327,13 +1391,21 @@ Rules:
    `REWRITE_h^x` in place of `REWRITE_h`. For every position for which
    rule 3 requires `sig_i`, the witness carries one further signature
    `xsig_i`, which MUST be valid over `tx` by `old_i.exit_key`. This is
-   `UPDATE^x` (7.4 rule 5) applied to the cohort, and a tree that uses
-   `UPDATE^x` SHOULD use `REWRITE_h^x`, for the same reason.
+   `UPDATE^x` (7.4 rule 5) applied to the cohort, and a tree whose taptree
+   carries `UPDATE^x` or `CLAIM^x` (7.5.3) MUST use `REWRITE_h^x` in place
+   of `REWRITE_h`, for the same reason: a plain `REWRITE_h` beside either
+   reopens the splice (C.6.6) and the voiding path (10.3) they close, and
+   the counterparty verifies the choice from `m`.
 
 *(informative)* Rule 3's exception is what makes a payment between
 members need only the payer's signature: the payee's leaf gains amount and
 changes in no other field, so nobody can use the exception to rotate a key
-or shorten a lease. Rule 5 is what makes the rewrite a safe mass exit: an
+or shorten a lease. The `SEQ_FINAL` exclusion is for leaves whose amount
+is not the owner's alone: a channel leaf's `amount` is the capacity its
+pre-signed states commit to (C.1.1), and raising it by even one satoshi
+makes every update transaction pay a fee it cannot pay beside a zero-value
+ephemeral anchor, so no default node relays it (C.2.4). The exclusion
+costs 11 bytes per position (8.9). Rule 5 is what makes the rewrite a safe mass exit: an
 owner who signs a transaction that empties its position is paid by the
 covenant, and the operator cannot use the script to remove a leaf without
 paying it, since removal needs that owner's signature and that payout. A
@@ -1695,8 +1767,12 @@ the old leaf directly.
 Witness: `claim_path(D)  source_path(D)  source_leaf  claim_leaf
 voucher_sig  r  m` (the claim path is deeper in the stack because it is
 consumed second). `<TREE_ID>` is the tree's `tree_id` (6.2), a 33-byte
-push. The two size checks and the two field comparisons of rule 5 are the
-`CARVE_RULES` macro of `spec/scripts/structured/`, 25 bytes for the rule.
+push, and `<DUST_MIN>` its `DUST_MIN` (330 in the listings), a minimal
+number push. The two size checks, the two field comparisons of rule 5 and
+the floor of rule 6 on the claim amount are the `CARVE_RULES` macro of
+`spec/scripts/structured/`, 25 bytes for rule 5 and 8 for the floor; the
+floor on the residual is the `DRAIN_RULE` macro, 7 bytes over the
+drained-source branch it extends.
 Sparse: `LEAF_POS SPARSE_SETUP` is applied to `source_leaf` before the
 first pass and to `claim_leaf` before the second.
 
@@ -1706,9 +1782,11 @@ minimal `evict_after` of the source and of the claim leaf with their
 `PADZ` pads (six elements above the seven carve extras), the MID
 `CARVE_RULES` checks each pad against the leaf's own field, compares the
 two numbers, and compares the evictor-key fields by `OP_PICK`: 60 bytes
-of script. The owner key of the source block therefore sits 31 deep
-under the authorisation element, and the voucher message's picks move by
-six.
+of script, plus 7 for the floor of rule 6, which compares the claim
+block's amount number (bound to its field by `LEAF_JOIN`) against the
+constant; `DRAIN_RULE` is the same 7 bytes as under `0xC2`. The owner key
+of the source block therefore sits 31 deep under the authorisation
+element, and the voucher message's picks move by six.
 
 ```
 <SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
@@ -1725,6 +1803,7 @@ OP_2DUP 72 32 OP_SUBSTR OP_SWAP 72 32 OP_SUBSTR
 OP_EQUALVERIFY                                      # claim.evictor_key == src.evictor_key (rule 5)
 OP_2DUP 104 OP_4 OP_SUBSTR OP_SWAP 104 OP_4 OP_SUBSTR
 OP_LESSTHANOREQUAL OP_VERIFY                        # claim.evict_after <= src.evict_after
+<DUST_MIN> OP_OVER OP_8 OP_LEFT OP_LESSTHANOREQUAL OP_VERIFY   # DUST_MIN <= claim.amount (rule 6)
 OP_OVER OP_8 OP_LEFT OP_OVER OP_8 OP_LEFT OP_SUB LE64      # src claim le64(src.amt − claim.amt)
 OP_2 OP_PICK OP_8 104 OP_SUBSTR OP_CAT              # … || src[8:112]
 OP_2 OP_PICK 112 OP_4 OP_SUBSTR OP_1ADD
@@ -1733,7 +1812,8 @@ OP_FROMALTSTACK OP_ROT OP_TOALTSTACK OP_TOALTSTACK  # src src'              | m 
 <TAG_NODE> OP_ROT OP_ROT                            # T src src'
 OP_SWAP LEAF_ACC                                    # T src' oh os
 OP_ROT LEAF_ACC                                     # T oh os nh ns
-OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_LEAF_HASH> OP_SWAP OP_ENDIF   # ns == 0 → nh = E_0.hash
+OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_LEAF_HASH> OP_SWAP   # ns == 0 → nh = E_0.hash
+OP_ELSE <DUST_MIN> OP_OVER OP_LESSTHANOREQUAL OP_VERIFY OP_ENDIF   # else DUST_MIN <= ns (rule 6)
 LEVEL × D                                           # (source path)
 CHECK_OLD                                           # T r1 S1               | m claim
 OP_FROMALTSTACK OP_2 OP_ROLL OP_2 OP_ROLL           # T claim r1 S1
@@ -1968,6 +2048,7 @@ OP_2DUP OP_EQUAL OP_NOTIF                          # -- changed --
     OP_DUP OP_SIZE OP_NIP OP_0NOTEQUAL OP_IF       # -- new is a leaf: rewrite --
       OP_2DUP OP_8 108 OP_SUBSTR OP_SWAP OP_8 108 OP_SUBSTR OP_EQUAL   # old new same_rest
       OP_IF OP_2DUP OP_SWAP OP_8 OP_LEFT OP_SWAP OP_8 OP_LEFT OP_LESSTHANOREQUAL
+      OP_OVER OP_4 OP_RIGHT <SEQ_FINAL> OP_EQUAL OP_NOT OP_BOOLAND   # … and seq != SEQ_FINAL
       OP_ELSE OP_0 OP_ENDIF                        # old new exempt   (amount-only increase)
       OP_NOTIF OWNER_AUTH(d) OP_ENDIF
     OP_ELSE                                        # -- new is empty: exit --
@@ -2008,7 +2089,11 @@ Because the script decides from the two elements whether to roll a
 signature, the witness carries none for an unchanged position, an
 amount-only increase or a join, and a witness that supplies one anyway
 fails: the stray element is consumed as the next position's old element.
-Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes are in 11.
+The `SEQ_FINAL` test reads the last four bytes of the new element, which
+`same_rest` has just shown equal the old one's `seq`, so the constant
+is the tier's marker and nothing comes from the witness; it is 11 bytes
+per position. Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes
+are in 11.
 
 ### 8.10 DETACH_h
 
@@ -2868,7 +2953,7 @@ dependency. The `r` and `m` witness elements are gone entirely. Each CCV
 call charges one sigcheck-equivalent (500,000 varops, [A-6]); an
 `EXIT_1` makes two calls, within the same budget headroom as the FULL
 tier's two `TREE_SPK` recomputations. A CCV `CLAIM` at `D = 16` (dense)
-measures 3,472 / 1,626 bytes against FULL's 3,859 / 1,690; it is the one
+measures 3,487 / 1,626 bytes against FULL's 3,874 / 1,690; it is the one
 CCV script that needs `OP_CHECKSIGFROMSTACK` (4.6).
 
 The transaction weight column adds the 946 WU skeleton of the model
@@ -2966,27 +3051,27 @@ renewals and payments, three of every seven positions empty or joining):
 
 | script | positions | scenario | script | witness | owner sigs | tx vB | per-leaf vB |
 |---|---|---|---|---|---|---|---|
-| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | 1,437 | 359 |
-| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | 3,123 | 195 |
-| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | 10,104 | 158 |
-| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | 9,208 | 144 per changed leaf |
-| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 16,444 | 15,139 | 36 | 8,509 | 167 per changed leaf, 133 per position |
+| `REWRITE_2` | 4 | exit | 2,775 | 1,423 | 4 | 1,448 | 362 |
+| `REWRITE_4` | 16 | exit | 5,512 | 3,501 | 16 | 3,167 | 198 |
+| `REWRITE_6` | 64 | exit | 17,148 | 12,059 | 64 | 10,280 | 161 |
+| `REWRITE_6` | 64 | update | 17,148 | 19,483 | 64 | 9,384 | 147 per changed leaf |
+| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 17,148 | 15,139 | 36 | 8,685 | 170 per changed leaf, 136 per position |
 
 The transaction column prices the whole transaction on the model above:
 the skeleton with one payout per exiting leaf and none in the update
 case; the per-leaf column divides it by the leaves that leave or change.
 The marginal costs are what the design turns on: at `h = 6` each
-position costs 233 bytes of script (its `REWRITE_STEP` and its share of
+position costs 244 bytes of script (its `REWRITE_STEP` and its share of
 the `HASH_STEP2`s) and 234 bytes of witness for its two elements, about
-117 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
+120 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
 output and drops the 117-byte new element, so an unchanged leaf costs
-about 117 vB, a changed leaf about 133 vB and an exiting leaf about
-147 vB. Sixty-four owners who leave together therefore pay exactly what
+about 120 vB, a changed leaf about 136 vB and an exiting leaf about
+150 vB. Sixty-four owners who leave together therefore pay about what
 the operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and
-a cohort that rewrites every balance pays about 144 vB per leaf against
+a cohort that rewrites every balance pays about 147 vB per leaf against
 1,030 vB for an `UPDATE` each (3,346 WU of witness on the skeleton
 without a payout). `REWRITE_h^x` adds the 65-byte exit-key signature,
-16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 / 4,905
+16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,810 / 4,905
 bytes).
 
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
@@ -3070,7 +3155,11 @@ all, 842 per exit), and cohort sweeps lower eviction to 203 vB per leaf
 what keeps small leaves evictable at high fee rates; operators SHOULD size
 cohorts and minimum leaf amounts so that a sweep stays below about 10% of
 the smallest leaf at the fee-rate tail they intend to survive. Dust (330
-sat) is never the binding constraint for `D ≥ 8`; the fee is.
+sat) is never the binding constraint on an exit's fee for `D ≥ 8`; the
+fee is. It binds elsewhere: `DUST_MIN` (6.2, 7.5 rule 6) keeps every
+carved leaf and residual at or above the threshold, so that the
+transaction removing it stays relayable (7.8); an operator's minimum leaf
+amount is the larger of the two.
 
 ## 12. Comparison With Related Constructions
 
@@ -3177,7 +3266,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 250 and 47 checks respectively; the MID
+  operands during development), 268 and 55 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -3188,7 +3277,10 @@ exits in a batch" as `EXIT_K` (section 13).
   `SPLIT` with the negatives of the FULL suite below, the carve rule of
   7.5 rule 5 (another evictor key or a later `evict_after` fails under
   `CLAIM` and `SPLIT`, and the cohort case of the FULL suite under the MID
-  sweep), and the cohort
+  sweep), the dust floor of 7.5 rule 6 (a claim or split of one satoshi,
+  of zero satoshis or one leaving a one-satoshi residual fails under
+  `CLAIM` and `SPLIT` in both profiles, while exactly `DUST_MIN` and the
+  whole balance succeed), and the cohort
   sweep `EVICT_SUBTREE_2/4/6` at `D = 16` with the FULL suite's negatives
   (a sweep before lease expiry, a shortchanged leaf, a non-evictable
   leaf) plus an occupied position presented as empty, a malformed node
@@ -3206,7 +3298,9 @@ exits in a batch" as `EXIT_K` (section 13).
   operator or the recipient, an over-split, an occupied destination, a
   stale root, a recipient swapped under the owner's signature, a leaf with
   another evictor key or a later `evict_after` than the source (7.5 rule
-  5), an underfunded tree output, a wrong `e31`, each of the nine raw
+  5), a split of one satoshi, of zero satoshis or one leaving a
+  one-satoshi residual (7.5 rule 6; exactly `DUST_MIN` succeeds), an
+  underfunded tree output, a wrong `e31`, each of the nine raw
   introspection pieces substituted and a claim leaf of amount
   `2^31 + 2^24` (`NONNEG`) all fail.
 * `tools/layertree_ccv.py` — the CCV-tier generators (section 4.6) for
@@ -3254,13 +3348,17 @@ exits in a batch" as `EXIT_K` (section 13).
   occupied position, against a stale root, or reused for a transaction
   that swaps in a different recipient all fail, as does a split into a
   leaf with another evictor key or a later `evict_after` than the source,
-  7.5 rule 5, which `CLAIM` and `CLAIM^h` reject as well), the carve rule
+  7.5 rule 5, which `CLAIM` and `CLAIM^h` reject as well, and a split of
+  one satoshi, of zero satoshis or one leaving a one-satoshi residual,
+  7.5 rule 6, which `CLAIM` rejects as well, while a split of exactly
+  `DUST_MIN` and one of the whole balance succeed), the carve rule
   against the cohort sweep (dense at `D = 4` and `16`: a member of an
-  evictable cohort cannot plant dust with a `NUMS` evictor or a later
-  lease in the cohort's empty position by `SPLIT`, a carve that keeps the
-  member's terms lands there and `EVICT_SUBTREE_2` sweeps the cohort with
-  it, and a member admitted with a `NUMS` evictor can still block the
-  sweep with its own dust, the residual 10.8 states) and the exit-consent
+  evictable cohort cannot plant a `DUST_MIN` leaf with a `NUMS` evictor
+  or a later lease in the cohort's empty position by `SPLIT`, a carve
+  that keeps the member's terms lands there and `EVICT_SUBTREE_2` sweeps
+  the cohort with it, and a member admitted with a `NUMS` evictor can
+  still block the sweep with its own `DUST_MIN` leaf, the residual 10.8
+  states) and the exit-consent
   `CLAIM^x` and `CLAIM^hx` of 7.5.3 (dense at `D = 4` and `16`, sparse at
   `D = 8`, against a dedicated credit leaf whose owner is the operator and
   whose exit key is the recipient's: the recipient's redemption with the
@@ -3281,7 +3379,8 @@ exits in a batch" as `EXIT_K` (section 13).
   position left alone: the rewrite succeeds with signatures only from
   the owners rule 3 names, and a changed leaf without its owner's
   signature, a key rotation disguised as an amount increase, a
-  shortchanged exit payout, an exit paid to the wrong key, a missing
+  `SEQ_FINAL` leaf raised by one satoshi without its owner's signature
+  (the same raise signed succeeds), a shortchanged exit payout, an exit paid to the wrong key, a missing
   operator signature, output 0 off by one in either direction, a stale
   path, a forged old leaf and, under `^x`, a missing or wrongly keyed
   exit signature all fail) and `DETACH_8` at `D = 16` (7.10: the detach
@@ -3309,12 +3408,12 @@ exits in a batch" as `EXIT_K` (section 13).
   spurious signature, swapped old and new elements and a 1-byte element,
   and for `EVICT_SUBTREE_2` an occupied position presented as empty,
   swapped positions, payouts out of order and an empty position supplied
-  as 116 zero bytes, all rejected), 1,017 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  as 116 zero bytes, all rejected), 1,054 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 886 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 972 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -3338,7 +3437,9 @@ exits in a batch" as `EXIT_K` (section 13).
   by the operator, by the recipient, with garbage or a voucher signature,
   over-splitting, into an occupied position, with output 0 below `ns`,
   with another evictor key or a later `evict_after` than the source (7.5
-  rule 5), or against a stale root, all fail, and in `0xC0` a recipient
+  rule 5), of one satoshi, of zero satoshis or leaving a one-satoshi
+  residual (7.5 rule 6; exactly `DUST_MIN` and the whole balance
+  succeed), or against a stale root, all fail, and in `0xC0` a recipient
   swapped under the owner's signature as well); the carve rule against
   the cohort sweep in both numerics at `D = 16`, as in the FULL suite;
   `CLAIM` and `CLAIM^h` with the
@@ -3348,7 +3449,9 @@ exits in a batch" as `EXIT_K` (section 13).
   source, a voucher reused for another claim leaf, an over-claim, a wrong
   signer, a voucher signed for another `tree_id`, a voucher over `m`
   (the FULL message), output 0 below `ns`, a claim leaf with another
-  evictor key or a later `evict_after` than the source (7.5 rule 5), and
+  evictor key or a later `evict_after` than the source (7.5 rule 5), a
+  claim of one satoshi, of zero satoshis or one leaving a one-satoshi
+  residual (7.5 rule 6; exactly `DUST_MIN` succeeds), and
   the cross-form, wrong, short or absent preimage cases of the FULL suite
   all fail); the negatives of the byte-level audit
   (`test_audit_negatives_ccv` at `D = 8`: in `0xC2` output 0 over-funded
