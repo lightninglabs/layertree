@@ -36,6 +36,8 @@ func ccvCheckInput() []Token {
 // ccvTreeOutput: [... data] -> [...]. CHECK_OUTPUT on output outIndex in
 // the assign mode (the input's residual amount flows to it), pk empty
 // (NUMS), taptree -1 (the input's own): the tree output for state `data`.
+// ccvFinal inlines exactly these operands; this names them, as
+// tools/layertree_ccv.py ccv_tree_output does for the listings.
 func ccvTreeOutput(outIndex int) []Token {
 	return []Token{
 		Num(int64(outIndex)), Data(ccvEmpty), Data(ccvMinus1), Num(ccvModeAssignOut),
@@ -209,6 +211,80 @@ func CCVUpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
 		fullLeafAcc(), []Token{Op(ts.OP_ROT)}, fullLeafAcc(), // T oh os nh ns
 		fullLevels(sparse, depth, 0),
 		ccvCheckOld(sparse),
+		ccvFinal(depth),
+	)
+}
+
+// CCVSplitScript is SPLIT (spec 7.5.2) under the CCV tier: the
+// owner-authorised carve. Witness = [claim path] [source path] src_leaf
+// new_leaf owner_sig, with no root and no m. The two steps, the seq
+// increment and the drained-source rule are the FULL tier's carve body;
+// only the altstack bookkeeping for r and m is gone, the first step's old
+// root is bound by ccvCheckOld and output 0 by ccvFinal
+// (tools/layertree_ccv.py split_script_ccv). CLAIM and CLAIM^h have no
+// CCV counterpart because their voucher message binds m (spec 4.6).
+func CCVSplitScript(depth int, sparse bool) []Token {
+	s := fullCat(
+		[]Token{
+			Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32),
+			Op(OP_SUBSTR),            // src claim sig owner_key
+			Op(ts.OP_CHECKSIGVERIFY), // src claim
+			Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_SWAP), // src claim
+			// new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq+1)
+			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_OVER), Num(8),
+			Op(OP_LEFT), Op(ts.OP_SUB),
+		},
+		fullLE64(),
+		[]Token{
+			Num(2), Op(ts.OP_PICK), Num(fullOffExitKey),
+			Num(fullOffSeq - fullOffExitKey), Op(OP_SUBSTR), Op(OP_CAT),
+			Num(2), Op(ts.OP_PICK), Num(fullOffSeq), Num(fullLenSeq), Op(OP_SUBSTR),
+			Op(ts.OP_1ADD),
+			Op(ts.OP_SIZE), Num(4), Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY),
+		},
+		fullPad4(),
+		[]Token{
+			Op(OP_CAT),                           // src claim new_src
+			Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), // src new_src | claim
+		},
+	)
+	if sparse {
+		s = fullCat(s, []Token{Op(ts.OP_OVER)}, fullLeafPos(),
+			[]Token{Op(ts.OP_NIP)}, fullSparseSetup()) // | claim pos E_0
+	}
+	s = fullCat(s,
+		[]Token{
+			Data(fullNodePrefix), Op(ts.OP_ROT), Op(ts.OP_ROT), // T src new_src
+			Op(ts.OP_SWAP),
+		},
+		fullLeafAcc(), // T new_src oh os
+		[]Token{Op(ts.OP_ROT)},
+		fullLeafAcc(), // T oh os nh ns
+		[]Token{
+			Op(ts.OP_DUP), Op(ts.OP_NOT), Op(ts.OP_IF), Op(ts.OP_SWAP),
+			Op(ts.OP_DROP), Data(fullEmptyLeafHash), Op(ts.OP_SWAP),
+			Op(ts.OP_ENDIF), // a drained source becomes E_0
+		},
+		fullLevels(sparse, depth, 0),
+		ccvCheckOld(sparse), // T nh1 ns1 | claim
+		[]Token{
+			Op(ts.OP_FROMALTSTACK),                         // T nh1 ns1 claim
+			Num(2), Op(ts.OP_ROLL), Num(2), Op(ts.OP_ROLL), // T claim nh1 ns1
+			Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), Op(ts.OP_TOALTSTACK), // T claim | nh1 ns1
+		},
+	)
+	if sparse {
+		s = fullCat(s, fullLeafPos(), fullSparseSetup())
+	}
+	return fullCat(s,
+		fullLeafAcc(), // T ch cs
+		[]Token{
+			Data(fullEmptyLeafHash), Op(ts.OP_0), Op(ts.OP_2SWAP), // T E_0 0 ch cs
+		},
+		fullLevels(sparse, depth, 0),
+		fullCheckPrevRootFromAlt(sparse), // T nh2 ns2
 		ccvFinal(depth),
 	)
 }

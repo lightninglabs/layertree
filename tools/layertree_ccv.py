@@ -20,14 +20,12 @@ What CCV replaces (compare layertree_scripts.prologue / final_output):
   recomputation, no OP_TX scriptPubKey read; the witness loses `r` and
   `m` entirely (spec 10.4's binding of `m` is CCV's "same taptree"
   semantics).
-* The output-0 construction. One CHECK_OUTPUT|DEDUCT call with data = nh,
-  index 0, pk empty, taptree -1 proves output 0 carries the new state
-  under the same taptree and deducts its amount from the residual. The
-  equality out0.amount == ns remains one OP_TX read: CCV binds amounts to
-  the input's amount, not to script-computed sums. DEDUCT rather than the
-  default assign is deliberate: paired with the equality it enforces rule
-  5 exactly, rejects underfunded trees, and lets an overfunded tree spend
-  its excess as fees (the default mode would strand the excess).
+* The output-0 construction. One CHECK_OUTPUT call in the default
+  (assign) mode with data = nh, index 0, pk empty, taptree -1 proves
+  output 0 carries the new state under the same taptree and assigns the
+  input's residual to it as a floor. The equality out0.amount == ns
+  remains one OP_TX read: CCV binds amounts to the input's amount, not to
+  script-computed sums.
 * The payout scriptPubKey check. One CHECK_OUTPUT|DEDUCT call with data
   empty, taptree empty, pk = leaf.exit_key proves output k is a bare P2TR
   to the exit key and deducts its amount; the <=/== leaf.amount
@@ -77,11 +75,13 @@ def ccv_check_input():
 
 
 def ccv_tree_output(out_index):
-    """[T ... data] -> [T ...]. CHECK_OUTPUT|DEDUCT on output `out_index`:
-    the tree output for state `data` (pk empty = NUMS, taptree -1 = the
-    input's own). Same bare-window contract as ccv_check_input.
+    """[T ... data] -> [T ...]. CHECK_OUTPUT in the default (assign) mode
+    on output `out_index`: the tree output for state `data` (pk empty =
+    NUMS, taptree -1 = the input's own). Same bare-window contract as
+    ccv_check_input. final_ccv inlines exactly these operands; this
+    function names them for the listings.
     """
-    return [out_index, b"", MINUS1, 2, CCV]
+    return [out_index, b"", MINUS1, 0, CCV]
 
 
 def ccv_payout_fixed(out_index):
@@ -253,6 +253,54 @@ def update_script_ccv(depth, operator_key, profile="D", exit_consent=False):
     s += F.leaf_acc() + ["OP_ROT"] + F.leaf_acc()
     s += F.levels(profile, depth)
     return s + check_old_ccv(profile) + final_ccv(depth)
+
+
+def split_script_ccv(depth, profile="D"):
+    """SPLIT (spec 7.5.2) under CCV: the owner-authorised carve.
+
+    Witness (bottom..top): [claim path] [source path] src_leaf new_leaf
+    owner_sig. No r, no m. SPLIT authorises with an ordinary transaction
+    signature by src.owner_key, so nothing in it signs `m`, and it carries
+    over from the FULL tier unchanged except for the binding: F's
+    _carve_body with the parked root replaced by CHECK_INPUT on the first
+    step's old root, and FINAL by final_ccv. CLAIM and CLAIM^h do not
+    carry over this way, because their voucher message binds `m` (spec 4.6).
+
+    The two steps, the seq increment, the drained-source rule and
+    conservation are F._carve_body's, token for token, apart from the
+    altstack bookkeeping for r and m.
+    """
+    s = prologue_ccv() + [
+        2, "OP_PICK", F.OFF_OWNER_KEY, 32, "OP_SUBSTR",     # src claim sig owner_key
+        "OP_CHECKSIGVERIFY",                                # src claim
+        "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
+        "OP_SWAP", "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",  # src claim
+        # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
+        "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB"] + F.LE64 + [
+        2, "OP_PICK", F.OFF_EXIT_KEY, F.OFF_SEQ - F.OFF_EXIT_KEY, "OP_SUBSTR", "OP_CAT",
+        2, "OP_PICK", F.OFF_SEQ, F.LEN_SEQ, "OP_SUBSTR", "OP_1ADD",
+        "OP_SIZE", 4, "OP_LESSTHANOREQUAL", "OP_VERIFY"] + F.PAD4 + ["OP_CAT",  # src claim new_src
+        # park claim_leaf: alt = claim
+        "OP_SWAP", "OP_TOALTSTACK"]                         # src new_src | claim
+    if profile == "S":
+        s += ["OP_OVER"] + F.leaf_pos() + ["OP_NIP"] + F.sparse_setup()  # | claim pos E_0
+    s += [F.NODE_PREFIX, "OP_ROT", "OP_ROT",                # T src new_src
+          "OP_SWAP"] + F.leaf_acc() + [                     # T new_src oh os
+          "OP_ROT"] + F.leaf_acc() + [                      # T oh os nh ns
+          "OP_DUP", "OP_NOT", "OP_IF", "OP_SWAP", "OP_DROP",
+          lt.EMPTY_LEAF_HASH, "OP_SWAP", "OP_ENDIF"]        # drained -> E_0
+    s += F.levels(profile, depth)
+    s += check_old_ccv(profile)                             # T nh1 ns1 | claim
+    s += ["OP_FROMALTSTACK",                                # T nh1 ns1 claim
+          2, "OP_ROLL", 2, "OP_ROLL",                       # T claim nh1 ns1
+          "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]      # T claim | nh1 ns1
+    if profile == "S":
+        s += F.leaf_pos() + F.sparse_setup()                # T claim | nh1 ns1 pos E_0
+    s += F.leaf_acc() + [                                   # T ch cs
+          lt.EMPTY_LEAF_HASH, "OP_0", "OP_2SWAP"]           # T E_0 0 ch cs
+    s += F.levels(profile, depth)
+    s += F.check_prev_root_from_alt(profile)                # T nh2 ns2
+    return s + final_ccv(depth)
 
 
 def leaf_step_ccv(operator_key):

@@ -4,7 +4,7 @@
 
 # CCV_TREE_OUTPUT macro ([data] -> []): BIP-443 CHECK_OUTPUT assign on output 0: 6 bytes
 
-OP_0 OP_0 129 OP_2 OP_CHECKCONTRACTVERIFY
+OP_0 OP_0 129 OP_0 OP_CHECKCONTRACTVERIFY
 
 # CCV_PAYOUT macro ([leaf] -> [leaf]): BIP-443 CHECK_OUTPUT|DEDUCT on the exit key: 14 bytes
 

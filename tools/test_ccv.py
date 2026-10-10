@@ -8,12 +8,14 @@ to what CCV actually checks), plus CCV-specific negatives:
   but tweaked by another taptree) must fail;
 * output 0 with the FULL-tier key (H_state binding) must fail;
 * a payout to a script other than P2TR(exit_key) must fail;
-* overfunding output 0 (amount > ns) must pass (fees from the residual),
-  underfunding (amount < ns) must fail;
-* a second tree input in the same transaction: each CCV check reads only
-  "the current input", so two tree outputs cannot be merged into one
-  output 0 (the residual of one input can fund it, the other's CHECK_INPUT
-  data must still match its own input).
+* output 0 above or below ns must fail (assign-mode floor plus the
+  numeric equality);
+* two tree inputs in one transaction (test_two_trees): the assign-mode
+  floor accumulates across inputs, so two copies of a tree state cannot
+  share one output 0, and a payout output cannot be deducted twice;
+* the BIP-443 amount rules the tier relies on, pinned one by one against
+  the opcode itself (test_a6_pins, spec 4.1 [A-6]);
+* the tree-creation variants UPDATE^x (both numerics) and SPLIT (0xC2).
 
 Prints the check count and a size/cost table like the other suites.
 """
@@ -158,8 +160,8 @@ def test_all(depth, profile, verbose=True):
     sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
     wit = w.path_witness(path) + [bob.serialize(), sig, b""]
     record("EXIT_1 (owner)", w.run("EXIT_1", wit, ctx), wit)
-    # residual: input 50k + tree amount; out0 = r1 sum; the fee input makes
-    # out0+out1+out2 = total inputs. CCV: out0 DEDUCT + equality, out1 DEDUCT.
+    # CCV: out1 DEDUCTs bob's amount from the tree input's residual, out0
+    # is assigned the rest (the floor) and must equal ns (the equality).
 
     # CCV-specific negatives -------------------------------------------------
     # output 0 tweaked by a wrong taptree: correct key for nh, other tree.
@@ -195,15 +197,18 @@ def test_all(depth, profile, verbose=True):
     expect_fail(lambda: w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sigu, b""], ctxu),
                 "output 0 underfunded (amount < ns)")
 
-    # overfunded TREE (input amount > committed sum): with DEDUCT + the
-    # numeric equality, output 0 must still equal ns exactly; the excess
-    # leaves through the free outputs (here: a bigger fee-input change).
+    # a larger fee input with its excess returned as change: the free
+    # outputs are unconstrained, output 0 still equals ns exactly.
     over = list(outputs)
     over[2] = (49_000 + 5_000, P2WPKH)
     ctxo = w.ctx(over, extra_in=(50_000 + 5_000, P2WPKH))
     sigo = schnorr_sign(ctxo.sighash(), sk("bob-owner"))
     wito = w.path_witness(path) + [bob.serialize(), sigo, b""]
-    record("EXIT_1 (overfunded tree, excess to fees)", w.run("EXIT_1", wito, ctxo), wito)
+    try:
+        w.run("EXIT_1", wito, ctxo)
+        check(True, "EXIT_1 with a larger fee input and change")
+    except ScriptError as e:
+        check(False, f"EXIT_1 with a larger fee input and change: {str(e)[:70]}")
 
     # but an output 0 larger than ns is rejected even when funded.
     bad = list(outputs)
@@ -469,6 +474,273 @@ def test_all(depth, profile, verbose=True):
     return costs
 
 
+# ------------------------------------------------- [A-6] BIP-443 pins --
+
+def test_a6_pins():
+    """Pin the BIP-443 rules the CCV tier relies on (spec 4.1 [A-6]),
+    one direct opcode test per rule, against the pseudocode of
+    bitcoin/bips commit 24e96e87. Each script is
+    <data> <index> <pk> <taptree> <mode> CCV ... OP_1, with bare keys
+    (data and taptree empty) so the scriptPubKey part is trivial and the
+    amount bookkeeping is what is under test."""
+    K = [pubkey_x(sk(f"pin-{i}")) for i in range(4)]
+    spk = [lt.p2tr_spk(k) for k in K]
+
+    def call(idx, key, mode, data=b"", taptree=b""):
+        return [data, idx, key, taptree, mode, "OP_CHECKCONTRACTVERIFY"]
+
+    def run(ctx, toks, index=0):
+        ctx.input_index = index
+        Interp(ctx).run(assemble(toks + ["OP_1"]), [])
+
+    def ok(fn, msg):
+        try:
+            fn()
+            check(True, msg)
+        except ScriptError as e:
+            check(False, f"{msg}: {str(e)[:70]}")
+
+    # default mode: the output must carry at least the input's residual.
+    ok(lambda: run(TxContext([(1_000, P2WPKH)], [(1_000, spk[0])]), call(0, K[0], 0)),
+       "A-6: default mode, output == residual")
+    expect_fail(lambda: run(TxContext([(1_000, P2WPKH)], [(999, spk[0])]), call(0, K[0], 0)),
+                "A-6: default mode, output below residual")
+
+    # default mode accumulates across inputs (shared per-output minimum).
+    def accumulate(out_amt):
+        ctx = TxContext([(1_000, P2WPKH), (500, P2WPKH)], [(out_amt, spk[0])])
+        run(ctx, call(0, K[0], 0), 0)
+        run(ctx, call(0, K[0], 0), 1)
+    ok(lambda: accumulate(1_500), "A-6: two inputs assign to one output, output == sum")
+    expect_fail(lambda: accumulate(1_499), "A-6: two inputs assign to one output, output below sum")
+
+    # deduct: subtracts from the residual; the next default sees what is left.
+    def deduct_then_assign(out0):
+        ctx = TxContext([(1_000, P2WPKH)], [(out0, spk[0]), (300, spk[1])])
+        run(ctx, call(1, K[1], 2) + call(0, K[0], 0))
+    ok(lambda: deduct_then_assign(700), "A-6: deduct reduces the residual the default mode assigns")
+    ok(lambda: deduct_then_assign(10_000), "A-6: the default mode is a floor, not an equality")
+    expect_fail(lambda: deduct_then_assign(699), "A-6: default floor after deduct")
+    expect_fail(lambda: run(TxContext([(1_000, P2WPKH)], [(1_001, spk[0])]), call(0, K[0], 2)),
+                "A-6: deduct above the residual")
+
+    # an output checked with deduct may not be checked again, in any order,
+    # by the same input or another one.
+    expect_fail(lambda: run(TxContext([(1_000, P2WPKH)], [(300, spk[0])]),
+                            call(0, K[0], 2) + call(0, K[0], 0)),
+                "A-6: deduct then default on one output")
+    # the second input has residual to spare, so only the mixing rule
+    # can reject its deduct.
+    def default_then_deduct():
+        ctx = TxContext([(1_000, P2WPKH), (2_000, P2WPKH)], [(1_000, spk[0])])
+        run(ctx, call(0, K[0], 0), 0)
+        run(ctx, call(0, K[0], 2), 1)
+    expect_fail(default_then_deduct, "A-6: default then deduct on one output")
+
+    def deduct_twice():
+        ctx = TxContext([(1_000, P2WPKH), (1_000, P2WPKH)], [(300, spk[0])])
+        run(ctx, call(0, K[0], 2), 0)
+        run(ctx, call(0, K[0], 2), 1)
+    expect_fail(deduct_twice, "A-6: two inputs deduct the same output")
+
+    # a residual left unassigned is not checked (it is fee).
+    ok(lambda: run(TxContext([(1_000, P2WPKH)], [(300, spk[0])]), call(0, K[0], 2)),
+       "A-6: unassigned residual is accepted")
+
+    # CHECK_INPUT does not touch the residual.
+    def input_then_assign(out_amt):
+        ctx = TxContext([(1_000, spk[2])], [(out_amt, spk[0])])
+        run(ctx, call(C.MINUS1, K[2], C.MINUS1) + call(0, K[0], 0))
+    ok(lambda: input_then_assign(1_000), "A-6: CHECK_INPUT leaves the residual whole")
+    expect_fail(lambda: input_then_assign(999), "A-6: CHECK_INPUT leaves the residual whole (floor)")
+
+    # ignore mode: no amount bookkeeping at all.
+    ok(lambda: run(TxContext([(1_000, P2WPKH)], [(1, spk[0])]), call(0, K[0], 1)),
+       "A-6: ignore mode checks no amount")
+
+    # an undefined mode makes the script succeed whatever follows.
+    ok(lambda: Interp(TxContext([(1, P2WPKH)], [(1, P2WPKH)])).run(
+        assemble(call(0, K[0], 3) + ["OP_0", "OP_VERIFY"]), []),
+       "A-6: undefined mode is OP_SUCCESS")
+
+    # empty pk is NUMS, empty data applies no tweak.
+    ok(lambda: run(TxContext([(1, P2WPKH)], [(1, lt.p2tr_spk(lt.NUMS_X))]), call(0, b"", 1)),
+       "A-6: empty pk is the BIP-341 NUMS key, empty data no tweak")
+
+    # data tweak: sha256(pk || data), untagged; the tree key matches.
+    root = lt.sha256(b"pin-root")
+    ok(lambda: run(TxContext([(1, P2WPKH)], [(1, lt.p2tr_spk(lt.ccv_internal_key(root)))]),
+                   call(0, b"", 1, data=root)),
+       "A-6: data tweak is NUMS + sha256(NUMS || data)*G")
+    expect_fail(lambda: run(TxContext([(1, P2WPKH)], [(1, lt.p2tr_spk(lt.NUMS_X))]),
+                            call(0, b"", 1, data=root)),
+                "A-6: non-empty data must tweak")
+
+
+# ------------------------------------------------- two tree inputs --
+
+def test_two_trees(depth, profile):
+    """Two tree inputs in one transaction. Every CCV call names "the
+    current input", so the question is whether two inputs carrying the same
+    tree state (same root, same taptree, hence the same scriptPubKey) can
+    be spent together so that one output 0 satisfies both scripts. The
+    assign-mode floor accumulates across inputs (A-6), so output 0 would
+    have to carry both inputs' residuals while equalling one ns; and a
+    payout output cannot be deducted by both. Each script passes alone in
+    the same transaction; the second input fails. Two trees with different
+    states cannot meet at all: each requires output 0 to be its own
+    successor."""
+    w = World(depth, profile)
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000)
+    s_a, s_b = w.slot(alice, 0), w.slot(bob, 5)
+    w.tree.leaves = {s_a: alice, s_b: bob}
+    root = w.tree.root()
+    tree_in = (root[1], w.spk(root))
+
+    def mkctx(outputs, extra):
+        return TxContext([tree_in, tree_in, extra], outputs,
+                         internal_key=lt.ccv_internal_key(root[0]), taptree_root=w.m)
+
+    def run_input(ctx, name, wit_of, index):
+        ctx.input_index = index
+        return w.run(name, wit_of(ctx), ctx)
+
+    # (1) UPDATE on both copies: one output 0 for 2 * os.
+    upath = w.tree.path(s_a)
+    alice2 = alice.with_amount_seq(80_000, 1)
+    t1 = w.clone(); t1.leaves[s_a] = alice2; r1 = t1.root()
+    ctx = mkctx([(r1[1], w.spk(r1))], (30_700, P2WPKH))
+
+    def uwit(c):
+        return w.path_witness(upath) + [alice.serialize(), alice2.serialize(),
+                                        schnorr_sign(c.sighash(), sk("alice-owner")),
+                                        schnorr_sign(c.sighash(), w.op_sk)]
+    try:
+        run_input(ctx, "UPDATE", uwit, 0)
+        check(True, "two trees: the first copy's UPDATE passes on its own")
+    except ScriptError as e:
+        check(False, f"two trees: first UPDATE: {str(e)[:70]}")
+    expect_fail(lambda: run_input(ctx, "UPDATE", uwit, 1),
+                "two trees: a second copy cannot share output 0 (assign floor accumulates)")
+
+    # (2) EXIT_1 of the same leaf from both copies: one payout, two deducts.
+    path = w.tree.path(s_b)
+    t2 = w.clone(); del t2.leaves[s_b]; r2 = t2.root()
+    ctx = mkctx([(r2[1], w.spk(r2)), (bob.amount, lt.p2tr_spk(bob.exit_key))], (1_000, P2WPKH))
+
+    def ewit(c):
+        return w.path_witness(path) + [bob.serialize(), schnorr_sign(c.sighash(), sk("bob-owner")), b""]
+    try:
+        run_input(ctx, "EXIT_1", ewit, 0)
+        check(True, "two trees: the first copy's EXIT_1 passes on its own")
+    except ScriptError as e:
+        check(False, f"two trees: first EXIT_1: {str(e)[:70]}")
+    expect_fail(lambda: run_input(ctx, "EXIT_1", ewit, 1),
+                "two trees: one payout output cannot be deducted by both copies")
+
+
+# ------------------------------------------- tree-creation variants --
+
+def test_update_x_ccv(depth, profile):
+    """UPDATE^x (spec 7.4 rule 5) under CCV (0xC2): UPDATE plus a
+    signature by old_leaf.exit_key. Swapped into the taptree as UPDATE_X,
+    as in the FULL suite."""
+    w = World(depth, profile)
+    toks = C.update_script_ccv(depth, w.op_pk, profile, exit_consent=True)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED
+    check(not bad, f"UPDATE_X: opcodes outside the CCV candidate set: {sorted(bad)}")
+    w.compiled = dict(w.compiled); w.compiled["UPDATE_X"] = assemble(toks)
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 50_000)
+    oper = mk_leaf("operator", 1_000_000)
+    others = [mk_leaf(n, a) for n, a in (("bob", 125_000), ("carol", 30_000),
+                                         ("dave", 70_000), ("erin", 15_000))]
+    s_alice = w.slot(alice, 0)
+    w.tree.leaves = {s_alice: alice, w.slot(oper, (1 << depth) - 1): oper}
+    for i, lf in enumerate(others):
+        w.tree.leaves[w.slot(lf, i + 1)] = lf
+    upath = w.tree.path(s_alice)
+    alice2 = alice.with_amount_seq(80_000, 1)
+    t1 = w.clone(); t1.leaves[s_alice] = alice2; r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(30_700, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    xsig = schnorr_sign(ctx.sighash(), sk("alice-exit"))
+    block = w.path_witness(upath) + [alice.serialize(), alice2.serialize()]
+    wit = block + [asig, osig, xsig]
+    it = None
+    try:
+        it = w.run("UPDATE_X", wit, ctx)
+        check(True, "UPDATE^x with owner, operator and exit signatures")
+    except ScriptError as e:
+        check(False, f"UPDATE^x positive: {str(e)[:70]}")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, asig], ctx), "UPDATE^x exit_sig by the wrong key")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, bytes(64)], ctx), "UPDATE^x garbage exit_sig")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig], ctx), "UPDATE^x missing exit_sig")
+    expect_fail(lambda: w.run("UPDATE_X", block + [osig, osig, xsig], ctx), "UPDATE^x without the owner signature")
+    return it, len(w.compiled["UPDATE_X"]), sum(len(x) for x in wit)
+
+
+def test_split_ccv(depth, profile):
+    """SPLIT (spec 7.5.2) under CCV (0xC2): the carve authorised by the
+    source owner's transaction signature. Mirrors test_scripts.test_split,
+    with the stale-root case expressed as CCV sees it (the input commits
+    to a root the proofs do not fold to)."""
+    w = World(depth, profile)
+    toks = C.split_script_ccv(depth, profile)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED
+    check(not bad, f"SPLIT: opcodes outside the CCV candidate set: {sorted(bad)}")
+    w.compiled = dict(w.compiled); w.compiled["SPLIT"] = assemble(toks)
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 500_000)
+    oper = mk_leaf("operator", 1_000_000)
+    s_alice, s_oper = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_alice: alice, s_oper: oper}
+    root = w.tree.root()
+    bob = mk_leaf("bob", 200_000, w.op_pk, 900_000)
+    s_bob = w.slot(bob, 3)
+    spath = w.tree.path(s_alice)
+    t1 = w.clone(); lt.apply_claim(t1, s_alice, s_bob, bob)
+    cpath = t1.path(s_bob); r1 = t1.root()
+    check(r1[1] == root[1], "SPLIT conserves sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    head = w.path_witness(cpath) + w.path_witness(spath) + [alice.serialize(), bob.serialize()]
+    it = None
+    try:
+        it = w.run("SPLIT", head + [asig], ctx)
+        check(True, "SPLIT authorised by the source owner's transaction signature")
+    except ScriptError as e:
+        check(False, f"SPLIT positive: {str(e)[:70]}")
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctx.sighash(), w.op_sk)], ctx),
+                "SPLIT signed by the operator, not the owner")
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctx.sighash(), sk("bob-owner"))], ctx),
+                "SPLIT signed by the recipient")
+    expect_fail(lambda: w.run("SPLIT", head + [bytes(64)], ctx), "SPLIT garbage signature")
+    vsig = schnorr_sign(lt.voucher_msg(w.m, alice, bob), sk("alice-owner"))
+    expect_fail(lambda: w.run("SPLIT", head + [vsig], ctx),
+                "SPLIT with a voucher signature instead of a transaction signature")
+    greedy = mk_leaf("greedy", alice.amount + 1, w.op_pk, 900_000)
+    expect_fail(lambda: w.run("SPLIT", w.path_witness(cpath) + w.path_witness(spath) +
+                              [alice.serialize(), greedy.serialize(), asig], ctx),
+                "SPLIT over-split underflow")
+    occupied = w.tree.path(s_oper)
+    expect_fail(lambda: w.run("SPLIT", w.path_witness(occupied) + w.path_witness(spath) +
+                              [alice.serialize(), bob.serialize(), asig], ctx),
+                "SPLIT into an occupied position")
+    # output 0 must still equal ns (= os: a SPLIT moves no value).
+    ctxu = w.ctx([(r1[1] - 1, w.spk(r1))], extra_in=(600, P2WPKH))
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctxu.sighash(), sk("alice-owner"))], ctxu),
+                "SPLIT with output 0 below ns")
+    # stale root: the input commits to the post-split root r1, the proofs
+    # fold to the pre-split root; CHECK_INPUT fails.
+    ctxs = TxContext([(r1[1], w.spk(r1)), (600, P2WPKH)], [(r1[1], w.spk(r1))],
+                     internal_key=lt.ccv_internal_key(r1[0]), taptree_root=w.m)
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctxs.sighash(), sk("alice-owner"))], ctxs),
+                "SPLIT against a stale root")
+    return it, len(w.compiled["SPLIT"]), sum(len(x) for x in head + [asig])
+
 # ----------------------------------------------------------- 0xC0 numerics --
 
 C0_OPCODES = (BIP342_OPS | BIP441_OPS - {"OP_SUBSTR", "OP_LEFT", "OP_RIGHT", "OP_AND", "OP_DOWNSHIFT"}
@@ -647,6 +919,32 @@ def test_c0(depth, profile):
     it = w.run("UPDATE", wit, ctx)
     costs["UPDATE (c0)"] = (it, len(w.compiled["UPDATE"]), sum(len(x) for x in wit))
     expect_fail(lambda: w.run("UPDATE", wit[:-1] + [osig], ctx), "c0: update without owner")
+
+    # UPDATE^x (exit-key consent, spec 7.4 rule 5), swapped into the
+    # taptree as UPDATE_X for this step only.
+    saved = (dict(w.compiled), w.m)
+    xs = C._update_script_ccv0(depth, w.op_pk, S, exit_consent=True)
+    bad = {t for t in xs if isinstance(t, str)} - C0_OPCODES
+    check(not bad, f"c0 UPDATE_X: opcodes outside the c0 CCV set: {sorted(bad)}")
+    w.compiled["UPDATE_X"] = assemble(xs, mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    ctx = w.ctx([(r4[1], w.spk(r4))], (30_700, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    xsig = schnorr_sign(ctx.sighash(), sk("alice-exit"))
+    block = (list(M.pad(r4[1])) + w.pads_for(root[1]) +
+             M.w_levels(upath, alice.node(), alice2.node(), S) +
+             w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice2))
+    try:
+        it = w.run("UPDATE_X", block + [asig, osig, xsig], ctx)
+        check(True, "c0: UPDATE^x with owner, operator and exit signatures")
+        costs["UPDATE_X (c0)"] = (it, len(w.compiled["UPDATE_X"]),
+                                  sum(len(x) for x in block + [asig, osig, xsig]))
+    except ScriptError as e:
+        check(False, f"c0: UPDATE^x positive: {str(e)[:70]}")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, asig], ctx), "c0: UPDATE^x exit_sig by the wrong key")
+    expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig], ctx), "c0: UPDATE^x missing exit_sig")
+    w.compiled, w.m = saved
     w.tree = t4
 
     # EXIT_2 (carol owner + dave evict)
@@ -678,10 +976,19 @@ def test_c0(depth, profile):
 def main():
     global FAILS, CHECKS
     print("CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY)")
+    before = CHECKS
+    test_a6_pins()
+    print(f"  [A-6] BIP-443 pins: {CHECKS - before} checks")
     for depth, profile in ((4, "D"), (16, "D"), (8, "S"), (32, "S")):
         before = CHECKS
         test_all(depth, profile)
+        test_two_trees(depth, profile)
         print(f"  {profile}/{depth} (c2): {CHECKS - before} checks")
+    for depth, profile in ((4, "D"), (16, "D"), (8, "S")):
+        before = CHECKS
+        test_update_x_ccv(depth, profile)
+        test_split_ccv(depth, profile)
+        print(f"  {profile}/{depth} (c2) UPDATE^x, SPLIT: {CHECKS - before} checks")
     # 0xC0 numerics: dense D=4/16; sparse D=31 (MID's D <= 31 limit, spec 4.5).
     for depth, profile in ((4, "D"), (16, "D"), (31, "S")):
         before = CHECKS
