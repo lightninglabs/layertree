@@ -116,13 +116,13 @@ Everything the shared output can do fits on one page:
 
 | Interface | Who | What it does |
 |---|---|---|
-| `JOIN` | operator | Grafts a new member, or a whole prebuilt subtree of up to 256 members, into an empty slot |
+| `JOIN` | operator | Grafts a new member, or a whole prebuilt subtree, into an empty slot |
 | `EXIT` | leaf owner | Removes your leaf, pays your balance to your exit key |
 | `EVICT` | evictor, after the lease height | Removes an expired leaf, paying the owner exactly |
 | `UPDATE` | owner and operator | Rewrites a leaf in place: resize, renew the lease, rotate keys |
 | `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one |
-| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher |
-| `SWEEP` | evictor | Removes a whole expired cohort in one transaction |
+| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher; needs no signature-over-stack-data opcode, so it exists in all three tiers, including MIN |
+| `SWEEP` (`EVICT_SUBTREE_h` in the spec) | evictor | Removes a whole expired cohort in one transaction |
 
 They are all the same machine underneath. Every one of them is a sequence
 of **steps**, and a step is: prove an old node against the current root,
@@ -132,6 +132,17 @@ emptiness with a subtree. A batched exit of five members is five steps
 chained, each proving against the root the last one produced. The script
 for a five-way exit is the script for a one-way exit with the loop body
 repeated, because tapscript has no loops and everything is unrolled.
+
+A tree has one of two shapes, and **dense is the default**. In the dense
+profile the operator assigns slots in order, so 65,536 members need depth
+16, and cohorts can be grafted and swept as aligned subtrees. The sparse
+profile places each leaf at a position hashed from its owner's key, which
+removes the operator from slot assignment and gives proofs that a key is
+absent. It is kept as a secondary option for key-addressed registries, and
+it costs 1.6 to 2.7 times as much: random positions need about twice the
+depth to avoid collisions, and each sparse level is a heavier script. It
+cannot graft or sweep cohorts. The rest of this file describes the dense
+profile.
 
 That unrolling happens twice over, and the second one is easy to miss.
 Inside a script, the fold over the tree's depth is one copy of the level
@@ -160,8 +171,14 @@ Hashing the interior once instead of once per leaf means the per-leaf cost
 | Cohort sweep, 13 leaves | 203 vB |
 | Cohort sweep, 51 leaves | 158 vB |
 
-The same asymmetry works on the way in: grafting a subtree of 256 new
-members costs the same script as grafting one.
+The same asymmetry works on the way in. A graft walks only the levels
+above the slot it fills, so a bigger cohort is a cheaper transaction: at
+depth 16, one member costs 980 vB, 256 members 722 vB, and 1,024 members
+657 vB. The covenant does not look inside the grafted subtree, which is why
+the whole cohort is one price. Each cohort height is its own script. The
+reference taptree carries only the single-member and four-member grafts,
+and a deployment that wants larger cohorts compiles those heights in when
+it creates the tree.
 
 ## What it deliberately does not promise
 
@@ -170,6 +187,16 @@ A design is only as honest as its list of non-guarantees.
 **Nobody has to let you in.** `JOIN` needs the operator. A member who is
 never admitted has lost nothing, but there is no liveness guarantee for
 joining.
+
+**Grafting is safe for the members already there.** A graft needs only the
+operator's signature, and it can only fill a slot that was empty, so no
+existing leaf can be moved, shrunk or rewritten by one. The party at risk
+is a funder who pays before verifying. A funder who signs an input to the
+graft transaction has verified by signing, because the signature commits to
+the output that holds the new root. A buyer who pays off-chain verifies the
+confirmed root first. An operator that funds its own leaves, or grafts a bad
+node into its own part of a cohort, freezes only its own money. The trust
+model and funding costs are in [`design/graft.md`](design/graft.md).
 
 **Grafted subtrees might be opaque.** When the operator grafts a subtree,
 the covenant sees only its root hash and its claimed sum. It cannot look
@@ -183,12 +210,17 @@ the proofs have a hypothesis the covenant cannot enforce.
 **Everything funnels through one output.** Every transition spends and
 recreates the same UTXO, so unconfirmed transitions form a chain. Bitcoin's
 default policy allows about 25 unconfirmed descendants, which puts a hard
-ceiling on how fast a tree can be dissolved against its will, and it
-exposes the chain to fee pinning: one cheap transition early in the queue
+ceiling on how fast a tree can be dissolved against its will. The limit
+counts transactions, not leaves, so a batch counts once: a sweep of 51
+leaves is one transaction. The worst case is strangers exiting one at a
+time. Detaching a cohort into an output of its own, which
+[`design/batching.md`](design/batching.md) proposes but the spec does not
+yet define, would give each cohort its own chain and its own limit. The single chain
+also exposes the tree to fee pinning: one cheap transition early in the queue
 caps the fee rate of everything behind it. Trees should be sized by exit
 throughput, not by how many slots the depth allows. This is the design's
-real weak spot and it cannot be engineered away inside a single-UTXO
-design.
+real weak spot, and splitting a deployment into several trees is the only
+structural answer.
 
 **Eviction is cheap, which cuts both ways.** At about 160 vB per leaf, an
 operator can clear expired members very cheaply. That is good for
@@ -237,7 +269,7 @@ leaf with Lightning sats while holding no on-chain Bitcoin at all, with
 neither side able to take the other's money and walk. The script cost of
 the hash lock is nine bytes and no new opcode, because the preimage is
 hashed straight into the signed message rather than compared against a
-copy: a wrong preimage simply produces an invalid signature.
+copy: a wrong preimage produces an invalid signature.
 
 There is still no on-chain deadline, and there cannot be. Script can
 require that something not happen before a height, never that it happen
@@ -245,6 +277,23 @@ before one, and the value backing a voucher never leaves the source leaf,
 so there is nothing to refund. Deadlines live in the other leg of the swap.
 An issuer retires an unredeemed voucher by bumping the source leaf's
 counter.
+
+**The wallet case is a credit leaf plus cumulative vouchers.** A user with
+no on-chain funds who wants to receive over Lightning can be given a credit
+leaf dedicated to them, funded by the operator. Each receive is a Lightning
+payment to the operator, which reissues one hash-locked voucher for the
+running total against the same claim leaf. That costs no on-chain bytes per
+payment, has no minimum amount and never expires, and the recipient can
+redeem the latest voucher alone if the operator stops cooperating. One gap
+remains. With plain `CLAIM` the operator can issue itself a voucher against
+the credit leaf and drain it, voiding the recipient's. A trust-free version
+needs a `CLAIM^x` variant that also requires a signature from the source
+leaf's exit key, which is the recipient; it is not yet in the spec. The
+structure is one-way on purpose. If the recipient could also spend from the
+credit, an older and larger voucher would be a stale state, and refuting
+it needs a contest window, which is what the channel leaf provides.
+Receiving suits the credit leaf and two-way traffic suits the channel leaf.
+See [`design/receive.md`](design/receive.md).
 
 That asymmetry is the whole subtlety of swapping a voucher against a
 channel HTLC, and the two legs are built to fit: both require a preimage of
@@ -256,6 +305,54 @@ to resolve. Put the deadline-free leg first and the HTLC can expire while
 the voucher sits unredeemed. Arranged correctly, the channel leg settles
 off-chain by exchanging the secret and only the voucher is ever redeemed,
 so the whole swap costs one transaction.
+
+## What it costs, honestly
+
+The shared output is not cheaper than a bare UTXO on every operation, and
+the claim here is narrower. Sharing moves its cost out of steady state and
+into the exit. The full argument, with the figures behind every number
+below, is in [`design/cost-comparison.md`](design/cost-comparison.md).
+
+**One exit alone is expensive.** At depth 16 a unilateral exit is 1,020 vB
+in the FULL tier, against 111 vB for a bare spend and 2,511 vB to
+unroll a transaction-tree branch of the same size. The MID and MIN tiers
+cost 1,338 and 1,456 vB. That is the price of the proof, and it is a
+constant: it does not grow with the number of members.
+
+**Per-leaf cost falls with batch size.** Owners who exit together each
+still carry a full path, so two batched exits average 842 vB. The
+operator's sweep shares one path across a subtree and costs 203 vB per leaf
+for 13 leaves and 158 vB per leaf for 51, but it works only on leaves
+that accepted a lease. The owner-side equivalent, a multiproof that lets
+members of one subtree exit under one shared path, is specified but not
+built; its estimates are 222 vB per leaf for 13 owners and 177 vB for 51.
+
+**Entry is almost free in bulk.** In a cohort graft each member's share is
+under one vB at a thousand members, against 43 vB for one output in an
+on-chain batch. That holds when the operator funds the graft and members
+buy their balances off-chain. When each member funds their own leaf,
+every member adds an input of about 58 vB and most of the saving is gone.
+
+**Moving value is free.** It happens off-chain, in channel leaves or by
+voucher. Rewriting a leaf on-chain costs 1,073 vB, so the design only
+works if payments do not do that.
+
+The fair comparison is lifetime bytes per member, entry plus exit, and it
+depends on how the member leaves:
+
+| vB per member, entering in a batch | Never exits alone | Exits in a batch | Exits alone |
+|---|---|---|---|
+| LayerTree, dense | 3 | 161 | 1,023 |
+| Lightning channel | 197 | 197 | 283 |
+| Ark round tree | 86 | 86 | 2,554 |
+| Bare UTXO | 154 | 154 | 154 |
+
+A member who never exits alone, because they hold a lease and are swept or
+sell their balance by voucher, pays almost nothing. A member who exits
+alone pays for the proof and loses to Lightning and the bare UTXO, though
+not to Ark, whose unilateral exit is 2.5 times as large and also needs a
+timelock and a refresh before the round expires. The assumptions behind
+each cell are stated on the cost page.
 
 ## The opcodes this needs, and how few they are
 
@@ -320,8 +417,8 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 542 executable checks across three tiers, positive and negative |
-| Python against Go | 34 byte-exact golden scripts, shared signature-hash vector |
+| Compiled scripts | 576 executable checks across three tiers (425 FULL, 120 MID, 31 MIN), positive and negative |
+| Python against Go | 39 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 
 ## Where to read more
@@ -334,3 +431,8 @@ vectors and agrees with the simulator on the signature hash.
 | [`formal/`](formal/) | The Lean 4 development and a guide to what it does and does not prove |
 | [`design/review.md`](design/review.md) | The design review that shaped the construction, finding by finding |
 | [`design/status.md`](design/status.md) | Current state, decision log, and open work |
+| [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and loses on bytes, against a bare UTXO, Lightning and Ark |
+| [`design/tree-comparison.md`](design/tree-comparison.md) | Dense against sparse profiles, measured, and what a higher radix would change |
+| [`design/batching.md`](design/batching.md) | How a transition's cost is shared across leaves: what exists and three proposed shapes |
+| [`design/graft.md`](design/graft.md) | How a cohort joins, who trusts whom, and what a graft costs by funding mode |
+| [`design/receive.md`](design/receive.md) | Receiving over Lightning into a credit leaf, and the one script variant it needs |
