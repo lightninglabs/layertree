@@ -515,6 +515,72 @@ def fig_level_cost(png_dir):
     f.save("level-cost.svg", png_dir)
 
 
+# ---------------------------------------------------------------------------
+# Figure 7: radix trade-off.
+# ---------------------------------------------------------------------------
+
+# Raw bytes of one EXIT_1 proving against 65,536 slots (2^18 for radix 8),
+# as (label, script, witness, is_estimate). Radix 4 and 8 are measured by
+# tools/experiments/radix4.py in the FULL simulator; radix 2 and sparse
+# D=32 are from spec/scripts/sizes.md; the sparse radix 4 and 16 rows are
+# estimates.
+RADIX_DENSE = [
+    ("dense, radix 2, 16 levels (measured)", 2101, 902, False),
+    ("dense, radix 4, 8 levels (measured)", 1861, 1230, False),
+    ("dense, radix 8, 6 levels (measured; 2^18 slots)", 1983, 1968, False),
+]
+RADIX_SPARSE = [
+    ("sparse D=32, radix 2, 32 levels (measured)", 5147, 326, False),
+    ("sparse D=32, radix 4, 16 levels (estimate)", 3707, 342, True),
+    ("sparse D=32, radix 16, 8 levels (estimate)", 4587, 414, True),
+]
+RADIX_EST = ("#5598e7", "#86b6ef")
+
+
+def fig_radix(png_dir):
+    bt, pitch, ggap = 20, 28, 18
+    nd, ns = len(RADIX_DENSE), len(RADIX_SPARSE)
+    top = 118
+    plot_h = (nd + ns) * pitch + ggap
+    bottom = top + plot_h
+    left, right = 340, 640
+    f = Fig(bottom + 62, "A higher radix trades script for witness, and "
+            "loses on the dense tree", "EXIT_1 bytes at 65,536 slots; "
+            "radix 4 and 8 measured by tools/experiments/radix4.py in "
+            "the FULL simulator")
+    ax = f.axes(left, top, right, bottom)
+    ax.set_xlim(0, 6000)
+    ax.set_ylim(plot_h, 0)  # Pixel units, top to bottom.
+    ax.set_xticks(range(0, 6001, 1000))
+    ax.set_xticklabels([fmt(t) for t in range(0, 6001, 1000)])
+    ax.spines["bottom"].set_visible(False)
+    vgrid(ax)
+    gap = 2.0 * 6000 / float(right - left)
+    ys, names = [], []
+    for k, (name, scr, wit, est) in enumerate(RADIX_DENSE + RADIX_SPARSE):
+        yc = k * pitch + pitch / 2.0 + (ggap if k >= nd else 0)
+        ys.append(yc)
+        names.append(name)
+        cs, cw = RADIX_EST if est else (RAMP[3], RAMP[2])
+        ax.barh(yc, scr - gap, height=bt, color=cs, linewidth=0)
+        ax.barh(yc, wit, left=scr, height=bt, color=cw, linewidth=0)
+        label(ax, scr + wit, yc, "%s (witness %s)" % (fmt(scr + wit),
+                                                     fmt(wit)), 4, 0,
+              size=11)
+    ax.set_yticks(ys)
+    ax.set_yticklabels(names, fontsize=12 * PX, color=INK)
+    ax.axhline(nd * pitch + ggap / 2.0, color=BASE, lw=1 * PX, zorder=1)
+    f.legend([Patch(color=RAMP[3]), Patch(color=RAMP[2]),
+              Patch(color=RADIX_EST[0]), Patch(color=RADIX_EST[1])],
+             ["script", "witness data", "script (estimate)",
+              "witness (estimate)"], 68, ncol=4)
+    f.text(right, bottom + 34, "bytes", 11, INK3, ha="right")
+    f.text(24, bottom + 52, "per level: radix 2 is 88 script and 41 "
+           "witness bytes, radix 4 is 146 and 123, radix 8 is 215 and "
+           "287", 11, INK2)
+    f.save("radix.svg", png_dir)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--png-dir", help="also write 2x PNG twins here")
@@ -527,6 +593,7 @@ def main():
     fig_lifetime(args.png_dir)
     fig_exit_profiles(args.png_dir)
     fig_level_cost(args.png_dir)
+    fig_radix(args.png_dir)
 
 
 if __name__ == "__main__":
