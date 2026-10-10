@@ -384,23 +384,24 @@ theorem payable {d : Nat} (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = 
 
 /-- **The honest `EXIT_1` is accepted and pays the exit key.** `payable`
 stated as an `ExitK`: for any tree, any position holding a leaf, either
-payout rule and any authorisation the owner can supply (its signature),
-the block made of the leaf, its honest path and the payout
+payout rule, either branch (owner exit or eviction) and any authorisation
+the signer can supply (the owner's signature, or the evictor's with the
+lock time), the block made of the leaf, its honest path and the payout
 `(leaf.exit_key, leaf.amount)` is an accepted single exit from the current
 root to the root of the tree without the leaf, with output 0 carrying the
 remaining sum. This is the form of 10.2's claim that names the key the
 payout goes to. -/
-theorem exit_available {d : Nat} (exact : Bool) (t : Tree d) (p : Pos d 0) (l : Leaf)
+theorem exit_available {d : Nat} (exact isEvict : Bool) (t : Tree d) (p : Pos d 0) (l : Leaf)
     (hl : t.get p = some l) (auth : Prop) (ha : auth) :
-    ExitK exact t.root [⟨l, t.path p, l.payout, false, auth⟩]
+    ExitK exact t.root [⟨l, t.path p, l.payout, isEvict, auth⟩]
       (t.set p none).root (t.set p none).root.sum := by
   have hv := (payable t p l hl).1
   refine ⟨Steps.cons hv (Steps.nil _), rfl, ?_, ?_⟩
   · intro b hb
     simp at hb; subst hb
     refine ⟨rfl, ?_⟩
-    simp only [Leaf.payout, Bool.false_or]
-    cases exact <;> simp
+    simp only [Leaf.payout]
+    cases exact <;> cases isEvict <;> simp
   · intro b hb
     simp at hb; subst hb
     exact ha
