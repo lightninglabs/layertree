@@ -1076,7 +1076,10 @@ work: a verified compiler, a proof of Conjecture~\ref{thm:chan},
 mechanising Lemma~\ref{lem:path}, and a P model~\cite{plang}.
 
 \bibliographystyle{splncs04}
-\bibliography{refs}
+% Let long URLs in the references break after a hyphen; scoped to the
+% bibliography so that body text and paths are set as before.
+{\expandafter\def\expandafter\UrlBreaks\expandafter{\UrlBreaks\do\-}%
+\bibliography{refs}}
 
 \appendix
 \iffullversion\else
