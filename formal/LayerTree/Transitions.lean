@@ -455,4 +455,171 @@ theorem claim_sound {auth : Prop} {d : Nat} (t : Tree d) (srcPath claimPath : Li
       simp [leafStep] at h₁ h₂
       rw [hc.out0_eq]; omega
 
+/-! ### Terminal exit (section 7.8) -/
+
+/-- The two branches of the `FINAL` macro (section 7.8). On the terminal
+branch the script compares `r'` with the constant `E_D` of the tree's
+depth and leaves output 0 unconstrained; otherwise output 0 must carry
+`r'.sum` (rule 7.1.5). `terminal` is the branch the script took. -/
+def Final (d : Nat) (r' : Node H) (out0 : Nat) (terminal : Bool) : Prop :=
+  if terminal then r' = Tree.emptyNode d else out0 = r'.sum
+
+/-- `EXIT_K` with the terminal branch made explicit: the same steps,
+payouts and authorisation as `ExitK`, with `Final` in place of the
+unconditional `out0 = r'.sum`. -/
+structure ExitKT (exact : Bool) (d : Nat) (r : Node H) (blocks : List (ExitBlock H))
+    (r' : Node H) (out0 : Nat) (terminal : Bool) : Prop where
+  steps : Steps r (blocks.map ExitBlock.step) r'
+  final : Final d r' out0 terminal
+  payouts : ∀ b ∈ blocks, b.payoutOk exact
+  auth : ∀ b ∈ blocks, b.authorised
+
+/-- Off the terminal branch, `ExitKT` is `ExitK`: every earlier theorem
+applies unchanged. -/
+theorem ExitKT.nonterminal {exact : Bool} {d : Nat} {r r' : Node H} {blocks : List (ExitBlock H)}
+    {out0 : Nat} (h : ExitKT exact d r blocks r' out0 false) : ExitK exact r blocks r' out0 :=
+  ⟨h.steps, h.final, h.payouts, h.auth⟩
+
+/-- **The terminal branch is reachable only from an empty tree.** Whatever
+tree output 0 would have committed to on the terminal branch, it holds no
+leaf at any position: by `root_inj` the only tree with root `E_D` is the
+empty tree. This is the spec's "non-terminal exit taking the terminal
+branch" negative: an `EXIT` that leaves any leaf behind cannot take it. -/
+theorem terminal_no_leaf {d : Nat} {r' : Node H} {out0 : Nat} (hf : Final d r' out0 true)
+    (t' : Tree d) (ht : t'.root = r') (q : Pos d 0) : t'.get q = none := by
+  have h : t' = Tree.empty d := Tree.eq_empty_of_root t' (ht.trans hf)
+  rw [h]; exact Tree.get_empty q
+
+/-- **Conservation with no tree output.** On the terminal branch the
+payouts account for the whole input amount: at most `S` in general (the
+remainder is fee, 7.2 rule 3), exactly `S` in `EXIT_K^=`. Holds for any
+`K`, by `Steps.sum` and `E_D.sum = 0`. -/
+theorem ExitKT.terminal_conservation {exact : Bool} {d : Nat} {r r' : Node H}
+    {blocks : List (ExitBlock H)} {out0 : Nat} (h : ExitKT exact d r blocks r' out0 true) :
+    payoutSum blocks ≤ r.sum ∧ (exact = true → payoutSum blocks = r.sum) := by
+  have hs := h.steps.sum
+  rw [oldSum_exit, newSum_exit] at hs
+  have h0 : r'.sum = 0 := by
+    have hf : r' = Tree.emptyNode d := h.final
+    rw [hf]; exact Tree.emptyNode_sum d
+  have hp := payoutSum_le exact blocks h.payouts
+  refine ⟨by omega, fun he => ?_⟩
+  subst he
+  have := payoutSum_eq blocks h.payouts
+  omega
+
+/-- **A terminal single exit removes the last leaf.** The exited leaf sits
+at some position, every other position of the tree was already empty, the
+leaf's amount is the whole input amount, and the tree output disappears:
+there is no `r'.sum` for output 0 to carry. -/
+theorem ExitKT.single_terminal {exact : Bool} {d : Nat} (t : Tree d) (b : ExitBlock H)
+    {r' : Node H} {out0 : Nat} (hwf : b.step.WF d)
+    (h : ExitKT exact d t.root [b] r' out0 true) :
+    ∃ p : Pos d 0, t.get p = some b.leaf ∧ (∀ q, q ≠ p → t.get q = none) ∧
+      b.leaf.amount = t.root.sum := by
+  cases h.steps with
+  | cons hv hrest =>
+    cases hrest
+    obtain ⟨p, hget, hr'⟩ := leafStep_sound t b.path (some b.leaf) none _ hwf hv
+    refine ⟨p, hget, fun q hq => ?_, ?_⟩
+    · rw [← Tree.get_set_ne t p q none (Ne.symm hq)]
+      exact terminal_no_leaf h.final _ hr'.symm q
+    · have hs := Step.sum _ _ _ hv
+      have h0 : r'.sum = 0 := by
+        have hf : r' = Tree.emptyNode d := h.final
+        rw [hf]; exact Tree.emptyNode_sum d
+      simp [ExitBlock.step, leafStep] at hs
+      omega
+
+/-! ### Sparse positions (section 5.4)
+
+In the sparse profile a leaf's position is
+`pos(leaf) = int_le(H_pos(owner_key ‖ le32(nonce))) mod 2^D`. The model
+does not compute the hash: `pos` is an arbitrary function from
+`(owner_key, nonce)` to leaf positions, and everything below uses only
+that it is a function. The scripts derive the direction bits of the path
+from the leaf, which the model states as `path.map Prod.fst = (pos …).dirs`.
+-/
+
+/-- A tree is sparse under `pos` when every leaf sits at its derived
+position. The empty tree is sparse, and `sparseJoin_sound` shows a sparse
+`JOIN_0` preserves it, so every tree reachable in the sparse profile is. -/
+def Tree.Sparse {d : Nat} (pos : Nat → Nat → Pos d 0) (t : Tree d) : Prop :=
+  ∀ (p : Pos d 0) (l : Leaf), t.get p = some l → p = pos l.ownerKey l.nonce
+
+theorem Tree.Sparse.empty {d : Nat} (pos : Nat → Nat → Pos d 0) : (Tree.empty d).Sparse pos := by
+  intro p l h; rw [Tree.get_empty] at h; cases h
+
+/-- **Structural uniqueness** (section 5.2): in a sparse tree two leaves with
+the same `(owner_key, nonce)` are the same leaf at the same position, so no
+tree holds two of them. -/
+theorem Tree.Sparse.unique {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d} (hs : t.Sparse pos)
+    {p₁ p₂ : Pos d 0} {l₁ l₂ : Leaf} (h₁ : t.get p₁ = some l₁) (h₂ : t.get p₂ = some l₂)
+    (hk : l₁.ownerKey = l₂.ownerKey) (hn : l₁.nonce = l₂.nonce) : p₁ = p₂ ∧ l₁ = l₂ := by
+  have e₁ := hs p₁ l₁ h₁
+  have e₂ := hs p₂ l₂ h₂
+  have hp : p₁ = p₂ := by rw [e₁, e₂, hk, hn]
+  subst hp
+  rw [h₁] at h₂
+  exact ⟨rfl, Option.some.inj h₂⟩
+
+/-- **Non-inclusion by an `E_0` proof**: in a sparse tree, an empty derived
+position means no leaf with that `(owner_key, nonce)` is in the tree. -/
+theorem Tree.Sparse.absent {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d} (hs : t.Sparse pos)
+    {k n : Nat} (he : t.get (pos k n) = none) (p : Pos d 0) (l : Leaf) (hl : t.get p = some l) :
+    ¬ (l.ownerKey = k ∧ l.nonce = n) := by
+  rintro ⟨hk, hn⟩
+  have := hs p l hl
+  rw [hk, hn] at this
+  rw [← this] at he
+  rw [hl] at he
+  cases he
+
+/-- What the sparse-profile `JOIN_0` accepts: a `Join` of the leaf node at
+height 0 whose path's direction bits are those the script derives from the
+leaf. -/
+structure SparseJoin (auth : Prop) {d : Nat} (pos : Nat → Nat → Pos d 0) (r : Node H)
+    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) : Prop where
+  join : Join auth 0 r path (leafNode (some l)) r' out0
+  dirs : path.map Prod.fst = (pos l.ownerKey l.nonce).dirs
+
+/-- **A sparse join lands at the derived position, which was empty.** The
+`E_0` proof is a proof against the position `pos(leaf)` itself (the path's
+direction bits determine the position, `Pos.dirs_inj`), that position held
+no leaf, output 0 commits to the tree with the leaf there, the result is
+again sparse, and the sum rises by the leaf amount. -/
+theorem sparseJoin_sound {auth : Prop} {d : Nat} {pos : Nat → Nat → Pos d 0} (t : Tree d)
+    (hs : t.Sparse pos) (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat)
+    (hwf : path.length = d) (hj : SparseJoin auth pos t.root path l r' out0) :
+    t.get (pos l.ownerKey l.nonce) = none ∧
+      r' = (t.set (pos l.ownerKey l.nonce) (some l)).root ∧
+      (t.set (pos l.ownerKey l.nonce) (some l)).Sparse pos ∧
+      out0 = t.root.sum + l.amount := by
+  have hv₁ : fold (leafNode none) path = t.root := hj.join.step.1
+  have hv₂ : fold (leafNode (some l)) path = r' := hj.join.step.2
+  obtain ⟨h, p, hold, hπ⟩ := Tree.fold_sound t _ path hv₁
+  have hlen := Tree.pathSub_length t p
+  have hh : h = 0 := by rw [hπ] at hwf; omega
+  subst hh
+  have hp : p = pos l.ownerKey l.nonce := by
+    apply Pos.dirs_inj
+    rw [← Tree.pathSub_dirs t p, ← hπ, hj.dirs]
+  subst hp
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · unfold Tree.get
+    revert hold
+    cases t.getSub (pos l.ownerKey l.nonce) with
+    | tip o => intro hold; exact (leafNode_inj (H := H) hold).symm
+  · rw [← hv₂, hπ]; exact Tree.fold_setSub t _ (Tree.tip (some l))
+  · intro q l' hq
+    by_cases hqp : q = pos l.ownerKey l.nonce
+    · subst hqp
+      rw [Tree.get_set] at hq
+      rw [Option.some.inj hq]
+    · rw [Tree.get_set_ne t _ q _ (Ne.symm hqp)] at hq
+      exact hs q l' hq
+  · have hsum := Step.sum _ _ _ hj.join.step
+    simp only [Tree.emptyNode_sum, leafNode_some] at hsum
+    rw [hj.join.out0_eq]; omega
+
 end LayerTree

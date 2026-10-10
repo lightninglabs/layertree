@@ -332,4 +332,109 @@ theorem pathSub_length {d h : Nat} (t : Tree d) (p : Pos d h) :
 
 end Tree
 
+/-!
+## Paths through a subtree
+
+The cohort transitions (`Cohort.lean`) act on an aligned subtree of height
+`h` and reason about the positions *inside* it. A position of the whole
+tree that lies inside the subtree at `p : Pos d h` is `p.append q` for a
+`q : Pos h k`: the shared path above the subtree followed by the path
+inside it. The three lemmas below say that `getSub`, `pathSub` and `get`
+split along that boundary, which is the whole content of "a member's
+existing proof is reusable after a detach" (`detach_sound`).
+-/
+
+/-- The position `q` inside the subtree addressed by `p`. -/
+def Pos.append : {d h k : Nat} → Pos d h → Pos h k → Pos d k
+  | _, _, _, .nil, q => q
+  | _, _, _, .cons b p, q => .cons b (p.append q)
+
+@[simp] theorem Pos.nil_append {h k : Nat} (q : Pos h k) : (Pos.nil : Pos h h).append q = q := rfl
+@[simp] theorem Pos.cons_append {d h k : Nat} (b : Bool) (p : Pos d h) (q : Pos h k) :
+    (Pos.cons b p).append q = Pos.cons b (p.append q) := rfl
+
+/-- The direction bits of a position, root first. The sparse profile
+(section 5.4) derives these from the leaf; `dirs_inj` says they determine
+the position. -/
+def Pos.dirs : {d h : Nat} → Pos d h → List Bool
+  | _, _, .nil => []
+  | _, _, .cons b p => b :: p.dirs
+
+/-- Two positions of the same depth and height with the same direction
+bits are the same position. -/
+theorem Pos.dirs_inj : {d h : Nat} → (p q : Pos d h) → p.dirs = q.dirs → p = q
+  | _, _, .nil, .nil, _ => rfl
+  | _, _, .nil, .cons _ q, _ => absurd (Pos.height_le q) (Nat.not_succ_le_self _)
+  | _, _, .cons _ p, .nil, _ => absurd (Pos.height_le p) (Nat.not_succ_le_self _)
+  | _, _, .cons b p, .cons c q, h => by
+    simp only [Pos.dirs, List.cons.injEq] at h
+    rw [h.1, Pos.dirs_inj p q h.2]
+
+namespace Tree
+
+theorem getSub_append {d h k : Nat} (t : Tree d) (p : Pos d h) (q : Pos h k) :
+    t.getSub (p.append q) = (t.getSub p).getSub q := by
+  induction p with
+  | nil => simp [getSub]
+  | cons b p ih =>
+    cases t with
+    | bin l r => cases b <;> simp [getSub, ih]
+
+/-- The sibling path of a position inside a subtree is the subtree's own
+path followed by the position's path inside the subtree. -/
+theorem pathSub_append {d h k : Nat} (t : Tree d) (p : Pos d h) (q : Pos h k) :
+    (t.pathSub (p.append q) : List (Bool × Node H)) = t.pathSub p ++ (t.getSub p).pathSub q := by
+  induction p with
+  | nil => simp [getSub, pathSub]
+  | cons b p ih =>
+    cases t with
+    | bin l r => cases b <;> simp [getSub, pathSub, ih]
+
+theorem get_append {d h : Nat} (t : Tree d) (p : Pos d h) (q : Pos h 0) :
+    t.get (p.append q) = (t.getSub p).get q := by
+  simp [get, getSub_append]
+
+/-- The direction bits of a sibling path are those of its position. -/
+theorem pathSub_dirs {d h : Nat} (t : Tree d) (p : Pos d h) :
+    (t.pathSub p : List (Bool × Node H)).map Prod.fst = p.dirs := by
+  induction p with
+  | nil => simp [pathSub, Pos.dirs]
+  | cons b p ih =>
+    cases t with
+    | bin l r => cases b <;> simp [pathSub, Pos.dirs, ih]
+
+/-- The elements of a tree in position order: the `2^h` items the
+`EVICT_SUBTREE_h` witness publishes (section 7.7), each a leaf or the
+empty string. -/
+def leaves : {h : Nat} → Tree h → List (Option Leaf)
+  | _, tip o => [o]
+  | _, bin l r => l.leaves ++ r.leaves
+
+theorem leaves_length : {h : Nat} → (t : Tree h) → t.leaves.length = 2 ^ h
+  | _, tip _ => rfl
+  | _, bin l r => by
+    simp [leaves, List.length_append, leaves_length l, leaves_length r, Nat.pow_succ]; omega
+
+/-- The published element list determines the subtree, so a witness that
+lists the elements in position order names exactly one `Tree h`, and the
+post-order fold of the script computes that tree's root. -/
+theorem leaves_inj : {h : Nat} → (t₁ t₂ : Tree h) → t₁.leaves = t₂.leaves → t₁ = t₂
+  | _, tip o₁, tip o₂, h => by simp [leaves] at h; rw [h]
+  | _, bin l₁ r₁, bin l₂ r₂, h => by
+    simp only [leaves] at h
+    have hl := List.append_inj h (by rw [leaves_length, leaves_length])
+    rw [leaves_inj l₁ l₂ hl.1, leaves_inj r₁ r₂ hl.2]
+
+/-- Every subtree of the empty tree is empty. -/
+theorem getSub_empty {d h : Nat} (p : Pos d h) : (empty d).getSub p = empty h := by
+  induction p with
+  | nil => simp [getSub]
+  | cons b p ih => cases b <;> simp [empty, getSub, ih]
+
+/-- The empty tree holds no leaf at any position. -/
+theorem get_empty {d : Nat} (p : Pos d 0) : (empty d).get p = none := by
+  simp [get, getSub_empty, empty]
+
+end Tree
+
 end LayerTree
