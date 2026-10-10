@@ -102,3 +102,4 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | MID/D | 16 | SPLIT | 6160 | 1813 | 129 | 8102 | n/a (0xC0) | 1 |
 | MID/S | 31 | SPLIT | 18110 | 1412 | 129 | 19651 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |
+| MIN/D | 16 | SPLIT | 6441 | 2010 | 129 | 8580 | n/a (0xC0) | 2 |

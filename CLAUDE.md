@@ -185,7 +185,7 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
 python3 tools/test_scripts.py      # FULL tier, both profiles (425 checks)
 python3 tools/test_mid.py          # MID tier (120 checks)
-python3 tools/test_min.py          # MIN tier (7 checks)
+python3 tools/test_min.py          # MIN tier (31 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
 python3 tools/gen_golden.py        # spec/golden.json

@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.8.2
+Version:  0.8.3
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -322,10 +322,10 @@ are interchangeable, with one numeric cap noted below.
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) |
-| `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | open: no opcode bars it, but no realisation is measured |
+| `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only |
-| `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | n/a (no `CLAIM`) |
+| `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output |
 | Transaction shape | free (input 0, outputs 0..K constrained) | free | fixed per script: two inputs, outputs `[tree', payouts…, raw extras]` |
 | Spender work | none | none | grind a free field (fee input `nSequence`) until `e` ends in `0x00`: 256 hashes expected |
@@ -348,7 +348,7 @@ script / witness data:
 | `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | 5,354 / 611 | 9,397 / 1,032 |
 | `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | 9,896 / 688 | 18,241 / 1,543 |
 | `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | 9,905 / 515 | 18,250 / 1,438 |
-| `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | open | 9,822 / 483 | 18,110 / 1,412 |
+| `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 9,822 / 483 | 18,110 / 1,412 |
 
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
@@ -367,7 +367,7 @@ a `0xC0`-only soft fork of the LNhance flavour plus `OP_CAT`, `OP_TX` and
 size, with a 21.47 BTC cap per tree. MIN is the existence proof that
 `OP_CAT` and one tweak opcode suffice for the covenant itself, at the cost
 of vouchers, terminal exits, a fixed transaction shape and a small grinding
-step.
+step. Member-to-member payment survives in MIN as `SPLIT`.
 
 ### 4.6 Policy assumptions
 
@@ -392,7 +392,7 @@ scripts in this document.
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
 | `LEAF_LEN` | 116 |
-| `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
+| `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID, MIN): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
 | `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/update"`, `"LayerTree/chan/settle"` (Appendix C) |
 
 `H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_pos` denote
@@ -881,12 +881,10 @@ would restore a leaf byte for byte and revive any voucher signed against
 it.
 
 It needs no `OP_CHECKSIGFROMSTACK`. `CLAIM` is excluded from the MIN tier
-only because that opcode is unavailable there (4.5); `SPLIT` carries no
-such exclusion in principle, which would make it the first member-to-member
-transition MIN could support. Whether it fits MIN in practice is open and
-untested: MIN reconstructs the sighash constructively, and `SPLIT` needs
-two fold passes where `EXIT_1` needs one. This document does not claim a
-MIN realisation.
+only because that opcode is unavailable there (4.5); `SPLIT` is not, and
+is the first member-to-member transition MIN supports (8.6.2). It costs
+6,441 bytes of script at `D = 16`, about 1.8 times `EXIT_1`: the two fold
+passes are MID's, and the sighash reconstruction is paid once.
 
 `owner_sig` is the only thing that binds the new leaf to its recipient: the
 covenant forces output 0 to commit to *some* new leaf of the right amount,
@@ -1336,6 +1334,18 @@ OP_CHECKSIGVERIFY                                   # src claim
 In the MID tier the same two lines replace the fourteen `OP_PICK`s, the
 concatenations and the tagged hash that rebuild the voucher message, so the
 saving is larger there: 74 bytes in FULL and 131 in MID (section 8.8).
+
+The MIN tier runs the MID authorisation and both steps unchanged and
+replaces the four `OP_TX` reads (current input index, input scriptPubKey,
+input amount, output 0) with the constructive signature message of 4.4, as
+`EXIT_1` does: `TREE_SPK(r, m)` and the folded input amount go into
+`sha_scriptpubkeys` and `sha_amounts`, `le64(S') || 0x22 ||
+TREE_SPK(r', m)` is the first output in `sha_outputs`, and the message
+fixes input index 0. The transaction shape is two inputs (the tree and one
+fee input) and outputs `[tree', raw extras]`; the witness gains the nine
+raw introspection elements of `EXIT_1` at its bottom. The source owner
+signs after the spender has ground the fee input's `nSequence`, since the
+signature covers it. Listing: `spec/scripts/MIN_SPLIT_D4.txt`.
 
 ### 8.7 EVICT_SUBTREE_h
 
@@ -2066,12 +2076,16 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 120 and 7 checks respectively; the MID
+  operands during development), 120 and 31 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
   7.5.2 in both profiles, the MID `SPLIT` with the negatives of the FULL
-  suite below.
+  suite below. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
+  `D = 4` and `16`: a split and a full drain succeed, and one signed by the
+  operator or the recipient, an over-split, an occupied destination, a
+  stale root, a recipient swapped under the owner's signature, an
+  underfunded tree output and a wrong `e31` all fail.
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, including negative cases (forged leaf, stale
@@ -2122,8 +2136,9 @@ exits in a batch" as `EXIT_K` (section 13).
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
-  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`; being
-  parameters rather than members of the reference script set, all are
+  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`, and
+  `SPLIT` under `MIN/D/D4`; being parameters rather than members of the
+  reference script set, all are
   excluded from the `FULL/D/D4` taptree root, which therefore does not move
   when a variant is added.
 * `formal/` — a Lean 4 model of sections 5, 7 and 10.2 (core library only,

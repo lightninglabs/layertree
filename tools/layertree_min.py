@@ -18,9 +18,11 @@ byte of e is 0x00, and supplies e[0:31]; the script checks e31||00 == e and
 uses G.x || e31 || 01 as the signature. Expected 256 attempts.
 
 Shape is fixed per script: exactly two inputs (the tree output and one fee
-input) and outputs [tree', payout, <raw extra outputs>]. EXIT_1 for the
-dense profile is provided; other transitions follow the same construction
-(spec 4.6). Vouchers (CLAIM) are impossible without OP_CHECKSIGFROMSTACK.
+input) and outputs [tree', payout, <raw extra outputs>] for EXIT_1, or
+[tree', <raw extra outputs>] for SPLIT. EXIT_1 and SPLIT for the dense
+profile are provided; other transitions follow the same construction
+(spec 4.6). Vouchers (CLAIM) are impossible without OP_CHECKSIGFROMSTACK;
+SPLIT, which authorises the same carve with a transaction signature, is not.
 """
 import os
 import sys
@@ -71,8 +73,17 @@ def exit_script(depth):
     s += [3, "OP_ROLL", "OP_FROMALTSTACK"] + F.tree_spk_min()        # S8 out1 le64(ns) spk0'   | spk0
     s += [bytes([0x22]), "OP_SWAP", "OP_CAT", "OP_CAT",              # S8 out1 out0_ser
           "OP_SWAP", "OP_CAT"]                                       # S8 outs01
+    return s + sighash_tail()
+
+
+def sighash_tail():
+    """Constructive introspection, shared by every MIN script.
+    Stack on entry: raw(9) S8 outs, where S8 is le64 of the tree input's
+    amount and outs the serialisation of the constrained leading outputs ;
+    altstack: .. spk0, the tree input's scriptPubKey. Ends in the OP_CHECKSIG
+    under G that forces the assembled message to be the real one."""
     # raw pieces are now directly below: e31 tapleaf sha_seqs sha_prevouts ver lock spk_in1 amt_in1 extra_outs
-    s += [2, "OP_ROLL", "OP_CAT", "OP_SHA256"]                       # S8 sha_outputs
+    s = [2, "OP_ROLL", "OP_CAT", "OP_SHA256"]                        # S8 sha_outputs
     s += [2, "OP_ROLL", "OP_ROT", "OP_SWAP", "OP_CAT", "OP_SHA256"]  # sha_outputs sha_amounts   (S8||amt_in1)
     s += ["OP_FROMALTSTACK", bytes([0x22]), "OP_SWAP", "OP_CAT",     # ... (22||spk0)
           3, "OP_ROLL", "OP_CAT", "OP_SHA256"]                       # sha_outputs sha_amounts sha_spks
@@ -93,6 +104,36 @@ def exit_script(depth):
     return s
 
 
+def split_script(depth):
+    """SPLIT (spec 7.5.2), dense: CLAIM authorised by the owner's transaction
+    signature. The authorisation and both steps are the MID tier's
+    (layertree_mid.carve_source and carve_claim); what changes is how the
+    result is bound to the transaction. Where MID reads the input's script
+    and amount and the tree output with OP_TX, this assembles them into the
+    signature message, as EXIT_1 does.
+
+    witness (bottom..top):
+       e31 sha_seqs tapleaf sha_prevouts ver lock spk_in1_ser amt_in1 extra_outs
+       zf wf [claim levels] zi wi [src levels]
+       src(10) new(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 osig r m
+    Outputs are [tree', <raw extra outputs>]: a SPLIT pays nothing out."""
+    s = ["OP_2DUP"] + F.tree_spk_min() + ["OP_TOALTSTACK",          # .. osig r m       | spk0
+         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK",     # .. osig m         | spk0 m r
+         "OP_DROP", 25, "OP_PICK", "OP_CHECKSIGVERIFY"]             # src(10) new(10) extras(7)
+    s += M.carve_source(depth)                                       # T oh os nh ns     | spk0 m new amt_c r
+    # as MID check_old, but the input amount is kept for the message
+    s += ["OP_2SWAP"] + roll(6, 2) + M.le64()                        # T nh ns oh S8
+    s += ["OP_SWAP", "OP_FROMALTSTACK", "OP_EQUALVERIFY",            # T nh ns S8        | spk0 m new amt_c
+          "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_ROT", "OP_TOALTSTACK"]   # T nh ns amt_c new | spk0 m S8
+    s += M.carve_claim(depth)                                        # T nh2 ns2
+    # out0 = le64(ns2) || 0x22 || TREE_SPK(nh2, m)
+    s += ["OP_ROT", "OP_DROP"] + roll(3, 2) + M.le64()               # nh2 le64(ns2)
+    s += ["OP_SWAP", "OP_FROMALTSTACK", "OP_FROMALTSTACK",           # le64(ns2) nh2 S8 m | spk0
+          "OP_ROT", "OP_SWAP"] + F.tree_spk_min()                    # le64(ns2) S8 spk0'
+    s += [bytes([0x22]), "OP_SWAP", "OP_CAT", "OP_ROT", "OP_SWAP", "OP_CAT"]   # S8 out0
+    return s + sighash_tail()
+
+
 def grind(ctx, mutate, tries=100_000):
     """Vary the transaction with `mutate(ctx, i)` until the challenge e has a
     trailing zero byte. Returns (e31, attempts)."""
@@ -104,11 +145,14 @@ def grind(ctx, mutate, tries=100_000):
     raise RuntimeError("grinding failed")
 
 
-def raw_pieces(ctx, e31):
-    """The nine raw introspection elements, bottom..top."""
+def raw_pieces(ctx, e31, fixed_outputs=2):
+    """The nine raw introspection elements, bottom..top. `fixed_outputs` is
+    how many leading outputs the script builds itself: two for EXIT_1
+    (tree', payout), one for SPLIT (tree')."""
     assert len(ctx.inputs) == 2
     a1, spk1 = ctx.inputs[1]
-    extra = b"".join(a.to_bytes(8, "little") + lt.compact_size(len(spk)) + spk for a, spk in ctx.outputs[2:])
+    extra = b"".join(a.to_bytes(8, "little") + lt.compact_size(len(spk)) + spk
+                     for a, spk in ctx.outputs[fixed_outputs:])
     return [e31, ctx.sha_sequences(), ctx.tapleaf_hash, ctx.sha_prevouts(),
             ctx.version.to_bytes(4, "little"), ctx.locktime.to_bytes(4, "little"),
             lt.compact_size(len(spk1)) + spk1, a1.to_bytes(8, "little"), extra]

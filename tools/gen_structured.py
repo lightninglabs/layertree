@@ -284,4 +284,6 @@ open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (MID tier, owner-authorised carve, dense, D={D})", M.split_script(D, False), "c0", MID))
 open(os.path.join(OUT, f"MIN_EXIT_1_D{D}.txt"), "w").write(
     structured(f"EXIT_1 (MIN tier, dense, D={D})", N.exit_script(D), "c0", MIN))
+open(os.path.join(OUT, f"MIN_SPLIT_D{D}.txt"), "w").write(
+    structured(f"SPLIT (MIN tier, owner-authorised carve, dense, D={D})", N.split_script(D), "c0", MIN))
 print("wrote", len(os.listdir(OUT)), "structured listings to", os.path.relpath(OUT))

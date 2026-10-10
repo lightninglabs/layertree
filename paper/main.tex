@@ -499,7 +499,7 @@ three opcode sets (Table~\ref{tab:tiers}), so that the design's dependence
 on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. Coverage is not uniform:
 FULL compiles every predicate in both profiles, MID everything but the
-cohort sweep, and MIN the dense single-leaf exit only, the other
+cohort sweep, and MIN the dense single-leaf exit and \tr{SPLIT}, the other
 predicates following the same construction but being argued, not
 measured. A tier built on \op{CHECKCONTRACTVERIFY}~\cite{bip443}, whose
 data-tweaked key is the mechanism of \S\ref{sec:output}, would replace the
@@ -522,8 +522,8 @@ Beyond BIP-342 & \op{CAT}, splice, bit ops, & \op{CAT}, \op{TX}, CSFS, & \op{CAT
 Introspection & \op{TX} & \op{TX} & constructive (\S\ref{sec:min}) \\
 Numerics, sum cap & any length, none & 4-byte, $2^{31}$ sat & 4-byte, $2^{31}$ sat \\
 Owner payout & $\le$ amount (fee option) & exact & exact \\
-Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense \\
-Executable checks & 425 & 120 & 7 \\
+Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, \tr{SPLIT}, dense \\
+Executable checks & 425 & 120 & 31 \\
 Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed \\
 \tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 \\
 \tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 \\
@@ -575,7 +575,7 @@ fee input's sequence number until the last byte of $e$ is $\mathtt{00}$
 and the fee-bumping consequences). \tr{EXIT}$_1$ costs $3{,}572$ bytes of
 script at $D = 16$ (70\% more than FULL) for $1{,}456\vB$ (43\% more);
 vouchers and channel leaves need a signature over stack data and are out
-of reach. The result is an upper bound: BIP-342 tapscript, \op{CAT} and
+of reach, but \tr{SPLIT} is not ($6{,}441$ bytes). The result is an upper bound: BIP-342 tapscript, \op{CAT} and
 one point-tweak opcode realise the exit predicate; whether a 64-leaf sweep
 (16 kB in FULL) fits MIN is open.
 
@@ -819,9 +819,9 @@ against a reference tree with positive and negative cases per rule
 (forged leaf, stale root, attacker-chosen $m$, unconserved amount,
 underfunded join, early eviction, evictor shortfall, unsigned update,
 voucher replay, over-claim, stale second path, wrong preimage): 425 FULL,
-120 MID and 7 MIN checks, failing if any script uses an opcode outside the
+120 MID and 31 MIN checks, failing if any script uses an opcode outside the
 candidate set. A Go implementation on \texttt{btcd} and \texttt{lnd}
-generates the same scripts, byte-exact against 38 golden vectors, and its
+generates the same scripts, byte-exact against 39 golden vectors, and its
 BIP-341 signature hash equals the simulator's, which makes the MIN tier
 testable end to end.
 

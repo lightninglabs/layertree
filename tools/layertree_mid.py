@@ -265,10 +265,10 @@ def split_script(depth, sparse=False):
 
 def _carve_script(depth, sparse=False, auth="voucher"):
     """witness (bottom..top):
-       [claim levels] [zi2 wi2? no] [sparse claim: ck cnonce cplo cphi]
-       [src levels] [zi wi] [sparse src: sk snonce splo sphi]
+       zf wf [claim levels] [sparse claim: ck cnonce cplo cphi]
+       zi wi [src levels] [sparse src: sk snonce splo sphi]
        src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 vsig [preimage] r m
-       ... final pad zf wf sits below the claim levels.
+       zf wf pad the final sum, zi wi the input amount; pads sit below levels.
 
     auth selects the authorisation and nothing else: "voucher" is CLAIM,
     "hashlock" is CLAIM^h (a 32-byte preimage sits between vsig and r and
@@ -303,6 +303,18 @@ def _carve_script(depth, sparse=False, auth="voucher"):
         s += ["OP_ROT", "OP_SWAP",                                   # ... m vsig msg
               27, "OP_PICK",                                         # ... m vsig msg src.ok
               "OP_CHECKSIGFROMSTACK", "OP_VERIFY", "OP_DROP"]        # src(10) claim(10) extras(7)
+    s += carve_source(depth, sparse) + check_old(sparse)            # T nh1 ns1        | m claim_leaf amt_c
+    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
+    return s + carve_claim(depth, sparse) + final(depth)
+
+
+def carve_source(depth, sparse=False):
+    """Step 1 of CLAIM, CLAIM^h and SPLIT, after the authorisation check.
+    Stack on entry: src(10) claim(10) extras(7) ; altstack: .. m r.
+    On exit: T oh os nh ns over the source path ; altstack: .. m claim_leaf amt_c r.
+    Shared with the MIN tier, which differs only in how the result is bound
+    to the transaction."""
+    s = []
     # seq consistency: le32(seq_num) == src.seq ; consumes zq0 wq0
     s += [20, "OP_PICK", 7, "OP_PICK"] + roll(7, 2) + padz() + ["OP_EQUALVERIFY"]   # extras -> seq_num zq1 wq1 zs2 ws2
     s += ["OP_TOALTSTACK"] * 5                                       # src(10) claim(10) | m r ws2 zs2 wq1 zq1 seq_num
@@ -324,14 +336,20 @@ def _carve_script(depth, sparse=False, auth="voucher"):
     if sparse:
         s += roll(7, 4) + sparse_setup()
     s += [F.NODE_PREFIX] + roll(4, 4)                                # T oh os nh ns
-    s += levels(sparse, depth) + check_old(sparse)                   # T nh1 ns1        | m claim_leaf amt_c
-    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"] + tagged(F.LEAF_PREFIX) + ["OP_SWAP",   # T nh1 ns1 ch cs
-          "OP_2SWAP", "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]   # T ch cs          | m nh1 ns1
+    return s + levels(sparse, depth)                                 # T oh os nh ns
+
+
+def carve_claim(depth, sparse=False):
+    """Step 2: the new leaf into an empty position, proven against the root
+    step 1 produced. Stack on entry: T nh1 ns1 amt_c claim_leaf ;
+    altstack: .. nh1 ns1 pushed here and consumed by check_prev.
+    On exit: T nh2 ns2."""
+    s = tagged(F.LEAF_PREFIX) + ["OP_SWAP",                          # T nh1 ns1 ch cs
+         "OP_2SWAP", "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]    # T ch cs          | .. nh1 ns1
     if sparse:
         s += roll(6, 4) + sparse_setup()
     s += [lt.EMPTY_LEAF_HASH, "OP_0", "OP_2SWAP"]                    # T E_0 0 ch cs
-    s += levels(sparse, depth) + check_prev(sparse)                  # T nh2 ns2
-    return s + final(depth)
+    return s + levels(sparse, depth) + check_prev(sparse)            # T nh2 ns2
 
 
 def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,)):
