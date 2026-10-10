@@ -54,11 +54,37 @@ with numbers.
   names, a `sample.html`, and a palette validation. The owner picks an
   identity; then its `tokens.css` and logo replace the placeholders.
   Later: GitHub Pages deployment.
-- Workers in flight after the rate-limit restart (both relaunched from
-  55b482f): the rule worker (Fable: `tree_id` everywhere, carve
-  constraint, `DETACH_h` creation rule, spec 0.10.0) and the paper
-  response writer (Opus: round-two `paper/review-response.md`, fixes,
-  rebuild). Plus the four site agents above. Workers commit on their
+- Paper round two landed (merge of 800a245): every finding of the three
+  reviews answered in `paper/review-response.md`; the liveness bound is
+  now assumption [C] with parameters kappa (chain limit) and beta
+  (competing spends confirmed ahead of an honest one), Delta(q) =
+  Delta_L(ceil((beta+q)/kappa)+1); the functionality is a partial tree
+  with adversarial REVEAL and a VOUCH interface; Theorem 5 excludes
+  REWRITE_h and DETACH_h; Theorem 6 is Conjecture 1; new
+  `appendix-assumptions.tex`; REWRITE per-leaf corrected to 359/195/158;
+  joins and carves no longer charged a payout (JOIN_2 872, UPDATE 1,030,
+  CLAIM 1,599, SPLIT 1,577); Lightning baseline derived (force close
+  530, lifetime about 680). Short version 35 pages, body ends on page
+  15 with References at the top of 16 and no slack; full 73 pages,
+  References on 29. `% TODO(0.10.0 sizes)` comments mark where the rule
+  worker's sizes go. Citations the writer could not pin down: TLUV and
+  OP_EVICT posts (no URL), Poelstra's CAT and Schnorr Tricks (no URL),
+  the arkd URL and bolts PR #995 came from memory; verify before
+  submission. One overfull line in the bibliography.
+- Handed off by the paper writer, to fold into the spec pass: 10.1
+  "cannot delay" and a DETACH line; 10.5 and C.9.5 liveness as [C];
+  11 witness prefixes, 129 WU per level, sweep rows, "near D = 5",
+  REWRITE column; 9.6.1/9.6.2 drop "atomic"; 10.10 40-byte element
+  claim; 4.1 EC-ops operand order and draft pin; fee-analysis leaf
+  count. Tools: serialised-weight measurement, MIN extra_outs split per
+  output, a numbers.tex generator, REWRITE figures in gen_cost_figures.
+  Formal: path-maintenance lemma, exit key in ExitBlock, CCVTweak
+  docstring. Design: relative lock on value-neutral transitions (P1c),
+  outpoint-independent exit authorisation for towers (P8), Lightning
+  figures in cost-comparison, REWRITE figures in batching.
+- Workers in flight: the rule worker (Fable: `tree_id` everywhere, carve
+  constraint, `DETACH_h` creation rule, spec 0.10.0) and the four site
+  agents above. Workers commit on their
   worktree branches and never push; merge one at a time.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
