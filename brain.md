@@ -83,13 +83,17 @@ with numbers.
    root), Go mirror, spec 7.9 and 8.x, 4.5 row, Lean `Rewrite` step and
    theorem, status. Then `EXIT_SUBTREE_h` and `DETACH_h` the same way;
    `DETACH_h` needs a two-output Lean step.
-5. `CLAIM^x`: a `CLAIM` variant requiring the source leaf's exit-key
+5. Sibling-pair `CLAIM`: source and claim slot under one path, about
+   1,130 vbytes instead of 1,652 for the credit-leaf case; and a voucher
+   bound to a compiled tree identifier instead of `m`, so the CCV tier can
+   carry `CLAIM` (`design/receive.md`).
+6. `CLAIM^x`: a `CLAIM` variant requiring the source leaf's exit-key
    signature at redemption, seven bytes like `UPDATE^x`. It is what makes
    a dedicated credit leaf trust-free (`design/receive.md`).
-6. Regression test named after taproot-assets-private#112 (sibling-sum
+7. Regression test named after taproot-assets-private#112 (sibling-sum
    binding), even though the node format already excludes it; deferred
    only because changing the check count ripples through the PR stack.
-7. The older open list from `design/status.md`: P model (issue #1), Go
+8. The older open list from `design/status.md`: P model (issue #1), Go
    builders for every transition, channel-leaf TLV messages, regtest
    harness, verified interpreter.
 

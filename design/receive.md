@@ -76,7 +76,7 @@ what makes the off-chain settlement safe to accept.
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none beyond dust at redemption; sub-floor amounts accumulate in the voucher |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort and retires the voucher, about 1 vbyte |
-| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,652 vbytes at `D = 16`, no timelock |
+| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,652 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
 
@@ -115,6 +115,31 @@ paying, or pays through a hash-locked voucher whose redemption the
 covenant enforces. An operator funding its own leaves into the same
 cohort changes nothing for the others: the worst it can do with a bad
 graft is freeze its own money (spec 9.2 and the design review's F18).
+
+## Making redemption cheaper
+
+The 1,652 vbytes is the FULL tier at `D = 16` with no help, and it is
+large for a structural reason: a `CLAIM^h` proves two positions, the
+source leaf and the claim slot, so it carries two full paths of sixteen
+unrolled levels each, two leaves, the voucher signature and the preimage.
+The CCV tier of PR #6 does not reduce it today, because that tier drops
+`CLAIM` altogether: the voucher message binds the taptree root `m`, and
+the CCV witness no longer carries `m`.
+
+The largest saving needs no new opcode. A credit leaf dedicated to one
+recipient can have its sibling slot reserved for that recipient's claim
+leaf, so the source and the claim sit under one path and share fifteen
+of the sixteen levels. A `CLAIM` variant that folds the sibling pair
+under a single path (the "sibling pairs" shape of spec 13.4) costs about
+1,130 vbytes on the measured parts, a third less, and it suits the
+credit leaf exactly because the operator chose the slot. Three further
+cuts stack on it: binding the voucher to a tree identifier compiled into
+the script instead of `m`, which would let the CCV tier carry `CLAIM` and
+take roughly another fifth off; the `OP_MULTI OP_CAT` level and the
+`OP_INTERNALKEY` fast path of spec 13.3 and 13.8, perhaps 150 vbytes
+more; and a native Merkle-sum opcode, which would put the redemption
+near 500 vbytes. None of these is built; the sibling-pair `CLAIM` is the
+one this page recommends building first.
 
 ## What the user trusts
 
