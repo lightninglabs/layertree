@@ -51,6 +51,23 @@ highest wins" structure, and in this direction it needs no contest
 window: only the recipient can redeem, and the recipient never prefers an
 older, smaller state.
 
+Most vouchers are never redeemed on-chain, and it is worth saying what
+"settled off-chain" means, because the voucher is the recipient's
+insurance rather than their normal path. Spec 9.6 gives the issuer two
+ways to discharge a voucher: the recipient redeems it with `CLAIM`, or
+the issuer includes the claim leaf in the tree by other means, a `JOIN`
+of that leaf in the next cohort graft or an `UPDATE`, and the recipient
+verifies the leaf's inclusion against the confirmed root. Once the leaf
+is in the tree the voucher has done its job; the issuer then retires it
+by advancing the source leaf's `seq`, with the recipient's consent under
+`CLAIM^x`, so that the same credit cannot be claimed twice. In the wallet
+case the operator batches this: every so often it grafts a cohort of
+leaves for the recipients whose credit has accumulated, at about one
+vbyte per recipient, and the recipients' vouchers are replaced by leaves
+they can exit from alone. The on-chain `CLAIM^h` is what the recipient
+does if the operator stops cooperating, and the fact that it exists is
+what makes the off-chain settlement safe to accept.
+
 ## What it costs
 
 | | Ark client today | Tree with cumulative vouchers |
@@ -68,6 +85,36 @@ costs about 16,500 sat, so a recipient would not redeem a small balance
 alone; they would let it accumulate, have the operator graft it as a leaf
 in a cohort, or redeem it straight into a channel leaf whose exit key is a
 2-of-2 and pay onward over Lightning from there.
+
+The entry row deserves its own paragraph, because it is where the design
+is cheapest. A dense graft (`JOIN_h`) admits a whole cohort for the cost
+of the levels above its subtree, about 657 vbytes for 1,024 slots at
+`D = 16`, and the covenant requires only that the slot was empty and the
+new sum is funded. When the operator funds the graft from one of its own
+inputs, the whole cohort costs that one input, about 58 vbytes, on top of
+the graft, and the members need no on-chain funds at all: each buys their
+balance off-chain, paying a Lightning invoice whose preimage unlocks a
+hash-locked voucher for their leaf, or simply receiving into the credit
+leaf described above. A user who has never held a UTXO is in the tree for
+well under one vbyte of their own. When each member instead funds their
+own leaf, every member adds an input to the graft transaction, and the
+saving against an on-chain batch shrinks to the output side.
+
+Is a graft safe when only the operator signs it? Yes, for everyone who
+holds a leaf already, because a graft can only fill an empty slot; it
+cannot touch, move or shrink an existing leaf, and the Lean theorem
+`join_sound` says exactly that. The party at risk is a funder, because
+the covenant does not read the grafted subtree: an operator could graft
+a node with no tree behind it, or one in which a member's leaf is absent
+or wrong. The protection is that nobody funds before verifying. A member
+who contributes an input signs the graft transaction and can check that
+output 0 commits to a root containing their leaf before signing, so their
+signature is the sign-off. A member who buys in off-chain verifies the
+inclusion path the operator gives them against the confirmed root before
+paying, or pays through a hash-locked voucher whose redemption the
+covenant enforces. An operator funding its own leaves into the same
+cohort changes nothing for the others: the worst it can do with a bad
+graft is freeze its own money (spec 9.2 and the design review's F18).
 
 ## What the user trusts
 
