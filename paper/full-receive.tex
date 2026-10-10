@@ -52,12 +52,9 @@ voucher the operator issues itself and redeems with plain \tr{CLAIM}, is
 closed by \tr{CLAIM}$^{x}$, which requires a signature by the source
 leaf's exit key (Appendix~\ref{app:claim}). With the three variants in
 the taptree a credit leaf can only grow or pay its recipient, whose
-exposure is the operator's liveness. \tr{CLAIM}$^{x}$ and its
-hash-locked form \tr{CLAIM}$^{hx}$ are built in the FULL tier, at 8 bytes
-of script over the plain forms and 64 of witness, and the test suite runs
-the credit-leaf case: the operator's own voucher with its own
-transaction signature fails. The Lean model is unaffected, since
-\lean{Claim} carries an opaque authorisation. Where one
+exposure is the operator's liveness. Both exit-key forms are built in
+the FULL tier, and the test suite runs the credit-leaf case: the
+operator's own voucher with its own transaction signature fails. Where one
 operator leaf backs many recipients, over-issuance is equivocation with a
 compact proof, which a slashable bond can deter; voiding has no compact
 proof, so no bond reaches it.

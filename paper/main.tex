@@ -783,6 +783,9 @@ After each ledger event, $\Ftree$'s partial tree has the root the tree
 output commits to, and agrees with every honest party's leaf and path.
 \end{simclaim}
 
+\iffullversion
+The proof is the next section.
+\else
 \begin{proof}[sketch of Theorem~\ref{thm:uc}]
 $\Sim$ runs $\Adv$ and the honest parties internally and maintains
 Claim~\ref{clm:inv}. For every accepted spend of the tree output it folds
@@ -798,6 +801,7 @@ and posted by the protocol-aware $\Ftree$; $\Sim$ only schedules them,
 within $\lat(q)$ by [C]. Ungrounded creations and grafts become opaque
 nodes. The cases and hybrids are in \lifted{app:uc}.
 \end{proof}
+\fi
 
 \paragraph{What the theorem leaves out.} The bytecode is matched to
 $\Pred_\tau$ by 2{,}083 executable checks, not a verified compiler. Fee

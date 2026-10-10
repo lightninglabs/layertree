@@ -65,12 +65,9 @@ never pays, a risk to it and not to other members. In a member-funded
 graft each member adds an input and signs one transaction after the
 cohort is fixed, so one absent member stalls the cohort and the rest
 retry (a liveness cost, not a safety one), and the saving against an
-on-chain batch, $43\vB$ per output, is gone. A 256-member
-operator-funded cohort at $D = 16$ is one $679\vB$ transaction, under
-30\,sat per member at
-10\,sat/vB; had the operator grafted a node with no tree behind it, every
-member's check would fail, nobody would pay, and only the operator's own
-coins would be frozen.
+on-chain batch, $43\vB$ per output, is gone. Had the operator grafted a
+node with no tree behind it, every member's check would fail, nobody
+would pay, and only the operator's own coins would be frozen.
 
 \paragraph{Designing a cohort.} The slot the operator picks is what later
 batching depends on, and a cohort should share a lease, since one leaf

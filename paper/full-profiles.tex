@@ -26,12 +26,9 @@ subtrees instead, on which \tr{JOIN}$_h$, \tr{EVICT\_SUBTREE}$_h$ and
 every shape of \S\ref{sec:batching} depend.
 
 \paragraph{Where the bytes go.} A sparse proof is the smaller witness and
-the larger script, and the script wins: dense \tr{EXIT}$_1$ at $D = 16$
-is $2{,}101$ bytes of script and 902 of witness ($1{,}020\vB$), sparse at
-$D = 32$ is $5{,}147$ and 326 on a six-leaf tree ($1{,}637\vB$), and
-about 900 bytes of witness and $1{,}781\vB$ at $2^{16}$ members
-(estimate: 41 bytes per non-empty sibling). Both causes
-follow from hashing the position. Random positions collide, $N^2/2^{D+1}$
+the larger script, and the script wins (Table~\ref{tab:sizes}: about
+$1{,}781\vB$ at $D = 32$ and $2^{16}$ members against $1{,}020\vB$ dense
+at $D = 16$). Both causes follow from hashing the position. Random positions collide, $N^2/2^{D+1}$
 expected collisions among $N$ members (about one half at $D = 32$ for $N
 = 2^{16}$, about 32{,}000 at $D = 16$), so the sparse tree needs about
 twice the depth, and every level is unrolled. And a sparse level is 135
@@ -72,9 +69,8 @@ witness and a higher radix can only save the fixed part of the unrolled
 level. Table~\ref{tab:radix} measures it. Of the radix-4 level's 146 bytes about 62
 are hashing and sums shared with radix 2 and the rest sibling and
 direction handling, so the fixed part a higher radix amortises is about
-60 bytes while the sibling part is what it multiplies. Radix 4 saves 240
-bytes of script and adds 328 of witness, about 2\% larger overall, and
-radix 8 is worse. In the sparse profile most siblings are empty and cost
+60 bytes while the sibling part is what it multiplies; radix 4 comes out
+about 2\% larger overall. In the sparse profile most siblings are empty and cost
 one witness byte, so a radix-4 level of about 180 bytes could replace two
 levels of 135, saving about $360\vB$ per exit (estimate; no sparse
 radix-$r$ level has been written). With a native Merkle-sum opcode a
