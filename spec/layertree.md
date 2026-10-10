@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.10.0
+Version:  0.10.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -174,9 +174,10 @@ four changes, detailed in `design/review.md`:
               leaf = 116-byte record; empty leaf hash = 0x00..00, sum 0
 ```
 
-Every transition spends the tree output as input 0, recreates it as output
-0 with the new root and the new total, and places any payouts at output 1
-onward. Extra inputs (fees, funds being joined) and extra outputs (change,
+Every transition spends the tree output as input 0 (the CCV tier of 4.6
+reads the current input's index instead, so its tree input may sit at any
+index), recreates it as output 0 with the new root and the new total, and
+places any payouts at output 1 onward. Extra inputs (fees, funds being joined) and extra outputs (change,
 anchors) are unconstrained. The taptree of transition scripts is constant for
 the life of the tree; only the internal key changes with the state. Its
 Merkle root, `m`, doubles as the tree identifier.
@@ -222,12 +223,17 @@ design does not.
    v2" draft states.
 6. **Elliptic-curve opcodes** as in the draft BIP "Elliptic Curve Operations
    for Bitcoin Script" (Osuntokun; `Roasbeef/bips` branch `ec-ops-bip`,
-   bitcoin/bips PR #1945): `OP_EC_POINT_ADD` (0xbb; `[point2] [point1]` →
-   `point1 + point2`), `OP_EC_POINT_MUL` (0xbc; `[scalar] [point]` with the
-   scalar on top, a 32-byte big-endian scalar reduced mod `n`, and the empty
-   vector standing for `G`), `OP_EC_POINT_NEGATE` (0xbd, unused here) and
-   `OP_EC_POINT_X_COORD` (0xbe; 33-byte point → 32-byte x coordinate). All
-   points are 33-byte compressed; the point at infinity is the empty vector.
+   bitcoin/bips PR #1945), at commit `8df28249`, which is the revision the
+   reference scripts and the simulator assume. Operands are written as
+   that draft writes them, top of the stack first: `OP_EC_POINT_ADD` (0xbb;
+   `[point2] [point1]` → `point1 + point2`, `point2` on top),
+   `OP_EC_POINT_MUL` (0xbc; `[scalar] [point]` → `scalar · point`, the
+   scalar on top and the point beneath it; the scalar is 32 bytes
+   big-endian reduced mod `n`, and an empty `point` stands for `G`, so
+   `<t> OP_0 OP_SWAP OP_EC_POINT_MUL` computes `t·G`, 8.2),
+   `OP_EC_POINT_NEGATE` (0xbd, unused here) and `OP_EC_POINT_X_COORD`
+   (0xbe; 33-byte point → 32-byte x coordinate). All points are 33-byte
+   compressed; the point at infinity is the empty vector.
    Costs are 10, 30, 5 and 1 sigops units respectively (BIP-342 units in
    which `OP_CHECKSIG` is 50); under BIP-440 this is 10,000 varops per unit.
    **[A-3]** The scripts assume these opcodes are available in tapleaf
@@ -236,7 +242,8 @@ design does not.
    BIP-443 also claims `0xbb`. The final numbering is out of scope here and
    does not affect the design; the reference simulator parks `OP_TX` at
    `0xbf` as a placeholder.
-7. **`OP_CHECKCONTRACTVERIFY`** as in BIP-443: redefining
+7. **`OP_CHECKCONTRACTVERIFY`** as in BIP-443 at `bitcoin/bips` commit
+   `24e96e87`, the revision the CCV tier pins: redefining
    `OP_SUCCESS187` (0xbb), popping `<data> <index> <pk> <taptree>
    <mode>` (bottom to top). The CCV tier (section 4.6) uses only the
    following values: modes `-1` (`CHECK_INPUT`, no amount check), `0`
@@ -3035,11 +3042,12 @@ and signature-hash models are simplified as documented in its header.
   `https://github.com/rustyrussell/bips/pull/1`.
 * Draft "Elliptic Curve Operations for Bitcoin Script" (Osuntokun),
   `https://github.com/Roasbeef/bips/blob/ec-ops-bip/bips-ec-ops.md`,
-  bitcoin/bips PR #1945.
+  bitcoin/bips PR #1945; the scripts assume commit `8df28249` (4.1).
 * "[0/4] A Bitcoin Scripting Proposal BIP Quartet", bitcoindev,
   `https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ`.
-* BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala): the data-tweaked internal
-  key used here follows the same pattern.
+* BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala), pinned at `bitcoin/bips`
+  commit `24e96e87` (4.1): the data-tweaked internal key used here follows
+  the same pattern.
 * Merkle Sum Sparse Merkle Trees, Taproot Assets BIP draft (Osuntokun).
 * Ark protocol documentation (Ark Labs; Second).
 * `design/unified-batching.md` — the essay in which LayerTree was first
