@@ -94,8 +94,10 @@ signature per leaf in place of the evictor-key check. The witness would
 carry the `K` leaves, their signatures, and the siblings of the union of
 their paths, so leaves in the same subtree share the levels above it. For
 four owners in one aligned height-2 subtree the estimate from the sweep's
-measured sizes plus 64 bytes of signature per leaf is about 350 vbytes per
-leaf; for sixteen owners in a height-4 subtree, about 194.
+measured sizes plus 64 bytes of signature per leaf is about 353 vbytes per
+leaf; for the thirteen owners of a height-4 subtree, about 222, and for
+the fifty-one of a height-6 subtree, about 177. `design/batching.md`
+specifies this shape and two more.
 
 What a script fixes is the height and alignment of the subtree, not
 which of its leaves exit. As in the sweep, the witness supplies every
@@ -211,11 +213,12 @@ Four things reduce it, in increasing order of change.
 - The subtree rewrite of 13.5 publishes a subtree's old and new leaves and
   folds each once, so the per-leaf cost approaches the sweep's: the
   interior is paid once and each rewritten leaf adds its 116 bytes twice
-  and a signature, about 100 vbytes. Leaves in the subtree that do not
+  and a signature, about 120 vbytes. Leaves in the subtree that do not
   change need no signature; they are supplied for the fold or stand behind
   a sibling hash. The spec left this out because its aggregate-key form
   needs MuSig2 nonce rounds; a per-leaf-signature form has no such
-  obstacle and is the natural next shape after the owner multiproof.
+  obstacle and is the natural next shape after the owner multiproof
+(`design/batching.md`).
 
 The subtree rewrite is also a batch of intra-tree payments: moving an
 amount from one leaf to another inside the rewritten subtree conserves

@@ -26,10 +26,12 @@ test suite fails if a script uses anything else.
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
 | [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and where it does not: exit, entry and lifetime bytes against bare UTXOs, Lightning and transaction trees, with generated figures |
 | [`design/profiles.md`](design/profiles.md) | Dense or sparse: what the two profiles share, where the sparse bytes go, and what a higher radix would change, with a measured radix-4 level |
+| [`design/batching.md`](design/batching.md) | Batching: what a batch costs, the owner multiproof, the cohort rewrite and detaching a subtree into its own output |
 | [`design/receive.md`](design/receive.md) | Receiving over Lightning into a tree: cumulative hash-locked vouchers against an Ark client's out-of-round payments and credits |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
 | [`design/layertree.md`](design/layertree.md) | Raw design sketch (verbatim) |
 | [`notes.md`](notes.md) | Notes distilled from the working vault |
+| [`brain.md`](brain.md) | Running brain dump: where every piece stands, what is in flight, what is next |
 | [`tools/`](tools/) | Reference implementation, script templates, simulator, tests |
 
 ## Go implementation
