@@ -4,21 +4,39 @@
 % realisation with covenants. Build: make (regenerates version.tex from git),
 % or latexmk -pdf main.tex. Set \anontrue for a double-blind submission.
 %
-% Two versions from one source. \iffullversion selects between them:
-%  - main.pdf, the short submission (\fullversionfalse): a body within the
-%    15 LNCS pages of FC, with the UC proof, the Lean development and the
-%    channel scripts in appendices, and without the sections below;
-%  - main-full.pdf, the full version (\fullversiontrue): the same text
-%    with those three appendices lifted into the body as sections, plus
-%    five further sections (cost comparison, profiles and radix,
-%    batching, grafting, receiving over Lightning) in full-*.tex.
+% Two versions from one source, for two audiences. \iffullversion selects
+% between them:
+%  - main.pdf, the short submission (\fullversionfalse), for developers and
+%    enthusiasts: within the 15 LNCS body pages of FC. It explains how the
+%    system works (the tree and its output), every
+%    operation in the order a member meets it (short-operations.tex), the
+%    voucher system (short-vouchers.tex), the trust model and the duties
+%    of each party (short-trust.tex), the opcode tiers, channel leaves,
+%    costs and prior work, and says in one short section what is proved.
+%    It carries no ideal functionality, simulator, Lean listings or proof
+%    appendices; its only appendix holds the assumption and size tables
+%    (appendix-short.tex).
+%  - main-full.pdf, the full version (\fullversiontrue), for academics and
+%    agents: functionality first (the ideal functionality, the abstract
+%    protocol and its covenant predicates, the tiers, the UC theorem with
+%    inline Lean signatures, the UC proof and the channel scripts as
+%    sections, channels as composition), then the evaluation and five
+%    further sections in full-*.tex (cost comparison, profiles and radix,
+%    batching, grafting, receiving over Lightning), with the Lean
+%    development, script listings, measurements and fee tables as
+%    appendices.
+% Text both versions carry is in body-*.tex (the tree and the tree output,
+% the tier table, the evaluation, related work, the discussion, the
+% channel deadline budget, the receive flow and the credit leaf) and
+% table-sizes.tex, so a number is fixed in one place; main.tex holds the
+% two section sequences.
 % The switch is the job name: `make` runs latexmk once as main and once
 % with -jobname=main-full, and the preamble sets \fullversiontrue when the
 % job name is main-full. To build the full version by hand:
 %   latexmk -pdf -jobname=main-full main.tex
-% In the text, \iffullversion ... \else ... \fi carries the differences,
-% \lifted{label} cites a lifted appendix as "Appendix X" in the short
-% version and as a section in the full one, and \thispart reads
+% In the text, \iffullversion ... \else ... \fi carries the differences at
+% section granularity; \lifted{label} cites a section of the full version
+% that the short one used to carry as an appendix, and \thispart reads
 % "appendix" or "section".
 %
 \usepackage[T1]{fontenc}
@@ -130,6 +148,7 @@
 \maketitle
 
 \begin{abstract}
+\iffullversion
 Transaction-tree constructions that let many users share one Bitcoin
 output pay at exit time: a user who leaves publishes $O(\log N)$
 transactions, the tree's interior must exist as pre-signed or
@@ -158,6 +177,26 @@ output. A simulator, a byte-exact Go implementation and 2{,}083
 executable checks accompany the design.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and universal
 composability \and payment channels \and formal verification}
+\else
+LayerTree lets many users share one Bitcoin output: the output commits
+to an off-chain Merkle-sum tree of balances, and tapscript covenants
+enforce every change to it. Any member exits alone, and the operator
+evicts a member whose lease has expired, in one transaction of about
+$1{,}020$ virtual bytes at depth~16, with no pre-signed interior and no
+expiry of the shared output; a cohort joins, settles or is swept in one
+transaction. We describe each operation in the order a member meets it,
+who authorises it and what it costs, and the voucher system: a signature
+over a source leaf and a new leaf that anyone can redeem once, which an
+issuer re-signs for a running total, so repeated payments to one
+recipient, including payments received over Lightning, cost nothing
+on-chain and never expire. The design compiles to four tiers of proposed
+opcodes, the smallest needing \op{CAT} and one point-tweak opcode;
+channels live in leaves; the tree rules are mechanised in Lean~4, and a
+simulator, a byte-exact Go implementation and 2{,}083 executable checks
+accompany it.
+\keywords{Bitcoin \and covenants \and Merkle-sum trees \and vouchers \and
+payment channels \and formal verification}
+\fi
 \end{abstract}
 
 \section{Introduction}
@@ -192,6 +231,7 @@ same covenant lets the operator evict members whose lease has expired,
 graft a pre-built subtree of new members in one step, and sweep an
 expired cohort cheaply.
 
+\iffullversion
 We present the design from the interface inwards: an ideal functionality
 in the universal composability (UC) framework~\cite{canettiUC}
 (\S\ref{sec:func}); an abstract protocol of covenant \emph{predicates}
@@ -223,6 +263,23 @@ their path. (5) Lightning channels as leaves, and the conditions under
 which they compose. (6) A simulator, a byte-exact Go implementation, and
 measured costs: a $1{,}020\vB$ exit at depth~16, $665\vB$ for a second
 exit in the same transaction, 158 to $203\vB$ per swept leaf.
+\else
+This paper explains the design for those who would build on it: the
+tree (\S\ref{sec:howitworks}), every operation in the order a member
+meets it (\S\ref{sec:ops}), vouchers, which pay a member or receive from
+Lightning with no one's participation at redemption
+(\S\ref{sec:vouchers}), and who can do what (\S\ref{sec:trust}). The
+operations compile to four tiers (\S\ref{sec:scripts}), from restored
+string opcodes~\cite{bip440,bip441}, introspection~\cite{optx}, stack
+signature checks~\cite{bip348} and elliptic-curve
+arithmetic~\cite{ecops,bip449} down to \op{CAT} and one point-tweak
+opcode, plus one on \op{CHECKCONTRACTVERIFY}~\cite{bip443}. We propose
+no opcode, but three tiers assume opcodes in a tapleaf version their
+proposals do not define.\ifanon\else{} The elliptic-curve
+draft~\cite{ecops} is by the author.\fi{} The ideal functionality, its
+UC proof and the Lean development are in the full version
+(\S\ref{sec:proved}).
+\fi
 \ifanon
 The specification, code and proofs are provided as an anonymised artefact.
 \else
@@ -238,9 +295,11 @@ theorems inline, and adds five sections: costs against bare UTXOs,
 Lightning and transaction trees (\S\ref{sec:cost}), the two profiles and
 the radix (\S\ref{sec:profiles}), batch shapes (\S\ref{sec:batching}),
 the trust model of grafting (\S\ref{sec:graft}) and receiving over
-Lightning (\S\ref{sec:receive}). The Lean development is
-Appendix~\ref{app:lean} in both versions; the complete script listings
-(Appendix~\ref{app:listings}) are in this version only.
+Lightning (\S\ref{sec:receive}). The Lean development
+(Appendix~\ref{app:lean}) and the complete script listings
+(Appendix~\ref{app:listings}) are in this version only; the short version
+is written for developers and describes the operations and the voucher
+system without the functionality and its proof.
 \fi
 
 \section{Background}\label{sec:background}
@@ -267,6 +326,7 @@ one unit and any other byte four. A Merkle-sum tree~\cite{merkle,mssmt}
 hashes each node's children with their sums, so an inclusion proof
 proves a leaf's contribution to the root sum.
 
+\iffullversion
 \paragraph{Composable security.}
 We use the UC framework~\cite{canettiUC} with global
 subroutines~\cite{guc}. A protocol $\Pi$ \emph{UC-realises} a
@@ -332,7 +392,7 @@ opaque node never revealed (frozen, not stolen); honest members verify
 their path before funding (\S\ref{sec:parties}), so their leaves are
 known.
 
-\paragraph{The liveness bound.} Every call spends and recreates one
+\paragraph{The liveness bound.}\label{sec:liveness} Every call spends and recreates one
 ledger output, and an honest call can be overtaken by any number of
 valid conflicting spends (a corrupt member alone can carve its balance
 back and forth), so the delay does not follow from the ledger model; we
@@ -353,116 +413,33 @@ $\kappa = 25$, $\lat_L = 1$ block) a tree drains 25 exits per block, so
 10{,}000 channel leaves closing at once take 400 blocks: trees are sized
 by exit throughput, not depth.
 
+% The functionality section above is the full version's alone.
+\fi
+
+\iffullversion
 \section{The Abstract Protocol}\label{sec:protocol}\label{sec:construction}
 
 The protocol $\Pi$ has a data structure whose root one output commits
 to, one \emph{predicate} per interface, enforced by the ledger, and the
 behaviour of honest parties.
+\else
+\section{How LayerTree Works}\label{sec:howitworks}
 
-\subsection{The Tree}\label{sec:tree}
+A \emph{tree} has one \emph{operator} and any number of \emph{members}.
+Each member owns a \emph{leaf}: a balance and three keys (an owner key
+that authorises the member's actions, an exit key that an exit pays, and
+an evictor key, normally the operator's, that may remove the leaf once
+its lease height has passed). The operator holds no key over the funds,
+only an \emph{operator key} that admits new members and co-signs
+cooperative changes. The balances live in a Merkle-sum tree kept
+off-chain; one taproot output holds their total and commits to the root,
+and each operation is a tapscript leaf of that output, which we call its
+\emph{predicate}.
+\fi
 
-We write $\mathsf{le}_{k}(x)$ for the $k$-byte little-endian encoding of
-$x$. A leaf is a fixed 116-byte record
-\begin{multline*}
-\lesf(\mathsf{amount}) \,\|\, \mathsf{exit\_key} \,\|\, \mathsf{owner\_key}
-\,\|\, \mathsf{evictor\_key} \\
-\,\|\, \mathsf{le}_{32}(\mathsf{evict\_after})
-\,\|\, \mathsf{le}_{32}(\mathsf{nonce}) \,\|\, \mathsf{le}_{32}(\mathsf{seq}),
-\end{multline*}
-with keys as 32-byte x-only points, $\mathsf{evict\_after}$ a block
-height, $\mathsf{nonce}$ a per-leaf identifier and $\mathsf{seq}$ a
-counter advanced by vouchers (Appendix~\ref{app:claim}). A \emph{node} is
-a pair $(h, s)$ of a 32-byte hash and an unsigned sum. A position holding
-leaf $\ell$ has node $(\Hleaf(\ell), \ell.\mathsf{amount})$; an empty
-position has node $\Emp_0 = (0^{32}, 0)$. The parent of $(h_L, s_L)$ and
-$(h_R, s_R)$ is
-\[
-\bigl(\Hnode(h_L \,\|\, \encs(s_L) \,\|\, h_R \,\|\, \encs(s_R)),\; s_L + s_R\bigr),
-\qquad \encs(s) = \lesf(s) \,\|\, \mathtt{0x01}.
-\]
-Every hash is a BIP-340 tagged hash with its own tag; $\encs(s)$ is the
-minimal BIP-441 encoding of $s + 2^{64}$, produced from a computed sum
-with one addition (Lemma~\ref{lem:enc}). $\Emp_h$ is the node of the
-empty tree of height $h$.
+\input{body-tree}
 
-The \emph{sibling path} $\pi$ of a position is the list of $D$ pairs
-$(\mathsf{dir}_k, (h_k, s_k))$, one per level, giving the side the
-position lies on and the sibling node not taken. $\fold(n, \pi)$ combines
-a node with a path from the bottom up, hashing with each sibling in the
-order the direction gives and adding the sums. The honest path folds a
-leaf's node to the root, and folding a \emph{different} node up the
-\emph{same} path yields the root with that position replaced
-(Theorem~\ref{thm:binding}).
-
-\paragraph{Profiles.}
-In the \emph{dense} profile positions are assigned by the operator and a
-path carries explicit direction bits; each level costs 88 bytes of script
-and 41 bytes of witness. In the \emph{sparse} profile a leaf's position is
-the low $D$ bits of $\Hpos(\mathsf{owner\_key} \,\|\, \mathsf{nonce})$,
-direction bits are derived in script from the position hash, and empty
-siblings are elided from the witness (the script substitutes $\Emp_k$),
-so witness data grows with $\log_2 N$ rather than with $D$. It is the
-Merkle-sum sparse Merkle tree of Taproot Assets~\cite{mssmt} truncated to
-$D = 32$ or $64$, at 1.7 to 2.8 times the dense per-exit cost with
-$2^{16}$ members (Table~\ref{tab:sizes}). Dense is the default, and the
-rest of the paper measures it unless it says otherwise.
-
-\subsection{The Tree Output}\label{sec:output}
-
-Let $r$ be the root hash and $S$ the root sum. The tree output is a
-taproot output with internal key
-$P = \mathsf{lift\_x}\bigl(x(\NUMS + \Hstate(r)\cdot G)\bigr)$, where
-$\NUMS$ is the BIP-341 nothing-up-my-sleeve point and $\mathsf{lift\_x}$
-the BIP-340 even-$y$ normalisation, so the key path is unspendable and
-every spend goes through a script. Its taptree has one leaf per
-predicate; its Merkle root $m$ identifies the rule set and is fixed for
-the tree's life. A \emph{tree output} for state $(r, S)$ has scriptPubKey
-$\TreeSpk(r, m)$ and amount $S$. Every predicate recomputes
-$\TreeSpk(r, m)$ from its witness and checks it against the spent input,
-binding the root the proofs are checked against and the script set the
-successor carries. FULL, MID and MIN predicates read input~0, so two such
-trees cannot be spent in one transaction; a CCV tree's input may sit at
-any index.
-
-\begin{figure}[tbp]
-\centering
-\begin{tikzpicture}[
-  node distance=4mm and 2mm,
-  every node/.style={font=\scriptsize},
-  tn/.style={draw, rounded corners=1pt, minimum width=9mm, minimum height=4.5mm, inner sep=1pt},
-  sib/.style={tn, fill=black!12},
-  path/.style={tn, thick},
-  leaf/.style={tn, minimum width=7mm},
-  box/.style={draw, minimum height=7mm, align=center, inner sep=2pt},
-  arr/.style={-{Latex[length=1.6mm]}, thin}
-]
-\node[path] (root) {$(r,S)$};
-\node[sib, below left=of root, xshift=-8mm] (n0) {$(h_0,s_0)$};
-\node[path, below right=of root, xshift=8mm] (n1) {$(h_1,s_1)$};
-\node[leaf, below left=of n0, xshift=2mm] (l00) {$\ell_0$};
-\node[leaf, below right=of n0, xshift=-2mm] (l01) {$\ell_1$};
-\node[path, below left=of n1, xshift=2mm] (l10) {$\ell_2$};
-\node[sib, below right=of n1, xshift=-2mm] (l11) {$\Emp_0$};
-\draw (root) -- (n0); \draw (root) -- (n1);
-\draw (n0) -- (l00); \draw (n0) -- (l01);
-\draw (n1) -- (l10); \draw (n1) -- (l11);
-\node[below=1.5mm of l01, xshift=8mm, align=center] {shaded: sibling path of $\ell_2$,\quad $\pi = [(\mathsf{R}, (h_0,s_0)),\ (\mathsf{L}, \Emp_0)]$};
-\begin{scope}[xshift=41mm, yshift=1mm]
-\node[box, minimum width=24mm] (in0) {input 0\\ $\TreeSpk(r,m)$, $S$};
-\node[box, minimum width=24mm, below=2.5mm of in0] (in1) {input 1 (fee)};
-\node[box, minimum width=26mm, right=5mm of in0] (out0) {output 0\\ $\TreeSpk(r',m)$, $S-a$};
-\node[box, minimum width=26mm, below=2.5mm of out0] (out1) {output 1\\ $\mathrm{P2TR}(\ell_2.\mathsf{exit\_key})$, $a$};
-\node[box, minimum width=26mm, minimum height=5mm, below=2.5mm of out1] (out2) {change, anchors (free)};
-\draw[arr] (in0) -- (out0);
-\draw[arr] (in0) -- (out1);
-\draw[arr] (in1) -- (out2);
-\node[above=0.5mm of in0, xshift=17mm, font=\scriptsize\itshape] {\tr{EXIT} transaction for $\ell_2$, amount $a$};
-\end{scope}
-\end{tikzpicture}
-\caption{A depth-2 tree and the exit of $\ell_2$. The predicate checks $\fold((\Hleaf(\ell_2),a),\pi) = (r,S)$, computes $r' = \fold(\Emp_0,\pi)$, verifies a signature by $\ell_2.\mathsf{owner\_key}$, and constrains outputs 0 and 1. Everything else in the transaction is free.}
-\label{fig:exit}
-\end{figure}
-
+\iffullversion
 \subsection{The Step and the Transition Predicates}\label{sec:transitions}
 
 Every transition spends the tree output and recreates it as output~0
@@ -535,16 +512,26 @@ competing spend and to bump its fee. Transitions are final at the
 member's confirmation depth. The operator keeps the full tree, assigns
 slots, signs joins and updates, and evicts or sweeps expired leaves.
 
+\else
+% The short version: the operations, the vouchers and the trust model
+% take the place of the predicate table and the honest-party subsection.
+\input{short-operations}
+\input{short-vouchers}
+\input{short-trust}
+\fi
+
 \section{Realisations by Opcode Tier}\label{sec:scripts}
 
-Each predicate of Table~\ref{tab:pred} is compiled to tapscript against
+Each \iffullversion predicate of Table~\ref{tab:pred}\else operation of
+\S\ref{sec:ops}\fi{} is compiled to tapscript against
 four opcode sets (Table~\ref{tab:tiers}), so that the design's dependence
 on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. FULL, MID and CCV compile
-every predicate of Table~\ref{tab:pred}, MIN the dense single-leaf exit
+every \iffullversion predicate of Table~\ref{tab:pred}\else operation\fi,
+MIN the dense single-leaf exit
 and \tr{SPLIT}; \tr{CLAIM}$^{x}$, \tr{REWRITE}$_h$ and \tr{DETACH}$_h$ are
 FULL's alone. Table~\ref{tab:assume}\iffullversion\else{}
-(Appendix~\ref{app:scripts})\fi{} lists what each tier assumes of the
+(Appendix~\ref{app:short})\fi{} lists what each tier assumes of the
 proposals it uses, mirroring the assumptions [A-1] to [A-6] of the
 specification. MIN is the tier closest to the proposals as written: it
 needs only \op{CAT} (BIP-347) and \op{TWEAKADD} (BIP-449), both defined
@@ -557,74 +544,9 @@ whose opcode numbers collide.
 \input{appendix-assumptions}
 \fi
 
-\begin{table}[tbp]
-\centering
-\caption{The four opcode tiers. ``Shape'' says whether inputs and outputs the predicate does not constrain are free or fixed by the script. Sizes are bytes of script / witness data for \tr{EXIT}$_1$ in the dense profile at $D=16$; the last row is the transaction size on the model of \S\ref{sec:eval}. MID's sweep fits at most 54 occupied positions at $h = 6$ (stack limit).}
-\label{tab:tiers}
-\setlength{\tabcolsep}{1.5pt}\scriptsize
-\begin{tabular}{@{}lcccc@{}}
-\toprule
- & \textbf{FULL} & \textbf{MID} & \textbf{MIN} & \textbf{CCV} \\
-\midrule
-Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} & \texttt{0xC2} or \texttt{0xC0} \\
-Beyond BIP-342 & \op{CAT}, splice, & \op{CAT}, \op{TX}, & \op{CAT}, & \op{CCV} (BIP-443), \\
- & bit ops, \op{TX}, & CSFS, & \op{TWEAKADD} & \op{TX} \\
- & CSFS, EC ops & \op{TWEAKADD} & & \\
-Numerics & any length & 4-byte, $< 2^{31}$ & 4-byte, $< 2^{31}$ & as FULL or MID \\
-Owner payout & $\le$ amount & exact & exact & exact \\
-Predicates & all & all & \tr{EXIT}$_1$, \tr{SPLIT} & all \\
-Vouchers / channels / shape & yes / yes / free & yes / yes / free & no / no / fixed & option / yes / free \\
-\tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}367 / 978 & 3{,}640 / 1{,}175 & 1{,}716 / 838 \\
-\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}355 & 1{,}473 & 908 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{body-tiers}
 
-\paragraph{FULL and MID.} With \texttt{0xC2} the leaf is one 116-byte
-stack element read with \op{SUBSTR}, sums use arbitrary-length arithmetic,
-one \tr{LEVEL} of the fold is 88 bytes, and $\TreeSpk$ is recomputed with
-the EC opcodes; replacing the splice and EC opcodes by \op{CAT} and
-\op{TWEAKADD} costs 2{,}378 bytes of script at $D = 16$ against 2{,}101.
-
-Under \texttt{0xC0} (MID) fields arrive as separate witness elements,
-checked with \op{SIZE} and joined with \op{CAT}, and a computed sum is
-widened to 8 bytes by a witness-supplied zero pad
-(Appendix~\ref{app:scripts}); a cap of $2^{31}$ satoshis (21.47\,BTC) per
-tree and exact payouts are the price of 4-byte arithmetic.
-
-\paragraph{MIN: introspection from a signature.}\label{sec:min}
-Without \op{TX} the only opcode that sees the transaction is
-\op{CHECKSIG}. The script \emph{constructs} the BIP-341 signature message
-from values it has derived (the recomputed $\TreeSpk(r,m)$, the input
-amount, the new tree output, the payout) and raw witness pieces for what
-it does not constrain, and demands a Schnorr signature under the
-generator $G$ with nonce $G$, Poelstra's construction~\cite{catschnorr}:
-the challenge is $e = H_{\mathsf{challenge}}(G_x \,\|\, G_x \,\|\,
-\mathsf{msg})$, and $s G = (1 + e) G$ has the unique solution
-$s = e + 1 \bmod n$. The script computes $e$ from its message and calls
-\op{CHECKSIG} with signature $G_x \,\|\, s$ and key $G_x$; since
-\op{CHECKSIG} hashes the real transaction, it passes only if the two
-messages are equal, which is assumption [MIN]. Without long
-arithmetic, $e + 1$ is formed by grinding the fee input's sequence number
-until $e$ ends in $\mathtt{00}$ (256 trials on average, repeated on every
-fee bump; Appendix~\ref{app:scripts}). What is new is the use: the
-field-by-field enforcement and the signature as a tier's only
-introspection. \tr{EXIT}$_1$ costs
-$3{,}640$ bytes of script at $D = 16$ (73\% more than FULL) and
-$1{,}473\vB$ (44\% more); vouchers and channel leaves need a signature
-over stack data and are out of reach, \tr{SPLIT} is not ($6{,}501$
-bytes). Whether a 64-leaf sweep (16 kB in FULL) fits MIN is open.
-
-\paragraph{CCV: binding by opcode.}\label{sec:ccv}
-\op{CHECKCONTRACTVERIFY}~\cite{bip443} replaces every taproot-key
-recomputation of FULL: one call binds the old root to the input under
-the input's own taptree, one commits output~0 to the new root with the
-residual assigned, one per payout asserts a P2TR of the leaf's exit key
-and deducts its amount. The state key becomes the BIP-443 data tweak of
-$\NUMS$ by the root; the fold and the authorisation are FULL's, in either
-numeric encoding, and $r$ and $m$ leave every witness. One \op{TX} read
-per constrained amount survives, hence exact payouts.
-
+\iffullversion
 \section{Security}\label{sec:security}
 
 The tree-level facts are theorems about the abstract predicates,
@@ -818,12 +740,18 @@ extend it.
 
 % Full version: the UC proof follows the security section as a section
 % of its own; the Lean development is an appendix in both versions.
-\iffullversion
 \input{appendix-uc}
+\else
+\input{short-proved}
 \fi
 
+\iffullversion
 \section{Channel Leaves as Composition}\label{sec:channels}
+\else
+\section{Channel Leaves}\label{sec:channels}
+\fi
 
+\iffullversion
 A leaf whose exit key is a 2-of-2 between its owner and a counterparty
 (normally the operator) can host a payment channel that exists only
 off-chain and whose funding output materialises at the payout of the
@@ -839,25 +767,21 @@ channel uses the eltoo ratchet~\cite{eltoo,lnsymmetry} with zero-fee
 version-3 transactions and an ephemeral anchor~\cite{bip431}. This needs
 \op{TX} and CSFS: FULL, MID, or CCV with the channel scripts in their own
 outputs.
+\else
+A leaf whose exit key is a 2-of-2 between its owner and a counterparty
+(normally the operator) hosts a payment channel whose funding output
+appears only when an exit or eviction pays the leaf out, so a tree of
+such leaves is a Lightning hub behind one UTXO. That outpoint changes
+with every tree transition, so states are signed without committing to
+it (\op{TX} collates the signed fields and CSFS checks the signature,
+emulating \texttt{SIGHASH\_ANYPREVOUT}~\cite{bip118}), with the eltoo
+ratchet~\cite{eltoo,lnsymmetry}, zero-fee version-3 transactions and an
+ephemeral anchor~\cite{bip431}. This needs FULL, MID or CCV.
+\fi
 
-\paragraph{Deadlines and hub size.} Settlement outputs include one per
-in-flight hashed time-locked contract (HTLC). A forwarding node keeps
-$\mathsf{cltv\_expiry\_delta}$ blocks between an incoming and an outgoing
-HTLC's expiry, and a channel leaf needs
-$\mathsf{cltv\_expiry\_delta} \ge G_{\mathrm{exit}} + 3 + \mathsf{csv\_delay} + G_{\mathrm{sweep}}$,
-with $\mathsf{csv\_delay}$ the settlement's relative delay,
-$G_{\mathrm{sweep}}$ the time to confirm an HTLC sweep and
-$G_{\mathrm{exit}}$ the time to confirm the exit, $\lat(q)$ under [C].
-With $\mathsf{csv\_delay} = 144$, $G_{\mathrm{sweep}} = 2$ and
-$G_{\mathrm{exit}} = 72$ this is about 220 blocks, against 40 to 80 on
-the public network. At $\lat_L = 1$, $G_{\mathrm{exit}} = 72$ needs
-$\beta + q \le 71\kappa$; with $\kappa = 25$ and $\beta = 0$, about
-1{,}775 channel leaves may close in one window, and larger hubs shard.
-The counterparty is normally the operator, which can issue competing
-spends, so the budget holds only while the member can outbid them, which
-is what $\beta$ assumes. MID allows seven HTLCs per state (the 520-byte
-element limit) and $2^{31}$ satoshis per tree.
+\input{body-channel-budget}
 
+\iffullversion
 \paragraph{Composition conditions.} Let $\Fchan$ be a channel
 functionality in the style of Generalized Channels~\cite{genchannels}.
 Three of $\Ftree$'s interfaces are too lenient for a leaf whose balance
@@ -881,135 +805,14 @@ across tree transitions (\lifted{app:uc}); the state machine and the
 budget run end to end on the simulator's chain model, with two blocks of
 margin, but are not proved.
 
-\iffullversion
 \input{appendix-channels}
+\else
+\input{short-channels}
 \fi
 
 \section{Evaluation}\label{sec:eval}
+\input{body-eval}
 
-\paragraph{Implementation.} A Python tapscript interpreter for both leaf
-versions models BIP-441 numerics, \op{TX}, CSFS, the EC opcodes and
-varops, computes the real BIP-341 signature message and enforces
-\texttt{MINIMALDATA}; it models consensus limits, not standardness.
-Every compiled predicate runs against a reference tree with positive and
-negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
-unconserved amount, early eviction, voucher replay, and others): 1{,}054
-FULL, 268 MID, 55 MIN and 972 CCV checks, failing if a script uses an
-opcode outside its tier, plus 210 for channel leaves and 61 for the
-hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
-\texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
-against 79 golden scripts, and builds, signs and verifies every FULL
-transition (42 cases); its BIP-341 signature hash equals the
-simulator's.
-
-\paragraph{The transaction model.} Every vB figure is a whole
-transaction: script, witness elements and a 129-byte control block (the
-eight-leaf reference script set) as measured, plus a $946\WU$ skeleton
-(the tree input, a P2WPKH fee input, the tree output, one P2TR payout, a
-P2WPKH change output, version, lock time and counts) and $172\WU$ per
-further payout, with $\mathrm{vB} = \lceil \mathrm{WU}/4 \rceil$;
-transitions without a payout (joins, updates, carves) are charged
-$172\WU$ less. The witness item count and per-item length prefixes are
-excluded (on a dense $D = 16$ exit, $10.5\vB$ in FULL, 10 in CCV, 42.5
-in MID, 44.75 in MIN), and the baselines omit the same overhead. A deployment that carries the
-sweeps, rewrites and variants needs 16 to 32 tapleaves, which adds 8 to
-$16\vB$ to every spend.
-
-\paragraph{Exit cost.} A dense exit (Figure~\ref{fig:plot},
-Table~\ref{tab:sizes}) costs $762\vB$ at $D = 8$ and $1{,}149\vB$ at
-$D = 20$, about $32\vB$ per level. One tier step costs as much as 10 (MID, $+33\%$) to 14 (MIN,
-$+44\%$) levels of depth. The sparse profile at $D = 32$ with $2^{16}$
-members costs about $1{,}780\vB$, 1.75 times the dense profile at
-$D = 16$; its witness grows with $\log_2 N$, not $D$.
-
-\paragraph{Comparison with transaction trees.} The dashed line of
-Figure~\ref{fig:plot} is a \emph{model}: an exiter publishes $D$
-transactions of about $150\vB$ (one key-path input, two P2TR outputs) and
-a $111\vB$ claim, anchors and their fee children omitted, which favours
-the tree. LayerTree is about 60\% smaller at $D = 16$; a radix-4 tree
-needs $2{,}031\vB$, and an Ark member of a 256-member round unrolls
-$1{,}311\vB$. Under mass exit a tree's interior is shared, about $261\vB$
-per member at radix 2 and $191\vB$ at radix 4 with the claim, against
-$161\vB$ for a cohort leaving by \tr{REWRITE}$_6$ (Table~\ref{tab:ark},
-Appendix~\ref{app:eval}). The model prices neither the latency of $D$
-sequential confirmations nor the larger opcode set.
-
-\begin{figure}[tbp]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-  width=0.58\linewidth, height=\iffullversion 4.2cm\else 3.6cm\fi,
-  xlabel={depth $D$ ($\log_2$ positions)}, ylabel={unilateral exit (vB)},
-  xmin=7, xmax=21, ymin=0, ymax=3400,
-  xtick={8,12,16,20}, grid=major, grid style={black!12},
-  legend style={at={(1.04,0.5)}, anchor=west, font=\scriptsize, draw=none, fill=none, legend cell align=left, align=left},
-  tick label style={font=\scriptsize}, label style={font=\scriptsize}, clip=false
-]
-\addplot[thick, mark=*, mark size=1.5pt] coordinates {(8,762) (12,891) (16,1020) (20,1149)};
-\addlegendentry{LayerTree, FULL,\\dense, measured}
-\addplot[thick, dashed] coordinates {(8,1311) (12,1911) (16,2511) (20,3111)};
-\addlegendentry{radix-2 transaction\\tree, model}
-\addplot[only marks, mark=triangle*, mark size=2.2pt] coordinates {(16,1355)};
-\node[font=\scriptsize, anchor=west] at (axis cs:16.4,1355) {MID 1{,}355};
-\addplot[only marks, mark=diamond*, mark size=2.4pt] coordinates {(16,1473)};
-\node[font=\scriptsize, anchor=east] at (axis cs:15.7,1473) {MIN 1{,}473};
-\addplot[only marks, mark=square*, mark size=1.8pt] coordinates {(16,908)};
-\node[font=\scriptsize, anchor=north west] at (axis cs:16.3,880) {CCV 908};
-\end{axis}
-\end{tikzpicture}
-\caption{Unilateral exit cost against tree depth: measured for LayerTree (FULL, and the other tiers at $D=16$), modelled for an unamortised radix-2 transaction tree.}
-\label{fig:plot}
-\end{figure}
-
-\begin{table}[tbp]
-\centering
-\caption{Batch shapes at dense $D = 16$ on the model above: vB per leaf that leaves or changes, or per member that joins. Self-funded joins add each member's P2TR key-path funding input ($58\vB$) and the signing round of \S\ref{sec:parties}. The \tr{REWRITE}$_h$ rows are FULL only.}
-\label{tab:batch}
-\setlength{\tabcolsep}{4pt}\scriptsize
-\begin{tabular}{@{}lrrr@{\qquad}lrrr@{}}
-\toprule
-removal & leaves & tx & per leaf & addition or change & leaves & tx & per leaf \\
-\midrule
-\tr{EXIT}$_1$ & 1 & 1{,}020 & 1{,}020 & \tr{JOIN}$_0$ & 1 & 937 & 937 \\
-\tr{EXIT}$_2$ & 2 & 1{,}684 & 842 & \tr{JOIN}$_2$ & 4 & 872 & 218 \\
-\tr{EVICT\_SUBTREE}$_4$ & 13 & 2{,}638 & 203 & \tr{JOIN}$_8$ (operator-funded) & 256 & 679 & 2.7 \\
-\tr{EVICT\_SUBTREE}$_6$ & 51 & 8{,}057 & 158 & sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}601 & 1{,}601 \\
-\tr{REWRITE}$_2$, all leave & 4 & 1{,}448 & 362 & \tr{REWRITE}$_6$, keys rotated & 64 & 9{,}384 & 147 \\
-\tr{REWRITE}$_6$, all leave & 64 & 10{,}280 & 161 & \tr{UPDATE}, one leaf & 1 & 1{,}030 & 1{,}030 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Batching and joins.} A second exit in the same transaction
-adds $665\vB$ (its marginal weight rounded up on its own, one more than
-$1{,}684 - 1{,}020$). Owners leaving together by \tr{REWRITE}$_6$ pay
-what the operator pays to sweep them (Table~\ref{tab:batch}). A graft
-costs the operator under $3\vB$ per member, so a self-funded member's own
-input dominates its entry. Off-chain, a member follows every spend of the
-tree output (about 1\,kB of witness each), and the operator stores the
-whole tree.
-
-\iffullversion
-\paragraph{Fees and budgets.} At $10\sat/\mathrm{vB}$ a $D=16$ exit
-costs $10{,}200\sat$, a 1\% fee on $1{,}020{,}000\sat$
-(Appendix~\ref{app:eval}). Varops usage is 5.6 to 7.7\% of the BIP-440
-budget in the dense profile and 3.6 to 4.7\% in the sparse ($D = 64$ to
-32), falling with depth because the budget scales with weight;
-\texttt{0xC0} tiers use one to three signature operations of the BIP-342
-sigop budget.
-\fi
-
-\paragraph{Artefact.} Every number here is regenerated from the
-repository~\cite{layertreerepo} at the revision on the title page
-(\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
-(1{,}054 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
-cohort shapes), \path{test_mid.py} (268), \path{test_min.py} (55),
-\path{test_ccv.py} (972), \path{test_chan.py} (210), \path{test_msu.py}
-(61), \path{gen_listings.py} (the size table), \path{fee_analysis.py}
-(the fee model), \path{gen_golden.py} and \path{experiments/radix4.py}
-(55); by \texttt{go test ./...}; and by \texttt{lake build} in
-\path{formal/}, which prints the axiom audit. Figure coordinates are
-copied from these outputs by hand.
 
 % Full version: costs against the alternatives, the two profiles and
 % the radix, batching, grafting and the receive case.
@@ -1022,63 +825,31 @@ copied from these outputs by hand.
 \fi
 
 \section{Related Work}\label{sec:related}
+\input{body-related}
 
-\emph{Payment pools.} CoinPool~\cite{coinpool} is a shared UTXO with
-per-user balances whose one-transaction withdrawal rests on a new opcode,
-\op{MERKLESUB}; \texttt{OP\_TAPLEAF\_\allowbreak UPDATE\_\allowbreak VERIFY}~\cite{tluv} recreates a pool
-output with the leaver's key and leaf removed, and \op{EVICT}~\cite{opevict}
-removes unresponsive members. LayerTree reaches one-transaction exit
-from opcodes proposed as general primitives, holds balances in a
-Merkle-sum tree rather than keys in a taptree, and adds lease-based
-eviction, cohort grafts, channel leaves and a composable statement.
-\emph{Transaction trees.} Channel factories~\cite{factories} need all $N$
-members to sign every change. Ark~\cite{ark}, deployed today~\cite{arkd},
-batches users into rounds whose outputs are leaves of a pre-signed MuSig2
-tree; covenant Ark replaces the signing with CTV
-templates~\cite{clark} but keeps the tree, its unrolled exit and its expiry. Timeout
-trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
-expiries and Decker-Wattenhofer factories; MATT-style
-trees~\cite{matt,bip443} replace signatures by templates.
-Table~\ref{tab:compare} (Appendix~\ref{app:eval}) compares them. \emph{Beyond Bitcoin.} Plasma's forced exits~\cite{plasma} prove a
-balance against a committed root, enforced by a contract. Proofs of
-liabilities~\cite{gpol,brokensolvency} use Merkle-sum trees, where a node
-that hashes only its children's total admits the inflation that hashing
-each child's sum avoids. None of these states its guarantees as a
-functionality; we build on the ledger model of~\cite{bmtz17} and the
-channel functionalities of~\cite{genchannels,gscn}. \emph{Components.}
-The Merkle-sum sparse Merkle tree is Taproot Assets'~\cite{mssmt},
-truncated and verified in script; the data-tweaked key follows
-BIP-443~\cite{bip443}; the generator-key signature is
-Poelstra's~\cite{catschnorr}, and its ECDSA analogue has been used on
-Bitcoin Cash as \texttt{OP\_PUSH\_TX}. Liquid's tapscript~\cite{elements} has \op{CAT}, CSFS, per-field
-introspection and 64-bit arithmetic, so MID is close to expressible
-there; Simplicity~\cite{simplicity} would express the predicates
-directly.
 
+\iffullversion
 \section{Discussion and Limitations}\label{sec:discussion}
+\else
+\section{Discussion and Conclusion}\label{sec:discussion}
+\fi
+\input{body-discussion}
 
-The functionality is deliberately modest, and its liveness more so:
-all activity is serialised through one output, so an honest exit's delay
-is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} (Bitcoin Core 31) replaced the
-25-transaction chain limit with a 64-transaction cluster limit, which raises $\kappa$ for a
-cooperative tree but shares the cluster with every descendant anyone
-attaches. Two open design changes would narrow the dependence: a relative
-lock on transitions that remove no value, so that only removals chain,
-and an exit authorised by a CSFS signature over $m$, the leaf and the
-payout rather than the outpoint, so a tower could rebuild and rebroadcast
-it. A Liquid prototype of MID is the obvious next experiment; a
-hypothetical native Merkle-sum opcode (simulator only) takes \tr{EXIT}$_1$
-to 252 B of script at every depth.
 
+\iffullversion
 \section{Conclusion}
+\fi
 
 LayerTree specifies a shared output by what it lets members do (join,
 leave alone, be evicted after a lease, be swept as a cohort) and realises
 it with a tree kept off-chain as data: a one-transaction exit of about a
 kilobyte, no pre-signing, no expiry of the shared output, from proposed
-opcodes; its price is that all activity funnels through one UTXO. Future
-work: a verified compiler, a proof of Conjecture~\ref{thm:chan},
-mechanising Lemma~\ref{lem:path}, and a P model~\cite{plang}.
+opcodes; its price is that all activity funnels through one UTXO.
+\iffullversion Future work: a verified compiler, a proof of
+Conjecture~\ref{thm:chan}, mechanising Lemma~\ref{lem:path}, and a P
+model~\cite{plang}.\else Vouchers pay members off-chain against that
+output. Future work: a verified compiler, a proof that channel leaves
+compose, and a P model~\cite{plang}.\fi
 
 \bibliographystyle{splncs04}
 % Let long URLs in the references break after a hyphen; scoped to the
@@ -1087,19 +858,16 @@ mechanising Lemma~\ref{lem:path}, and a P model~\cite{plang}.
 \bibliography{refs}}
 
 \appendix
-\iffullversion\else
-\input{appendix-uc}
-\fi
+% The full version carries the Lean development, the script listings,
+% the measurements and fee tables and the complete structured listings;
+% the short one only the assumption and size tables.
+\iffullversion
 \input{appendix-lean}
 \input{appendix-scripts}
-\iffullversion\else
-\input{appendix-channels}
-\fi
 \input{appendix-eval}
-% The complete structured listings are in the full version only; the
-% short submission cites the artefact for them.
-\iffullversion
 \input{appendix-listings}
+\else
+\input{appendix-short}
 \fi
 
 \end{document}

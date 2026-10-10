@@ -1,0 +1,158 @@
+% Shared by both versions: the evaluation section body (implementation,
+% transaction model, exit cost, comparison, Figure 3, the batch table).
+
+\iffullversion
+\paragraph{Implementation.} A Python tapscript interpreter for both leaf
+versions models BIP-441 numerics, \op{TX}, CSFS, the EC opcodes and
+varops, computes the real BIP-341 signature message and enforces
+\texttt{MINIMALDATA}; it models consensus limits, not standardness.
+Every compiled predicate runs against a reference tree with positive and
+negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
+unconserved amount, early eviction, voucher replay, and others): 1{,}054
+FULL, 268 MID, 55 MIN and 972 CCV checks, failing if a script uses an
+opcode outside its tier, plus 210 for channel leaves and 61 for the
+hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
+\texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
+against 79 golden scripts, and builds, signs and verifies every FULL
+transition (42 cases); its BIP-341 signature hash equals the
+simulator's.
+\else
+\paragraph{Implementation.} A Python tapscript interpreter for both leaf
+versions computes the real BIP-341 signature message and runs every
+compiled script against a reference tree, with positive and negative
+cases per rule (forged leaf, stale root, unconserved amount, early
+eviction, voucher replay, and others); a Go implementation on
+\texttt{btcd} and \texttt{lnd} generates the same scripts byte for byte
+and builds, signs and verifies every FULL transition.
+\fi
+
+\iffullversion
+\paragraph{The transaction model.} Every vB figure is a whole
+transaction: script, witness elements and a 129-byte control block (the
+eight-leaf reference script set) as measured, plus a $946\WU$ skeleton
+(the tree input, a P2WPKH fee input, the tree output, one P2TR payout, a
+P2WPKH change output, version, lock time and counts) and $172\WU$ per
+further payout, with $\mathrm{vB} = \lceil \mathrm{WU}/4 \rceil$;
+transitions without a payout (joins, updates, carves) are charged
+$172\WU$ less. The witness item count and per-item length prefixes are
+excluded (on a dense $D = 16$ exit, $10.5\vB$ in FULL, 10 in CCV, 42.5
+in MID, 44.75 in MIN), and the baselines omit the same overhead. A deployment that carries the
+sweeps, rewrites and variants needs 16 to 32 tapleaves, which adds 8 to
+$16\vB$ to every spend.
+\else
+\paragraph{The transaction model.} Every vB figure is a whole
+transaction: the measured script, witness and a 129-byte control block
+(an eight-leaf taptree), plus a $946\WU$ skeleton (the tree input, a
+fee input, the tree output, one P2TR payout and a change output) and
+$172\WU$ per further payout; transitions without a payout are charged
+$172\WU$ less. Witness length prefixes are excluded, about 1\% in FULL
+and 3\% in MID and MIN.
+\fi
+
+\paragraph{Exit cost.} A dense exit (Figure~\ref{fig:plot},
+Table~\ref{tab:sizes}) costs $762\vB$ at $D = 8$ and $1{,}149\vB$ at
+$D = 20$, about $32\vB$ per level. One tier step costs as much as 10 (MID, $+33\%$) to 14 (MIN,
+$+44\%$) levels of depth. The sparse profile at $D = 32$ with $2^{16}$
+members costs about $1{,}780\vB$, 1.75 times the dense profile at
+$D = 16$; its witness grows with $\log_2 N$, not $D$.
+
+\paragraph{Comparison with transaction trees.} The dashed line of
+Figure~\ref{fig:plot} is a \emph{model}: an exiter publishes $D$
+transactions of about $150\vB$ (one key-path input, two P2TR outputs) and
+a $111\vB$ claim, anchors and their fee children omitted, which favours
+the tree. LayerTree is about 60\% smaller at $D = 16$; a radix-4 tree
+needs $2{,}031\vB$, and an Ark member of a 256-member round unrolls
+$1{,}311\vB$. Under mass exit a tree's interior is shared, about $261\vB$
+per member at radix 2 and $191\vB$ at radix 4 with the claim, against
+$161\vB$ for a cohort leaving by \tr{REWRITE}$_6$\iffullversion{} (Table~\ref{tab:ark},
+Appendix~\ref{app:eval})\fi. The model prices neither the latency of $D$
+sequential confirmations nor the larger opcode set.
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.58\linewidth, height=\iffullversion 4.2cm\else 3.6cm\fi,
+  xlabel={depth $D$ ($\log_2$ positions)}, ylabel={unilateral exit (vB)},
+  xmin=7, xmax=21, ymin=0, ymax=3400,
+  xtick={8,12,16,20}, grid=major, grid style={black!12},
+  legend style={at={(1.04,0.5)}, anchor=west, font=\scriptsize, draw=none, fill=none, legend cell align=left, align=left},
+  tick label style={font=\scriptsize}, label style={font=\scriptsize}, clip=false
+]
+\addplot[thick, mark=*, mark size=1.5pt] coordinates {(8,762) (12,891) (16,1020) (20,1149)};
+\addlegendentry{LayerTree, FULL,\\dense, measured}
+\addplot[thick, dashed] coordinates {(8,1311) (12,1911) (16,2511) (20,3111)};
+\addlegendentry{radix-2 transaction\\tree, model}
+\addplot[only marks, mark=triangle*, mark size=2.2pt] coordinates {(16,1355)};
+\node[font=\scriptsize, anchor=west] at (axis cs:16.4,1355) {MID 1{,}355};
+\addplot[only marks, mark=diamond*, mark size=2.4pt] coordinates {(16,1473)};
+\node[font=\scriptsize, anchor=east] at (axis cs:15.7,1473) {MIN 1{,}473};
+\addplot[only marks, mark=square*, mark size=1.8pt] coordinates {(16,908)};
+\node[font=\scriptsize, anchor=north west] at (axis cs:16.3,880) {CCV 908};
+\end{axis}
+\end{tikzpicture}
+\caption{Unilateral exit cost against tree depth: measured for LayerTree (FULL, and the other tiers at $D=16$), modelled for an unamortised radix-2 transaction tree.}
+\label{fig:plot}
+\end{figure}
+
+% The batch table and its paragraph are the full version's; the short
+% version gives each shape in its operations section.
+\iffullversion
+\begin{table}[tbp]
+\centering
+\caption{Batch shapes at dense $D = 16$ on the model above: vB per leaf that leaves or changes, or per member that joins. Self-funded joins add each member's P2TR key-path funding input ($58\vB$) and the signing round of \S\ref{sec:parties}. The \tr{REWRITE}$_h$ rows are FULL only.}
+\label{tab:batch}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lrrr@{\qquad}lrrr@{}}
+\toprule
+removal & leaves & tx & per leaf & addition or change & leaves & tx & per leaf \\
+\midrule
+\tr{EXIT}$_1$ & 1 & 1{,}020 & 1{,}020 & \tr{JOIN}$_0$ & 1 & 937 & 937 \\
+\tr{EXIT}$_2$ & 2 & 1{,}684 & 842 & \tr{JOIN}$_2$ & 4 & 872 & 218 \\
+\tr{EVICT\_SUBTREE}$_4$ & 13 & 2{,}638 & 203 & \tr{JOIN}$_8$ (operator-funded) & 256 & 679 & 2.7 \\
+\tr{EVICT\_SUBTREE}$_6$ & 51 & 8{,}057 & 158 & sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}601 & 1{,}601 \\
+\tr{REWRITE}$_2$, all leave & 4 & 1{,}448 & 362 & \tr{REWRITE}$_6$, keys rotated & 64 & 9{,}384 & 147 \\
+\tr{REWRITE}$_6$, all leave & 64 & 10{,}280 & 161 & \tr{UPDATE}, one leaf & 1 & 1{,}030 & 1{,}030 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Batching and joins.} A second exit in the same transaction
+adds $665\vB$ (its marginal weight rounded up on its own, one more than
+$1{,}684 - 1{,}020$). Owners leaving together by \tr{REWRITE}$_6$ pay
+what the operator pays to sweep them (Table~\ref{tab:batch}). A graft
+costs the operator under $3\vB$ per member, so a self-funded member's own
+input dominates its entry. Off-chain, a member follows every spend of the
+tree output (about 1\,kB of witness each), and the operator stores the
+whole tree.
+\fi
+
+\iffullversion
+\paragraph{Fees and budgets.} At $10\sat/\mathrm{vB}$ a $D=16$ exit
+costs $10{,}200\sat$, a 1\% fee on $1{,}020{,}000\sat$
+(Appendix~\ref{app:eval}). Varops usage is 5.6 to 7.7\% of the BIP-440
+budget in the dense profile and 3.6 to 4.7\% in the sparse ($D = 64$ to
+32), falling with depth because the budget scales with weight;
+\texttt{0xC0} tiers use one to three signature operations of the BIP-342
+sigop budget.
+\fi
+
+\iffullversion
+\paragraph{Artefact.} Every number here is regenerated from the
+repository~\cite{layertreerepo} at the revision on the title page
+(\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
+(1{,}054 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
+cohort shapes), \path{test_mid.py} (268), \path{test_min.py} (55),
+\path{test_ccv.py} (972), \path{test_chan.py} (210), \path{test_msu.py}
+(61), \path{gen_listings.py} (the size table), \path{fee_analysis.py}
+(the fee model), \path{gen_golden.py} and \path{experiments/radix4.py}
+(55); by \texttt{go test ./...}; and by \texttt{lake build} in
+\path{formal/}, which prints the axiom audit. Figure coordinates are
+copied from these outputs by hand.
+\else
+\paragraph{Artefact.} Every number here is regenerated from the
+repository~\cite{layertreerepo} at the revision on the title page by
+the test suites and generators under \path{tools/} (1{,}054 FULL, 268
+MID, 55 MIN, 972 CCV and 210 channel checks), by \texttt{go test} and by
+\texttt{lake build}.
+\fi

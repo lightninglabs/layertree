@@ -1,0 +1,37 @@
+% Shared by both versions: receiving over Lightning into a credit leaf.
+% Source: spec 10.3 (the settle-first order, audit B2) and
+% design/receive.md; sizes from spec/scripts/sizes.md on the model of the
+% evaluation section (no payout output for a carve or an update).
+
+\paragraph{The flow.} A user with no on-chain funds receives a Lightning
+payment into a credit leaf that the operator owns and that names the
+user's key as exit key. The payer's HTLC reaches the operator, which
+obtains the preimage and settles that inbound HTLC \emph{first}; only then
+does it sign the user a voucher for the new running total, a plain
+cumulative voucher against the credit leaf, redeemable under
+\tr{CLAIM}$^{x}$. Nothing reaches the chain, there is no minimum per
+payment beyond $\mathsf{DUST\_MIN}$ at redemption, nothing expires, and
+the recipient need not be online when it is paid. The order matters. A
+hash-locked voucher issued before the HTLC settles, with the preimage
+held by the recipient, breaks the rule that the party the HTLC pays draws
+the preimage (\iffullversion spec~9.6.2\else\S\ref{sec:hashlock}\fi),
+and on a credit leaf it cannot be repaired: if the
+HTLC then fails, retiring the voucher means advancing the credit leaf's
+$\mathsf{seq}$, which needs the recipient's exit key, so the voucher
+stays redeemable for a payment that never arrived. Settling first leaves
+the recipient exposed for one payment, the one the operator has settled
+and not yet vouched for.
+
+\paragraph{Settlement.} Normally the voucher is never redeemed. The
+operator places a leaf of the recipient's own in its next cohort graft,
+at under $3\vB$ per member in a 256-member \tr{JOIN}$_8$, and retires the
+voucher by advancing the credit leaf's $\mathsf{seq}$ and lowering its
+amount by what it has paid out: one \tr{UPDATE}$^{x}$ per credit leaf
+($1{,}048\vB$), which the recipient co-signs, or one
+\tr{REWRITE}$_h^{x}$ for a cohort of credit leaves, about $147\vB$ per
+changed leaf at $h = 6$ plus $16\vB$ for each exit-key signature. If the
+operator stops cooperating, the recipient redeems its latest voucher
+alone with one \tr{CLAIM}$^{x}$: $1{,}635\vB$ at $D = 16$, about
+16{,}350\,sat at 10\,sat/vB, with no timelock, against 1{,}311 to
+$2{,}511\vB$ and a relative timelock to unroll an Ark round tree of 256
+to 65{,}536 members (\S\ref{sec:eval}).

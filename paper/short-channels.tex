@@ -1,0 +1,12 @@
+% Short version only: the conditions a channel leaf puts on the tree
+% layer (spec 9.8, Appendix C), in place of the full version's
+% composition conditions and conjecture.
+\paragraph{Conditions.} A channel leaf has exact payouts, so the owner
+cannot underfund the channel; $\mathsf{seq} = \mathsf{SEQ\_FINAL}$, so no
+voucher or \tr{SPLIT} can carve the capacity the signed states commit
+to; and lease zero with the counterparty as evictor, so eviction is the
+counterparty's force-close. The state machine and the budget run end to
+end on the simulator's chain model with two blocks of margin; a proof
+that channel leaves compose is open. A force-close costs about
+$1{,}681\vB$, against about $680\vB$ for a simple taproot
+channel~\cite{taprootchans}.

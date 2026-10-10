@@ -17,7 +17,7 @@
 {[A-5]} & \op{TX} in \texttt{0xC0} with \texttt{CScriptNum} outputs, which no proposal defines & MID, CCV \\
 {[A-6]} & BIP-443 (defined for \texttt{0xC0}) also in \texttt{0xC2}; its sigop cost, open upstream, charged as one signature check; amount rules as of \texttt{bitcoin/bips} commit \texttt{24e96e87}. Conservation rests on the tier's \op{TX} equalities, so a change to BIP-443 can only make honest spends fail & CCV \\
 {[MIN]} & \op{CHECKSIG} under key $G$ with $s = e + 1$ accepts only if the script-built message is the real one, barring a collision in the TapSighash or challenge hash & MIN \\
-{[C]} & contention: $\kappa$ and $\beta$ of \S\ref{sec:func} (policy and fees, not consensus) & all \\
+{[C]} & contention: $\kappa$ and $\beta$ of \S\ref{sec:liveness} (policy and fees, not consensus) & all \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -1,0 +1,26 @@
+% Shared by both versions: discussion and limitations.
+
+\iffullversion
+The functionality is deliberately modest, and its liveness more so:
+all activity is serialised through one output, so an honest exit's delay
+is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} (Bitcoin Core 31) replaced the
+25-transaction chain limit with a 64-transaction cluster limit, which raises $\kappa$ for a
+cooperative tree but shares the cluster with every descendant anyone
+attaches. Two open design changes would narrow the dependence: a relative
+lock on transitions that remove no value, so that only removals chain,
+and an exit authorised by a CSFS signature over $m$, the leaf and the
+payout rather than the outpoint, so a tower could rebuild and rebroadcast
+it. A Liquid prototype of MID is the obvious next experiment; a
+hypothetical native Merkle-sum opcode (simulator only) takes \tr{EXIT}$_1$
+to 252 B of script at every depth.
+\else
+All activity is serialised through one output, so an honest exit's delay
+is set by policy and fees, which [C] names rather than derives; cluster
+mempool~\cite{clustermempool} raises $\kappa$ for a cooperative tree but
+shares the cluster with every descendant anyone attaches, and fee
+pinning is outside [C]. Two open changes would narrow the dependence: a
+relative lock on transitions that remove no value, so that only removals
+chain, and an exit authorised by a CSFS signature over $m$, the leaf and
+the payout rather than the outpoint, so a tower could rebroadcast it. A
+Liquid prototype of MID~\cite{elements} is the obvious next experiment.
+\fi

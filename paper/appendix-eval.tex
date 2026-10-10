@@ -5,28 +5,7 @@
 Table~\ref{tab:sizes} gives the script, witness and transaction sizes
 behind Figure~\ref{fig:plot} and Table~\ref{tab:tiers}.
 
-\begin{table}[htbp]
-\centering
-\caption{Measured \tr{EXIT}$_1$ cost (FULL unless noted) on the model of \S\ref{sec:eval}. Witness weight is script, witness data and a 129-byte control block for the eight-leaf reference script set (each doubling of the set adds 8 vB); the transaction adds the $946\WU$ skeleton. The sparse witness is $244 + 41k$ bytes for $k$ non-empty siblings: $k = 2$ on the measured six-leaf tree (326 B), and $k \approx \log_2 N$, so the rows give the estimate at $N = 2^{16}$ ($k = 16$). Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
-\label{tab:sizes}
-\setlength{\tabcolsep}{3.5pt}\scriptsize
-\begin{tabular}{@{}lrrrrrr@{}}
-\toprule
-profile & $D$ & script (B) & witness data (B) & witness (WU) & tx (vB) & radix-2 tx tree (vB) \\
-\midrule
-dense & 8 & 1{,}397 & 574 & 2{,}100 & 762 & 1{,}311 \\
-dense & 12 & 1{,}749 & 738 & 2{,}616 & 891 & 1{,}911 \\
-dense & 16 & 2{,}101 & 902 & 3{,}132 & 1{,}020 & 2{,}511 \\
-dense & 20 & 2{,}453 & 1{,}066 & 3{,}648 & 1{,}149 & 3{,}111 \\
-sparse & 32 & 5{,}147 & $\approx 900$ & $\approx 6{,}176$ & $\approx 1{,}781$ & n/a \\
-sparse & 64 & 9{,}499 & $\approx 900$ & $\approx 10{,}528$ & $\approx 2{,}869$ & n/a \\
-\midrule
-MID dense & 16 & 3{,}367 & 978 & 4{,}474 & 1{,}355 & \\
-MIN dense & 16 & 3{,}640 & 1{,}175 & 4{,}944 & 1{,}473 & \\
-CCV dense & 16 & 1{,}716 & 838 & 2{,}683 & 908 & \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{table-sizes}
 
 \subsection{Vouchers (\tr{CLAIM})}\label{app:claim}
 
@@ -40,7 +19,10 @@ inherited by the cohorts detached from it, in place of $m$, which names
 a rule set and so is shared by trees created with the same parameters;
 a voucher therefore verifies only in its own lineage, and survives a
 detach. The claim leaf must keep the source's evictor key and a lease no
-later than the source's (spec~0.10.0).
+later than the source's (spec~0.10.0), and neither the claim leaf nor a
+non-zero residual may be below $\mathsf{DUST\_MIN}$, a creation constant
+of 330\,sat by default (spec~0.11.0), so that no carve writes a leaf
+whose removal default policy would not relay.
 \tr{CLAIM} is two steps: the source
 leaf's amount is reduced by the claim amount and its $\mathsf{seq}$
 advanced by one (or the position emptied if drained), then the claim leaf
@@ -85,8 +67,8 @@ redeemer to secure its own leg first.
 \paragraph{Exit-key consent (\tr{CLAIM}$^{x}$, \tr{CLAIM}$^{hx}$).} The
 FULL tier also builds both forms with one further signature over the
 transaction by the source leaf's exit key, as \tr{UPDATE}$^{x}$ adds to
-\tr{UPDATE}: 8 bytes of script over the plain form (\tr{UPDATE}$^{x}$'s
-seven and one \op{SWAP}) and 64 of witness. Its use is a credit leaf
+\tr{UPDATE}: 7 bytes of script over the plain form, as \tr{UPDATE}$^{x}$
+over \tr{UPDATE}, and 64 of witness. Its use is a credit leaf
 owned by an issuer and exiting to one recipient: every voucher against it
 pays that recipient, whose own redemptions carry the exit-key signature
 at no cost, and the issuer cannot carve the leaf even with a voucher it

@@ -1,0 +1,115 @@
+% Shared by both versions: the tree, the tree output and the exit figure.
+% Input inside the protocol section (full) or "How LayerTree Works" (short).
+
+\subsection{The Tree}\label{sec:tree}
+
+We write $\mathsf{le}_{k}(x)$ for the $k$-byte little-endian encoding of
+$x$. A leaf is a fixed 116-byte record
+\begin{multline*}
+\lesf(\mathsf{amount}) \,\|\, \mathsf{exit\_key} \,\|\, \mathsf{owner\_key}
+\,\|\, \mathsf{evictor\_key} \\
+\,\|\, \mathsf{le}_{32}(\mathsf{evict\_after})
+\,\|\, \mathsf{le}_{32}(\mathsf{nonce}) \,\|\, \mathsf{le}_{32}(\mathsf{seq}),
+\end{multline*}
+with keys as 32-byte x-only points, $\mathsf{evict\_after}$ a block
+height, $\mathsf{nonce}$ a per-leaf identifier and $\mathsf{seq}$ a
+counter advanced by vouchers (\iffullversion Appendix~\ref{app:claim}\else \S\ref{sec:vouchers}\fi). A \emph{node} is
+a pair $(h, s)$ of a 32-byte hash and an unsigned sum. A position holding
+leaf $\ell$ has node $(\Hleaf(\ell), \ell.\mathsf{amount})$; an empty
+position has node $\Emp_0 = (0^{32}, 0)$. The parent of $(h_L, s_L)$ and
+$(h_R, s_R)$ is
+\[
+\bigl(\Hnode(h_L \,\|\, \encs(s_L) \,\|\, h_R \,\|\, \encs(s_R)),\; s_L + s_R\bigr),
+\qquad \encs(s) = \lesf(s) \,\|\, \mathtt{0x01}.
+\]
+Every hash is a BIP-340 tagged hash with its own tag; $\encs(s)$ is the
+minimal BIP-441 encoding of $s + 2^{64}$, produced from a computed sum
+with one addition\iffullversion{} (Lemma~\ref{lem:enc})\fi. $\Emp_h$ is the node of the
+empty tree of height $h$.
+
+The \emph{sibling path} $\pi$ of a position is the list of $D$ pairs
+$(\mathsf{dir}_k, (h_k, s_k))$, one per level, giving the side the
+position lies on and the sibling node not taken. $\fold(n, \pi)$ combines
+a node with a path from the bottom up, hashing with each sibling in the
+order the direction gives and adding the sums. The honest path folds a
+leaf's node to the root, and folding a \emph{different} node up the
+\emph{same} path yields the root with that position replaced
+\iffullversion(Theorem~\ref{thm:binding})\else(\S\ref{sec:proved})\fi.
+
+\paragraph{Profiles.}
+\iffullversion
+In the \emph{dense} profile positions are assigned by the operator and a
+path carries explicit direction bits; each level costs 88 bytes of script
+and 41 bytes of witness. In the \emph{sparse} profile a leaf's position is
+the low $D$ bits of $\Hpos(\mathsf{owner\_key} \,\|\, \mathsf{nonce})$,
+direction bits are derived in script from the position hash, and empty
+siblings are elided from the witness (the script substitutes $\Emp_k$),
+so witness data grows with $\log_2 N$ rather than with $D$. It is the
+Merkle-sum sparse Merkle tree of Taproot Assets~\cite{mssmt} truncated to
+$D = 32$ or $64$, at 1.7 to 2.8 times the dense per-exit cost with
+$2^{16}$ members (Table~\ref{tab:sizes}). Dense is the default, and the
+rest of the paper measures it unless it says otherwise.
+\else
+In the \emph{dense} profile the operator assigns positions and a path
+carries direction bits. In the \emph{sparse} profile a leaf's position
+is derived by hashing its owner key and nonce, as in the Merkle-sum
+sparse Merkle tree of Taproot Assets~\cite{mssmt}, truncated to
+$D = 32$ or $64$, at 1.7 to 2.8 times the dense exit cost. Dense is the
+default and is what we measure.
+\fi
+
+\subsection{The Tree Output}\label{sec:output}
+
+Let $r$ be the root hash and $S$ the root sum. The tree output is a
+taproot output with internal key
+$P = \mathsf{lift\_x}\bigl(x(\NUMS + \Hstate(r)\cdot G)\bigr)$, where
+$\NUMS$ is the BIP-341 nothing-up-my-sleeve point and $\mathsf{lift\_x}$
+the BIP-340 even-$y$ normalisation, so the key path is unspendable and
+every spend goes through a script. Its taptree has one leaf per
+predicate; its Merkle root $m$ identifies the rule set and is fixed for
+the tree's life. A \emph{tree output} for state $(r, S)$ has scriptPubKey
+$\TreeSpk(r, m)$ and amount $S$. Every predicate recomputes
+$\TreeSpk(r, m)$ from its witness and checks it against the spent input,
+binding the root the proofs are checked against and the script set the
+successor carries. FULL, MID and MIN predicates read input~0, so two such
+trees cannot be spent in one transaction; a CCV tree's input may sit at
+any index.
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[
+  node distance=4mm and 2mm,
+  every node/.style={font=\scriptsize},
+  tn/.style={draw, rounded corners=1pt, minimum width=9mm, minimum height=4.5mm, inner sep=1pt},
+  sib/.style={tn, fill=black!12},
+  path/.style={tn, thick},
+  leaf/.style={tn, minimum width=7mm},
+  box/.style={draw, minimum height=7mm, align=center, inner sep=2pt},
+  arr/.style={-{Latex[length=1.6mm]}, thin}
+]
+\node[path] (root) {$(r,S)$};
+\node[sib, below left=of root, xshift=-8mm] (n0) {$(h_0,s_0)$};
+\node[path, below right=of root, xshift=8mm] (n1) {$(h_1,s_1)$};
+\node[leaf, below left=of n0, xshift=2mm] (l00) {$\ell_0$};
+\node[leaf, below right=of n0, xshift=-2mm] (l01) {$\ell_1$};
+\node[path, below left=of n1, xshift=2mm] (l10) {$\ell_2$};
+\node[sib, below right=of n1, xshift=-2mm] (l11) {$\Emp_0$};
+\draw (root) -- (n0); \draw (root) -- (n1);
+\draw (n0) -- (l00); \draw (n0) -- (l01);
+\draw (n1) -- (l10); \draw (n1) -- (l11);
+\node[below=1.5mm of l01, xshift=8mm, align=center] {shaded: sibling path of $\ell_2$,\quad $\pi = [(\mathsf{R}, (h_0,s_0)),\ (\mathsf{L}, \Emp_0)]$};
+\begin{scope}[xshift=41mm, yshift=1mm]
+\node[box, minimum width=24mm] (in0) {input 0\\ $\TreeSpk(r,m)$, $S$};
+\node[box, minimum width=24mm, below=2.5mm of in0] (in1) {input 1 (fee)};
+\node[box, minimum width=26mm, right=5mm of in0] (out0) {output 0\\ $\TreeSpk(r',m)$, $S-a$};
+\node[box, minimum width=26mm, below=2.5mm of out0] (out1) {output 1\\ $\mathrm{P2TR}(\ell_2.\mathsf{exit\_key})$, $a$};
+\node[box, minimum width=26mm, minimum height=5mm, below=2.5mm of out1] (out2) {change, anchors (free)};
+\draw[arr] (in0) -- (out0);
+\draw[arr] (in0) -- (out1);
+\draw[arr] (in1) -- (out2);
+\node[above=0.5mm of in0, xshift=17mm, font=\scriptsize\itshape] {\tr{EXIT} transaction for $\ell_2$, amount $a$};
+\end{scope}
+\end{tikzpicture}
+\caption{A depth-2 tree and the exit of $\ell_2$. The predicate checks $\fold((\Hleaf(\ell_2),a),\pi) = (r,S)$, computes $r' = \fold(\Emp_0,\pi)$, verifies a signature by $\ell_2.\mathsf{owner\_key}$, and constrains outputs 0 and 1. Everything else in the transaction is free.}
+\label{fig:exit}
+\end{figure}
