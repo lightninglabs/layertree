@@ -203,8 +203,8 @@ string opcodes (BIPs~440 and 441~\cite{bip440,bip441}), introspection
 arithmetic~\cite{ecops,bip449} down to \op{CAT} and one point-tweak
 opcode, plus one built on \op{CHECKCONTRACTVERIFY}~\cite{bip443}. We
 propose no opcode for this design, but the tiers are not deployable as
-proposals stand: MID and both CCV variants assume opcodes in a tapleaf
-version their proposals do not define, and two drafts claim the same
+proposals stand: FULL, MID and both CCV variants assume opcodes in a
+tapleaf version their proposals do not define, and two drafts claim the same
 opcode numbers (\S\ref{sec:scripts}).\ifanon\else{} The elliptic-curve
 draft~\cite{ecops} is by the author of this paper.\fi{} The separation
 lets the security argument be made once, for the predicates.
@@ -340,9 +340,9 @@ state it under an assumption whose parameters we do not derive. \emph{[C] (conte
 $\kappa \ge 1$ spends of a tree output confirm per block, and while an
 honest transition is pending at the prevailing feerate at most $\beta$
 conflicting adversarial spends confirm ahead of it. $\kappa$ is mempool
-policy: 25 under Bitcoin Core's ancestor and descendant
-limits~\cite{corepolicy}, a cluster limit under cluster
-mempool~\cite{clustermempool}, and as low as 1 once anyone hangs
+policy: 25 under Bitcoin Core's chain limits before version 31, at
+most 64 under its cluster limit since~\cite{corepolicy,clustermempool},
+and as low as 1 once anyone hangs
 descendants off a payout or change output. $\beta$ is economic, the
 adversary's fee budget against the honest bid; unbounded, it makes exit
 a fee auction. Under [C] an honest call with $q$ honest calls queued
@@ -550,7 +550,8 @@ specification. MIN is the tier closest to the proposals as written: it
 needs only \op{CAT} (BIP-347) and \op{TWEAKADD} (BIP-449), both defined
 for the current tapleaf version. MID and CCV in \texttt{0xC0} need \op{TX} in a
 version its draft does not define; CCV in \texttt{0xC2} needs BIP-443
-there; FULL needs two drafts whose opcode numbers collide.
+there; FULL needs CSFS and EC ops in \texttt{0xC2} and two drafts
+whose opcode numbers collide.
 
 \iffullversion
 \input{appendix-assumptions}
@@ -1033,8 +1034,8 @@ eviction, cohort grafts, channel leaves and a composable statement.
 \emph{Transaction trees.} Channel factories~\cite{factories} need all $N$
 members to sign every change. Ark~\cite{ark}, deployed today~\cite{arkd},
 batches users into rounds whose outputs are leaves of a pre-signed MuSig2
-tree; covenant Ark~\cite{clark} replaces the signing with CTV or CCV
-templates but keeps the tree, its unrolled exit and its expiry. Timeout
+tree; covenant Ark replaces the signing with CTV
+templates~\cite{clark} but keeps the tree, its unrolled exit and its expiry. Timeout
 trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
 expiries and Decker-Wattenhofer factories; MATT-style
 trees~\cite{matt,bip443} replace signatures by templates.
@@ -1058,8 +1059,8 @@ directly.
 
 The functionality is deliberately modest, and its liveness more so:
 all activity is serialised through one output, so an honest exit's delay
-is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} replaces the 25-transaction
-chain limit with per-cluster limits, which raises $\kappa$ for a
+is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} (Bitcoin Core 31) replaced the
+25-transaction chain limit with a 64-transaction cluster limit, which raises $\kappa$ for a
 cooperative tree but shares the cluster with every descendant anyone
 attaches. Two open design changes would narrow the dependence: a relative
 lock on transitions that remove no value, so that only removals chain,
