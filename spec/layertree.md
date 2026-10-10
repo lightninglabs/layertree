@@ -2529,6 +2529,18 @@ is the provider that stops issuing of the preceding paragraphs. The
 hash-locked form keeps the ordering of 9.6.2, with the preimage drawn by
 the issuer as the party the HTLC pays.
 
+A credit leaf's whole amount is the recipient's on every path the issuer
+can take alone: `EXIT^=` and eviction pay all of it to the recipient's
+exit key, and `UPDATE^x`, `CLAIM^x` and `REWRITE_h^x` need that key to
+reduce it. Capital the issuer places in a credit leaf beyond what it has
+vouched for is therefore recoverable only with the recipient's consent
+(`design/audit/channels.md`, B3). The issuer SHOULD fund a credit leaf
+only with what it has already vouched for or is about to, and SHOULD
+top it up as credit accrues, either by an amount-only increase under
+`REWRITE_h^x`, which 7.9 rule 3 exempts from every signature but the
+operator's for a leaf whose `seq` is not `SEQ_FINAL`, or by an
+`UPDATE^x` that the recipient signs.
+
 A credit leaf SHOULD carry a finite lease long enough for its purpose,
 with the operator as evictor, rather than a `NUMS` evictor. A voucher
 binds the claim leaf's bytes and not its position, so the holder of any

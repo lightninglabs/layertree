@@ -103,6 +103,7 @@ what makes the off-chain settlement safe to accept.
 | On-chain bytes per receive | 0 | 0 |
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none beyond dust at redemption; sub-floor amounts accumulate in the voucher |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
+| Funding the receive capacity | none on-chain: the swap server funds the VTXO or books a ledger credit | the operator tops up each credit leaf as credit accrues, by amount-only `REWRITE_h^x`, about 117 vbytes per position batched per cohort; capacity funded ahead of the vouchers is the recipient's on every unilateral path |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
 | Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,660 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
@@ -174,11 +175,27 @@ against one leaf for more than the leaf holds, and voiding, where the
 operator advances the source leaf's `seq` before the recipient redeems.
 
 Over-issuance disappears when the source leaf is dedicated to the
-recipient: one credit leaf per user, funded by the operator at graft time
-with the inbound capacity it is willing to extend, the way a Lightning
-service provider funds an inbound channel. Every voucher against that leaf
-goes to the same recipient, so there is nobody else to over-issue to, and
-the recipient can watch the leaf's amount in the tree.
+recipient: one credit leaf per user, funded by the operator. Every voucher
+against that leaf goes to the same recipient, so there is nobody else to
+over-issue to, and the recipient can watch the leaf's amount in the tree.
+
+The funding is where the comparison with a Lightning service provider
+funding an inbound channel fails. A credit leaf's whole amount is the
+recipient's on every path the operator can take alone: `EXIT^=` and
+eviction pay all of it to the recipient's exit key, and `UPDATE^x`
+cannot shrink it without the recipient's signature. The part the
+operator has not vouched for is therefore recoverable only with the
+recipient's consent, and a recipient who prefers to wait collects it on
+the first removal the operator starts (`design/audit/channels.md`, B3).
+An inbound channel returns its unused side to the provider at close; a
+credit leaf does not. The operator should therefore fund a credit leaf
+only with what it has already vouched for or is about to, and top it up
+as credit accrues rather than pre-fund an allocation. The top-up is an
+amount-only increase under `REWRITE_h^x`, which needs only the
+operator's signature (7.9 rule 3; the 0.11.0 exemption still allows it
+for any leaf whose `seq` is not `SEQ_FINAL`, which a credit leaf's is
+not), at about 117 vbytes per position when a cohort of credit leaves is
+topped up in one rewrite; or an `UPDATE^x` the recipient co-signs.
 
 Voiding is the harder one, and the spec's own answer is a race: redeem
 promptly, within the contention bound of 10.5. For the credit leaf to be
