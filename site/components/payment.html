@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paying each other</title>
+<meta name="description" content="How value moves between LayerTree members: vouchers and CLAIM, SPLIT, Lightning channels inside leaves, and a credit leaf for receiving over Lightning.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html" aria-current="page">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Paying each other</h1>
+
+  <p class="takeaway">Members pay each other off-chain: through Lightning channels
+  that live inside leaves, or with vouchers, signed instructions to carve a new
+  leaf out of the signer's balance. The tree changes only when a voucher is
+  redeemed, and then one transition moves the value without changing the
+  total.</p>
+
+  <div class="tree-anim" data-scenario="pay-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="pay-steps">
+  {
+    "label": "Vouchers, splits, channel leaves and a credit leaf",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "A", "amount": 8, "note": "seq 0"}, {"label": "B", "amount": 3, "note": "seq 0"},
+      {"label": "C", "amount": 6, "note": "channel"}, {"label": "D", "amount": 2, "note": "channel"},
+      null, null, null,
+      {"label": "Cr", "amount": 10, "note": "credit"}
+    ],
+    "steps": [
+      {
+        "title": "A signs a voucher",
+        "caption": "A owns a leaf of 8. A signs a message that names its own leaf and a new leaf giving 3 to V. V can redeem it later without A. Nothing has happened on-chain, and nothing stops A from signing vouchers worth more than 8, so until V redeems it the voucher is credit.",
+        "ops": [
+          {"op": "badge", "pos": 0, "text": "voucher for V", "kind": "voucher"}
+        ]
+      },
+      {
+        "title": "Redeeming it, part 1: shrink the source",
+        "caption": "V's CLAIM transaction proves A's leaf against the committed root and checks A's signature on the voucher. It replaces A's leaf with a copy holding 3 less, with its counter seq raised by one, and folds that up to an intermediate root.",
+        "ops": [
+          {"op": "path", "pos": 0},
+          {"op": "leaf", "pos": 0, "leaf": {"label": "A", "amount": 5, "note": "seq 1"}},
+          {"op": "fold", "pos": 0},
+          {"op": "badge", "pos": 0, "text": "voucher checked", "kind": "voucher"}
+        ]
+      },
+      {
+        "title": "Redeeming it, part 2: place the new leaf",
+        "caption": "A second proof shows that the fifth slot is empty under the intermediate root. V's leaf goes there, and the result becomes the new committed root. The total is still 29, so no money enters or leaves. A's leaf now differs from the one the voucher names, so the same voucher can never verify again.",
+        "ops": [
+          {"op": "path", "pos": 4},
+          {"op": "leaf", "pos": 4, "leaf": {"label": "V", "amount": 3}},
+          {"op": "fold", "pos": 4},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "SPLIT: the same carve, signed directly",
+        "caption": "B pays W 2 by signing the spending transaction itself instead of a voucher. The steps are the same: B's leaf shrinks and its counter rises, and W's leaf fills an empty slot. The signature is good only for this one transaction, so nobody holds an outstanding promise afterwards.",
+        "ops": [
+          {"op": "path", "pos": 1},
+          {"op": "path", "pos": 5},
+          {"op": "leaf", "pos": 1, "leaf": {"label": "B", "amount": 1, "note": "seq 1"}},
+          {"op": "leaf", "pos": 5, "leaf": {"label": "W", "amount": 2}},
+          {"op": "badge", "pos": 1, "text": "B signs", "kind": "sig"},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Channel leaves: nothing touches the tree",
+        "caption": "C's and D's leaves each hold a Lightning channel with the operator. C pays D the way any Lightning payment is forwarded: C updates its channel with the operator, and the operator updates its channel with D. A leaf's amount is its channel's capacity, which does not change, so there is no transaction at all.",
+        "ops": [
+          {"op": "link", "from": 2, "to": 3, "text": "C pays D 1 via the operator"}
+        ]
+      },
+      {
+        "title": "A credit leaf for receiving",
+        "caption": "R holds no Bitcoin and wants to receive over Lightning. The operator funded the credit leaf Cr, whose exit key is R's. Each payment to R reaches the operator, which signs R a new voucher against Cr for the running total: 2, then 5. R keeps the latest and can redeem it alone if the operator stops cooperating.",
+        "ops": [
+          {"op": "badge", "pos": 7, "text": "voucher: R 5", "kind": "voucher"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="vouchers">Vouchers and CLAIM</h2>
+  <p>A voucher is a message signed by a leaf's owner that names the owner's leaf
+  (the source) and a new leaf (the claim). Anyone holding it can redeem it with
+  the <code>CLAIM</code> transition, without the owner and without the operator.
+  <code>CLAIM</code> is two steps in one transaction: the source leaf shrinks by
+  the claim's amount and its counter <code>seq</code> rises by one, then the claim
+  leaf fills a slot proven empty after the first step. The total never changes.
+  Redemption is single-use for free, because the first step changes the source
+  leaf and the signed message names the old one. The caveat is issuance: the
+  covenant prevents redeeming more than the source holds, but nothing prevents
+  its owner from signing more vouchers than that, so a recipient treats a voucher
+  as credit until it is redeemed or the issuer settles it another way. A
+  redemption proves two positions and costs about 1,642 vB at depth 16, more than
+  an exit, so most vouchers are settled off-chain and redemption is the fallback
+  if the issuer stops cooperating.</p>
+
+  <h2 id="split">SPLIT</h2>
+  <p><code>SPLIT</code> is <code>CLAIM</code> with the authorisation changed: the
+  source leaf's owner signs the spending transaction instead of a voucher. The
+  signature is worthless outside that transaction, so there is no outstanding
+  promise and no credit risk, which suits the common case of a member paying
+  another member and broadcasting the payment themselves. <code>SPLIT</code> still
+  raises the source's <code>seq</code>, so that splitting down and later topping
+  the leaf back up can never restore it byte for byte and revive an old voucher.
+  It needs no opcode for checking signatures on arbitrary messages, so it is the
+  one member-to-member transition that exists in every tier, including MIN.</p>
+
+  <h2 id="channels">Channel leaves</h2>
+  <p>A channel leaf is a leaf whose exit key is the funding key of a Lightning
+  channel between the leaf's owner and a counterparty, normally the operator. The
+  channel's funding output does not exist while the leaf is in the tree; it
+  appears as the payout of whatever transaction eventually removes the leaf.
+  Payments between two channel leaves are ordinary HTLC forwards (hash-locked,
+  time-limited payments) through the operator, and nothing touches the tree: no
+  spend, no proof, no fee. A tree of N channel leaves is a Lightning hub with one
+  output on-chain, and because the hash locks and timeouts are the usual ones, the
+  operator can forward between a channel leaf and the public Lightning Network.
+  The price is time: a force close must first get an exit confirmed through the
+  shared output, so HTLC deadlines need about 220 blocks of headroom, against
+  about 40 on the public network. Channel leaves require the FULL, MID or CCV
+  tier, an exact payout and a leaf that no voucher can draw on.</p>
+
+  <h2 id="credit">A credit leaf for receiving over Lightning</h2>
+  <p>A user with no on-chain coins can receive into a credit leaf: a leaf the
+  operator funds and owns, whose exit key is the recipient's. Each Lightning
+  payment to the recipient arrives at the operator, which signs a new hash-locked
+  voucher against the credit leaf for the running total. That costs no on-chain
+  bytes per payment, has no minimum amount and never expires, and the recipient
+  can redeem the latest voucher alone. Plain <code>CLAIM</code> would leave a gap,
+  because the operator could sign itself a voucher and drain the leaf first. The
+  variant <code>CLAIM^x</code> closes it by also requiring a signature from the
+  source leaf's exit key, which is the recipient's, for 8 more bytes of script.
+  The arrangement is one-way on purpose: if the recipient could also spend from
+  the leaf, an older and larger voucher would become a stale state, and refuting
+  it would need a contest window, which is what a channel leaf provides. Receiving
+  suits the credit leaf; two-way traffic suits the channel leaf.</p>
+
+  <div class="callout">
+    <p>Rewriting a leaf on-chain with <code>UPDATE</code> also moves value, at
+    about 1,073 vB at depth 16, ten times a bare spend. <code>UPDATE</code> is for
+    maintenance: resizing a balance, renewing a lease, rotating a key. Payments go
+    through channels and vouchers.</p>
+  </div>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#75-claim">Spec 7.5</a>: <code>CLAIM</code>, with 7.5.2 <code>SPLIT</code> and 7.5.3 <code>CLAIM^x</code>.</li>
+      <li><a href="../../spec/layertree.md#96-vouchers">Spec 9.6</a>: the issuer's and recipient's obligations; <a href="../../spec/layertree.md#103-vouchers">10.3</a>: the residual risks.</li>
+      <li><a href="../../spec/layertree.md#98-channel-leaves">Spec 9.8</a> and <a href="../../spec/channel-leaves.md">Appendix C</a>, C.1 to C.5: channel leaves, their state machine, HTLCs and deadlines.</li>
+      <li><a href="../../design/receive.md"><code>design/receive.md</code></a>: receiving into a credit leaf, compared with an Ark client.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>

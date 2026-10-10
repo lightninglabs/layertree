@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swaps with one secret</title>
+<meta name="description" content="How a hash-locked LayerTree voucher and a Lightning HTLC share one preimage, and why the voucher must resolve second.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html" aria-current="page">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Swaps</h1>
+
+  <p class="takeaway">A hash-locked voucher and a Lightning HTLC that use the same
+  secret settle together: revealing the secret to collect one makes the other
+  redeemable. The HTLC has a deadline and the voucher does not, so the secret must
+  come from the party the HTLC pays, and the voucher must be redeemed second.</p>
+
+  <div class="tree-anim" data-scenario="swap-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="swap-steps">
+  {
+    "label": "Selling tree balance for a Lightning payment",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "A", "amount": 5}, {"label": "Bob", "amount": 8, "note": "seq 0"},
+      {"label": "C", "amount": 6}, null, null, null, null, null
+    ],
+    "steps": [
+      {
+        "title": "Bob draws a secret",
+        "caption": "Bob sells 4 of his tree balance to Carol, who will pay over Lightning. The Lightning payment will pay Bob, so Bob is the one who draws a random 32-byte secret R. He gives Carol only its hash, H.",
+        "ops": [
+          {"op": "badge", "pos": 1, "text": "knows R", "kind": "hash"}
+        ]
+      },
+      {
+        "title": "Bob signs a hash-locked voucher",
+        "caption": "The voucher names Bob's leaf, a new leaf giving Carol 4, and the hash H. Redeeming it needs R. The script hashes the supplied secret into the message it checks Bob's signature against, so a wrong secret makes the signature invalid.",
+        "ops": [
+          {"op": "badge", "pos": 1, "text": "voucher locked to H", "kind": "voucher"}
+        ]
+      },
+      {
+        "title": "Carol offers an HTLC",
+        "caption": "Carol pays Bob 4 over Lightning with an HTLC locked to H: Bob can collect it by revealing R before a deadline block, and after that Carol gets her money back. From now on Bob must not touch his leaf's counter, which would void the voucher, until Carol redeems it or the HTLC fails.",
+        "ops": [
+          {"op": "badge", "pos": 1, "text": "HTLC offered, locked to H", "kind": "hash"}
+        ]
+      },
+      {
+        "title": "Bob collects by revealing R",
+        "caption": "Bob settles the HTLC off-chain by giving R to Carol's side of the payment. Bob is paid, and Carol now holds R. Nothing has touched the chain yet.",
+        "ops": [
+          {"op": "badge", "pos": 1, "text": "reveals R", "kind": "hash"}
+        ]
+      },
+      {
+        "title": "Carol redeems the voucher",
+        "caption": "Carol's transaction supplies R and the voucher. It shrinks Bob's leaf by 4, raising its counter, and places Carol's new leaf in an empty slot, with the total unchanged. The whole swap costs this one transaction, about 1,652 vB at depth 16.",
+        "ops": [
+          {"op": "path", "pos": 1},
+          {"op": "path", "pos": 3},
+          {"op": "leaf", "pos": 1, "leaf": {"label": "Bob", "amount": 4, "note": "seq 1"}},
+          {"op": "leaf", "pos": 3, "leaf": {"label": "Carol", "amount": 4}},
+          {"op": "fold", "pos": 1},
+          {"op": "fold", "pos": 3},
+          {"op": "badge", "pos": 3, "text": "supplies R", "kind": "hash"},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Why this order",
+        "caption": "If Carol had drawn the secret, she could let the HTLC run past its deadline, take her refund, and redeem the voucher afterwards, since the voucher never expires. Drawing the secret on the side the HTLC pays, and redeeming the voucher last, removes that option.",
+        "ops": [
+          {"op": "checks", "items": [
+            {"text": "The secret comes from the party the HTLC pays: Bob.", "state": "ok"},
+            {"text": "The voucher is the second leg to resolve.", "state": "ok"},
+            {"text": "Bob left his leaf's counter alone until the voucher was redeemed.", "state": "ok"}
+          ]}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="one-secret">Two legs, one secret</h2>
+  <p><code>CLAIM^h</code> is <code>CLAIM</code> with a hash lock. The voucher's
+  signed message also names a payment hash, and redeeming it needs the 32-byte
+  preimage of that hash. The script does not compare the preimage against a
+  stored hash; it hashes the preimage straight into the message it checks the
+  signature against, which costs 9 bytes of script and no new opcode. The 32-byte
+  length matches Lightning payment preimages, so one secret can lock a voucher and
+  a Lightning HTLC, an ordinary Lightning payment or one inside a
+  <a href="payment.html#channels">channel leaf</a>.</p>
+
+  <h2 id="no-deadline">The voucher has no deadline</h2>
+  <p>A script can require that a spend happen no earlier than some block, but not
+  that it happen before one. The value behind a voucher also never leaves its
+  source leaf, so there is nothing to refund when time runs out. A voucher
+  therefore stays redeemable until its issuer raises the source leaf's counter,
+  which any redemption, split or suitable update does. Deadlines in a swap live in
+  the other leg: the HTLC's expiry.</p>
+
+  <h2 id="rules">The ordering rules</h2>
+  <p>The asymmetry between the legs fixes the order of play. Section 9.6.2 of the
+  specification makes it normative:</p>
+  <ol>
+    <li>The secret is drawn by the party the HTLC pays. That party reveals it in
+    order to collect, and the reveal is what makes the voucher redeemable.</li>
+    <li>The voucher resolves second. An HTLC must never wait on a secret that
+    appears only when a voucher is redeemed on-chain, because the HTLC would
+    expire while the voucher sat unredeemed. Where this order cannot be arranged,
+    the parties use two HTLCs instead.</li>
+    <li>The issuer leaves the source leaf's counter alone from the moment an HTLC
+    with the same hash is offered until the voucher is redeemed or the HTLC fails.
+    Settling the HTLC does not end the obligation: an issuer who collects and then
+    voids the voucher has been paid for nothing.</li>
+    <li>No script enforces rule 3, so the voucher holder redeems as soon as they
+    learn the secret, and treats the swap as complete only once the redemption is
+    buried deep enough to survive a reorganisation.</li>
+  </ol>
+
+  <h2 id="residual">What the hash lock does not remove</h2>
+  <p>The hash lock orders the exchange; it does not secure it against the issuer.
+  Between issuing the voucher and its redemption, the issuer can still void it by
+  raising the counter, and the holder carries that risk. In the other direction,
+  the recipient can wait to redeem, and the issuer carries the liability until
+  then. A hash-locked voucher behaves like a hash-locked cheque: the hash lock
+  ties it to a payment, and the cheque still depends on its issuer until it is
+  cashed.</p>
+  <p>Arranged correctly, the HTLC leg settles off-chain when the secret changes
+  hands, and only the voucher is redeemed on-chain, so a swap between a Lightning
+  payment and tree balance costs one transaction. The repository's channel-leaf
+  test suite plays the swap block by block, and shows that each forbidden
+  ordering leaves the honest party's transaction invalid.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#751-claimh-hash-locked-voucher">Spec 7.5.1</a>: <code>CLAIM^h</code> and why it has no on-chain expiry.</li>
+      <li><a href="../../spec/layertree.md#961-hash-locked-vouchers-and-swaps">Spec 9.6.1</a> and <a href="../../spec/layertree.md#962-swaps-against-a-channel-leaf-htlc">9.6.2</a>: the swap protocol and its four ordering rules.</li>
+      <li><a href="../../spec/channel-leaves.md">Appendix C</a>, C.4: HTLC outputs in channel leaves and their deadlines.</li>
+      <li><a href="../../design/receive.md"><code>design/receive.md</code></a>: the same hash lock used to receive over Lightning.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>
