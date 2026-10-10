@@ -284,7 +284,7 @@ operator assigns slots, and a leaf's position is wherever it was put.
 
 The sparse profile is not the cheaper one on-chain, and it is worth
 saying why, because the intuition runs the other way. A dense proof does
-not prove anything about its siblings. Each sibling is a 40-byte hash and
+not prove anything about its siblings. Each sibling is a 41-byte hash and
 sum, empty or not, and the script hashes it either way. A sparse
 proof elides empty siblings to one byte, so its witness is small: 326
 bytes at `D = 32` against 902 bytes for dense at `D = 16`. But the script
