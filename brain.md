@@ -136,6 +136,19 @@ with numbers.
   vs 657, sparse lifetime row. Still to fix by the orchestrator after
   C2 lands: sizes.md's `EXIT_1 (terminal)` rows report 0 witness bytes
   (test_scripts.py records 0; real witness 901 B dense, 244 B sparse).
+  D landed (merge a65dbab, PDFs c34145f): counts and a
+  `\LeanTheoremCount` macro (32, update when B lands), every refs.bib
+  URL verified (OP_EVICT is ZmnSCPxj's; CoinPool is Naumenko and Riard;
+  bolts #995 is the simple taproot channels extension BOLT), SuperScalar
+  URL overfull fixed, full version 73 pages with References on 29 (the
+  31-page listings appendix is the bulk), short body still ends p15.
+  Unresolved: the repository citation points at the private
+  lightninglabs/layertree, needs a public URL before submission. A
+  landed (merge of 9e106d7 plus 3d53c5f): spec 0.10.1 / Appendix C
+  0.3.1, decision 21 in status.md; kappa now says Bitcoin Core 31.0
+  replaced the 25 chain limits with a 64 cluster limit. Owner items
+  from A: keep the SHOULD shard/detach guidance in 10.5 (kept); split
+  MIN extra_outs per output (open, 8.11).
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
