@@ -351,6 +351,85 @@ def test_claim_h(depth, sparse, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_split(depth, sparse, verbose=True):
+    """MID SPLIT (spec 7.5.2): CLAIM authorised by the owner's transaction
+    signature. Swapped into the taptree as SPLIT, like UPDATE_X and CLAIM_H."""
+    w = MidWorld(depth, sparse)
+    S = sparse
+    toks = M.split_script(depth, sparse)
+    bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+    check(not bad, f"MID SPLIT: opcodes outside the MID set: {sorted(bad)}")
+    check("OP_CHECKSIGFROMSTACK" not in toks, "mid: SPLIT needs no OP_CHECKSIGFROMSTACK")
+    script = assemble(toks, mode="c0")
+    w.compiled = dict(w.compiled); w.compiled["SPLIT"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 500_000, sparse=S)
+    oper = mk_leaf("operator", 1_000_000, sparse=S)
+    s_a, s_o = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_a: alice, s_o: oper}
+    root = w.tree.root()
+
+    bob = mk_leaf("bob", 200_000, w.op_pk, 900_000, sparse=S)
+    s_b = w.slot(bob, 3)
+    spath = w.tree.path(s_a)
+    t1 = w.clone(); lt.apply_claim(t1, s_a, s_b, bob)
+    src2 = t1.leaves[s_a]
+    cpath = t1.path(s_b); r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    extras = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) +
+              list(M.pad(alice.amount - bob.amount)))
+    head = (list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, bob.node(), S) + w.pos(bob) +
+            w.pads_for(root[1]) + M.w_levels(spath, alice.node(), src2.node(), S) + w.pos(alice) +
+            M.w_leaf(alice) + M.w_leaf(bob) + extras)
+    wit = head + [asig, root[0], w.m]
+    it = w.run("SPLIT", wit, ctx)
+    check(True, "mid: SPLIT authorised by the source owner")
+    # negatives
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m], ctx),
+                "mid: SPLIT signed by the operator")
+    expect_fail(lambda: w.run("SPLIT", head + [bytes(64), root[0], w.m], ctx),
+                "mid: SPLIT garbage signature")
+    vsig = schnorr_sign(lt.voucher_msg(w.m, alice, bob), sk("alice-owner"))
+    expect_fail(lambda: w.run("SPLIT", head + [vsig, root[0], w.m], ctx),
+                "mid: SPLIT with a voucher signature")
+    expect_fail(lambda: w.run("SPLIT", head + [asig, r1[0], w.m], ctx),
+                "mid: SPLIT against a stale root")
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctx.sighash(), sk("bob-owner")), root[0], w.m], ctx),
+                "mid: SPLIT signed by the recipient")
+
+    def carve_head(new, s_new, cnode, amt_new):
+        """Witness below the signature for a SPLIT of `new` into s_new,
+        presenting s_new as empty; cnode is the source's claimed new node."""
+        t = w.clone(); t.leaves[s_a] = src2; t.leaves[s_new] = new
+        ex = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) +
+              list(M.pad(amt_new)))
+        return (list(M.pad(t.root()[1])) + M.w_levels(t.path(s_new), lt.EMPTY_NODE, new.node(), S) + w.pos(new) +
+                w.pads_for(root[1]) + M.w_levels(spath, alice.node(), cnode, S) + w.pos(alice) +
+                M.w_leaf(alice) + M.w_leaf(new) + ex)
+    greedy = mk_leaf("greedy", alice.amount + 1, w.op_pk, 900_000, sparse=S)
+    expect_fail(lambda: w.run("SPLIT", carve_head(greedy, w.slot(greedy, 3), src2.node(), 0) +
+                              [asig, root[0], w.m], ctx), "mid: SPLIT over-split underflow")
+    if not S:   # in the sparse profile the destination is derived from the leaf
+        occ = mk_leaf("bob", 200_000, w.op_pk, 900_000)
+        expect_fail(lambda: w.run("SPLIT", carve_head(occ, s_o, src2.node(), alice.amount - occ.amount) +
+                                  [asig, root[0], w.m], ctx), "mid: SPLIT into an occupied position")
+    # the signature binds the recipient through output 0 (7.5.2, 10.7)
+    mallory = mk_leaf("mallory", bob.amount, w.op_pk, 900_000, sparse=S)
+    s_m = w.slot(mallory, 3)
+    tm = w.clone(); lt.apply_claim(tm, s_a, s_m, mallory); rm = tm.root()
+    ctx_m = w.ctx([(rm[1], w.spk(rm))], (600, P2WPKH))
+    head_m = carve_head(mallory, s_m, src2.node(), alice.amount - mallory.amount)
+    w.run("SPLIT", head_m + [schnorr_sign(ctx_m.sighash(), sk("alice-owner")), root[0], w.m], ctx_m)
+    expect_fail(lambda: w.run("SPLIT", head_m + [asig, root[0], w.m], ctx_m),
+                "mid: SPLIT recipient swapped under the owner's signature")
+    if verbose:
+        claim = len(assemble(M.claim_script(depth, sparse), mode="c0"))
+        print(f"MID SPLIT {'S' if S else 'D'} D={depth}: script {len(script)} B "
+              f"(CLAIM {claim} B, saves {claim - len(script)}), witness {sum(len(x) for x in wit)} B")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
@@ -358,5 +437,7 @@ if __name__ == "__main__":
     test_update_x(31, True)
     test_claim_h(16, False)
     test_claim_h(31, True)
+    test_split(16, False)
+    test_split(31, True)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)

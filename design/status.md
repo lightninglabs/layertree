@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-09-19 (spec 0.7.1, Appendix C 0.2.0, paper v0.1).
+Last updated 2026-09-20 (spec 0.8.3, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 
@@ -9,8 +9,8 @@ Last updated 2026-09-19 (spec 0.7.1, Appendix C 0.2.0, paper v0.1).
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 369 + 86 + 7 checks pass. Every script uses only the allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 34 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
+| Python reference and simulator | 425 + 120 + 31 checks pass. Every script uses only the allowed opcode set. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 39 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). Further realisations (CCV tier, native Merkle-sum opcode) are issue #3. |
@@ -99,7 +99,13 @@ ones most likely to move:
    C in executable form, the `REBIND_n` and `SETTLE_n` update machine, so
    the deadline reasoning of 9.6.2 and C.4.4 is argued rather than
    exercised. The Go side carries no Appendix C scripts at all.
-7. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
+7. **The rest of the MIN tier.** MIN realises the dense `EXIT_1` and, since
+   issue #9, the dense `SPLIT` (spec 8.6.2): 6,441 bytes of script and
+   2,010 of witness at `D = 16`, the MID carve with the `OP_TX` reads
+   replaced by the constructive signature message. `JOIN`, `UPDATE`,
+   `EVICT_SUBTREE_h`, `EXIT_K` and the sparse profile follow the same
+   construction but are argued, not measured.
+8. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
    swaps, tracked here only so the note in `notes.md` has a home.

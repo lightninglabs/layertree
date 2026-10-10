@@ -707,6 +707,83 @@ def test_claim_h(depth, profile, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_split(depth, profile, verbose=True):
+    """SPLIT (spec 7.5.2): CLAIM authorised by the owner's transaction
+    signature instead of a voucher.
+
+    Same two steps as CLAIM, so the interesting cases are the authorisation
+    boundary: only the source leaf's owner may split it, and a voucher
+    signature must not stand in for a transaction signature.
+    """
+    w = World(depth, profile)
+    toks = ls.split_script(depth, profile)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"SPLIT uses non-candidate opcodes: {sorted(bad)}")
+    check("OP_CHECKSIGFROMSTACK" not in toks, "SPLIT needs no OP_CHECKSIGFROMSTACK")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled["SPLIT"] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 500_000)
+    oper = mk_leaf("operator", 1_000_000)
+    s_alice, s_oper = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_alice: alice, s_oper: oper}
+    root = w.tree.root()
+
+    # alice splits 200_000 off her own leaf to a new leaf for bob
+    bob = mk_leaf("bob", 200_000, w.op_pk, 900_000)
+    s_bob = w.slot(bob, 3)
+    spath = w.tree.path(s_alice)
+    t1 = w.clone(); lt.apply_claim(t1, s_alice, s_bob, bob)
+    cpath = t1.path(s_bob); r1 = t1.root()
+    check(r1[1] == root[1], "SPLIT conserves sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    head = (w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [alice.serialize()] +
+            w.bm(cpath) + [bob.serialize()])
+    it = w.run("SPLIT", head + [asig, root[0], w.m], ctx)
+    check(True, "SPLIT authorised by the source owner's transaction signature")
+
+    # negatives
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m], ctx),
+                "SPLIT signed by the operator, not the owner")
+    expect_fail(lambda: w.run("SPLIT", head + [schnorr_sign(ctx.sighash(), sk("bob-owner")), root[0], w.m], ctx),
+                "SPLIT signed by the recipient")
+    expect_fail(lambda: w.run("SPLIT", head + [bytes(64), root[0], w.m], ctx), "SPLIT garbage signature")
+    # a voucher signature is over a message, not the transaction: it must not pass
+    vsig = schnorr_sign(lt.voucher_msg(w.m, alice, bob), sk("alice-owner"))
+    expect_fail(lambda: w.run("SPLIT", head + [vsig, root[0], w.m], ctx),
+                "SPLIT with a voucher signature instead of a transaction signature")
+    # over-split: the new leaf exceeds the source
+    greedy = mk_leaf("greedy", alice.amount + 1, w.op_pk, 900_000)
+    t2 = w.clone()
+    expect_fail(lambda: w.run("SPLIT", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) +
+                              [alice.serialize()] + w.bm(cpath) + [greedy.serialize(), asig, root[0], w.m], ctx),
+                "SPLIT over-split underflow")
+    # destination already occupied: prove the claim step against a non-empty slot
+    occupied = w.tree.path(s_oper)
+    expect_fail(lambda: w.run("SPLIT", w.path_witness(occupied) + w.path_witness(spath) + w.bm(spath) +
+                              [alice.serialize()] + w.bm(occupied) + [bob.serialize(), asig, root[0], w.m], ctx),
+                "SPLIT into an occupied position")
+    # stale root
+    expect_fail(lambda: w.run("SPLIT", head + [asig, r1[0], w.m], ctx), "SPLIT against a stale root")
+    # the owner's signature covers output 0, which is the only place the new
+    # leaf reaches it: a relayer cannot swap in its own leaf (7.5.2, 10.7)
+    mallory = mk_leaf("mallory", bob.amount, w.op_pk, 900_000)
+    s_mal = w.slot(mallory, 3)
+    tm = w.clone(); lt.apply_claim(tm, s_alice, s_mal, mallory); rm = tm.root()
+    ctx_m = w.ctx([(rm[1], w.spk(rm))], extra_in=(600, P2WPKH))
+    head_m = (w.path_witness(tm.path(s_mal)) + w.path_witness(spath) + w.bm(spath) + [alice.serialize()] +
+              w.bm(tm.path(s_mal)) + [mallory.serialize()])
+    w.run("SPLIT", head_m + [schnorr_sign(ctx_m.sighash(), sk("alice-owner")), root[0], w.m], ctx_m)
+    expect_fail(lambda: w.run("SPLIT", head_m + [asig, root[0], w.m], ctx_m),
+                "SPLIT recipient swapped under the owner's signature")
+    if verbose:
+        claim = len(assemble(ls.claim_script(depth, profile)))
+        print(f"SPLIT {profile} D={depth}: script {len(script)} B (CLAIM {claim} B, saves {claim - len(script)}), "
+              f"witness {sum(len(x) for x in head) + 64 + 64} B, varops {it.cost}")
+    return it, len(script), sum(len(x) for x in head + [asig, root[0], w.m])
+
+
 def test_swap(depth, verbose=True):
     """One payment hash settling both legs of a swap (spec 13.9).
 
@@ -806,6 +883,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
         test_claim_h(d, prof)
+        test_split(d, prof)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)

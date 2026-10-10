@@ -121,6 +121,7 @@ Everything the shared output can do fits on one page:
 | `EVICT` | evictor, after the lease height | Removes an expired leaf, paying the owner exactly |
 | `UPDATE` | owner and operator | Rewrites a leaf in place: resize, renew the lease, rotate keys |
 | `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one |
+| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher |
 | `SWEEP` | evictor | Removes a whole expired cohort in one transaction |
 
 They are all the same machine underneath. Every one of them is a sequence
@@ -131,6 +132,17 @@ emptiness with a subtree. A batched exit of five members is five steps
 chained, each proving against the root the last one produced. The script
 for a five-way exit is the script for a one-way exit with the loop body
 repeated, because tapscript has no loops and everything is unrolled.
+
+That unrolling happens twice over, and the second one is easy to miss.
+Inside a script, the fold over the tree's depth is one copy of the level
+macro per level, which is why script size grows linearly with depth. Across
+scripts, every batch size is *different bytes* and therefore a different
+leaf of the taptree: a tree that supports exits of one and two, joins at
+two heights and a cohort sweep is carrying six scripts, not three. Revealing
+one leaf costs a Merkle path to it, so each doubling of the script set adds
+eight virtual bytes to every spend of every kind. That is cheap against a
+1,020 vB exit, and it is the reason the set is chosen at creation rather
+than grown later: the taptree root is the tree's identity.
 
 ### 5. Removal can be cheaper in bulk than one at a time
 
@@ -280,8 +292,9 @@ check passes only if the message the script constructed equals the real
 one. Every field the script pinned down is thereby enforced. Introspection,
 recovered from a signature check.
 
-It costs 43% more than FULL and it only does the single-leaf exit, so it is
-an upper bound rather than a recommendation: the load-bearing operation
+It costs 43% more than FULL and it does only the single-leaf exit and
+`SPLIT`, the owner-signed carve that pays another member, so it is an upper
+bound rather than a recommendation: the load-bearing operation
 needs `OP_CAT` and one point-tweak opcode. No lower bound is claimed.
 
 ## What is proved and what is merely tested
@@ -307,7 +320,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 462 executable checks across three tiers, positive and negative |
+| Compiled scripts | 542 executable checks across three tiers, positive and negative |
 | Python against Go | 34 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 

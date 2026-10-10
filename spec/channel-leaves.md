@@ -633,7 +633,7 @@ watchtowers, then:
    `settle_n` with a fee child;
 4. sweep HTLC outputs as they resolve.
 
-Sizes and timing, at `D = 16` dense, `csv_delay = 144`, a five-leaf tree
+Sizes and timing, at `D = 16` dense, `csv_delay = 144`, the reference tree
 taptree, and no HTLCs in flight:
 
 | step | vbytes | earliest |
@@ -963,7 +963,7 @@ and the loss of the off-chain position. The costs to the evictor are its own
 exit fee, its own locked liquidity and its reputation. This is the same
 exposure as an ordinary channel counterparty's ability to force-close, with
 the addition that an operator can evict *many* leaves at once with
-`EVICT_SUBTREE_h` at ≈ 158–203 vB per leaf (11.1), which makes mass griefing
+`EVICT_SUBTREE_h` at ≈ 158–203 vB per leaf (11), which makes mass griefing
 unusually cheap for the operator. Users who want a hard guarantee buy it with
 a future `evict_after` and give up routing (C.6.4).
 
@@ -1055,5 +1055,6 @@ trust of C.6.6. The list is kept for the record.
   depends on it beyond `P_chan` being a single x-only key that both parties
   must cooperate to sign under. A 2-of-2 `OP_CHECKSIGADD` script leaf would
   work at a cost of ~70 extra witness bytes per channel transaction.
-* Sizes assume a five-leaf tree taptree (129-byte control block, as in 11),
+* Sizes assume the reference script set of 6.2, eight tapleaves and so a
+  129-byte control block (11.1); each doubling of the set adds 8 vB,
   `D = 16` dense, 64-byte Schnorr signatures, and P2TR payout outputs.

@@ -7,7 +7,7 @@ behind Figure~\ref{fig:plot} and Table~\ref{tab:tiers}.
 
 \begin{table}[htbp]
 \centering
-\caption{Measured \tr{EXIT}$_1$ cost (FULL). WU include a 129-byte control block for a five-leaf taptree (each doubling of the script set adds 8 vB); the transaction adds a fee input, change and overhead ($\approx 950\WU$). Sparse witness is $326 + 41\log_2 N$ bytes, tabulated at $N = 2^{16}$. Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
+\caption{Measured \tr{EXIT}$_1$ cost (FULL). WU include a 129-byte control block for the eight-leaf reference script set (each doubling of the set adds 8 vB); the transaction adds a fee input, change and overhead ($\approx 950\WU$). Sparse witness is $326 + 41\log_2 N$ bytes, tabulated at $N = 2^{16}$. Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
 \label{tab:sizes}
 \setlength{\tabcolsep}{3.5pt}\scriptsize
 \begin{tabular}{@{}lrrrrrr@{}}

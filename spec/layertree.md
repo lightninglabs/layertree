@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.7.1
+Version:  0.8.3
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -282,13 +282,17 @@ at all, using ordinary script tricks in place of convenience opcodes.
 | Transaction introspection | `OP_TX` | `OP_CHECKSIG` with the generator as public key and a signature whose `s` equals `e + 1`, so that the script must reconstruct the BIP-341 signature message from witness-supplied serialisations of prevouts, amounts, scriptPubKeys and outputs, hash it, and pick the fields it needs from those serialisations with `OP_CAT` and `OP_SIZE` | several hundred witness bytes and about a dozen hashes per introspection; grinding the transaction until `e` has no carry into `s` |
 | Signature over an arbitrary message (`CLAIM` vouchers) | `OP_CHECKSIGFROMSTACK` | none; a voucher is not a transaction signature. Drop `CLAIM` if `OP_CHECKSIGFROMSTACK` is unavailable | — |
 | Hash lock on a voucher (`CLAIM^h`, 7.5.1) | `OP_SHA256` | already in BIP-342; the hash lock needs no opcode beyond those `CLAIM` uses | — |
+| Carving a leaf without a voucher (`SPLIT`, 7.5.2) | none beyond `EXIT` | `SPLIT` authorises with an ordinary transaction signature, so member-to-member payment does not depend on `OP_CHECKSIGFROMSTACK` at all | — |
 | Owner/evictor/operator authorisation, lock time, hashing, stack work | BIP-342 | — | — |
 
 Hence the irreducible core is **BIP-342 tapscript, the BIP-441 numeric
 semantics (or tapleaf `0xC2` generally), `OP_CAT`, and one EC tweak
 primitive**. `OP_TX` is replaceable in principle but not in practice, and
-`OP_CHECKSIGFROMSTACK` is needed only for vouchers. Every restored splice,
-bit and shift opcode is a convenience.
+`OP_CHECKSIGFROMSTACK` is needed only for vouchers. Since `SPLIT` (7.5.2)
+carves a leaf for another member on an ordinary transaction signature,
+losing vouchers costs deferred and third-party redemption, not
+member-to-member payment. Every restored splice, bit and shift opcode is a
+convenience.
 
 Section 4.5 makes the claim concrete with three complete script tiers.
 Two intermediate data points are also measured: `exit_script_min` in
@@ -318,9 +322,10 @@ are interchangeable, with one numeric cap noted below.
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) |
+| `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only |
-| `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | n/a (no `CLAIM`) |
+| `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output |
 | Transaction shape | free (input 0, outputs 0..K constrained) | free | fixed per script: two inputs, outputs `[tree', payouts…, raw extras]` |
 | Spender work | none | none | grind a free field (fee input `nSequence`) until `e` ends in `0x00`: 256 hashes expected |
@@ -343,6 +348,7 @@ script / witness data:
 | `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | 5,354 / 611 | 9,397 / 1,032 |
 | `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | 9,896 / 688 | 18,241 / 1,543 |
 | `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | 9,905 / 515 | 18,250 / 1,438 |
+| `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 9,822 / 483 | 18,110 / 1,412 |
 
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
@@ -361,7 +367,7 @@ a `0xC0`-only soft fork of the LNhance flavour plus `OP_CAT`, `OP_TX` and
 size, with a 21.47 BTC cap per tree. MIN is the existence proof that
 `OP_CAT` and one tweak opcode suffice for the covenant itself, at the cost
 of vouchers, terminal exits, a fixed transaction shape and a small grinding
-step.
+step. Member-to-member payment survives in MIN as `SPLIT`.
 
 ### 4.6 Policy assumptions
 
@@ -386,7 +392,7 @@ scripts in this document.
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
 | `LEAF_LEN` | 116 |
-| `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
+| `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID, MIN): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
 | `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/update"`, `"LayerTree/chan/settle"` (Appendix C) |
 
 `H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_pos` denote
@@ -406,7 +412,7 @@ A leaf is a fixed-length 116-byte record:
 | 72 | 32 | `evictor_key` | x-only public key authorising eviction |
 | 104 | 4 | `evict_after` | `le32` block height; eviction is valid only in a transaction with `nLockTime ≥ evict_after` |
 | 108 | 4 | `nonce` | `le32`, chosen at creation; with `owner_key` it identifies the leaf and, in the sparse profile, defines its position |
-| 112 | 4 | `seq` | `le32`, incremented by each `CLAIM` against the leaf; MUST NOT wrap |
+| 112 | 4 | `seq` | `le32`, incremented by each `CLAIM` or `SPLIT` against the leaf; MUST NOT wrap |
 
 Requirements:
 
@@ -423,11 +429,11 @@ Requirements:
   explains why it matters for vouchers.
 * `leaf_hash = H_leaf(leaf_bytes)`; the leaf's node is `(leaf_hash, amount)`.
 * A leaf whose `seq` equals `SEQ_FINAL` for the tree's tier is
-  **non-claimable**: `CLAIM` (7.5) computes `seq + 1` and fails when the
-  result does not fit in four bytes, which is the case exactly for
-  `SEQ_FINAL`. Creators MUST set `seq = SEQ_FINAL` on any leaf whose
-  `amount` is not the owner's alone (channel leaves, Appendix C.6.5) and MAY
-  set it on any other leaf. `SEQ_FINAL` differs between tiers because MID
+  **non-claimable**: `CLAIM` (7.5) and `SPLIT` (7.5.2) compute `seq + 1`
+  and fail when the result does not fit in four bytes, which is the case
+  exactly for `SEQ_FINAL`. Creators MUST set `seq = SEQ_FINAL` on any
+  leaf whose `amount` is not the owner's alone (channel leaves, Appendix
+  C.6.5) and MAY set it on any other leaf. `SEQ_FINAL` differs between tiers because MID
   interprets `0xFFFFFFFF` as a negative `CScriptNum` whose successor still
   fits; the reference tests check both values in both tiers.
 * `evict_after` is a *deferral* of the evictor's right, not a guarantee to
@@ -830,11 +836,61 @@ There is **no on-chain expiry**. Bitcoin script can require that a spend not
 happen before a height, not that it happen before one, and the value backing
 a voucher never leaves the source leaf, so there is nothing to refund. An
 issuer who wants an outstanding voucher, plain or hash-locked, to become
-void MUST advance the source leaf's `seq`, which any `UPDATE` or `CLAIM` on
-that leaf does. Deadlines in a swap therefore live in the other leg: the
-Lightning HTLC's `cltv_expiry` or the channel-leaf HTLC of Appendix C.4.1.
+void MUST advance the source leaf's `seq`, which any `CLAIM` or `SPLIT` on
+that leaf does, as does an `UPDATE` that raises it. Deadlines in a swap
+therefore live in the other leg: the Lightning HTLC's `cltv_expiry` or the
+channel-leaf HTLC of Appendix C.4.1.
 Section 9.6.1 states the resulting protocol requirements and 10.3 the
 residual risks.
+
+#### 7.5.2 SPLIT (owner-authorised carve)
+
+`SPLIT` carves a new leaf out of an existing one on the authority of the
+source leaf's **owner**, signing the spending transaction, rather than on
+the authority of a voucher. Like `CLAIM^h` it is a tree-creation parameter:
+a taptree MAY include any combination of `CLAIM`, `CLAIM^h` and `SPLIT`,
+and the choice is visible in `m`.
+
+Witness inputs: as `CLAIM`, with `owner_sig` in place of `voucher_sig`.
+
+Rules: as 7.5, with rule 1 replaced by
+
+1. `owner_sig` MUST be a valid BIP-340 signature under
+   `source_leaf.owner_key` over the spending transaction, and MUST commit
+   to all outputs (10.7).
+
+Rules 2 to 4 of 7.5 are unchanged: the source leaf's amount falls by the
+new leaf's amount, its `seq` advances by one, a drained source position
+becomes `E_0`, the new leaf is placed at a position proven empty *after*
+the source step, and the total is conserved.
+
+*(informative)* `SPLIT` is `CLAIM` with the authorisation swapped, and the
+spec states it that way rather than restating the steps because the
+implementations share one body. Three consequences follow.
+
+It is not a deferred instrument. A voucher is redeemable later by whoever
+holds it, without the issuer; a `SPLIT` is signed against one transaction
+and is worthless outside it. The credit risk of 9.6 and the issuer's
+bookkeeping obligations therefore do not arise. This is the right shape
+when the sender is the party broadcasting and paying the fee, which is the
+common case for a member paying a member.
+
+It advances `seq` even though there is no voucher to retire, because
+without that a `SPLIT` down and a later `UPDATE` back to the same amount
+would restore a leaf byte for byte and revive any voucher signed against
+it.
+
+It needs no `OP_CHECKSIGFROMSTACK`. `CLAIM` is excluded from the MIN tier
+only because that opcode is unavailable there (4.5); `SPLIT` is not, and
+is the first member-to-member transition MIN supports (8.6.2). It costs
+6,441 bytes of script at `D = 16`, about 1.8 times `EXIT_1`: the two fold
+passes are MID's, and the sighash reconstruction is paid once.
+
+`owner_sig` is the only thing that binds the new leaf to its recipient: the
+covenant forces output 0 to commit to *some* new leaf of the right amount,
+and only a signature over that output says which. Rule 1's coverage
+requirement is therefore what stops a relayer rewriting the recipient
+(10.7).
 
 ### 7.6 Composition and variants
 
@@ -1259,6 +1315,38 @@ OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
 The MID tier applies the same two insertions to 8.6's MID form. In both
 tiers the variant costs 9 bytes of script over `CLAIM` (section 8.8).
 
+#### 8.6.2 SPLIT
+
+Witness: as 8.6 with `owner_sig` in place of `voucher_sig` and no preimage.
+The voucher message is not rebuilt, so the prologue drops the spare copy of
+`m` and checks the owner's transaction signature instead:
+
+```
+<SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
+OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim osig r m
+OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim osig m       | m r
+OP_DROP                                             # src claim osig
+OP_2 OP_PICK 40 32 OP_SUBSTR                        # src claim osig src.owner_key
+OP_CHECKSIGVERIFY                                   # src claim
+... as 8.6 from the OP_SIZE 116 check onwards, unchanged ...
+```
+
+In the MID tier the same two lines replace the fourteen `OP_PICK`s, the
+concatenations and the tagged hash that rebuild the voucher message, so the
+saving is larger there: 74 bytes in FULL and 131 in MID (section 8.8).
+
+The MIN tier runs the MID authorisation and both steps unchanged and
+replaces the four `OP_TX` reads (current input index, input scriptPubKey,
+input amount, output 0) with the constructive signature message of 4.4, as
+`EXIT_1` does: `TREE_SPK(r, m)` and the folded input amount go into
+`sha_scriptpubkeys` and `sha_amounts`, `le64(S') || 0x22 ||
+TREE_SPK(r', m)` is the first output in `sha_outputs`, and the message
+fixes input index 0. The transaction shape is two inputs (the tree and one
+fee input) and outputs `[tree', raw extras]`; the witness gains the nine
+raw introspection elements of `EXIT_1` at its bottom. The source owner
+signs after the spender has ground the fee input's `nSequence`, since the
+signature covers it. Listing: `spec/scripts/MIN_SPLIT_D4.txt`.
+
 ### 8.7 EVICT_SUBTREE_h
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  leaf_{2^h−1} … leaf_0  sig  r  m`
@@ -1402,7 +1490,10 @@ leaf owner to any recipient. Issuers MUST NOT issue vouchers whose amounts
 sum to more than the source leaf's current amount, MUST track each issued
 voucher as an outstanding liability until the source leaf's `seq` exceeds
 the value at issuance, and MUST rebuild outstanding vouchers (with the new
-`seq`) after any `UPDATE` or `CLAIM` on the source leaf.
+`seq`) after any `UPDATE`, `CLAIM` or `SPLIT` on the source leaf. A `SPLIT`
+voids every outstanding voucher against its source exactly as a `CLAIM`
+does, and also lowers the balance they draw on, so the rebuilt set MUST
+fit the reduced amount.
 
 A recipient MUST verify `voucher_sig`, MUST verify that `source_leaf` is
 currently in the tree at some position (by obtaining and checking a path),
@@ -1623,6 +1714,13 @@ without one; an implementation that reused `TAG_VOUCHER` for both would let
 a redeemer strip the hash lock. Redemption publishes the preimage, which
 9.6.1 requires holders of the same hash elsewhere to account for.
 
+`SPLIT` (7.5.2) is one more way for an issuer to advance `seq` and so void
+its own outstanding vouchers. It adds no capability: an owner could already
+do the same alone by redeeming a voucher issued to itself. A recipient's
+position is unchanged, and the `seq` increment `SPLIT` shares with `CLAIM`
+keeps the replay argument below intact, since no sequence of `SPLIT`s and
+`CLAIM`s returns a leaf to a byte string it held before.
+
 A voucher commits to `m`, so it cannot be replayed in another tree; it
 commits to the full source leaf including `seq`, so it cannot be replayed
 after any change to the source leaf. It does not commit to the source
@@ -1688,9 +1786,12 @@ over the transaction. `EXIT` signatures MUST use `SIGHASH_DEFAULT` or
 `SIGHASH_ALL` (section 7.2): with `SIGHASH_NONE` or `SIGHASH_SINGLE` the
 payout amount, which the covenant only bounds from above for owner exits,
 could be lowered by anyone relaying the transaction. `ANYONECANPAY` is
-harmless and useful for adding a fee input later. `JOIN` and `UPDATE`
-signers SHOULD use `SIGHASH_DEFAULT`; change outputs are never constrained
-by script.
+harmless and useful for adding a fee input later. `SPLIT` signatures carry
+the same requirement (7.5.2) for a stronger reason: output 0 is the only
+place the new leaf's contents reach the signature, so a signature that
+skipped it would let a relayer substitute its own leaf for the recipient's.
+`JOIN` and `UPDATE` signers SHOULD use `SIGHASH_DEFAULT`; change outputs
+are never constrained by script.
 
 Leaf keys are checked by `lift_x` at signature verification; a leaf with an
 invalid `owner_key` can never `EXIT` and an invalid `exit_key` pays to an
@@ -1745,7 +1846,9 @@ Implementers MUST NOT parameterise selectors from the witness.
 
 *(informative)* Figures are measured by executing the reference scripts in
 the simulator (`tools/gen_listings.py` → `spec/scripts/sizes.md`). The
-control block assumes a five-leaf taptree (depth 3, 129 bytes).
+control block assumes the reference script set of 6.2, which is eight
+tapleaves and therefore depth 3 and 129 bytes; 11.1 gives the cost of a
+larger set.
 
 | profile | D | positions | EXIT_1 script | EXIT_1 witness data | total witness (WU) | approx. tx weight (WU) | approx. vbytes |
 |---|---|---|---|---|---|---|---|
@@ -1827,7 +1930,50 @@ Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 falling with depth because the BIP-440 budget is `10,000 × weight`; the EC operations (82 sigops units per `TREE_SPK`) and the
 signature dominate at small depths, hashing at large ones.
 
-### 11.1 Exit economics at various fee rates
+### 11.1 Script-set size and the control block
+
+*(informative)* The taptree holds one tapleaf per *compiled script*, and
+because tapscript has no loops, each parameter choice compiles to different
+bytes and therefore occupies its own leaf. The script set is the cross
+product of transition type and parameter: one leaf per `K` in `EXIT_K` and
+`JOINK_K`, one per height `h` in `JOIN_h` and `EVICT_SUBTREE_h`, plus the
+single-shape transitions and any variants of 7.4 rule 5, 7.5.1 and 7.5.2.
+The reference set of 6.2 is eight leaves:
+
+```
+EXIT_1  EXIT_2  JOIN_0  JOIN_2  JOINK_2  UPDATE  CLAIM  EVICT_SUBTREE_2
+```
+
+A script-path spend reveals one leaf and its Merkle path, so the control
+block is `33 + 32·ceil(log2(leaves))` bytes and is paid on **every** spend,
+including an `EXIT_1` that never touches a batched script:
+
+| leaves | taptree depth | control block | vB, against the reference set |
+|---|---|---|---|
+| ≤ 2 | 1 | 65 B | −16 |
+| ≤ 4 | 2 | 97 B | −8 |
+| ≤ 8 | 3 | 129 B | 0 |
+| ≤ 16 | 4 | 161 B | +8 |
+| ≤ 32 | 5 | 193 B | +16 |
+| ≤ 64 | 6 | 225 B | +24 |
+
+Each doubling of the script set therefore adds 8 vB to every transition,
+about 0.8% of a dense `D = 16` exit. The asymmetry runs the other way:
+a batch size that is *absent* forces the fallback of `K` separate
+transactions at full price, where `EXIT_2` costs 842 vB per leaf against
+1,020 vB standalone and `EVICT_SUBTREE_6` costs 158 vB per leaf. Missing a
+useful shape costs hundreds of virtual bytes per leaf; carrying an unused
+one costs eight.
+
+A creator is therefore better served by a generous set of powers of two
+than by a minimal one. Two constraints bound it in practice, and neither is
+the control block: every script in the set must be generated and audited,
+and `m` is the tree's identity (6.2), so the set is fixed at creation.
+Extending it later means creating a new tree and moving every member,
+which is why 9.1 has participants recompute `m` from the published
+parameters, making the supported shapes part of what they verify.
+
+### 11.2 Exit economics at various fee rates
 
 *(informative)* `spec/fee-analysis.md`, generated by `tools/fee_analysis.py`
 from the measured sizes, converts the table above into fees and break-even
@@ -1941,11 +2087,16 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 86 and 7 checks respectively; the MID
+  operands during development), 120 and 31 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
-  exit-consent `UPDATE^x` variant of 7.4 rule 5 and the hash-locked
-  `CLAIM^h` variant of 7.5.1 in both profiles.
+  `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
+  7.5.2 in both profiles, the MID `SPLIT` with the negatives of the FULL
+  suite below. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
+  `D = 4` and `16`: a split and a full drain succeed, and one signed by the
+  operator or the recipient, an over-split, an occupied destination, a
+  stale root, a recipient swapped under the owner's signature, an
+  underfunded tree output and a wrong `e31` all fail.
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
   tree, including negative cases (forged leaf, stale
@@ -1977,7 +2128,13 @@ exits in a batch" as `EXIT_K` (section 13).
   preimage settling both a `CLAIM^h` and an `HTLC_SUCCESS` output of
   Appendix C.4.1, with `HTLC_SUCCESS` rejecting a wrong preimage, a
   short preimage and the offerer's signature, and `HTLC_TIMEOUT` rejecting
-  a spend before `cltv_expiry` and one by the recipient), 369 checks in
+  a spend before `cltv_expiry` and one by the recipient) and the
+  owner-authorised `SPLIT` of 7.5.2 (dense at `D = 4` and `16`, sparse at
+  `D = 8`: a split signed by the source owner succeeds, and one signed by
+  the operator, by the recipient, with a garbage signature, with a voucher
+  signature in place of a transaction signature, over-splitting, into an
+  occupied position, against a stale root, or reused for a transaction
+  that swaps in a different recipient all fail), 425 checks in
   total. Run: `python3 tools/test_scripts.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, and the size table covering both
@@ -1989,9 +2146,10 @@ exits in a batch" as `EXIT_K` (section 13).
 * `spec/golden.json` — compiled scripts for every tier, the taptree root of
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
-  The tree-creation variants have their own keys, `UPDATE_X` and `CLAIM_H`
-  under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`; being
-  parameters rather than members of the reference script set, both are
+  The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
+  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`, and
+  `SPLIT` under `MIN/D/D4`; being parameters rather than members of the
+  reference script set, all are
   excluded from the `FULL/D/D4` taptree root, which therefore does not move
   when a variant is added.
 * `formal/` — a Lean 4 model of sections 5, 7 and 10.2 (core library only,
@@ -2010,7 +2168,7 @@ exits in a batch" as `EXIT_K` (section 13).
   (normative for implementations that host channels; the tree layer is
   unaffected by it).
 * `spec/fee-analysis.md`, `tools/fee_analysis.py` — exit and eviction cost
-  at fee rates from 1 to 250 sat/vB (section 11.1).
+  at fee rates from 1 to 250 sat/vB (section 11.2).
 * Go implementation (module `github.com/roasbeef/layertree`, packages
   `tree`, `script`, `txn`, `msg`): built on btcd, lnd and taproot-assets;
   every generated script is compared byte for byte with the Python output,

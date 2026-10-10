@@ -67,6 +67,8 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | S | 32 | UPDATE_X | 5354 | 611 | 129 | 6094 | 4096882 | 3 |
 | D | 16 | CLAIM_H | 3811 | 1722 | 129 | 5662 | 2838271 | 1 |
 | S | 32 | CLAIM_H | 9905 | 515 | 129 | 10549 | 4019479 | 1 |
+| D | 16 | SPLIT | 3728 | 1674 | 129 | 5531 | 2814466 | 1 |
+| S | 32 | SPLIT | 9822 | 483 | 129 | 10434 | 3995797 | 1 |
 | S/bitmap | 32 | EXIT_1 (owner) | 5423 | 330 | 129 | 5882 | 3080946 | 1 |
 | S/bitmap | 32 | JOIN_0 | 5407 | 371 | 129 | 5907 | 3079436 | 1 |
 | S/bitmap | 64 | EXIT_1 (owner) | 10063 | 334 | 129 | 10526 | 3979013 | 1 |
@@ -97,4 +99,7 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | UPDATE_X | 9397 | 1032 | 129 | 10558 | n/a (0xC0) | 3 |
 | MID/D | 16 | CLAIM_H | 6300 | 1861 | 129 | 8290 | n/a (0xC0) | 1 |
 | MID/S | 31 | CLAIM_H | 18250 | 1438 | 129 | 19817 | n/a (0xC0) | 1 |
+| MID/D | 16 | SPLIT | 6160 | 1813 | 129 | 8102 | n/a (0xC0) | 1 |
+| MID/S | 31 | SPLIT | 18110 | 1412 | 129 | 19651 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |
+| MIN/D | 16 | SPLIT | 6441 | 2010 | 129 | 8580 | n/a (0xC0) | 2 |

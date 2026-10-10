@@ -253,33 +253,68 @@ def update_script(depth, operator_key, sparse=False, exit_consent=False):
 
 
 def claim_script(depth, sparse=False, hashlock=False):
-    """witness (bottom..top):
-       [claim levels] [zi2 wi2? no] [sparse claim: ck cnonce cplo cphi]
-       [src levels] [zi wi] [sparse src: sk snonce splo sphi]
-       src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 vsig [preimage] r m
-       ... final pad zf wf sits below the claim levels.
+    """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script."""
+    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher")
 
-    hashlock=True is CLAIM^h (spec 7.5.1): a 32-byte preimage sits between
-    vsig and r, and SHA256(preimage) is appended to the signed message under
-    a separate tag. The preimage is hashed straight into the message, so a
-    wrong one fails as a bad signature."""
+
+def split_script(depth, sparse=False):
+    """SPLIT (7.5.2): CLAIM with the owner's transaction signature in place
+    of a voucher. Needs no OP_CHECKSIGFROMSTACK."""
+    return _carve_script(depth, sparse, "owner")
+
+
+def _carve_script(depth, sparse=False, auth="voucher"):
+    """witness (bottom..top):
+       zf wf [claim levels] [sparse claim: ck cnonce cplo cphi]
+       zi wi [src levels] [sparse src: sk snonce splo sphi]
+       src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 vsig [preimage] r m
+       zf wf pad the final sum, zi wi the input amount; pads sit below levels.
+
+    auth selects the authorisation and nothing else: "voucher" is CLAIM,
+    "hashlock" is CLAIM^h (a 32-byte preimage sits between vsig and r and
+    SHA256(preimage) is appended to the signed message under a separate
+    tag), "owner" is SPLIT (the witness carries a transaction signature in
+    place of the voucher)."""
+    assert auth in ("voucher", "hashlock", "owner")
+    hashlock = auth == "hashlock"
     s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
          "OP_2DUP"] + F.tree_spk_min() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
          "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]       # ... extras(7) vsig [pre] m | m r
-    if hashlock:
-        # park SHA256(preimage) on the altstack: every pick depth below is as in CLAIM
-        s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
-              "OP_TOALTSTACK"]                                        # ... vsig m | m r phash
-    # voucher message m || src_leaf || claim_leaf [|| phash]
-    s += [28, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig m src_leaf
-    s += [19, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig m src_leaf claim_leaf
-    s += [2, "OP_PICK", "OP_ROT", "OP_ROT", "OP_CAT", "OP_CAT"]      # ... vsig m (m||src||claim)
-    if hashlock:
-        s += ["OP_FROMALTSTACK", "OP_CAT"]                           # ... (m||src||claim||phash)
-    s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)  # ... vsig m msg
-    s += ["OP_ROT", "OP_SWAP",                                       # ... m vsig msg
-          27, "OP_PICK",                                             # ... m vsig msg src.ok
-          "OP_CHECKSIGFROMSTACK", "OP_VERIFY", "OP_DROP"]            # src(10) claim(10) extras(7)
+    if auth == "owner":
+        # SPLIT (7.5.2): the owner signs the transaction, so no message is
+        # rebuilt. Drop the spare m; src.ok then sits 25 deep, since the
+        # witness holds src(10) claim(10) extras(7) below the signature and
+        # the owner key is the third field of the source leaf block.
+        s += ["OP_DROP",                                             # ... extras(7) osig
+              25, "OP_PICK",                                         # ... osig src.ok
+              "OP_CHECKSIGVERIFY"]                                   # src(10) claim(10) extras(7)
+    else:
+        if hashlock:
+            # park SHA256(preimage) on the altstack: every pick depth below is as in CLAIM
+            s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+                  "OP_TOALTSTACK"]                                    # ... vsig m | m r phash
+        # voucher message m || src_leaf || claim_leaf [|| phash]
+        s += [28, "OP_PICK"] * 7 + ["OP_CAT"] * 6                    # ... vsig m src_leaf
+        s += [19, "OP_PICK"] * 7 + ["OP_CAT"] * 6                    # ... vsig m src_leaf claim_leaf
+        s += [2, "OP_PICK", "OP_ROT", "OP_ROT", "OP_CAT", "OP_CAT"]  # ... vsig m (m||src||claim)
+        if hashlock:
+            s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (m||src||claim||phash)
+        s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)  # ... vsig m msg
+        s += ["OP_ROT", "OP_SWAP",                                   # ... m vsig msg
+              27, "OP_PICK",                                         # ... m vsig msg src.ok
+              "OP_CHECKSIGFROMSTACK", "OP_VERIFY", "OP_DROP"]        # src(10) claim(10) extras(7)
+    s += carve_source(depth, sparse) + check_old(sparse)            # T nh1 ns1        | m claim_leaf amt_c
+    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
+    return s + carve_claim(depth, sparse) + final(depth)
+
+
+def carve_source(depth, sparse=False):
+    """Step 1 of CLAIM, CLAIM^h and SPLIT, after the authorisation check.
+    Stack on entry: src(10) claim(10) extras(7) ; altstack: .. m r.
+    On exit: T oh os nh ns over the source path ; altstack: .. m claim_leaf amt_c r.
+    Shared with the MIN tier, which differs only in how the result is bound
+    to the transaction."""
+    s = []
     # seq consistency: le32(seq_num) == src.seq ; consumes zq0 wq0
     s += [20, "OP_PICK", 7, "OP_PICK"] + roll(7, 2) + padz() + ["OP_EQUALVERIFY"]   # extras -> seq_num zq1 wq1 zs2 ws2
     s += ["OP_TOALTSTACK"] * 5                                       # src(10) claim(10) | m r ws2 zs2 wq1 zq1 seq_num
@@ -301,14 +336,20 @@ def claim_script(depth, sparse=False, hashlock=False):
     if sparse:
         s += roll(7, 4) + sparse_setup()
     s += [F.NODE_PREFIX] + roll(4, 4)                                # T oh os nh ns
-    s += levels(sparse, depth) + check_old(sparse)                   # T nh1 ns1        | m claim_leaf amt_c
-    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"] + tagged(F.LEAF_PREFIX) + ["OP_SWAP",   # T nh1 ns1 ch cs
-          "OP_2SWAP", "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]   # T ch cs          | m nh1 ns1
+    return s + levels(sparse, depth)                                 # T oh os nh ns
+
+
+def carve_claim(depth, sparse=False):
+    """Step 2: the new leaf into an empty position, proven against the root
+    step 1 produced. Stack on entry: T nh1 ns1 amt_c claim_leaf ;
+    altstack: .. nh1 ns1 pushed here and consumed by check_prev.
+    On exit: T nh2 ns2."""
+    s = tagged(F.LEAF_PREFIX) + ["OP_SWAP",                          # T nh1 ns1 ch cs
+         "OP_2SWAP", "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]    # T ch cs          | .. nh1 ns1
     if sparse:
         s += roll(6, 4) + sparse_setup()
     s += [lt.EMPTY_LEAF_HASH, "OP_0", "OP_2SWAP"]                    # T E_0 0 ch cs
-    s += levels(sparse, depth) + check_prev(sparse)                  # T nh2 ns2
-    return s + final(depth)
+    return s + levels(sparse, depth) + check_prev(sparse)            # T nh2 ns2
 
 
 def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,)):
