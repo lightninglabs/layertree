@@ -292,8 +292,9 @@ check passes only if the message the script constructed equals the real
 one. Every field the script pinned down is thereby enforced. Introspection,
 recovered from a signature check.
 
-It costs 43% more than FULL and it only does the single-leaf exit, so it is
-an upper bound rather than a recommendation: the load-bearing operation
+It costs 43% more than FULL and it does only the single-leaf exit and
+`SPLIT`, the owner-signed carve that pays another member, so it is an upper
+bound rather than a recommendation: the load-bearing operation
 needs `OP_CAT` and one point-tweak opcode. No lower bound is claimed.
 
 ## What is proved and what is merely tested

@@ -1,5 +1,5 @@
 Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);
-add 40 bytes per additional non-empty sibling (about log2 N in total).
+add 41 bytes per additional non-empty sibling (about log2 N in total).
 
 | profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |
 |---|---|---|---|---|---|---|---|---|
@@ -102,6 +102,7 @@ add 40 bytes per additional non-empty sibling (about log2 N in total).
 | MID/D | 16 | SPLIT | 6160 | 1813 | 129 | 8102 | n/a (0xC0) | 1 |
 | MID/S | 31 | SPLIT | 18110 | 1412 | 129 | 19651 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |
+| MIN/D | 16 | SPLIT | 6441 | 2010 | 129 | 8580 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |
 | CCV/D | 16 | EXIT_1 (evict) | 1716 | 839 | 129 | 2684 | 2319708 | 1 |
 | CCV/D | 16 | EXIT_1 (terminal) | 1716 | 837 | 129 | 2682 | 1819116 | 1 |

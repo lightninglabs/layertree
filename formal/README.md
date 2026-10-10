@@ -46,7 +46,7 @@ Any line naming `sorryAx` means an unfinished proof; there are none.
 | 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=` | `ExitBlock`, `ExitK exact …` | `exact = true` is the exact-payout variant. |
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. |
-| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it. |
+| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. |
 | 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds`, `CCVTweak`, `CCVTweak.binding`, `ccv_input_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. The CCV tier's `TREE_SPK_CCV` (spec 4.6, 6.3) is built as `CCVTweak.binding`, a second `BindingModel` whose injectivity is proved from two stage hypotheses: the BIP-443 data tweak `NUMS + sha256(NUMS‖r)·G` is injective in `r`, and the taproot tweak is injective in `(P, m)`; the theorems then apply unchanged. |
 | 5.3 `enc64`, 8.2 `PAD8` | `Encoding.enc64_eq_minimal` (`Encoding.lean`) | `le64 n ‖ 01` is the minimal BIP-441 encoding of `n + 2^64`. |
 | 5.2 serialisation | `Encoding.serializeLeaf_inj`, `serializeNode_inj` | Fixed-width concatenation is injective under `WF`. |
@@ -189,7 +189,7 @@ out. The model does not quantify the adversary's advantage.
 * **Signatures, keys, lock times.** Authorisation decides *who* may perform
   a transition, not *what* it does to the tree, so it appears as an opaque
   proposition. Nothing about conservation depends on it. This is why the
-  authorisation variants of the spec (`UPDATE^x`, `CLAIM^h`) need no new
+  authorisation variants of the spec (`UPDATE^x`, `CLAIM^h`, `SPLIT`) need no new
   Lean development: they instantiate the same `Prop` differently, and the
   soundness theorems apply to them verbatim. It is also the boundary of the
   model: that the *script* enforces the authorisation it claims to is shown

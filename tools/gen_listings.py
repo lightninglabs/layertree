@@ -126,6 +126,9 @@ for d, sparse in ((16, False), (31, True)):
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
+script, wit, it = test_min.test_split(16, verbose=False)
+rows.append(("MIN/D", 16, "SPLIT", len(script), sum(len(x) for x in wit), 129,
+             len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
 for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,)).items():
     with open(os.path.join(OUT, f"MID_{name}_D4.txt"), "w") as f:
         f.write(listing(f"{name} (MID tier, dense, D=4)", toks))
@@ -140,6 +143,8 @@ with open(os.path.join(OUT, "MID_SPLIT_D4.txt"), "w") as f:
                     LM.split_script(4, False)))
 with open(os.path.join(OUT, "MIN_EXIT_1_D4.txt"), "w") as f:
     f.write(listing("EXIT_1 (MIN tier, dense, D=4)", LN.exit_script(4)))
+with open(os.path.join(OUT, "MIN_SPLIT_D4.txt"), "w") as f:
+    f.write(listing("SPLIT (MIN tier, owner-authorised carve, dense, D=4)", LN.split_script(4)))
 with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
     f.write("\n")
     f.write(listing("LEVEL_MID (dense): PADZ gadgets, sibling as hash + number", LM.level(False)))
@@ -181,7 +186,7 @@ with open(os.path.join(OUT, "CCV_LEVEL.txt"), "w") as f:
 
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
-    f.write("add 40 bytes per additional non-empty sibling (about log2 N in total).\n\n")
+    f.write("add 41 bytes per additional non-empty sibling (about log2 N in total).\n\n")
     f.write("| profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |\n")
     f.write("|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:

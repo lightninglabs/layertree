@@ -317,6 +317,8 @@ open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (MID tier, owner-authorised carve, dense, D={D})", M.split_script(D, False), "c0", MID))
 open(os.path.join(OUT, f"MIN_EXIT_1_D{D}.txt"), "w").write(
     structured(f"EXIT_1 (MIN tier, dense, D={D})", N.exit_script(D), "c0", MIN))
+open(os.path.join(OUT, f"MIN_SPLIT_D{D}.txt"), "w").write(
+    structured(f"SPLIT (MIN tier, owner-authorised carve, dense, D={D})", N.split_script(D), "c0", MIN))
 for name, toks in CV.all_scripts_ccv(D, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
     open(os.path.join(OUT, f"CCV_{name}_D{D}.txt"), "w").write(structured(f"{name} (CCV tier, dense, D={D})", toks, "c2", CCV))
 open(os.path.join(OUT, f"CCV_UPDATE_X_D{D}.txt"), "w").write(

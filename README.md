@@ -24,9 +24,14 @@ test suite fails if a script uses anything else.
 | [`paper/`](paper/) | LaTeX paper (LNCS format): ideal functionality, abstract protocol, opcode tiers, UC security theorem with Lean-cited lemmas, channel composition, measurements; `paper/main.pdf` is the built copy, stamped with its git revision |
 | [`formal/`](formal/README.md) | Lean 4 formalisation of the tree and covenant rules: conservation, proof soundness, payability, encodings (core library only, `lake build`) |
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
+| [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and where it does not: exit, entry and lifetime bytes against bare UTXOs, Lightning and transaction trees, with generated figures |
+| [`design/tree-comparison.md`](design/tree-comparison.md) | Dense or sparse: what the two profiles share, where the sparse bytes go, and what a higher radix would change, with a measured radix-4 level |
+| [`design/batching.md`](design/batching.md) | Batching: what a batch costs, the owner multiproof, the cohort rewrite and detaching a subtree into its own output |
+| [`design/receive.md`](design/receive.md) | Receiving over Lightning into a tree: cumulative hash-locked vouchers against an Ark client's out-of-round payments and credits |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
 | [`design/layertree.md`](design/layertree.md) | Raw design sketch (verbatim) |
 | [`notes.md`](notes.md) | Notes distilled from the working vault |
+| [`brain.md`](brain.md) | Running brain dump: where every piece stands, what is in flight, what is next |
 | [`tools/`](tools/) | Reference implementation, script templates, simulator, tests |
 
 ## Go implementation
@@ -56,7 +61,7 @@ vectors the Python emits (`spec/test-vectors.json`, `spec/golden.json`).
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
 python3 tools/test_scripts.py      # execute all scripts, both profiles
 python3 tools/test_mid.py          # MID tier (0xC0 numerics), both profiles
-python3 tools/test_min.py          # MIN tier EXIT_1 with sighash grinding
+python3 tools/test_min.py          # MIN tier EXIT_1 and SPLIT with sighash grinding
 python3 tools/gen_listings.py      # regenerate spec/scripts/
 python3 tools/gen_structured.py    # regenerate spec/scripts/structured/ (macro-collapsed)
 python3 tools/gen_golden.py        # regenerate spec/golden.json for the Go tests
