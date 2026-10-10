@@ -49,10 +49,13 @@ with numbers.
   add the CCV column to the 4.5 capability table, measure UPDATE^x under
   CCV, implement SPLIT under CCV if bounded, update the four-tier wording,
   quarantine checks for the hypothetical opcode.
-- TeX: the machine has TeX Live 2020 basic without multirow, pgfplots,
-  cm-super or latexmk, and 4 GB of disk. A user-mode tlmgr install from
-  the 2020 historic repository is being tried; if it fails the PDF is
-  rebuilt elsewhere.
+- TeX: works on this machine as of today. TeX Live 2020 basic at
+  /Library/TeX/texbin plus a user tree under ~/Library/texmf with
+  multirow, cm-super (tlmgr --usermode from the 2020 historic repo),
+  pgfplots 1.18.3 and the current cryptocode (unpacked from CTAN), and
+  latexmk fetched from CTAN into ~/bin. Build with
+  `PATH=$HOME/bin:/Library/TeX/texbin:$PATH make` in paper/. A scratch
+  build of the current sources gives 43 pages with References on page 16.
 - Figure agent: the batching-shapes figure and corrected multiproof
   points on the amortisation figure.
 
