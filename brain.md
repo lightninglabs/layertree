@@ -75,6 +75,18 @@ exact-payout `EXIT_1^=` variant, so Go cannot build it end to end; spec
 (7.7 rule 4 allows it); a committed replay script under `tools/` would
 make the pinned sighashes reproducible.
 
+G (paper) landed at 8c76568: four tiers throughout, `\iffullversion`
+keyed on the job name, `make` builds `main.pdf` (44 pages, References
+on 16) and `main-full.pdf` (50 pages, References on 31, body about 30.6
+pages, slightly over target), new full-only sections 12 to 16 from the
+design pages, PDF twins of the figures under `paper/figures/`. Number
+discrepancies G found, for the reconciliation commit: CCV `EXIT_1`
+908 vB from sizes.md (2,683 WU) versus spec 11's row 925 vB (2,741 WU);
+second exit 664 (cost-comparison.md) versus 665 (paper, fee-analysis);
+batching figure's detach point labelled 765 versus 762 in the text;
+tree-comparison.md's "bitmap saves 28 witness bytes" versus sizes.md's
+330 against 326 (G left the claim out of the paper).
+
 Integration order when they report: C (no overlap), D (no overlap), E,
 A, B (A and B both touch 4.5, 14, golden.json), then a numbers
 reconciliation commit, then G, then the reviewer pass on the paper.
