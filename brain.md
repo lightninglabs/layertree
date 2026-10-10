@@ -40,6 +40,26 @@ with numbers.
 
 ## In flight right now
 
+- Explainer website track (owner's request 2026-10-10), all under
+  `site/`, static with no build step: an Opus builder writes the site
+  (landing page with the takeaway and a step-through "life of a tree"
+  animation; `site/components/` pages for state-machine, join, exit,
+  payment, swap, evict, batching, tiers; one ES-module animation engine
+  `site/js/tree-anim.js`; tokens in `site/css/tokens.css`; prose under
+  the technical-writing skill; a dedicated state-machine page on
+  commit-root-then-assert as a general pattern for UTXO scaling and
+  richer on-chain state machines). Three Sonnet identity explorations
+  under `site/identity/{editorial,schematic,approachable}/` each with a
+  README, logo and wordmark SVGs, `tokens.css` with the shared variable
+  names, a `sample.html`, and a palette validation. The owner picks an
+  identity; then its `tokens.css` and logo replace the placeholders.
+  Later: GitHub Pages deployment.
+- Workers in flight after the rate-limit restart (both relaunched from
+  55b482f): the rule worker (Fable: `tree_id` everywhere, carve
+  constraint, `DETACH_h` creation rule, spec 0.10.0) and the paper
+  response writer (Opus: round-two `paper/review-response.md`, fixes,
+  rebuild). Plus the four site agents above. Workers commit on their
+  worktree branches and never push; merge one at a time.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
