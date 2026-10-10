@@ -25,7 +25,7 @@ BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ADD", "OP_1
               "OP_FROMALTSTACK", "OP_IF", "OP_LESSTHANOREQUAL", "OP_NIP", "OP_NOT",
               "OP_NOTIF", "OP_NUMEQUAL", "OP_NUMEQUALVERIFY", "OP_OVER", "OP_PICK",
               "OP_ROLL", "OP_ROT", "OP_SHA256", "OP_SIZE", "OP_SUB", "OP_SWAP",
-              "OP_TOALTSTACK", "OP_TUCK", "OP_VERIFY", "OP_0NOTEQUAL"}
+              "OP_TOALTSTACK", "OP_TUCK", "OP_VERIFY", "OP_0NOTEQUAL", "OP_BOOLAND"}
 BIP441_OPS = {"OP_CAT", "OP_SUBSTR", "OP_LEFT", "OP_RIGHT", "OP_AND", "OP_DOWNSHIFT"}
 OPTX_OPS = {"OP_TX"}
 BIP348_OPS = {"OP_CHECKSIGFROMSTACK"}
@@ -674,7 +674,8 @@ def _needs_owner_sig(old, new):
     """Spec 7.9 rule 3, computed independently of the script."""
     if old is None or old == new or (new is not None and old.serialize() == new.serialize()):
         return False
-    if new is not None and new.serialize()[8:] == old.serialize()[8:] and new.amount >= old.amount:
+    if (new is not None and new.serialize()[8:] == old.serialize()[8:] and new.amount >= old.amount
+            and old.seq != ls.SEQ_FINAL):
         return False
     return True
 
@@ -782,6 +783,29 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True):
     expect_fail(lambda: w.run(name, wit_d_nosig, ctx_d), f"{name} key rotation disguised as an amount increase")
     w.run(name, wit_d, ctx_d)
     check(True, f"{name} the same rotation with the owner's signature succeeds")
+    # rule 3: the exemption does not reach a SEQ_FINAL leaf (a channel leaf,
+    # 5.2): raising its amount by 1 sat needs the owner's signature too
+    final_old, final_new = dict(old), dict(new)
+    final_old[i_inc] = lf.with_amount_seq(lf.amount, ls.SEQ_FINAL)
+    final_new[i_inc] = lf.with_amount_seq(lf.amount + 1, ls.SEQ_FINAL)
+    saved = dict(w.tree.leaves)
+    w.tree.leaves[base + i_inc] = final_old[i_inc]
+    root_f = w.tree.root()
+    t_f = w.clone()
+    for i, x in final_new.items():
+        if x:
+            t_f.leaves[base + i] = x
+        else:
+            t_f.leaves.pop(base + i, None)
+    outs_f = [(t_f.root()[1], w.spk(t_f.root()))] + c["outputs"][1:]
+    ctx_f = w.ctx(outs_f, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    wit_f = rebuild(final_old, final_new, ctx_f, root_=root_f)
+    sig_f = schnorr_sign(ctx_f.sighash(), sk(f"c{i_inc}-owner"))
+    wit_f_nosig = [x for x in wit_f if x != sig_f and not (exit_consent and x == schnorr_sign(ctx_f.sighash(), sk(f"c{i_inc}-exit")))]
+    expect_fail(lambda: w.run(name, wit_f_nosig, ctx_f), f"{name} SEQ_FINAL leaf raised by 1 sat without the owner signature")
+    w.run(name, wit_f, ctx_f)
+    check(True, f"{name} the same raise with the owner's signature succeeds")
+    w.tree.leaves = saved
     # rule 5: a shortchanged exit payout, and one paid to the wrong key
     i_exit = next(i for i in range(n) if old[i] and new[i] is None)
     k = 1 + sum(1 for i in range(i_exit) if old[i] and new[i] is None)

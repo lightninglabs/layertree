@@ -44,6 +44,10 @@ OFF_EVICT_AFTER, LEN_EVICT_AFTER = 104, 4
 OFF_NONCE, LEN_NONCE = 108, 4
 OFF_SEQ, LEN_SEQ = 112, 4
 LEAF_LEN = lt.LEAF_LEN
+# The FULL tier's non-claimable marker (spec 5.2): REWRITE_h's amount-only
+# exemption (7.9 rule 3) does not reach a leaf whose seq is this value.
+SEQ_FINAL = 0xFFFFFFFF
+SEQ_FINAL_BYTES = lt.le32(SEQ_FINAL)
 
 CONST_NAMES = {
     LEAF_PREFIX: "<TAG_LEAF>", NODE_PREFIX: "<TAG_NODE>", STATE_PREFIX: "<TAG_STATE>",
@@ -52,7 +56,7 @@ CONST_NAMES = {
     TAPTWEAK_PREFIX: "<TAG_TAPTWEAK>", NUMS33: "<NUMS>", ZERO8: "<ZERO8>",
     ZERO4: "<ZERO4>", P2TR_PREFIX: "<0x5120>", lt.EMPTY_LEAF_HASH: "<EMPTY_LEAF>",
     (1 << 64).to_bytes(9, "little"): "<2^64>", lt.enc64(0): "<ENC0>",
-    bytes([0x02]): "<0x02>",
+    bytes([0x02]): "<0x02>", lt.le32(0xFFFFFFFF): "<SEQ_FINAL>",
 }
 
 
@@ -748,11 +752,15 @@ def _rewrite_step(d, exit_consent):
              "OP_2DUP", "OP_EQUAL", "OP_NOTIF",              # changed?
              "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",   # old is a leaf?
              "OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",    # new is a leaf: rewrite
-             # exempt from the owner signature iff new[8:] == old[8:] and old.amount <= new.amount
+             # exempt from the owner signature iff new[8:] == old[8:], old.amount <= new.amount
+             # and old.seq != SEQ_FINAL (7.9 rule 3)
              "OP_2DUP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
              "OP_SWAP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR", "OP_EQUAL",  # old new same_rest
              "OP_IF", "OP_2DUP", "OP_SWAP", 8, "OP_LEFT", "OP_SWAP", 8, "OP_LEFT",
              "OP_LESSTHANOREQUAL",                                                        # old new old.amt<=new.amt
+             # ... and old.seq != SEQ_FINAL (5.2): a leaf whose amount is not the
+             # owner's alone keeps its signature (same_rest makes new.seq = old.seq)
+             "OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_BOOLAND",
              "OP_ELSE", "OP_0", "OP_ENDIF",                  # old new exempt
              "OP_NOTIF"] + _owner_auth(d + 5, exit_consent) + ["OP_ENDIF",
              "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + [   # new is empty: an exit, paid to old.exit_key

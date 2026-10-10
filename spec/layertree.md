@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.10.1
+Version:  0.11.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -423,7 +423,7 @@ script / witness data:
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,866 / 1,754 | — | n/a | — | 9,960 / 547 | — | — |
-| `REWRITE_4` (16 positions, mixed) | 5,336 / 4,329 | — | — | — | n/a | n/a | n/a |
+| `REWRITE_4` (16 positions, mixed) | 5,512 / 4,329 | — | — | — | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
@@ -637,7 +637,10 @@ Requirements:
   and fail when the result does not fit in four bytes, which is the case
   exactly for `SEQ_FINAL`. Creators MUST set `seq = SEQ_FINAL` on any
   leaf whose `amount` is not the owner's alone (channel leaves, Appendix
-  C.6.5) and MAY set it on any other leaf. `SEQ_FINAL` differs between tiers because MID
+  C.6.5) and MAY set it on any other leaf. The same marker keeps the
+  owner's signature on every change to the leaf under `REWRITE_h`: the
+  amount-only exemption of 7.9 rule 3 does not reach a leaf whose `seq`
+  is `SEQ_FINAL`. `SEQ_FINAL` differs between tiers because MID
   interprets `0xFFFFFFFF` as a negative `CScriptNum` whose successor still
   fits; the reference tests check both values in both tiers.
 * `evict_after` is a *deferral* of the evictor's right, not a guarantee to
@@ -1315,7 +1318,9 @@ Rules:
    `tx` by `old_i.owner_key` (hash type as in 7.2 rule 3), **except** that
    a position whose new element is a leaf identical to the old one in
    every field but `amount`, with `new_i.amount ≥ old_i.amount`, needs no
-   signature. A position whose old element is `E_0` needs none.
+   signature. The exception MUST NOT apply when `old_i.seq` equals the
+   tier's `SEQ_FINAL` (5.2): such a position needs `sig_i` like any other
+   change. A position whose old element is `E_0` needs none.
 4. `sig_op` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 5. For every position whose old element is a leaf and whose new element
    is `E_0`, in position order, the next unused output starting from
@@ -1327,13 +1332,21 @@ Rules:
    `REWRITE_h^x` in place of `REWRITE_h`. For every position for which
    rule 3 requires `sig_i`, the witness carries one further signature
    `xsig_i`, which MUST be valid over `tx` by `old_i.exit_key`. This is
-   `UPDATE^x` (7.4 rule 5) applied to the cohort, and a tree that uses
-   `UPDATE^x` SHOULD use `REWRITE_h^x`, for the same reason.
+   `UPDATE^x` (7.4 rule 5) applied to the cohort, and a tree whose taptree
+   carries `UPDATE^x` or `CLAIM^x` (7.5.3) MUST use `REWRITE_h^x` in place
+   of `REWRITE_h`, for the same reason: a plain `REWRITE_h` beside either
+   reopens the splice (C.6.6) and the voiding path (10.3) they close, and
+   the counterparty verifies the choice from `m`.
 
 *(informative)* Rule 3's exception is what makes a payment between
 members need only the payer's signature: the payee's leaf gains amount and
 changes in no other field, so nobody can use the exception to rotate a key
-or shorten a lease. Rule 5 is what makes the rewrite a safe mass exit: an
+or shorten a lease. The `SEQ_FINAL` exclusion is for leaves whose amount
+is not the owner's alone: a channel leaf's `amount` is the capacity its
+pre-signed states commit to (C.1.1), and raising it by even one satoshi
+makes every update transaction pay a fee it cannot pay beside a zero-value
+ephemeral anchor, so no default node relays it (C.2.4). The exclusion
+costs 11 bytes per position (8.9). Rule 5 is what makes the rewrite a safe mass exit: an
 owner who signs a transaction that empties its position is paid by the
 covenant, and the operator cannot use the script to remove a leaf without
 paying it, since removal needs that owner's signature and that payout. A
@@ -1959,6 +1972,7 @@ OP_2DUP OP_EQUAL OP_NOTIF                          # -- changed --
     OP_DUP OP_SIZE OP_NIP OP_0NOTEQUAL OP_IF       # -- new is a leaf: rewrite --
       OP_2DUP OP_8 108 OP_SUBSTR OP_SWAP OP_8 108 OP_SUBSTR OP_EQUAL   # old new same_rest
       OP_IF OP_2DUP OP_SWAP OP_8 OP_LEFT OP_SWAP OP_8 OP_LEFT OP_LESSTHANOREQUAL
+      OP_OVER OP_4 OP_RIGHT <SEQ_FINAL> OP_EQUAL OP_NOT OP_BOOLAND   # … and seq != SEQ_FINAL
       OP_ELSE OP_0 OP_ENDIF                        # old new exempt   (amount-only increase)
       OP_NOTIF OWNER_AUTH(d) OP_ENDIF
     OP_ELSE                                        # -- new is empty: exit --
@@ -1999,7 +2013,11 @@ Because the script decides from the two elements whether to roll a
 signature, the witness carries none for an unchanged position, an
 amount-only increase or a join, and a witness that supplies one anyway
 fails: the stray element is consumed as the next position's old element.
-Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes are in 11.
+The `SEQ_FINAL` test reads the last four bytes of the new element, which
+`same_rest` has just shown equal the old one's `seq`, so the constant
+is the tier's marker and nothing comes from the witness; it is 11 bytes
+per position. Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes
+are in 11.
 
 ### 8.10 DETACH_h
 
@@ -2905,27 +2923,27 @@ renewals and payments, three of every seven positions empty or joining):
 
 | script | positions | scenario | script | witness | owner sigs | tx vB | per-leaf vB |
 |---|---|---|---|---|---|---|---|
-| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | 1,437 | 359 |
-| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | 3,123 | 195 |
-| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | 10,104 | 158 |
-| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | 9,208 | 144 per changed leaf |
-| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 16,444 | 15,139 | 36 | 8,509 | 167 per changed leaf, 133 per position |
+| `REWRITE_2` | 4 | exit | 2,775 | 1,423 | 4 | 1,448 | 362 |
+| `REWRITE_4` | 16 | exit | 5,512 | 3,501 | 16 | 3,167 | 198 |
+| `REWRITE_6` | 64 | exit | 17,148 | 12,059 | 64 | 10,280 | 161 |
+| `REWRITE_6` | 64 | update | 17,148 | 19,483 | 64 | 9,384 | 147 per changed leaf |
+| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 17,148 | 15,139 | 36 | 8,685 | 170 per changed leaf, 136 per position |
 
 The transaction column prices the whole transaction on the model above:
 the skeleton with one payout per exiting leaf and none in the update
 case; the per-leaf column divides it by the leaves that leave or change.
 The marginal costs are what the design turns on: at `h = 6` each
-position costs 233 bytes of script (its `REWRITE_STEP` and its share of
+position costs 244 bytes of script (its `REWRITE_STEP` and its share of
 the `HASH_STEP2`s) and 234 bytes of witness for its two elements, about
-117 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
+120 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
 output and drops the 117-byte new element, so an unchanged leaf costs
-about 117 vB, a changed leaf about 133 vB and an exiting leaf about
-147 vB. Sixty-four owners who leave together therefore pay exactly what
+about 120 vB, a changed leaf about 136 vB and an exiting leaf about
+150 vB. Sixty-four owners who leave together therefore pay about what
 the operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and
-a cohort that rewrites every balance pays about 144 vB per leaf against
+a cohort that rewrites every balance pays about 147 vB per leaf against
 1,030 vB for an `UPDATE` each (3,346 WU of witness on the skeleton
 without a payout). `REWRITE_h^x` adds the 65-byte exit-key signature,
-16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 / 4,905
+16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,810 / 4,905
 bytes).
 
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
@@ -3211,7 +3229,8 @@ exits in a batch" as `EXIT_K` (section 13).
   position left alone: the rewrite succeeds with signatures only from
   the owners rule 3 names, and a changed leaf without its owner's
   signature, a key rotation disguised as an amount increase, a
-  shortchanged exit payout, an exit paid to the wrong key, a missing
+  `SEQ_FINAL` leaf raised by one satoshi without its owner's signature
+  (the same raise signed succeeds), a shortchanged exit payout, an exit paid to the wrong key, a missing
   operator signature, output 0 off by one in either direction, a stale
   path, a forged old leaf and, under `^x`, a missing or wrongly keyed
   exit signature all fail) and `DETACH_8` at `D = 16` (7.10: the detach
@@ -3228,7 +3247,7 @@ exits in a batch" as `EXIT_K` (section 13).
   compiled at depth `h`, fails with output 1 under the reference set's
   `m_h`, and in the detached tree, whose identifier is that option set at
   depth `h`, a channel leaf's `EXIT_1^=` pays its capacity exactly and
-  rejects a shortfall), 956 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  rejects a shortfall), 962 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
