@@ -417,7 +417,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 885 executable checks across four tiers (425 FULL, 120 MID, 31 MIN, 309 CCV), positive and negative |
+| Compiled scripts | 890 executable checks across four tiers (425 FULL, 125 MID, 31 MIN, 309 CCV), positive and negative |
 | Python against Go | 56 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 

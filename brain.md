@@ -30,7 +30,7 @@ with numbers.
 | Area | State |
 |---|---|
 | Spec | 0.8.5 on main: #8, #10, #6 and #7 merged (swap rules in 9.6.2; SPLIT in all four tiers; 11.1 script-set cost; the CCV tier in 4.6; the hypothetical opcode quarantined), then the editorial pass (dense is the default profile in 1, 5.4 and 11; 10.1 trust table lists grafting; 9.2 off-chain buyer checks; 4.5 says the MIN dashes mean not built). |
-| Python simulator | 425 / 120 / 31 / 309 checks on main (FULL / MID / MIN / CCV); 61 for the hypothetical opcode, outside every tier. |
+| Python simulator | 425 / 125 / 31 / 309 checks on main (FULL / MID / MIN / CCV); 61 for the hypothetical opcode, outside every tier. |
 | Go | 56 golden scripts byte-exact (FULL, MID, MIN, CCV); EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
 | Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
 | Paper | 15 body pages (References on page 16), 44 pages with appendices, PDF stamped 52ec594 and current. Still says "three opcode tiers" in the intro and section titles although the tier table carries CCV; the two-version build and the reviewer-profile pass are queued (see below). |
@@ -40,10 +40,6 @@ with numbers.
 
 ## In flight right now
 
-- A Sonnet worker is adding the MID join negatives (occupied slot, no
-  operator signature, stale `JOINK_2` second path) in its own worktree;
-  it commits without pushing and the orchestrator lands the commit on
-  main with the count updates.
 - Zoom-out discussion with the owner on the batching open questions and
   on what is not implemented, before any new build starts.
 - TeX works on this machine (see `layertree-tex-build` in memory):
@@ -70,7 +66,7 @@ with numbers.
    order stays: sources first, then make, then commit PDFs with
    version.tex.
 3. Done: the editorial pass landed as 52ec594 (spec 0.8.5).
-3b. MID join negatives: in flight (Sonnet worker).
+3b. Done: MID join negatives landed (125 MID checks).
 4. Build `REWRITE_h`, the cohort rewrite with per-leaf signatures
    (owner's call: build it). FULL tier first, MID stated as unsupported
    for the sweep's reason. Generator from the `EVICT_SUBTREE_h` post-order

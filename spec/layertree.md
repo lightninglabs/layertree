@@ -2276,12 +2276,13 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 120 and 31 checks respectively; the MID
+  operands during development), 125 and 31 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
-  7.5.2 in both profiles, the MID `SPLIT` with the negatives of the FULL
-  suite below. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
+  7.5.2 in both profiles, the dense `JOIN_2` negatives (occupied slot,
+  no operator signature), a stale `JOINK_2` second path, and the MID
+  `SPLIT` with the negatives of the FULL suite below. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
   `D = 4` and `16`: a split and a full drain succeed, and one signed by the
   operator or the recipient, an over-split, an occupied destination, a
   stale root, a recipient swapped under the owner's signature, an

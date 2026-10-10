@@ -126,6 +126,15 @@ def test_mid(depth, sparse, verbose=True):
         costs["JOIN_2"] = (it, len(w.compiled["JOIN_2"]), sum(len(x) for x in wit))
         ctxu = w.ctx([(r2[1] - 1, w.spk(r2))], (node[1] + 700, P2WPKH)); osigu = schnorr_sign(ctxu.sighash(), w.op_sk)
         expect_fail(lambda: w.run("JOIN_2", wit[:-3] + [osigu, root[0], w.m], ctxu), "mid: join underfunded")
+        # negative: join into an occupied position (alice sits in subtree 0)
+        jpath_bad = w.tree.path(0, height=h)
+        expect_fail(lambda: w.run("JOIN_2", list(M.pad(r2[1])) + w.pads_for(root[1]) +
+                                  M.w_levels(jpath_bad, lt.empty_node(h), node, False, h) +
+                                  [node[0], M.scriptnum(node[1]), osig, root[0], w.m], ctx), "mid: join over occupied subtree")
+        # negative: no valid operator signature (wrong key, then garbage)
+        usig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+        expect_fail(lambda: w.run("JOIN_2", wit[:-3] + [usig, root[0], w.m], ctx), "mid: join without operator (wrong key)")
+        expect_fail(lambda: w.run("JOIN_2", wit[:-3] + [b"\x01" * 64, root[0], w.m], ctx), "mid: join without operator (garbage sig)")
         w.tree = t2
         s_c, s_d = idx << h, (idx << h) + 3
     else:
@@ -156,6 +165,12 @@ def test_mid(depth, sparse, verbose=True):
         b1 = w.pads_for(root[1]) + M.w_levels(ph, lt.EMPTY_NODE, hank.node(), True) + w.pos(hank) + M.w_leaf(hank)
         b2 = M.w_levels(pi, lt.EMPTY_NODE, ivy.node(), True) + w.pos(ivy) + M.w_leaf(ivy)
     wit = list(M.pad(rj[1])) + b2 + b1 + [osig, root[0], w.m]
+    # negative: the second path is stale (taken before the first step's insert)
+    if not S:
+        b2_stale = M.w_levels(w.tree.path(s_i), lt.EMPTY_NODE, ivy.node(), False) + [ivy.hash(), M.scriptnum(ivy.amount)]
+    else:
+        b2_stale = M.w_levels(w.tree.path(s_i), lt.EMPTY_NODE, ivy.node(), True) + w.pos(ivy) + M.w_leaf(ivy)
+    expect_fail(lambda: w.run("JOINK_2", list(M.pad(rj[1])) + b2_stale + b1 + [osig, root[0], w.m], ctx), "mid: JOINK_2 stale second path")
     it = w.run("JOINK_2", wit, ctx)
     costs["JOINK_2"] = (it, len(w.compiled["JOINK_2"]), sum(len(x) for x in wit))
     w.tree = tj
