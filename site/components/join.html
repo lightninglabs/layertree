@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joining a tree</title>
+<meta name="description" content="How members join a LayerTree: a single join or a whole cohort grafted as one subtree, who pays, and what a joiner checks before paying.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html" aria-current="page">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Joining</h1>
+
+  <p class="takeaway">A join fills empty slots in the tree: one new leaf, or a
+  whole cohort that the operator builds off-chain and grafts in as one subtree for
+  the price of one transaction. The covenant checks only that the slots were empty
+  and that the new money is paid in, so each joiner checks their own leaf before
+  they pay.</p>
+
+  <div class="tree-anim" data-scenario="join-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="join-steps">
+  {
+    "label": "A single join and a cohort graft",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "Op", "amount": 4, "note": "operator"},
+      {"label": "A", "amount": 5}, null, null, null, null, null, null
+    ],
+    "steps": [
+      {
+        "title": "The tree before",
+        "caption": "The tree has two leaves and six empty slots. Only the operator can add leaves: every join carries the operator's signature. This tree will take one member on their own, then a cohort of four.",
+        "ops": []
+      },
+      {
+        "title": "A single join proves an empty slot",
+        "caption": "To add E, the operator's transaction proves that the third slot holds the empty node, using the same kind of proof an exit uses. The operator signs. A slot that holds a leaf would fold to a different root, so a join cannot overwrite anyone.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "badge", "pos": 2, "text": "operator signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "E's leaf is folded in",
+        "caption": "The script folds E's leaf up the same path to the new root. The tree output must grow by exactly E's amount, 2, and another input of the transaction must bring that money in. At depth 16 this single join is about 980 vB.",
+        "ops": [
+          {"op": "leaf", "pos": 2, "leaf": {"label": "E", "amount": 2}},
+          {"op": "fold", "pos": 2},
+          {"op": "chip", "id": "fundE", "kind": "input", "label": "E's funding input", "amount": 2},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "The operator builds a cohort off-chain",
+        "caption": "For four new members the operator builds a subtree of their leaves and computes its top node: a hash and a sum, 16. It sends each joiner their leaf, their path inside the subtree, the path from the empty slot up to the current root, and the unsigned transaction. The new root exists only off-chain so far.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "leaves", "from": 4, "leaves": [
+            {"label": "F", "amount": 3}, {"label": "G", "amount": 5},
+            {"label": "H", "amount": 6}, {"label": "J", "amount": 2}
+          ]},
+          {"op": "region", "h": 2, "i": 1, "label": "cohort, built off-chain"}
+        ]
+      },
+      {
+        "title": "Each joiner checks before paying",
+        "caption": "G folds its own leaf with its siblings and must reach the subtree's node, with every sum recomputed. G also checks that the slot folds as empty to the root on-chain, and that the transaction's tree output commits to the new root. Then G signs its funding input; the signature covers the tree output, so the input can only be spent into this graft.",
+        "ops": [
+          {"op": "region", "h": 2, "i": 1, "label": "cohort, built off-chain"},
+          {"op": "path", "pos": 5},
+          {"op": "badge", "pos": 5, "text": "G checks", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "The graft",
+        "caption": "The script proves the height-2 slot was empty, folds the subtree's node up the path, and requires the tree output to hold 16 more. It never looks inside the subtree, so grafting four members, or a thousand, is one transaction whose size depends only on the levels above the slot.",
+        "ops": [
+          {"op": "region", "h": 2, "i": 1, "label": "cohort"},
+          {"op": "fold", "pos": 1, "h": 2},
+          {"op": "badge", "node": [2, 1], "text": "operator signs", "kind": "sig"},
+          {"op": "chip", "id": "fundC", "kind": "input", "label": "Funding inputs", "amount": 16},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Existing members are untouched",
+        "caption": "A graft can only fill slots that were empty, so no existing leaf moves or shrinks. A's proof changes in one place: its sibling at the top level now covers the cohort. A reads the new sibling from the graft's witness, with no help from anyone.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "path", "pos": 1}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="single">A single join</h2>
+  <p>The transition for one leaf is <code>JOIN_0</code>. Its witness proves that a
+  slot holds the empty node, carries the new leaf's hash and amount, and carries
+  the operator's signature. The script folds the empty node up the path and
+  requires the result to match the root the tree output commits to, which shows
+  the slot was empty. It then folds the new leaf up the same path and requires the
+  transaction to recreate the tree output under the new root, holding the old
+  total plus the new leaf's amount. The extra money must come from another input;
+  the covenant does not care whose.</p>
+
+  <h2 id="graft">A cohort graft</h2>
+  <p>A cohort is a group of members grafted together into one aligned subtree: a
+  block of 2<sup>h</sup> consecutive slots under one node at height h. The
+  transition is <code>JOIN_h</code>. The operator builds the cohort's subtree
+  off-chain and the witness carries only its top node, a 32-byte hash and an
+  8-byte sum. The script checks that the slot held the empty node of height h,
+  folds the new node up the D&nbsp;&minus;&nbsp;h levels above it, and requires the
+  tree output to grow by the subtree's sum.</p>
+  <p>Because the script walks only the levels above the slot, a bigger cohort is a
+  smaller transaction. At depth 16:</p>
+  <div class="table-wrap">
+    <table>
+      <caption>Graft cost at depth 16 (from <code>design/graft.md</code>)</caption>
+      <thead><tr><th>Transition</th><th class="num">Members</th><th class="num">Transaction, vB</th><th class="num">Per member, operator funds</th><th class="num">Per member, members fund</th></tr></thead>
+      <tbody>
+        <tr><td><code>JOIN_0</code></td><td class="num">1</td><td class="num">980</td><td class="num">980</td><td class="num">about 1,040</td></tr>
+        <tr><td><code>JOIN_2</code></td><td class="num">4</td><td class="num">915</td><td class="num">229</td><td class="num">about 290</td></tr>
+        <tr><td><code>JOIN_6</code></td><td class="num">64</td><td class="num">786</td><td class="num">12.3</td><td class="num">about 70</td></tr>
+        <tr><td><code>JOIN_8</code></td><td class="num">256</td><td class="num">722</td><td class="num">2.8</td><td class="num">about 61</td></tr>
+        <tr><td><code>JOIN_10</code></td><td class="num">1,024</td><td class="num">657</td><td class="num">0.64</td><td class="num">about 59</td></tr>
+        <tr><td>One output in an on-chain batch</td><td class="num"></td><td class="num"></td><td class="num">43</td><td class="num"></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Each height is its own script, and the set of scripts is fixed when the tree
+  is created. The reference set carries <code>JOIN_0</code> and
+  <code>JOIN_2</code>; a deployment that wants 256-member cohorts compiles
+  <code>JOIN_8</code> in at creation. A slot of height h takes any cohort of up to
+  2<sup>h</sup> members, with the unused slots left empty. Placing a cohort in one
+  subtree also sets up the cheap removals later: the
+  <a href="evict.html">sweep</a> and the <a href="batching.html">cohort
+  rewrite</a> both work on an aligned subtree.</p>
+
+  <h2 id="unchecked">What the covenant does not check</h2>
+  <p>The script sees the grafted node's hash and sum, and nothing below them. It
+  cannot tell a real subtree of 256 leaves from 32 random bytes. That is what
+  keeps the graft one constant-size transaction, and it has a precise
+  consequence. If the operator grafts a node with no real tree behind it, nobody
+  can ever prove a leaf under it, so the value it brought stays in the tree
+  output for good. No value is created, because the sums still balance, and
+  nothing else in the tree is affected: every other leaf stays payable. The Lean
+  theorem <code>join_sound</code> states it: a join fills a slot that was empty,
+  the output grows by the grafted sum, and every other position keeps its
+  contents.</p>
+
+  <h2 id="who-pays">Who pays</h2>
+  <p>The covenant requires the new sum to be paid in, and leaves open who pays it.
+  There are three ways to fund a cohort.</p>
+  <dl class="terms">
+    <dt>The operator funds the graft.</dt>
+    <dd>The operator supplies the whole sum from its own input. Members hold no
+    on-chain coins; each buys their balance off-chain, over Lightning, after the
+    graft confirms, or through a hash-locked voucher that the covenant enforces
+    (see <a href="swap.html">swaps</a>). The operator carries the risk that a
+    member never pays. This is the cheap case: under 1 vB per member for a
+    cohort of a thousand.</dd>
+    <dt>Each member funds their own leaf.</dt>
+    <dd>Each member adds an input to the graft transaction and signs it, about
+    58 vB each. The transaction cannot be broadcast until every member has
+    signed, so one absent member stalls the cohort until the operator rebuilds it
+    without them. An unsigned graft leaves every member's coins where they
+    were.</dd>
+    <dt>Mixed.</dt>
+    <dd>The operator funds some leaves and members fund others. This changes
+    nothing for anyone, because each member's safety rests on their own path.</dd>
+  </dl>
+
+  <h2 id="verify">What a joiner checks before paying</h2>
+  <p>A member who signs an input to the graft checks the unsigned transaction
+  first (spec 9.2):</p>
+  <ol>
+    <li>Input 0 spends the current tree output, with the expected amount.</li>
+    <li>The empty slot folds up its path to that output's root.</li>
+    <li>Their own leaf folds up their path inside the subtree to the grafted node,
+    with every sum recomputed.</li>
+    <li>Output 0 commits to the root that the grafted node folds to, with the old
+    amount plus the subtree's sum.</li>
+    <li>Their leaf's fields are as agreed: amount, their own keys, the evictor and
+    the lease.</li>
+    <li>Their own inputs and change are as agreed.</li>
+  </ol>
+  <p>They then sign with a signature that covers every output, so their input can
+  only be spent into a transaction whose tree output contains their leaf. They do
+  not need to check anyone else's leaf: by the conservation property, a
+  co-member's bad leaf cannot make a good one unpayable.</p>
+  <p>A member who pays off-chain has no input to sign. They wait for the graft to
+  confirm, check the same path against the confirmed root, and only then pay.
+  Paying first means trusting the operator to graft.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#73-join">Spec 7.3</a>: <code>JOIN_h</code> and <code>JOINK_K</code>, and rule 4 on what is not checked.</li>
+      <li><a href="../../spec/layertree.md#92-joining">Spec 9.2</a>: the joining protocol and the joiner's checks.</li>
+      <li><a href="../../spec/layertree.md#101-trust-model">Spec 10.1</a>: what the operator can and cannot do.</li>
+      <li><a href="../../design/graft.md"><code>design/graft.md</code></a>: the trust model, funding modes and costs, and a worked example of 256 members.</li>
+      <li><a href="../../formal/README.md"><code>formal/README.md</code></a>: <code>join_sound</code> and the grounding hypothesis.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>

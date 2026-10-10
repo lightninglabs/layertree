@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exiting a tree</title>
+<meta name="description" content="How a LayerTree member leaves: the proof, the fold, the new root and the payout, in one transaction signed only by the member.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html" aria-current="page">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Exiting</h1>
+
+  <p class="takeaway">A member leaves by proving their leaf against the committed
+  root and putting an empty slot in its place, in one transaction that needs only
+  their own signature. Two members can leave in one transaction, but each still
+  carries a full proof, so the pair saves only the transaction's fixed
+  overhead.</p>
+
+  <div class="tree-anim" data-scenario="exit-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="exit-steps">
+  {
+    "label": "One exit, then two exits in one transaction",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "A", "amount": 5}, {"label": "B", "amount": 3},
+      {"label": "C", "amount": 6}, {"label": "D", "amount": 2},
+      {"label": "E", "amount": 4}, {"label": "F", "amount": 1},
+      null, null
+    ],
+    "steps": [
+      {
+        "title": "C decides to leave",
+        "caption": "C's leaf holds 6, an owner key that authorises spends, and an exit key that receives the payout. C needs no one's permission. C builds a transaction that spends the tree output and signs it with the owner key; the signature covers every output, so nobody can redirect the payout.",
+        "ops": [
+          {"op": "badge", "pos": 2, "text": "C signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "The proof",
+        "caption": "The witness carries C's leaf and three siblings: D's leaf, the node over A and B, and the node over the right half. The script folds upward: C with D gives 8, with A and B gives 16, with the right half gives 21. The root it reaches matches the one the output commits to.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "badge", "pos": 2, "text": "C signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "The fold",
+        "caption": "The script folds again with an empty slot in C's place and the same three siblings: 2, then 10, then 15. Folding twice over one proof is the whole cost of the exit, and it does not depend on how many members the tree has.",
+        "ops": [
+          {"op": "leaf", "pos": 2, "leaf": null},
+          {"op": "fold", "pos": 2}
+        ]
+      },
+      {
+        "title": "The new root and the payout",
+        "caption": "The transaction must recreate the tree output under the new root with exactly 15, and pay C's exit key in output 1. At depth 16 this whole transaction is about 1,020 vB.",
+        "ops": [
+          {"op": "chip", "id": "payC", "kind": "payout", "label": "Payout to C", "amount": 6},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Paying the fee from the payout",
+        "caption": "In the FULL tier an owner may take less than the leaf's amount, and the difference pays the fee. That saves a separate fee input, about 99 vB. Trees created with exact payouts forbid it, so every payout equals its leaf and fees come from elsewhere.",
+        "ops": [
+          {"op": "chip", "id": "payC", "kind": "payout", "label": "Payout to C", "value": "6 − fee"}
+        ]
+      },
+      {
+        "title": "Two exits in one transaction",
+        "caption": "A and F leave together. Each brings its own signature and its own full proof. The script checks the first proof against the committed root, and the second against the root the first exit produces. They share the transaction's fixed parts and nothing else.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "path", "pos": 0},
+          {"op": "path", "pos": 5},
+          {"op": "badge", "pos": 0, "text": "A signs", "kind": "sig"},
+          {"op": "badge", "pos": 5, "text": "F signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "Both leaves are paid",
+        "caption": "Both slots become empty, the tree output holds 9, and outputs 1 and 2 pay A and F. At depth 16 the pair costs about 842 vB per leaf, against 1,020 for each alone.",
+        "ops": [
+          {"op": "leaf", "pos": 0, "leaf": null},
+          {"op": "leaf", "pos": 5, "leaf": null},
+          {"op": "fold", "pos": 0},
+          {"op": "fold", "pos": 5},
+          {"op": "chip", "id": "payA", "kind": "payout", "label": "Payout to A", "amount": 5},
+          {"op": "chip", "id": "payF", "kind": "payout", "label": "Payout to F", "amount": 1},
+          {"op": "commit"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="rules">What an exit checks</h2>
+  <p>An exit is the <a href="state-machine.html">state machine</a> with the
+  simplest rule. The old node is the leaf; the new node is the empty slot. On top
+  of the three checks every transition makes, the exit script requires:</p>
+  <ul>
+    <li>output 1 pays to the leaf's exit key;</li>
+    <li>the leaf's owner key signed the transaction, with a signature that covers
+    all outputs;</li>
+    <li>output 1's amount is at most the leaf's amount, or exactly the leaf's
+    amount in a tree created with exact payouts.</li>
+  </ul>
+  <p>The exit key is separate from the owner key so that a hot key can authorise
+  while the money lands on a cold key, and so that a leaf can name the funding
+  key of a Lightning channel (see <a href="payment.html">payments</a>).</p>
+
+  <h2 id="no-voucher">Why the operator does not sign</h2>
+  <p>The first sketch of this design had the operator sign a voucher that a
+  member presented to leave. Review removed it. Once the covenant checks the proof
+  against the committed root, the operator has already agreed to the leaf: it
+  signed the transition that put the leaf there. A required operator signature
+  would add nothing except a way to refuse it. So the proof plus the owner's own
+  signature is the whole authorisation, and the operator holds no key over
+  anyone's balance.</p>
+  <p>Owners are still encouraged to ask the operator first. A unilateral exit
+  competes with whatever the operator has pending for the same output, while a
+  cooperative one can be folded into the operator's next transition for less.</p>
+
+  <h2 id="payout">Exact payouts and fee-paying payouts</h2>
+  <p>In the FULL tier an owner's payout may be smaller than the leaf, and the
+  difference goes to the fee; the owner agreed to it by signing. This lets an
+  owner with no other coins pay the fee from the exit itself, and saves the fee
+  input, about 99 vB. A tree may instead be created with exact payouts
+  (<code>EXIT_K^=</code>), in which every payout equals its leaf and every fee
+  comes from another input. The choice changes the scripts, so it is visible in
+  the tree's identifier. The MID and MIN tiers are always exact, and a tree that
+  hosts Lightning channels in its leaves should be exact, because a channel's
+  signed states assume its full capacity arrives.</p>
+
+  <h2 id="pairs">Two exits, and why that saves little</h2>
+  <p><code>EXIT_2</code> chains two single exits. Each step proves its own leaf
+  against the root the previous step produced, folds its own path, and pays its
+  own output. The second leaf brings a full path of its own, so the only shared
+  bytes are the transaction's skeleton and the script's fixed parts. The second
+  exit costs about 665 vB on top of the first, and the pair averages 842 per
+  leaf.</p>
+  <p>Leaves that sit in the same aligned subtree share most of their path, and a
+  script built for that shape hashes the shared part once. That is a different
+  transition, the cohort rewrite, and the <a href="batching.html">batching
+  page</a> covers it: 64 owners leaving together pay about 159 vB each.</p>
+
+  <h2 id="cost">What it costs</h2>
+  <div class="table-wrap">
+    <table>
+      <caption>Exit size, dense profile, FULL tier unless noted (spec 11, <code>design/cost-comparison.md</code>)</caption>
+      <thead><tr><th>Case</th><th class="num">vB</th></tr></thead>
+      <tbody>
+        <tr><td>Bare spend of a single-owner output</td><td class="num">111</td></tr>
+        <tr><td>Exit, depth 8 (256 slots)</td><td class="num">762</td></tr>
+        <tr><td>Exit, depth 16 (65,536 slots)</td><td class="num">1,020</td></tr>
+        <tr><td>Exit, depth 16, fee taken from the payout</td><td class="num">921</td></tr>
+        <tr><td>Exit, depth 20 (about a million slots)</td><td class="num">1,149</td></tr>
+        <tr><td>Two exits in one transaction, per leaf, depth 16</td><td class="num">842</td></tr>
+        <tr><td>Unrolling a transaction tree of depth 16 (Ark or CTV model)</td><td class="num">2,511</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Each level of depth adds about 32 vB, so a tree holding sixteen times as many
+  slots costs about 130 vB more to leave. The last member to leave takes a
+  terminal exit: once the new root is the empty root, the tree output need not be
+  recreated at all.</p>
+  <p>After any exit, the other members update their proofs from the exit's
+  witness, which contains the full path and the new nodes. Nobody needs the
+  operator's help to keep a proof current.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#72-exit">Spec 7.2</a>: the exit rules, including the exact-payout variant.</li>
+      <li><a href="../../spec/layertree.md#76-composition-and-variants">Spec 7.6</a>: <code>EXIT_K</code> as a sequence of steps; <a href="../../spec/layertree.md#78-terminal-transitions">7.8</a>: the terminal exit.</li>
+      <li><a href="../../spec/layertree.md#93-exiting-and-fees">Spec 9.3</a>: exiting and fees; <a href="../../spec/layertree.md#97-data-retention-and-proof-maintenance">9.7</a>: keeping a proof current.</li>
+      <li><a href="../../spec/layertree.md#11-cost-analysis">Spec 11</a> and <a href="../../spec/scripts/sizes.md"><code>spec/scripts/sizes.md</code></a>: measured sizes.</li>
+      <li><a href="../../design/cost-comparison.md"><code>design/cost-comparison.md</code></a>: the exit against a bare output, Lightning and Ark.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>
