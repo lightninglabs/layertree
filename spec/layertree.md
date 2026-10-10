@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.8.5
+Version:  0.9.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -368,8 +368,11 @@ are interchangeable, with one numeric cap noted below.
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK`; the voucher binds `tree_id` in place of `m` (4.6, 9.6) |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | yes, both numerics, as `CLAIM` |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes, both numerics |
+| `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | not implemented | no (no `CLAIM`) | not implemented |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's sweep and stack bound, 4.6) |
+| `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | not implemented | no | not implemented |
+| `DETACH_h` (subtree detach, 7.10) | yes | not implemented | no | not implemented |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | `0xFFFFFFFF` (`0xC2`), `0x7FFFFFFF` (`0xC0`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output | yes |
@@ -398,6 +401,9 @@ script / witness data:
 | `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,097 / 1,157 | — | 2,340 / 987 | — | — | — |
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | 15,968 / 6,391 | — | — | — |
+| `CLAIM^x` | 3,810 / 1,754 | — | n/a | — | 9,904 / 547 | — | — |
+| `REWRITE_4` (16 positions, mixed) | 5,336 / 4,329 | — | — | — | n/a | n/a | n/a |
+| `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`): dense `D = 16`: `EXIT_1`
@@ -1099,6 +1105,44 @@ and only a signature over that output says which. Rule 1's coverage
 requirement is therefore what stops a relayer rewriting the recipient
 (10.7).
 
+#### 7.5.3 CLAIM^x (exit-key consent)
+
+`CLAIM^x` is `CLAIM` whose redemption additionally requires the consent of
+the source leaf's `exit_key`, exactly as `UPDATE^x` (7.4 rule 5) adds that
+consent to `UPDATE`. `CLAIM^hx` is the same addition to `CLAIM^h`. Both
+are tree-creation parameters: a taptree MAY include any combination of
+`CLAIM`, `CLAIM^h`, `CLAIM^x` and `CLAIM^hx`, and the choice is visible in
+`m`.
+
+Witness inputs: as `CLAIM` (or `CLAIM^h`), with one further element
+`exit_sig` directly below `r`, that is, above `voucher_sig` and, in the
+hash-locked form, above `preimage`.
+
+Rules: as 7.5 (or 7.5.1), plus
+
+5. `exit_sig` MUST be a valid BIP-340 signature over `tx` by
+   `source_leaf.exit_key`, with the same hash-type requirement as 7.2
+   rule 3.
+
+Rules 1 to 4 are unchanged, so `CLAIM^x` conserves the total, is
+single-use, advances `seq` and empties a drained source position exactly
+as `CLAIM` does; the voucher is still required, and a transaction
+signature by the source owner does not stand in for it.
+
+*(informative)* The variant exists for the **dedicated credit leaf** of
+10.3: a source leaf the issuer owns (`owner_key`) whose `exit_key` is the
+recipient's. Every voucher against such a leaf pays the same recipient,
+so the recipient's own redemptions carry `exit_sig` at no cost, and the
+issuer cannot carve the leaf at all, not even with a voucher it signs to
+itself, because it does not hold the exit key. With `UPDATE^x` and
+`EXIT^=` in the same taptree and a `NUMS` evictor, the credit leaf's
+balance can only grow or be paid to its recipient, which removes the
+voiding race of 10.3 for that leaf. The reference generator exposes the
+variant as `claim_script(…, exit_consent=True)`. It costs 8 bytes over
+`CLAIM` or `CLAIM^h` in the FULL tier (`UPDATE^x`'s seven, plus one
+`OP_SWAP` that lifts the signature over the spare copy of `m` the voucher
+message needs) and 64 bytes of witness.
+
 ### 7.6 Composition and variants
 
 Transition types compose by sequencing: a script that applies transitions
@@ -1123,8 +1167,8 @@ hold many leaves, a tree MAY instead include scripts whose *shape* is fixed:
 the set of positions they act on is known at script-generation time, the
 internal nodes of the union of paths are hashed exactly once each, and every
 stack depth is static, so no runtime flags are needed. This document defines
-one such shape, `EVICT_SUBTREE_h` (section 7.7); others (sibling pairs,
-partially filled subtrees, multi-exit within a subtree) follow the same
+two such shapes, `EVICT_SUBTREE_h` (section 7.7) and `REWRITE_h` (section
+7.9); others (sibling pairs, partially filled subtrees) follow the same
 construction. A general "any `K` positions" multiproof driven by witness
 flags is possible but saves only witness bytes and hashing, not script,
 because each unrolled step must carry both branches.
@@ -1169,7 +1213,8 @@ If the post-transition root `r'` equals `E_D` (every position is empty),
 rules 7.1.2 and 7.1.5 do not apply: output 0 is unconstrained, and the
 transaction MUST still contain an output 0 for the payouts to be numbered
 from 1. This lets the last participant leave without creating a zero-value
-tree output. Only `EXIT` can produce `E_D`. Scripts MUST take this branch
+tree output. `EXIT`, `EVICT_SUBTREE_h`, `REWRITE_h` and `DETACH_h` can
+produce `E_D`; no other transition can. Scripts MUST take this branch
 only when `r' = E_D` exactly; the reference `FINAL` macro compares against
 the constant `E_D` of the tree's depth.
 
@@ -1179,6 +1224,113 @@ an `EXIT` of such a leaf requires a zero-value payout output. Participants
 SHOULD refuse to create or accept zero-amount leaves; an operator that finds
 one MAY remove it with `UPDATE` (with the owner) or leave it in place, since
 it contributes nothing to the total.
+
+### 7.9 REWRITE_h (cohort rewrite)
+
+`REWRITE_h` replaces the contents of one aligned subtree of height `h` in
+a single spend, with the consent of every owner whose leaf changes and of
+the operator. It is the cohort form of `UPDATE`, and with rule 5 it is
+also a mass exit, a cohort join and an intra-cohort settlement: within one
+transaction a position can go from a leaf to `E_0` (an exit, paid out),
+from `E_0` to a leaf (a join, funded), or from one leaf to another (a
+resize, renewal, key rotation or payment). It is a tree-creation
+parameter: a taptree MAY include `REWRITE_h` for any set of heights, and
+the choice is visible in `m`.
+
+Witness inputs: sibling path of the subtree root (`D − h` levels); for
+each of the `2^h` positions in position order an **old element** and a
+**new element**, each either the 116-byte leaf at that position or the
+empty string for `E_0`; for every position rule 3 names, `sig_i`; and
+`sig_op`, `r`, `m`. Signatures appear only where rules 3 and 7 require
+them, so an unchanged position costs its two elements and nothing else.
+
+Rules:
+
+1. The old node is the subtree root recomputed from the old elements
+   (empty elements contribute `E_0`); it MUST `fold` with the path to
+   `(r, S)` with `S` equal to input 0's amount.
+2. The new node is the subtree root recomputed from the new elements, and
+   `r'` is its `fold` with the same path.
+3. For every position whose new element differs from its old element and
+   whose old element is a leaf, `sig_i` MUST be a valid signature over
+   `tx` by `old_i.owner_key` (hash type as in 7.2 rule 3), **except** that
+   a position whose new element is a leaf identical to the old one in
+   every field but `amount`, with `new_i.amount ≥ old_i.amount`, needs no
+   signature. A position whose old element is `E_0` needs none.
+4. `sig_op` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
+5. For every position whose old element is a leaf and whose new element
+   is `E_0`, in position order, the next unused output starting from
+   output 1 MUST pay exactly `old_i.amount` to `P2TR(old_i.exit_key)`.
+6. Output 0 is `(S − Σ old amounts + Σ new amounts, TREE_SPK(r', m))` per
+   7.1, or unconstrained if `r' = E_D` (7.8). Any decrease is free for the
+   transaction to spend; any increase MUST be funded by other inputs.
+7. **Exit-consent variant `REWRITE_h^x`.** A tree MAY be created with
+   `REWRITE_h^x` in place of `REWRITE_h`. For every position for which
+   rule 3 requires `sig_i`, the witness carries one further signature
+   `xsig_i`, which MUST be valid over `tx` by `old_i.exit_key`. This is
+   `UPDATE^x` (7.4 rule 5) applied to the cohort, and a tree that uses
+   `UPDATE^x` SHOULD use `REWRITE_h^x`, for the same reason.
+
+*(informative)* Rule 3's exception is what makes a payment between
+members need only the payer's signature: the payee's leaf gains amount and
+changes in no other field, so nobody can use the exception to rotate a key
+or shorten a lease. Rule 5 is what makes the rewrite a safe mass exit: an
+owner who signs a transaction that empties its position is paid by the
+covenant, and the operator cannot use the script to remove a leaf without
+paying it, since removal needs that owner's signature and that payout. A
+leaf nobody signs for passes through unchanged, so a cohort settles with
+only the members whose leaves change taking part. The script has no lease
+check: eviction remains `EVICT_SUBTREE_h`'s job.
+
+The old and new subtrees are both published, so a cohort join by
+`REWRITE_h` is grounded by construction where `JOIN_h` (7.3 rule 4) trusts
+the joiners to have checked. Spec 13.4's owner multiproof
+(`EXIT_SUBTREE_h`) is the special case in which every new element is
+either its old element or `E_0`, and is not a separate script.
+
+### 7.10 DETACH_h (subtree detach)
+
+`DETACH_h` moves one aligned subtree of height `h` into a tree output of
+its own. After it the cohort is a LayerTree of depth `h` whose root is the
+node the members already hold proofs against, so every later transition
+on the cohort pays `h` levels instead of `D`, and the cohort's output
+spends independently of the parent's (10.5). It is a tree-creation
+parameter and the operator's decision, like `JOIN_h`: it spends nobody's
+balance and only shortens every member's path.
+
+Witness inputs: sibling path of the subtree root (`D − h` levels),
+`R_h` (32 bytes), `sum_h` (8 bytes `le64`), `sig`, `r`, `m`.
+
+Rules:
+
+1. The old node is `(R_h, sum_h)`; it MUST `fold` with the path to
+   `(r, S)` with `S` equal to input 0's amount.
+2. The new node is `E_h`. Output 0 is `(S − sum_h, TREE_SPK(r', m))` per
+   7.1, or unconstrained if `r' = E_D` (7.8).
+3. Output 1 MUST be `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is a
+   constant of the script: the tree identifier (6.2) of a tree of depth
+   `h` with the same `OPERATOR_KEY`, fixed at tree creation and therefore
+   committed to by `m`. The reference `m_h` is the taptree root of the
+   reference script set compiled for depth `h` (`EXIT_1`, `EXIT_2`,
+   `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`); a creator MAY choose another
+   set and MUST publish it with the tree's parameters (9.1).
+4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
+
+A member's proof in the detached tree is its proof in the parent truncated
+to the lower `h` levels; no member needs new data. The detached tree's
+leaves are byte for byte the parent's, so an `EXIT` from it pays the same
+`P2TR(exit_key)`, and channel leaves (Appendix C) are unaffected: `chan_id`
+binds the parent's `m` as a creation-time constant of the channel scripts,
+not as anything a tree script re-derives. Vouchers are different: they bind
+`m`, and `CLAIM` re-derives `m` from the input it spends, so a voucher
+against a source leaf in a detached subtree MUST be reissued under `m_h`
+(9.6).
+
+*(informative)* Value is conserved across two tree outputs,
+`S = (S − sum_h) + sum_h`; the Lean model of section 7 has one tree output
+and does not yet cover this step. The detached tree is a depth-`h` tree in
+every respect, including its own `DETACH_h'` scripts if `m_h`'s set
+carries them.
 
 ## 8. Reference Scripts
 
@@ -1575,6 +1727,26 @@ MID, with `<TREE_ID>` in place of the copy of `m`. Listings:
 `spec/scripts/CCV_CLAIM_D4.txt`, `CCV_CLAIM_H_D4.txt`, `CCV0_CLAIM_D4.txt`,
 `CCV0_CLAIM_H_D4.txt`, `CCV0_SPLIT_D4.txt`.
 
+#### 8.6.3 CLAIM^x and CLAIM^hx
+
+Witness: as 8.6 (or 8.6.1) with `exit_sig` directly below `r`. The
+signature is checked first, immediately after the prologue parks `m` and
+`r`, so every stack depth in the rest of the script is as in the plain
+form:
+
+```
+<SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
+OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim vsig [pre] xsig r m
+OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim vsig [pre] xsig m   | m r
+OP_SWAP OP_4 OP_PICK OP_8 32 OP_SUBSTR              # src claim vsig m xsig src.exit_key
+OP_CHECKSIGVERIFY                                   # src claim vsig m
+... as 8.6 from OP_3 OP_PICK onwards (8.6.1 from OP_SWAP OP_SIZE 32 onwards), unchanged ...
+```
+
+In `CLAIM^hx` the pick depth is `OP_5`, since the preimage sits between
+`voucher_sig` and `exit_sig`. Either form costs 8 bytes over its plain
+script (section 8.8). Listing: `spec/scripts/CLAIM_X_D4.txt`.
+
 ### 8.7 EVICT_SUBTREE_h
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  leaf_{2^h−1} … leaf_0  sig  r  m`
@@ -1665,6 +1837,108 @@ Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
 constant` (sparse). Full tables from the
 simulator, including varops consumed, are in `spec/scripts/sizes.md`; see
 section 11.
+
+### 8.9 REWRITE_h
+
+Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  block_{2^h−1} … block_0  sig_op
+r  m`, with `block_i = [xsig_i] [sig_i] new_i old_i` (`old_0` on top;
+each element is 116 bytes or empty; `sig_i` only where 7.9 rule 3
+requires it, `xsig_i` only under `^x` and only where `sig_i` is present).
+
+```
+PROLOGUE <OPERATOR_KEY> OP_CHECKSIGVERIFY          # …blocks            | m r
+OP_1 OP_TOALTSTACK                                 #                    | m r idx
+<EMPTY_LEAF_HASH> <TAG_LEAF> <TAG_NODE>            # Z L T
+POSTORDER2(h)                                      # Z L T oh os nh ns  | m r idx
+OP_FROMALTSTACK OP_DROP                            # drop idx
+OP_6 OP_ROLL OP_DROP OP_5 OP_ROLL OP_DROP          # T oh os nh ns      (drop Z, L)
+LEVEL × (D − h)
+CHECK_OLD FINAL
+```
+
+`POSTORDER2(h)` is 8.7's `POSTORDER(h)` with `REWRITE_STEP` for
+`LEAF_STEP` and `HASH_STEP2` for `HASH_STEP`: every position yields four
+machine elements `oh os nh ns` instead of two, and the generator's
+machine depth `d` advances by four. The two constants `Z` (`E_0.hash`)
+and `L` (the `TAG_LEAF` prefix) are pushed once and picked by every
+position; inline they would cost 186 bytes per position.
+
+**`REWRITE_STEP(d)`** — rolls a position's old and new elements up from
+below `Z`, applies 7.9 rules 3 and 5, and converts both to nodes:
+
+```
+<d+3> OP_ROLL <d+4> OP_ROLL                        # … old new
+OP_2DUP OP_EQUAL OP_NOTIF                          # -- changed --
+  OP_OVER OP_SIZE OP_NIP OP_0NOTEQUAL OP_IF        # -- old is a leaf --
+    OP_DUP OP_SIZE OP_NIP OP_0NOTEQUAL OP_IF       # -- new is a leaf: rewrite --
+      OP_2DUP OP_8 108 OP_SUBSTR OP_SWAP OP_8 108 OP_SUBSTR OP_EQUAL   # old new same_rest
+      OP_IF OP_2DUP OP_SWAP OP_8 OP_LEFT OP_SWAP OP_8 OP_LEFT OP_LESSTHANOREQUAL
+      OP_ELSE OP_0 OP_ENDIF                        # old new exempt   (amount-only increase)
+      OP_NOTIF OWNER_AUTH(d) OP_ENDIF
+    OP_ELSE                                        # -- new is empty: exit --
+      OWNER_AUTH(d)
+      OP_FROMALTSTACK OP_DUP OP_1ADD OP_TOALTSTACK # old new idx        | … idx+1
+      <SEL_OUT_SINGLE> OP_TX                       # old new amt spk
+      <0x5120> OP_4 OP_PICK OP_8 32 OP_SUBSTR OP_CAT OP_EQUALVERIFY
+      OP_2 OP_PICK OP_8 OP_LEFT OP_NUMEQUALVERIFY  # old new            (exact payout)
+    OP_ENDIF
+  OP_ENDIF                                         # (old empty: a join, operator only)
+OP_ENDIF                                           # (unchanged)
+OP_SWAP ELEM_NODE(d+4, d+3)                        # new oh os
+OP_ROT  ELEM_NODE(d+5, d+4)                        # oh os nh ns
+```
+
+**`OWNER_AUTH(d)`** — `<d+5> OP_ROLL OP_2 OP_PICK 40 32 OP_SUBSTR
+OP_CHECKSIGVERIFY`, consuming the next witness element as the old owner's
+signature; under `^x` it is followed by `<d+5> OP_ROLL OP_2 OP_PICK OP_8 32
+OP_SUBSTR OP_CHECKSIGVERIFY` for the exit key.
+
+**`ELEM_NODE(k_L, k_Z)`** — `[elem] → [h s]`:
+
+```
+OP_SIZE OP_0NOTEQUAL
+OP_IF   OP_SIZE 116 OP_EQUALVERIFY
+        OP_DUP OP_8 OP_LEFT OP_SWAP                # amt leaf
+        <k_L> OP_PICK OP_SWAP OP_CAT OP_SHA256 OP_SWAP   # H_leaf(leaf) amt
+OP_ELSE OP_DROP <k_Z> OP_PICK OP_0                 # E_0.hash 0
+OP_ENDIF
+```
+
+**`HASH_STEP2(d)`** — `[T … loh los lnh lns roh ros rnh rns] → [T … poh
+pos pnh pns]`: `OP_2SWAP OP_7 OP_ROLL OP_7 OP_ROLL OP_2SWAP HASH_STEP(d)
+OP_2SWAP OP_5 OP_ROLL OP_5 OP_ROLL OP_2SWAP HASH_STEP(d − 2)`; the eight
+nodes are on top, so only the `HASH_STEP` pick depths vary with `d`.
+
+Because the script decides from the two elements whether to roll a
+signature, the witness carries none for an unchanged position, an
+amount-only increase or a join, and a witness that supplies one anyway
+fails: the stray element is consumed as the next position's old element.
+Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes are in 11.
+
+### 8.10 DETACH_h
+
+Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  R_h  sum_h8  sig  r  m`. The
+script is `JOIN_h` with the roles of the old and new node exchanged and one
+output check added:
+
+```
+PROLOGUE <OPERATOR_KEY> OP_CHECKSIGVERIFY          # R_h sum8           | m r
+OP_SIZE OP_8 OP_EQUALVERIFY
+OP_OVER OP_SIZE 32 OP_EQUALVERIFY OP_DROP          # R_h sum8
+OP_OVER <m_h> TREE_SPK                             # R_h sum8 TREE_SPK(R_h, m_h)
+OP_1 <SEL_OUT_SINGLE> OP_TX                        # R_h sum8 spk1 amt1 spk1'
+OP_ROT OP_EQUALVERIFY                              # R_h sum8 amt1
+OP_OVER OP_NUMEQUALVERIFY                          # R_h sum8           (output 1 pays sum_h)
+<TAG_NODE> OP_ROT OP_ROT                           # T R_h sum8
+<E_h.hash> OP_0                                    # T R_h sum8 E_h.hash 0
+LEVEL × (D − h)
+CHECK_OLD FINAL
+```
+
+`m_h` is a 32-byte constant of the script (7.10 rule 3); the reference
+generator computes it as `detached_taptree_root(h, OPERATOR_KEY)`. The
+script is `JOIN_h` plus 235 bytes, almost all of them the second
+`TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
 
 ## 9. Off-Chain Protocol
 
@@ -1763,7 +2037,10 @@ the value at issuance, and MUST rebuild outstanding vouchers (with the new
 `seq`) after any `UPDATE`, `CLAIM` or `SPLIT` on the source leaf. A `SPLIT`
 voids every outstanding voucher against its source exactly as a `CLAIM`
 does, and also lowers the balance they draw on, so the rebuilt set MUST
-fit the reduced amount.
+fit the reduced amount. A `DETACH_h` (7.10) of the subtree holding the
+source leaf changes the `m` a `CLAIM` against it re-derives, so the issuer
+MUST reissue outstanding vouchers under `m_h` after one; the leaf itself
+is unchanged, so `seq` need not advance.
 
 A recipient MUST verify `voucher_sig`, MUST verify that `source_leaf` is
 currently in the tree at some position (by obtaining and checking a path),
@@ -2001,6 +2278,19 @@ position is unchanged, and the `seq` increment `SPLIT` shares with `CLAIM`
 keeps the replay argument below intact, since no sequence of `SPLIT`s and
 `CLAIM`s returns a leaf to a byte string it held before.
 
+Both risks disappear for a **dedicated credit leaf**: a source leaf the
+issuer owns, whose `exit_key` is one recipient's, in a tree whose taptree
+carries `CLAIM^x` (7.5.3), `UPDATE^x` (7.4 rule 5) and `EXIT^=` (7.2 rule
+6) and whose evictor is `NUMS`. Over-issuance against such a leaf has no
+second victim, since every voucher pays the same recipient, who can watch
+the leaf's amount in the tree. Voiding needs the leaf to change, and every
+transition that could change it now requires the exit key: `CLAIM^x` and
+`UPDATE^x` by rule, and `EXIT^=` because leaving pays the whole balance to
+that key. Only `SPLIT` remains, and a tree hosting credit leaves SHOULD
+omit it from the taptree. The recipient's remaining exposure is the
+issuer's liveness, that is, a provider that stops issuing.
+`design/receive.md` works through the wallet case this serves.
+
 A voucher commits to `m`, so it cannot be replayed in another tree; it
 commits to the full source leaf including `seq`, so it cannot be replayed
 after any change to the source leaf. It does not commit to the source
@@ -2049,6 +2339,14 @@ size each tree by this exit throughput rather than by depth, and SHOULD
 shard a deployment into several trees when the time to drain one at 25
 leaves per block would exceed the time-sensitive commitments its leaves
 carry (for channel leaves, Appendix C.9.5 gives the bound).
+
+`DETACH_h` (7.10) is sharding on demand. A detached cohort spends its own
+output, so its transitions form their own unconfirmed chain and the
+descendant bound applies to it separately: an operator that detaches `k`
+cohorts raises the deployment's exit throughput to about `25·(k + 1)` leaves
+per block. Operators SHOULD detach a cohort when its leaves become
+time-sensitive, for instance channel leaves whose HTLC deadlines are near,
+rather than size every tree for the worst case in advance.
 
 ### 10.6 Integer encodings and truncation
 
@@ -2234,6 +2532,43 @@ leaf). The 1,000-element stack limit caps a MID sweep at `D = 16` to
 54 occupied positions (4.5), so a full 64-leaf cohort takes two
 `EVICT_SUBTREE_5` spends.
 
+`REWRITE_h` (section 7.9) runs the same fold over two subtrees and is the
+members' counterpart: a mass exit, a batched `UPDATE` and an intra-cohort
+settlement at once. Measured at `D = 16` with every position occupied
+(`exit`: every leaf leaves; `update`: every key rotated; `mixed`: the
+scenario of `tools/test_scripts.py`, with exits, joins, rotations,
+renewals and payments, three of every seven positions empty or joining):
+
+| script | positions | scenario | script | witness | owner sigs | per-leaf vB |
+|---|---|---|---|---|---|---|
+| `REWRITE_2` | 4 | exit | 2,731 | 1,423 | 4 | ≈ 370 |
+| `REWRITE_4` | 16 | exit | 5,336 | 3,501 | 16 | ≈ 198 |
+| `REWRITE_6` | 64 | exit | 16,444 | 12,059 | 64 | ≈ 159 |
+| `REWRITE_6` | 64 | update | 16,444 | 19,483 | 64 | ≈ 145 per changed leaf |
+| `REWRITE_6` | 64 | mixed (51 changed) | 16,444 | 15,139 | 36 | ≈ 168 per changed leaf, 134 per position |
+
+The per-leaf column counts the whole transaction (skeleton, fee input and
+change, 43-byte payout outputs) divided by the leaves that leave or
+change. The marginal costs are what the design turns on: at `h = 6` each
+position costs 233 bytes of script (its `REWRITE_STEP` and its share of
+the `HASH_STEP2`s) and 234 bytes of witness for its two elements, about
+117 vB, an owner signature adds 16 vB, and an exit adds the 43-byte
+output and drops the 117-byte new element, so an unchanged leaf costs
+about 117 vB, a changed leaf about 133 vB and an exiting leaf about
+147 vB. Sixty-four owners who leave together therefore pay what the
+operator pays to sweep them (`EVICT_SUBTREE_6`: 158 vB per leaf), and a
+cohort that rewrites every balance pays about 145 vB per leaf against
+1,073 vB for an `UPDATE` each. `REWRITE_h^x` adds the 65-byte exit-key
+signature, 16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 /
+4,905 bytes).
+
+`DETACH_h` (section 7.10) caches the shared path across transactions. At
+`D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness, about
+780 vB, and every later `EXIT_1` from the detached tree costs the depth-8
+figure of the table above, 765 vB instead of 1,020, so it pays for itself
+at the fourth exit; a cohort of 256 that all leave alone saves about a
+quarter. Its larger effect is on throughput (10.5), not bytes.
+
 Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 `D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
 falling with depth because the BIP-440 budget is `10,000 × weight`; the EC operations (82 sigops units per `TREE_SPK`) and the
@@ -2348,12 +2683,15 @@ exits in a batch" as `EXIT_K` (section 13).
 3. **Smaller `LEVEL`.** With `OP_MULTI OP_CAT` the four concatenations per
    level collapse to two; keeping `ZERO8` on the stack replaces the 9-byte
    push in `PAD8` with a 2-byte `OP_PICK`. Together these save roughly 25%.
-4. **More multiproof shapes.** The `POSTORDER` generator of section 8.7
-   extends directly to owner-authorised mass exits within a subtree (a
-   signature per leaf instead of the evictor-key equality), to sibling
-   pairs, and to subtrees with a fixed pattern of empties. A runtime-shaped
-   multiproof (a stack machine driven by witness flags) is also expressible
-   but does not reduce script size.
+4. **More multiproof shapes.** The owner-authorised mass exit within a
+   subtree is now built as `REWRITE_h` (7.9, 8.9), which also covers
+   cohort joins, batched updates and intra-cohort settlement; the entry is
+   kept so the numbering stays stable. The `POSTORDER` generator of 8.7
+   extends likewise to sibling pairs (the `CLAIM` of a dedicated credit
+   leaf and its reserved claim slot, `design/receive.md`) and to subtrees
+   with a fixed pattern of empties. A runtime-shaped multiproof (a stack
+   machine driven by witness flags) is also expressible but does not reduce
+   script size.
 5. **Aggregate node keys.** Storing a MuSig2 aggregate of all owner keys in
    each node (72-byte `sc`) allows a "replace subtree" transition authorised
    by one aggregate signature, giving Ark-style cooperative round updates
@@ -2453,8 +2791,39 @@ exits in a batch" as `EXIT_K` (section 13).
   the operator, by the recipient, with a garbage signature, with a voucher
   signature in place of a transaction signature, over-splitting, into an
   occupied position, against a stale root, or reused for a transaction
-  that swaps in a different recipient all fail), 425 checks in
-  total. Run: `python3 tools/test_scripts.py`.
+  that swaps in a different recipient all fail) and the exit-consent
+  `CLAIM^x` and `CLAIM^hx` of 7.5.3 (dense at `D = 4` and `16`, sparse at
+  `D = 8`, against a dedicated credit leaf whose owner is the operator and
+  whose exit key is the recipient's: the recipient's redemption with the
+  voucher and its exit-key signature succeeds, and an `exit_sig` by the
+  operator, a garbage or absent `exit_sig`, a witness without the voucher,
+  a transaction signature in place of the voucher, the operator draining
+  the leaf with a voucher to itself and, under the hash lock, a wrong
+  preimage all fail), the sibling-sum binding regression test (dense at
+  `D = 4` and `16`, sparse at `D = 8` and `32`: at every level, a proof
+  element that keeps the sibling's hash and inflates or deflates its
+  declared sum is rejected even when input 0 and output 0 are made to
+  match the forged total, because `H_node` commits to both children's
+  sums; the sparse cases include an explicitly supplied empty sibling
+  with a non-zero sum), the cohort rewrite `REWRITE_h` of 7.9 (`h = 2`
+  and `4` at `D = 16`, and `REWRITE_4^x`, each on a mixed cohort of
+  exits, an unchanged leaf, a key rotation, an amount-only increase, a
+  payer, a lease renewal, a join into an empty position and an empty
+  position left alone: the rewrite succeeds with signatures only from
+  the owners rule 3 names, and a changed leaf without its owner's
+  signature, a key rotation disguised as an amount increase, a
+  shortchanged exit payout, an exit paid to the wrong key, a missing
+  operator signature, output 0 off by one in either direction, a stale
+  path, a forged old leaf and, under `^x`, a missing or wrongly keyed
+  exit signature all fail) and `DETACH_8` at `D = 16` (7.10: the detach
+  succeeds and conserves the total across the two tree outputs, a
+  member's old path truncated to its lower eight levels is the detached
+  tree's own path for that leaf, an `EXIT_1` from the detached tree with
+  it succeeds, and output 1 under the wrong `m_h`, output 1 shortchanged,
+  a missing operator signature, output 0 keeping the subtree and an
+  inflated subtree sum all fail), 852 checks in
+  total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
@@ -2493,8 +2862,9 @@ exits in a batch" as `EXIT_K` (section 13).
   BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
-  (sparse), the MID and MIN tiers, and the size table covering both
-  profiles, both compression encodings and all tiers.
+  (sparse), the MID and MIN tiers, the cohort scripts at `D = 8`
+  (`EVICT_SUBTREE_2`, `REWRITE_2`, `DETACH_2`), and the size table
+  covering both profiles, both compression encodings and all tiers.
   `spec/scripts/structured/` holds the same scripts collapsed into the
   named macros of section 8 (one call per line, with `MACROS_*.txt`
   defining each macro per tier), produced by `tools/gen_structured.py`
@@ -2508,7 +2878,9 @@ exits in a batch" as `EXIT_K` (section 13).
   tier's `0xC0` scripts under `CCV0/D/D4` (`EVICT_SUBTREE_1/2`, `SPLIT`)
   and `CCV0/S/D8` (`SPLIT`), `CLAIM` and `CLAIM_H` under `CCV/D/D4`,
   `CCV/S/D8`, `CCV0/D/D4` and `CCV0/S/D8` (built over the `ccv_tree_id`
-  vector, which fixes the RECOMMENDED `tree_id` derivation), and
+  vector, which fixes the RECOMMENDED `tree_id` derivation),
+  `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4` and `FULL/S/D8`,
+  `REWRITE_2`, `REWRITE_X_2` and `DETACH_2` under `FULL/D/D4`, and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

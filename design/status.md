@@ -1,15 +1,16 @@
 # Status and hand-off
 
-Last updated 2026-10-09 (spec 0.8.5, Appendix C 0.3.0, paper v0.1).
+Last updated 2026-10-09 (spec 0.9.0, Appendix C 0.3.0, paper v0.1).
 
 ## Where things stand
 
 | Area | State |
 |---|---|
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
+| Cohort transitions (0.9.0) | `CLAIM^x` and `CLAIM^hx` (7.5.3, the dedicated credit leaf of `design/receive.md`), `REWRITE_h` with its `^x` form (7.9, `design/batching.md` Shape 2 with the exit rule) and `DETACH_h` (7.10, Shape 3) are built in the FULL tier only: generator, tests, golden vectors, Go mirror, listings. Measured at `D = 16`: `REWRITE_6` 16,444 B of script, about 145 vB per changed leaf; `DETACH_8` 1,548 / 497 B, exits at 765 vB afterwards. MID and CCV: not implemented; MIN: no. Lean: `REWRITE_h` fits the existing `Step` shape, `DETACH_h` needs a two-output step; neither is modelled yet. |
 | Appendix C channel leaves | Complete, 0.3.0: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. Executable (C.12): `tools/layertree_chan.py` generates `UPD_F` / `REBIND_n` / `SETTLE_n`, and `tools/test_chan.py` (149 checks) runs the state machine on a chain model with BIP-65 / BIP-68, from a tree exit through contest, settlement and HTLC sweeps, in both tapleaf versions, plus the C.4.4 / 9.6.2 deadlines as block sequences. Go mirror `script/chan.go` byte-exact against the golden `chan` section; TLV messages in `msg/chan.go`. Measured: `SETTLE_n` is 79 B under 0xC2 (80 under 0xC0), HTLC sweeps 155 / 138 vB (the old table missed the 65-byte control block), the C.4.4 bound has two blocks of margin, and a MID channel carries at most seven HTLC outputs per state (520-byte collation). |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 425 + 198 + 31 + 798 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
+| Python reference and simulator | 852 + 198 + 31 + 798 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 42 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
 | Lean model | `formal/`: sections 5 (including sparse positions), 7 (including `EVICT_SUBTREE_h` and the terminal branch), 10.2, the encodings, and the cohort shapes `REWRITE_h` and `DETACH_h` of `design/batching.md` (`Cohort.lean`); axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
@@ -162,6 +163,15 @@ ones most likely to move:
    golden keys and `taptree_full_d4.merkle_root` move, along with
    `test-vectors.json`'s voucher vector, the Go voucher helpers and
    Appendix C's voucher wording. The owner's call.
+9. **Cohort transitions beyond FULL.** `REWRITE_h`, `DETACH_h` and
+   `CLAIM^x` exist in the FULL tier only (4.5). MID needs an element-based
+   `REWRITE_STEP` (the leaf arrives as seven elements there) and CCV needs
+   a second `CHECK_OUTPUT` for `DETACH_h`'s output 1; `CLAIM^x` under CCV
+   waits on the voucher-message redefinition `CLAIM` itself needs. The
+   Lean model needs a two-output step for `DETACH_h` (7.10) and should
+   state `REWRITE_h` as one `Step` over a published subtree pair; neither
+   is written. A one-byte "unchanged" marker for `REWRITE_h` would save
+   about 29 vB per unchanged position (`design/batching.md`).
 
 ## How to resume
 

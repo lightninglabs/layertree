@@ -63,6 +63,10 @@ func fullScriptFor(profile string, depth int, name string,
 		return FullClaimScript(depth, sparse), nil
 	case name == "CLAIM_H":
 		return FullClaimHScript(depth, sparse), nil
+	case name == "CLAIM_X":
+		return FullClaimXScript(depth, sparse), nil
+	case name == "CLAIM_HX":
+		return FullClaimHXScript(depth, sparse), nil
 	case name == "SPLIT":
 		return FullSplitScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
@@ -85,6 +89,21 @@ func fullScriptFor(profile string, depth int, name string,
 			return nil, err
 		}
 		return FullEvictSubtreeScript(depth, n, key), nil
+	case strings.HasPrefix(name, "REWRITE_X_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_X_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullRewriteScript(depth, n, key, true), nil
+	case strings.HasPrefix(name, "REWRITE_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullRewriteScript(depth, n, key, false), nil
+	case strings.HasPrefix(name, "DETACH_"):
+		if _, err := fmt.Sscanf(name, "DETACH_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullDetachScript(depth, n, key, FullDetachedTaptreeRoot(n, key)), nil
 	}
 	return nil, fmt.Errorf("unknown script name %q", name)
 }
@@ -300,6 +319,45 @@ func TestFullClaimH(t *testing.T) {
 	}
 }
 
+// TestFullClaimX checks the exit-consent carves CLAIM^x and CLAIM^hx (spec
+// 7.5.3) in both profiles. Like UPDATE^x they are tree-creation parameters
+// and stay out of FullAllScripts.
+func TestFullClaimX(t *testing.T) {
+	g, key := loadGolden(t)
+
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_X", FullClaimXScript(4, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_X", FullClaimXScript(8, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_HX", FullClaimHXScript(4, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_HX", FullClaimHXScript(8, true))
+
+	// The exit-key check costs exactly eight bytes over the plain form in
+	// both the plain and the hash-locked carve.
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		plain := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
+		x := MustAssemble(FullClaimXScript(tc.depth, tc.sparse), ModeC2)
+		if len(x)-len(plain) != 8 {
+			t.Errorf("depth %d sparse %v: CLAIM^x is %d bytes over CLAIM, "+
+				"want 8", tc.depth, tc.sparse, len(x)-len(plain))
+		}
+		h := MustAssemble(FullClaimHScript(tc.depth, tc.sparse), ModeC2)
+		hx := MustAssemble(FullClaimHXScript(tc.depth, tc.sparse), ModeC2)
+		if len(hx)-len(h) != 8 {
+			t.Errorf("depth %d sparse %v: CLAIM^hx is %d bytes over CLAIM^h, "+
+				"want 8", tc.depth, tc.sparse, len(hx)-len(h))
+		}
+	}
+
+	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	for _, name := range []string{"CLAIM_X", "CLAIM_HX"} {
+		if _, ok := set[name]; ok {
+			t.Errorf("%s must stay out of FullAllScripts", name)
+		}
+	}
+}
+
 // TestFullSplit checks SPLIT (spec 7.5.2), the carve authorised by the
 // owner's transaction signature, in both profiles. Like CLAIM^h it is a
 // tree-creation parameter and stays out of FullAllScripts.
@@ -327,6 +385,37 @@ func TestFullSplit(t *testing.T) {
 		[]int{2})["SPLIT"]; ok {
 
 		t.Error("SPLIT must stay out of FullAllScripts")
+	}
+}
+
+// TestFullRewriteDetach checks the cohort rewrite REWRITE_h, its ^x form and
+// DETACH_h (spec 7.9, 7.10) against their golden vectors. All three are
+// tree-creation variants: they stay out of FullAllScripts and out of the
+// reference taptree root.
+func TestFullRewriteDetach(t *testing.T) {
+	g, key := loadGolden(t)
+
+	fullCheckScript(t, g, "FULL/D/D4/REWRITE_2",
+		FullRewriteScript(4, 2, key, false))
+	fullCheckScript(t, g, "FULL/D/D4/REWRITE_X_2",
+		FullRewriteScript(4, 2, key, true))
+	mH := FullDetachedTaptreeRoot(2, key)
+	fullCheckScript(t, g, "FULL/D/D4/DETACH_2", FullDetachScript(4, 2, key, mH))
+
+	// m_h is a constant of the DETACH script: a different detached script
+	// set gives different bytes, so the parent's m commits to it.
+	other := FullDetachScript(4, 2, key, [32]byte{1})
+	if string(MustAssemble(other, ModeC2)) ==
+		string(MustAssemble(FullDetachScript(4, 2, key, mH), ModeC2)) {
+
+		t.Error("DETACH_2 does not depend on m_h")
+	}
+
+	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	for _, name := range []string{"REWRITE_2", "REWRITE_X_2", "DETACH_2"} {
+		if _, ok := set[name]; ok {
+			t.Errorf("%s must stay out of FullAllScripts", name)
+		}
 	}
 }
 

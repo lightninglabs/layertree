@@ -465,6 +465,71 @@ def test_minimal(depth, verbose=True):
     return script, wit, it
 
 
+def test_sibling_sum_binding(depth, profile, verbose=True):
+    """Regression test for taproot-assets-private issue 112 (sibling-sum binding).
+
+    A proof element carries a sibling's hash and its declared sum. If the
+    parent hash did not commit to the children's sums, a prover could keep a
+    sibling's hash and inflate its sum, and the fold would reach the right
+    root hash with a wrong total. LayerTree's node format excludes this:
+    `H_node(lh || enc64(ls) || rh || enc64(rs))` hashes both sums into the
+    parent, so a sibling whose sum is altered produces a different parent
+    hash at that level and the fold cannot reach `r` (spec 5.3, 10.2).
+
+    The test must not be satisfied by the amount checks alone. `CHECK_OLD`
+    compares the folded old sum with input 0's amount, which an inflated
+    sibling would also fail, so each forged proof is paired with a
+    transaction whose input 0 carries the forged total and whose output 0
+    commits to the forged new root. Under a sum-blind node hash that
+    transaction would validate; here it must fail at every level, in both
+    profiles, and an explicitly supplied empty sibling with a non-zero sum
+    (the sparse profile's version of the forgery) must fail as well.
+    """
+    w = World(depth, profile)
+    bob = mk_leaf("bob", 125_000)
+    others = [mk_leaf(n, a) for n, a in (("alice", 50_000), ("carol", 30_000), ("dave", 70_000),
+                                         ("erin", 15_000), ("operator", 1_000_000))]
+    s_bob = w.slot(bob, 5)
+    w.tree.leaves = {s_bob: bob}
+    for i, lf in enumerate(others):
+        w.tree.leaves[w.slot(lf, [0, 3, 9, 12, (1 << depth) - 1][i])] = lf
+    root = w.tree.root()
+    S = root[1]
+    path = w.tree.path(s_bob)
+    t1 = w.clone(); del t1.leaves[s_bob]
+    r1 = t1.root()
+
+    def spend(forged, S_in):
+        """Witness and transaction for an owner exit of bob against `forged`,
+        with input 0 carrying S_in and output 0 the forged new root."""
+        new_root = lt.fold(lt.EMPTY_NODE, forged)
+        ctx = TxContext([(S_in, w.spk(root)), (50_000, P2WPKH)],
+                        [(new_root[1], w.spk(new_root)), (bob.amount - 1_000, lt.p2tr_spk(bob.exit_key))])
+        sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+        return w.path_witness(forged) + w.bm(forged) + [bob.serialize(), sig, b"", root[0], w.m], ctx
+
+    # control: the honest proof under the same harness succeeds
+    wit, ctx = spend(path, S)
+    w.run("EXIT_1", wit, ctx)
+    check(lt.fold(lt.EMPTY_NODE, path) == r1, "sibling-sum control: honest fold reaches r1")
+    n_levels = 0
+    for k, (d, sib) in enumerate(path):
+        for delta in (+1, -1):
+            if sib[1] + delta < 0:
+                continue
+            forged = list(path)
+            forged[k] = (d, (sib[0], sib[1] + delta))
+            # the forgery is arithmetically consistent: only the hash binding is left
+            check(lt.fold(bob.node(), forged)[1] == S + delta, f"level {k}: forged total is S{delta:+d}")
+            check(lt.fold(bob.node(), forged)[0] != root[0], f"level {k}: forged fold misses r (sums are hashed)")
+            wit, ctx = spend(forged, S + delta)
+            expect_fail(lambda: w.run("EXIT_1", wit, ctx),
+                        f"{profile} D={depth} level {k}: sibling hash kept, sum {delta:+d} (issue 112)")
+            n_levels += 1
+    if verbose:
+        print(f"sibling-sum binding {profile} D={depth}: {n_levels} forged proofs rejected")
+
+
 def test_evict_subtree(depth, height, verbose=True):
     """Cohort sweep: evict every leaf of an aligned subtree in one spend."""
     w = World(depth, "D")
@@ -525,6 +590,307 @@ def test_evict_subtree(depth, height, verbose=True):
 
 
 
+
+
+def _rewrite_plan(w, height, scenario):
+    """Old and new elements for every position of an aligned height-h subtree.
+
+    Returns (base, old, new): old and new map offset -> Leaf or None (empty).
+    The scenarios are "mixed" (exits, an unchanged leaf, a key rotation, an
+    amount-only increase, a payer, a lease renewal, a join into an empty
+    position and an empty position left alone, in rotation), "update" (every
+    position occupied and every leaf's key rotated) and "exit" (every
+    position occupied and every leaf leaving).
+    """
+    n = 1 << height
+    base = 1 << height                          # subtree index 1
+    old, new = {}, {}
+    for i in range(n):
+        lf = mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+        rotated = lt.Leaf(lf.amount, lf.exit_key, pubkey_x(sk(f"c{i}-owner2")), lf.evictor_key,
+                          lf.evict_after, lf.nonce, lf.seq)
+        if scenario == "update":
+            old[i], new[i] = lf, rotated
+            continue
+        if scenario == "exit":
+            old[i], new[i] = lf, None
+            continue
+        if i % 7 == 6:                           # empty position
+            old[i] = None
+            new[i] = mk_leaf(f"j{i}", 5_000 + i, w.op_pk, 900_000) if i % 2 == 0 else None
+            continue
+        old[i] = lf
+        kind = i % 6
+        if kind == 0:
+            new[i] = None                                      # exit
+        elif kind == 1:
+            new[i] = lf                                        # unchanged
+        elif kind == 2:
+            new[i] = rotated                                   # key rotation
+        elif kind == 3:
+            new[i] = lf.with_amount_seq(lf.amount + 500, lf.seq)   # amount-only increase
+        elif kind == 4:
+            new[i] = lf.with_amount_seq(lf.amount - 300, lf.seq)   # payer
+        else:
+            new[i] = lt.Leaf(lf.amount, lf.exit_key, lf.owner_key, lf.evictor_key,
+                             900_000, lf.nonce, lf.seq)        # lease renewal
+    return base, old, new
+
+
+def _needs_owner_sig(old, new):
+    """Spec 7.9 rule 3, computed independently of the script."""
+    if old is None or old == new or (new is not None and old.serialize() == new.serialize()):
+        return False
+    if new is not None and new.serialize()[8:] == old.serialize()[8:] and new.amount >= old.amount:
+        return False
+    return True
+
+
+def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent, sign=True):
+    """Witness (bottom..top) for REWRITE_h: path, blocks for position 2^h-1 .. 0, sig_op, r, m.
+    Returns (witness, signatures) where signatures maps offset -> [sig, xsig]."""
+    n = 1 << height
+    sigs = {}
+    blocks = []
+    for i in reversed(range(n)):
+        o, nw = old[i], new[i]
+        block = []
+        if _needs_owner_sig(o, nw) and sign:
+            s = [schnorr_sign(ctx.sighash(), sk(f"c{i}-owner"))]
+            if exit_consent:
+                s.append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
+            sigs[i] = s
+            block += list(reversed(s))           # xsig below sig
+        block += [nw.serialize() if nw else b"", o.serialize() if o else b""]
+        blocks += block
+    return w.path_witness(path, height) + blocks + [sig_op, root[0], w.m], sigs
+
+
+def rewrite_case(depth, height, scenario="mixed", exit_consent=False):
+    """Build a REWRITE_h spend for a scenario. Returns a dict with the world,
+    script, witness, context, plan and the signatures, for tests and sizing."""
+    name = f"REWRITE_X_{height}" if exit_consent else f"REWRITE_{height}"
+    w = World(depth, "D")
+    toks = ls.rewrite_script(depth, height, w.op_pk, exit_consent)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    base, old, new = _rewrite_plan(w, height, scenario)
+    w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for i, lf in new.items():
+        if lf:
+            t1.leaves[base + i] = lf
+        else:
+            t1.leaves.pop(base + i, None)
+    r1 = t1.root()
+    delta = r1[1] - root[1]
+    outputs = [(r1[1], w.spk(r1))]
+    for i in range(1 << height):
+        if old[i] and new[i] is None:
+            outputs.append((old[i].amount, lt.p2tr_spk(old[i].exit_key)))
+    outputs.append((400, P2WPKH))
+    ctx = w.ctx(outputs, extra_in=(max(delta, 0) + 5_000, P2WPKH))
+    sig_op = schnorr_sign(ctx.sighash(), w.op_sk)
+    wit, sigs = _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent)
+    return dict(name=name, w=w, script=script, wit=wit, ctx=ctx, root=root, r1=r1, t1=t1,
+                path=path, base=base, old=old, new=new, sigs=sigs, sig_op=sig_op,
+                outputs=outputs, delta=delta)
+
+
+def test_rewrite(depth, height, exit_consent=False, verbose=True):
+    """REWRITE_h (spec 7.9): rewrite a cohort's aligned subtree in one spend,
+    with the mixed scenario of _rewrite_plan. Negatives target each rule."""
+    c = rewrite_case(depth, height, "mixed", exit_consent)
+    w, name, ctx, root, wit = c["w"], c["name"], c["ctx"], c["root"], c["wit"]
+    old, new, sigs, path, base = c["old"], c["new"], c["sigs"], c["path"], c["base"]
+    n = 1 << height
+    it = w.run(name, wit, ctx)
+    check(True, f"{name} D={depth}: mixed rewrite of {n} positions")
+    check(c["ctx"].outputs[0][0] == root[1] + c["delta"], f"{name} output 0 is S + (sum new - sum old)")
+
+    def rebuild(old_, new_, ctx_=ctx, path_=path, root_=root, sig_op_=None, sign=True):
+        so = sig_op_ if sig_op_ is not None else schnorr_sign(ctx_.sighash(), w.op_sk)
+        return _rewrite_witness(w, height, path_, old_, new_, ctx_, root_, so, exit_consent, sign)[0]
+
+    # rule 3: a changed leaf without its owner's signature
+    i_rot = next(i for i in range(n) if old[i] and new[i] and _needs_owner_sig(old[i], new[i]))
+    wit_nosig = list(wit)
+    pos = wit_nosig.index(sigs[i_rot][0])
+    del wit_nosig[pos]
+    expect_fail(lambda: w.run(name, wit_nosig, ctx), f"{name} changed leaf without the owner signature")
+    # rule 3: a key rotation disguised as an amount-only increase (no signature)
+    i_inc = next(i for i in range(n) if old[i] and new[i] and not _needs_owner_sig(old[i], new[i])
+                 and new[i].amount > old[i].amount)
+    disguised = dict(new)
+    lf = old[i_inc]
+    disguised[i_inc] = lt.Leaf(lf.amount + 500, lf.exit_key, pubkey_x(sk("mallory")), lf.evictor_key,
+                               lf.evict_after, lf.nonce, lf.seq)
+    t_d = w.clone()
+    t_d.leaves[base + i_inc] = disguised[i_inc]
+    for i, x in new.items():
+        if i != i_inc:
+            if x:
+                t_d.leaves[base + i] = x
+            else:
+                t_d.leaves.pop(base + i, None)
+    outs_d = [(t_d.root()[1], w.spk(t_d.root()))] + c["outputs"][1:]
+    ctx_d = w.ctx(outs_d, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    wit_d = rebuild(old, disguised, ctx_d)
+    # the witness builder would sign it (the rule says so); strip that signature to attempt the disguise
+    sig_d = schnorr_sign(ctx_d.sighash(), sk(f"c{i_inc}-owner"))
+    wit_d_nosig = [x for x in wit_d if x != sig_d and not (exit_consent and x == schnorr_sign(ctx_d.sighash(), sk(f"c{i_inc}-exit")))]
+    expect_fail(lambda: w.run(name, wit_d_nosig, ctx_d), f"{name} key rotation disguised as an amount increase")
+    w.run(name, wit_d, ctx_d)
+    check(True, f"{name} the same rotation with the owner's signature succeeds")
+    # rule 5: a shortchanged exit payout, and one paid to the wrong key
+    i_exit = next(i for i in range(n) if old[i] and new[i] is None)
+    k = 1 + sum(1 for i in range(i_exit) if old[i] and new[i] is None)
+    outs_s = list(c["outputs"]); outs_s[k] = (outs_s[k][0] - 1, outs_s[k][1])
+    ctx_s = w.ctx(outs_s, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, rebuild(old, new, ctx_s), ctx_s), f"{name} shortchanged exit payout")
+    outs_k = list(c["outputs"]); outs_k[k] = (outs_k[k][0], lt.p2tr_spk(pubkey_x(sk("mallory"))))
+    ctx_k = w.ctx(outs_k, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, rebuild(old, new, ctx_k), ctx_k), f"{name} exit paid to the wrong key")
+    # rule 4: no operator signature
+    expect_fail(lambda: w.run(name, rebuild(old, new, sig_op_=schnorr_sign(ctx.sighash(), sk("alice-owner"))), ctx),
+                f"{name} without the operator signature")
+    # rule 6: output 0 not conserved (under and over)
+    for off in (-1, +1):
+        outs_u = list(c["outputs"]); outs_u[0] = (outs_u[0][0] + off, outs_u[0][1])
+        ctx_u = w.ctx(outs_u, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+        expect_fail(lambda: w.run(name, rebuild(old, new, ctx_u), ctx_u), f"{name} output 0 off by {off:+d}")
+    # rule 1: a stale path (a rewrite leaves the subtree's own path unchanged,
+    # so the stale one comes from a change elsewhere in the tree) and a forged old leaf
+    t_s = w.clone(); t_s.leaves[0] = mk_leaf("alice", 51_000)
+    stale = t_s.path(base, height=height)
+    expect_fail(lambda: w.run(name, rebuild(old, new, path_=stale), ctx), f"{name} stale path")
+    forged = dict(old)
+    forged[i_rot] = old[i_rot].with_amount_seq(old[i_rot].amount + 1, old[i_rot].seq)
+    expect_fail(lambda: w.run(name, rebuild(forged, new), ctx), f"{name} forged old leaf")
+    if exit_consent:
+        # rule 7: the exit key of a changed leaf must sign too
+        wit_nox = list(wit)
+        del wit_nox[wit_nox.index(sigs[i_rot][1])]
+        expect_fail(lambda: w.run(name, wit_nox, ctx), f"{name} changed leaf without the exit-key signature")
+        wit_wx = list(wit)
+        wit_wx[wit_wx.index(sigs[i_rot][1])] = sigs[i_rot][0]
+        expect_fail(lambda: w.run(name, wit_wx, ctx), f"{name} exit-key signature by the owner key")
+    if verbose:
+        n_sig = len(sigs)
+        print(f"{name} D={depth}: {n} positions, {n_sig} owner signatures, script {len(c['script'])} B, "
+              f"witness {sum(len(x) for x in wit)} B, varops {it.cost}, sigops {it.sigchecks}, maxdepth {it.max_depth}")
+    return it, len(c["script"]), sum(len(x) for x in wit)
+
+
+def rewrite_sizes(depth, height):
+    """Measured sizes of REWRITE_h at one depth and height for the design
+    note: the three scenarios of _rewrite_plan plus the per-position script
+    share. Returns a dict of figures; prints a table."""
+    out = {}
+    for scenario in ("mixed", "update", "exit"):
+        c = rewrite_case(depth, height, scenario)
+        it = c["w"].run(c["name"], c["wit"], c["ctx"])
+        n_changed = sum(1 for i in c["old"] if (c["old"][i] is not None or c["new"][i] is not None)
+                        and (c["old"][i] is None or c["new"][i] is None or
+                             c["old"][i].serialize() != c["new"][i].serialize()))
+        n_exit = sum(1 for i in c["old"] if c["old"][i] and c["new"][i] is None)
+        wl = sum(len(x) for x in c["wit"])
+        out[scenario] = dict(script=len(c["script"]), witness=wl, changed=n_changed, exits=n_exit,
+                             sigs=len(c["sigs"]), varops=it.cost, sigops=it.sigchecks)
+    # per-position script share: everything the positions add over the fixed part
+    fixed = len(assemble(ls.prologue() + [bytes(32), "OP_CHECKSIGVERIFY", "OP_1", "OP_TOALTSTACK",
+                                          lt.EMPTY_LEAF_HASH, ls.LEAF_PREFIX, ls.NODE_PREFIX,
+                                          "OP_FROMALTSTACK", "OP_DROP", 6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"] +
+                         ls.levels("D", depth, height) + ls.check_old_root_from_alt("D") + ls.final_output(depth)))
+    out["fixed_script"] = fixed
+    out["per_position_script"] = (out["mixed"]["script"] - fixed) / (1 << height)
+    return out
+
+
+def test_detach(depth, height, verbose=True):
+    """DETACH_h (spec 7.10): move an aligned subtree into a tree output of its own.
+
+    The detached cohort is a LayerTree of depth h under m_h; a member's old
+    path truncated to its lower h levels is its proof there, and an EXIT_1
+    from the detached tree succeeds with it.
+    """
+    w = World(depth, "D")
+    m_h = ls.detached_taptree_root(height, w.op_pk)
+    toks = ls.detach_script(depth, height, w.op_pk, m_h)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    name = f"DETACH_{height}"
+    check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    n = 1 << height
+    base = 1 << height
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000) for i in range(n) if i % 5 != 3}
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    node = w.tree.subtree(height, 1)                      # (R_h, sum_h)
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for p in cohort:
+        del t1.leaves[p]
+    r1 = t1.root()
+    spk1 = lt.tree_spk(node[0], m_h)
+    outputs = [(r1[1], w.spk(r1)), (node[1], spk1), (400, P2WPKH)]
+    ctx = w.ctx(outputs, extra_in=(5_000, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), w.op_sk)
+    wit = w.path_witness(path, height) + [node[0], lt.le64(node[1]), sig, root[0], w.m]
+    it = w.run(name, wit, ctx)
+    check(r1[1] + node[1] == root[1], f"{name} conserves the total across two tree outputs")
+
+    # negatives
+    bad_m = lt.tree_spk(node[0], w.m)                      # output 1 under the parent's taptree, not m_h
+    ctx_m = w.ctx([(r1[1], w.spk(r1)), (node[1], bad_m), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx_m.sighash(), w.op_sk), root[0], w.m], ctx_m),
+                f"{name} output 1 under the wrong m_h")
+    ctx_s = w.ctx([(r1[1], w.spk(r1)), (node[1] - 1, spk1), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx_s.sighash(), w.op_sk), root[0], w.m], ctx_s),
+                f"{name} output 1 shortchanged")
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx.sighash(), sk("alice-owner")), root[0], w.m], ctx),
+                f"{name} without the operator signature")
+    ctx_n = w.ctx([(root[1], w.spk(root)), (node[1], spk1), (400, P2WPKH)], extra_in=(node[1] + 5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx_n.sighash(), w.op_sk), root[0], w.m], ctx_n),
+                f"{name} subtree not emptied in output 0 (new node not E_h)")
+    fake = (node[0], node[1] + 1)
+    ctx_f = w.ctx([(r1[1], w.spk(r1)), (fake[1], spk1), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, w.path_witness(path, height) + [fake[0], lt.le64(fake[1]),
+                              schnorr_sign(ctx_f.sighash(), w.op_sk), root[0], w.m], ctx_f),
+                f"{name} inflated subtree sum")
+
+    # the detached tree: a member's old path truncated to its lower h levels is its proof
+    w2 = World(height, "D", join_heights=(0,), exit_ks=(1, 2))
+    check(w2.m == m_h, "m_h is the tree identifier of the reference set at depth h")
+    w2.tree.leaves = {p - base: lf for p, lf in cohort.items()}
+    check(w2.tree.root() == node, "the detached tree's root is the detached node")
+    victim = base + 2
+    full_path = w.tree.path(victim)
+    short = full_path[:height]
+    check(lt.fold(cohort[victim].node(), short) == node, "old path truncated to h levels verifies in the detached tree")
+    check(short == w2.tree.path(victim - base), "the truncated path is the detached tree's own path")
+    t2 = w2.clone(); del t2.leaves[victim - base]; r2 = t2.root()
+    lf = cohort[victim]
+    ctx2 = TxContext([(node[1], spk1), (5_000, P2WPKH)],
+                     [(r2[1], w2.spk(r2)), (lf.amount - 300, lt.p2tr_spk(lf.exit_key))])
+    sig2 = schnorr_sign(ctx2.sighash(), sk(f"c{victim - base}-owner"))
+    it2 = w2.run("EXIT_1", w2.path_witness(short) + [lf.serialize(), sig2, b"", node[0], m_h], ctx2)
+    check(True, f"EXIT_1 from the detached depth-{height} tree with the truncated path")
+    if verbose:
+        print(f"{name} D={depth}: script {len(script)} B, witness {sum(len(x) for x in wit)} B, varops {it.cost}; "
+              f"EXIT_1 from the detached tree: script {len(w2.compiled['EXIT_1'])} B, varops {it2.cost}")
+    return it, len(script), sum(len(x) for x in wit)
 
 
 def test_update_x(depth, profile, verbose=True):
@@ -707,6 +1073,93 @@ def test_claim_h(depth, profile, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_claim_x(depth, profile, hashlock=False, verbose=True):
+    """CLAIM^x and CLAIM^hx (spec 7.5.3): CLAIM / CLAIM^h plus a signature
+    over the transaction by the source leaf's exit_key.
+
+    The scenario is the dedicated credit leaf of 10.3: the operator owns the
+    source leaf (owner_key) and the recipient holds its exit_key. Under
+    CLAIM^x the recipient's own redemptions carry the exit signature for
+    free, and the operator cannot carve the leaf, not even with a voucher it
+    signed to itself, because it does not hold the exit key. The variant is a
+    tree-creation parameter and is swapped into the taptree under the name
+    CLAIM_X (CLAIM_HX); m is recomputed.
+    """
+    name = "CLAIM_HX" if hashlock else "CLAIM_X"
+    w = World(depth, profile)
+    toks = ls.claim_script(depth, profile, hashlock=hashlock, exit_consent=True)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    plain = assemble(ls.claim_script(depth, profile, hashlock=hashlock))
+    check(len(script) - len(plain) == 8, f"{name} is eight bytes over its plain form")
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    # credit leaf: the operator is the owner (issuer), the recipient holds the exit key
+    credit = lt.Leaf(1_000_000, pubkey_x(sk("recipient-exit")), w.op_pk, lt.NUMS_X, 0,
+                     int.from_bytes(lt.sha256(b"credit")[:4], "little"), 0)
+    alice = mk_leaf("alice", 50_000)
+    s_credit, s_alice = w.slot(credit, (1 << depth) - 1), w.slot(alice, 0)
+    w.tree.leaves = {s_credit: credit, s_alice: alice}
+    root = w.tree.root()
+
+    # the recipient redeems the cumulative voucher into its own claim leaf
+    claim = mk_leaf("recipient", 40_000, w.op_pk, 900_000)
+    s_claim = w.slot(claim, 3)
+    spath = w.tree.path(s_credit)
+    t1 = w.clone(); lt.apply_claim(t1, s_credit, s_claim, claim)
+    cpath = t1.path(s_claim); r1 = t1.root()
+    check(r1[1] == root[1], f"{name} conserves sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    preimage = lt.sha256(b"credit-preimage")
+    if hashlock:
+        vsig = schnorr_sign(lt.voucher_h_msg(w.m, credit, claim, lt.sha256(preimage)), w.op_sk)
+    else:
+        vsig = schnorr_sign(lt.voucher_msg(w.m, credit, claim), w.op_sk)
+    xsig = schnorr_sign(ctx.sighash(), sk("recipient-exit"))
+    head = (w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [credit.serialize()] +
+            w.bm(cpath) + [claim.serialize(), vsig] + ([preimage] if hashlock else []))
+    wit = head + [xsig, root[0], w.m]
+    it = w.run(name, wit, ctx)
+    check(True, f"{name} redeemed with the voucher and the exit-key signature")
+
+    # negatives
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(name, head + [osig, root[0], w.m], ctx),
+                f"{name} exit_sig by the wrong key (the operator, who owns the leaf)")
+    expect_fail(lambda: w.run(name, head + [bytes(64), root[0], w.m], ctx), f"{name} garbage exit_sig")
+    expect_fail(lambda: w.run(name, head + [root[0], w.m], ctx), f"{name} missing exit_sig")
+    vpos = len(head) - (2 if hashlock else 1)          # index of vsig in head
+    novoucher = head[:vpos] + head[vpos + 1:]
+    expect_fail(lambda: w.run(name, novoucher + [xsig, root[0], w.m], ctx), f"{name} without the voucher")
+    txsig = head[:vpos] + [osig] + head[vpos + 1:]      # a transaction signature is not a voucher
+    expect_fail(lambda: w.run(name, txsig + [xsig, root[0], w.m], ctx),
+                f"{name} with a transaction signature in place of the voucher")
+    # the operator cannot drain the credit leaf: its own voucher and its own
+    # transaction signature are not the exit key
+    drain = mk_leaf("operator-drain", credit.amount, w.op_pk, 900_000)
+    s_drain = w.slot(drain, 6)
+    t2 = w.clone(); lt.apply_claim(t2, s_credit, s_drain, drain)
+    cpath2 = t2.path(s_drain); r2 = t2.root()
+    ctx2 = w.ctx([(r2[1], w.spk(r2))], extra_in=(600, P2WPKH))
+    if hashlock:
+        dsig = schnorr_sign(lt.voucher_h_msg(w.m, credit, drain, lt.sha256(preimage)), w.op_sk)
+    else:
+        dsig = schnorr_sign(lt.voucher_msg(w.m, credit, drain), w.op_sk)
+    expect_fail(lambda: w.run(name, w.path_witness(cpath2) + w.path_witness(spath) + w.bm(spath) +
+                              [credit.serialize()] + w.bm(cpath2) + [drain.serialize(), dsig] +
+                              ([preimage] if hashlock else []) +
+                              [schnorr_sign(ctx2.sighash(), w.op_sk), root[0], w.m], ctx2),
+                f"{name} operator draining the credit leaf without the recipient")
+    if hashlock:
+        expect_fail(lambda: w.run(name, head[:-1] + [lt.sha256(b"wrong"), xsig, root[0], w.m], ctx),
+                    f"{name} wrong preimage")
+    if verbose:
+        print(f"{name} {profile} D={depth}: script {len(script)} B (plain {len(plain)} B), "
+              f"witness {sum(len(x) for x in wit)} B, varops {it.cost}")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 def test_split(depth, profile, verbose=True):
     """SPLIT (spec 7.5.2): CLAIM authorised by the owner's transaction
     signature instead of a voucher.
@@ -870,19 +1323,44 @@ def test_swap(depth, verbose=True):
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
+        test_rewrite(d, h)
+    test_detach(16, 8)
     print(f"\n{CHECKS} checks, {FAILS} failures")
 
 
-if __name__ == "__main__" and "--subtree" not in sys.argv:
+if __name__ == "__main__" and "--rewrite" in sys.argv:
+    # Measured sizes for design/batching.md: REWRITE_h at D = 16 for the
+    # three scenarios, with the per-position script share.
+    for h in (2, 4, 6):
+        r = rewrite_sizes(16, h)
+        n = 1 << h
+        print(f"\nREWRITE_{h} D=16 ({n} positions): fixed script {r['fixed_script']} B, "
+              f"per position {r['per_position_script']:.1f} B")
+        for sc in ("mixed", "update", "exit"):
+            x = r[sc]
+            wu = x["script"] + x["witness"] + 129
+            print(f"  {sc:7} script {x['script']:6} B  witness {x['witness']:5} B  changed {x['changed']:3} "
+                  f"exits {x['exits']:3} sigs {x['sigs']:3}  witness WU {wu:6}  varops {x['varops']}")
+    sys.exit(1 if FAILS else 0)
+
+
+if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in sys.argv:
     for d, h in ((16, 2), (16, 4)):
         test_evict_subtree(d, h)
+        test_rewrite(d, h)
+    test_rewrite(16, 4, exit_consent=True)
+    test_detach(16, 8)
     for d in (4, 16):
         test_minimal(d)
         test_channel_rules(d)
         test_swap(d)
+    for prof, d in (("D", 4), ("D", 16), ("S", 8), ("S", 32)):
+        test_sibling_sum_binding(d, prof)
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
         test_claim_h(d, prof)
+        test_claim_x(d, prof)
+        test_claim_x(d, prof, hashlock=True)
         test_split(d, prof)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:

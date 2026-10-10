@@ -67,7 +67,19 @@ def full_macros():
     t += [(f"LEVEL_S({k})", F.level_sparse(k)) for k in range(0, 64)]
     t += [("FINAL", F.final_output(d)) for d in (4, 8, 12, 16, 20, 32, 64)]
     t += [(f"HASH_STEP({k})", F._hash_step(k)) for k in range(3, 64)]
+    # REWRITE_h: the per-position step and the double hash step, both
+    # parametrised by the machine depth d (a multiple of 4).
+    t += [(f"REWRITE_STEP({d})", F._rewrite_step(d, False)) for d in range(0, 64, 4)]
+    t += [(f"REWRITE_STEP_X({d})", F._rewrite_step(d, True)) for d in range(0, 64, 4)]
+    t += [(f"HASH_STEP2({d})", F._hash_step2(d)) for d in range(8, 68, 4)]
+    t += [(f"ELEM_NODE({d})", F._elem_node(d + 4, d + 3)) for d in range(0, 64)]
+    t += [(f"OWNER_AUTH({d})", F._owner_auth(d + 5, False)) for d in range(0, 64, 4)]
+    t += [(f"OWNER_AUTH_X({d})", F._owner_auth(d + 5, True)) for d in range(0, 64, 4)]
     return [(n, words(x, "c2")) for n, x in t]
+
+
+PARAM_FAMILIES = ("LEVEL_S(", "HASH_STEP(", "HASH_STEP2(", "REWRITE_STEP(", "REWRITE_STEP_X(",
+                  "OWNER_AUTH(", "OWNER_AUTH_X(", "ELEM_NODE(")
 
 
 def mid_macros():
@@ -215,7 +227,7 @@ def macro_file(tier, macros, notes):
     seen, lines = set(), [f"# Macro definitions, {tier} tier. Each expansion is itself collapsed",
                          "# against the other macros; a macro never contains itself.", ""]
     for name, ws in macros:
-        key = name.split("(")[0] if name.startswith(("LEVEL_S(", "HASH_STEP(")) else name
+        key = name.split("(")[0] if name.startswith(PARAM_FAMILIES) else name
         if key in seen:
             continue
         seen.add(key)
@@ -224,6 +236,14 @@ def macro_file(tier, macros, notes):
             shown = "LEVEL_S(k)   [shown for k = 0; <EMPTY_k> and the bit index vary with k]"
         if key == "HASH_STEP":
             shown = "HASH_STEP(t)   [shown for t = 3; the OP_PICK depth is t-3]"
+        if key == "HASH_STEP2":
+            shown = "HASH_STEP2(d)   [shown for d = 8; the HASH_STEP pick depths are d-3 and d-5]"
+        if key in ("REWRITE_STEP", "REWRITE_STEP_X"):
+            shown = f"{key}(d)   [shown for d = 0; the OP_ROLL depths are d+3, d+4 and d+5, the picks d+3 to d+5]"
+        if key in ("OWNER_AUTH", "OWNER_AUTH_X"):
+            shown = f"{key}(d)   [shown for d = 0; the OP_ROLL depth is d+5]"
+        if key == "ELEM_NODE":
+            shown = "ELEM_NODE(d)   [shown for d = 0; picks L at d+4 and Z at d+3 for the old element, one deeper for the new]"
         if key == "FINAL":
             shown = "FINAL   [shown for D = 4; <EMPTY_D> is the empty root of the tree's depth]"
         items = collapse(ws, macros, exclude=name)
@@ -259,6 +279,12 @@ NOTES_FULL = {
     "FINAL": "output 0 is (ns, TREE_SPK(nh, m)) unless nh == E_D",
     "LEAF_STEP": "cohort sweep: one leaf or empty -> its node, paying the next output",
     "HASH_STEP": "cohort sweep: two child nodes -> parent node",
+    "ELEM_NODE": "[elem] -> [h s]: a leaf's node, or E_0 for the empty element; picks the hoisted TAG_LEAF prefix (L) and E_0 (Z)",
+    "OWNER_AUTH": "cohort rewrite: the next witness element is a signature by old.owner_key",
+    "OWNER_AUTH_X": "OWNER_AUTH plus a signature by old.exit_key (REWRITE_h^x)",
+    "REWRITE_STEP": "cohort rewrite: old and new elements of one position -> oh os nh ns, with 7.9 rules 3 and 5",
+    "REWRITE_STEP_X": "REWRITE_STEP with OWNER_AUTH_X",
+    "HASH_STEP2": "cohort rewrite: two old and two new child nodes -> old and new parent nodes",
 }
 NOTES_MID = {
     "TAGGED": "[msg] -> [H_tag(msg)]",
@@ -308,11 +334,19 @@ open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w").write(
     structured(f"CLAIM_H (hash-locked voucher, dense, D={D})", F.claim_script(D, "D", hashlock=True), "c2", FULL))
 open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (owner-authorised carve, dense, D={D})", F.split_script(D, "D"), "c2", FULL))
+open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w").write(
+    structured(f"CLAIM_X (exit-key consent, dense, D={D})", F.claim_script(D, "D", exit_consent=True), "c2", FULL))
 for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
     open(os.path.join(OUT, f"{name}_S8.txt"), "w").write(structured(f"{name} (sparse, D=8)", toks, "c2", FULL))
 open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w").write(
     structured("EVICT_SUBTREE_2 (dense, D=8): cohort sweep of a 4-position subtree",
                F.evict_subtree_script(8, 2, OP_KEY), "c2", FULL))
+open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w").write(
+    structured("REWRITE_2 (dense, D=8): cohort rewrite of a 4-position subtree",
+               F.rewrite_script(8, 2, OP_KEY), "c2", FULL))
+open(os.path.join(OUT, "DETACH_2_D8.txt"), "w").write(
+    structured("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
+               F.detach_script(8, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY)), "c2", FULL))
 open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w").write(
     structured("EXIT_1 (minimal inventory, dense, D=4)", F.exit_script_min(D), "c2", FULL))
 for name, toks in M.all_scripts(D, OP_KEY, False).items():

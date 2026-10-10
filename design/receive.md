@@ -170,17 +170,21 @@ against the credit leaf and redeem it with plain `CLAIM`, which needs no
 consent from anyone. That drains the leaf and voids the recipient's
 voucher in one transaction.
 
-The fix is the same seven bytes `UPDATE^x` added to `UPDATE`: a `CLAIM^x`
-variant whose redemption requires a signature over the transaction by the
-source leaf's exit key, alongside the voucher. The recipient is that key,
-so the recipient's own redemptions carry it for free, and the operator
-cannot redeem against the leaf at all. With `UPDATE^x`, `EXIT^=` and
-`CLAIM^x` in the taptree, a credit leaf's balance can only grow or be
-paid to its recipient, and the recipient's exposure is the operator's
-liveness: nothing worse than a provider that stops issuing. This variant
-is not in the spec and would follow the `UPDATE^x` checklist: generator,
-tests, golden vectors, Go mirror, tier matrix row. The Lean model is
-unaffected, since `Claim` takes an opaque authorisation.
+The fix is the addition `UPDATE^x` made to `UPDATE`: a `CLAIM^x` variant
+whose redemption requires a signature over the transaction by the source
+leaf's exit key, alongside the voucher. The recipient is that key, so the
+recipient's own redemptions carry it for free, and the operator cannot
+redeem against the leaf at all. With `UPDATE^x`, `EXIT^=` and `CLAIM^x`
+in the taptree, a credit leaf's balance can only grow or be paid to its
+recipient, and the recipient's exposure is the operator's liveness:
+nothing worse than a provider that stops issuing. The variant is now spec
+7.5.3, with `CLAIM^hx` as the same addition to the hash-locked form; it
+measures 8 bytes over `CLAIM` in the FULL tier (`UPDATE^x`'s seven plus
+an `OP_SWAP`, because the voucher message keeps a spare copy of `m` above
+the signature) and 64 bytes of witness, and `tools/test_scripts.py`
+exercises the credit-leaf scenario directly: the operator's own voucher
+plus its own transaction signature fails. The Lean model is unaffected,
+since `Claim` takes an opaque authorisation.
 
 ## A bond against equivocation
 
@@ -254,8 +258,10 @@ tested (7.5.1, 9.6.1, 9.6.2, `test_swap` on PR #8). The ordering rules of
 9.6.2 apply unchanged: the recipient generates the preimage, the voucher
 resolves second, and the operator must not advance `seq` while an HTLC on
 the hash is in flight. The dedicated credit leaf is a deployment choice
-within the current rules. `CLAIM^x` is the one addition this page proposes,
-and until it exists the credit line carries the voiding race of 10.3,
-which is the same trust an Ark out-of-round payment carries until its
-next round, but with a consensus-enforced claim behind it rather than a
-ledger entry.
+within the current rules, and `CLAIM^x`, the one addition this page
+proposed, is now spec 7.5.3 in the FULL tier. A credit line in a tree
+whose taptree carries it, with `UPDATE^x` and `EXIT^=` and without
+`SPLIT`, no longer carries the voiding race of 10.3; one in a tree
+without it carries the same trust an Ark out-of-round payment carries
+until its next round, but with a consensus-enforced claim behind it
+rather than a ledger entry.

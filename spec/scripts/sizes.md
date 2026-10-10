@@ -69,6 +69,10 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | S | 32 | CLAIM_H | 9905 | 515 | 129 | 10549 | 4019479 | 1 |
 | D | 16 | SPLIT | 3728 | 1674 | 129 | 5531 | 2814466 | 1 |
 | S | 32 | SPLIT | 9822 | 483 | 129 | 10434 | 3995797 | 1 |
+| D | 16 | CLAIM_X | 3810 | 1754 | 129 | 5693 | 3334577 | 2 |
+| D | 16 | CLAIM_HX | 3819 | 1786 | 129 | 5734 | 3338763 | 2 |
+| S | 32 | CLAIM_X | 9904 | 547 | 129 | 10580 | 4515848 | 2 |
+| S | 32 | CLAIM_HX | 9913 | 579 | 129 | 10621 | 4520034 | 2 |
 | S/bitmap | 32 | EXIT_1 (owner) | 5423 | 330 | 129 | 5882 | 3080946 | 1 |
 | S/bitmap | 32 | JOIN_0 | 5407 | 371 | 129 | 5907 | 3079436 | 1 |
 | S/bitmap | 64 | EXIT_1 (owner) | 10063 | 334 | 129 | 10526 | 3979013 | 1 |
@@ -83,6 +87,11 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | D | 16 | EXIT_64 (evictions, for comparison) | 105847 | - | 129 | - | - | 64 |
 | D/subtree | 20 | EVICT_SUBTREE_8 (256 positions) | 60242 | 24401 | 129 | 84772 | 7239651 | 1 |
 | D | 20 | EXIT_256 (evictions, for comparison) | 512184 | - | 129 | - | - | 256 |
+| D/subtree | 16 | REWRITE_2 (4 positions, mixed) | 2731 | 1643 | 129 | 4503 | 3577898 | 3 |
+| D/subtree | 16 | REWRITE_4 (16 positions, mixed) | 5336 | 4329 | 129 | 9794 | 7524681 | 10 |
+| D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 16444 | 15139 | 129 | 31712 | 22931152 | 37 |
+| D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 5634 | 4905 | 129 | 10668 | 12034293 | 19 |
+| D/subtree | 16 | DETACH_8 | 1548 | 497 | 129 | 2174 | 3152083 | 1 |
 | MID/D | 16 | EXIT_1 (owner) | 3299 | 978 | 129 | 4406 | n/a (0xC0) | 1 |
 | MID/D | 16 | EXIT_1 (evict) | 3299 | 979 | 129 | 4407 | n/a (0xC0) | 1 |
 | MID/D | 16 | JOIN_2 | 2824 | 794 | 129 | 3747 | n/a (0xC0) | 1 |
