@@ -24,6 +24,7 @@ test suite fails if a script uses anything else.
 | [`paper/`](paper/) | LaTeX paper (LNCS format): ideal functionality, abstract protocol, opcode tiers, UC security theorem with Lean-cited lemmas, channel composition, measurements; `paper/main.pdf` is the built copy, stamped with its git revision |
 | [`formal/`](formal/README.md) | Lean 4 formalisation of the tree and covenant rules: conservation, proof soundness, payability, encodings (core library only, `lake build`) |
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
+| [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and where it does not: exit, entry and lifetime bytes against bare UTXOs, Lightning and transaction trees, with generated figures |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
 | [`design/layertree.md`](design/layertree.md) | Raw design sketch (verbatim) |
 | [`notes.md`](notes.md) | Notes distilled from the working vault |
