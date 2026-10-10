@@ -164,10 +164,20 @@ tree-creation parameters. With `UPDATE^x` (7.4 rule 5) the operator
 cannot rewrite the leaf without a signature from its exit key, which is
 the recipient's. With `EXIT^=` (7.2 rule 6) an exit of the leaf pays its
 whole amount to the exit key, so the operator leaving the leaf only pays
-the recipient more than it owed. An evictor key of NUMS removes eviction,
-and it survives the carve rule of spec 7.5 rule 5: a credit leaf created
-by `JOIN` with a NUMS evictor is still fine, since every leaf carved out
-of it inherits that evictor, which is what the recipient wants.
+the recipient more than it owed. Eviction is not a voiding move either:
+it pays the whole balance to the exit key, the recipient's, so it pays
+the recipient at least what any voucher would. A credit leaf should
+therefore carry a finite lease long enough for its purpose, with the
+operator as evictor, and not a NUMS evictor as an earlier draft of this
+page suggested (spec 10.3, 10.8). A voucher binds the claim leaf's bytes
+and not its position, so the recipient chooses the empty position its
+claim lands in, and under spec 7.5 rule 5 the claim inherits the source's
+evictor. Against a NUMS-evictor credit leaf every voucher is then a
+leaf that can be placed in an empty slot of any cohort and never swept;
+against a leased one the claim expires with the credit leaf. The
+operator should also keep cohort subtrees full or detach them: a full
+subtree has no empty slot for a claim, and a detached cohort can be
+carved into only by its own members (`design/audit/protocol.md`, A6).
 The fourth move is not covered: the operator can issue itself a voucher
 against the credit leaf and redeem it with plain `CLAIM`, which needs no
 consent from anyone. That drains the leaf and voids the recipient's
@@ -237,8 +247,8 @@ before accepting.
 
 So the two models pair with two remedies: a slashable bond for the
 shared bond leaf, where equivocation is the risk; and `CLAIM^x` with
-`UPDATE^x` and `EXIT^=` for the dedicated credit leaf, where nothing is
-left to slash.
+`UPDATE^x`, `EXIT^=` and a finite lease for the dedicated credit leaf,
+where nothing is left to slash.
 
 ## Why it is one-way
 

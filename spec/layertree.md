@@ -2178,8 +2178,10 @@ or will pass before a redemption broadcast now can be expected to
 confirm under the bound `Delta(q)` of 10.5, as unsecured credit. A
 recipient SHOULD require an issuer's lease to run past the recipient's
 own redemption deadline plus `Delta(q)`. A source leaf whose
-`evictor_key` is `NUMS`, or whose `evictor_key` is the recipient's own,
-cannot be evicted out from under the voucher.
+`evictor_key` is `NUMS` or the recipient's own cannot be evicted out
+from under the voucher, and one whose `exit_key` is the recipient's
+(the credit leaf of 10.3) pays its whole balance to the recipient when
+evicted, so for these the lease check is moot.
 
 A voucher that draws less than the source's whole balance needs an empty
 position for its claim leaf (7.5 rule 3); a full-balance voucher uses the
@@ -2436,8 +2438,9 @@ from then on. The leaf's balance goes to its `exit_key`, which for a
 shared bond leaf is the issuer, not the holder, so a holder who has paid
 for a voucher is left with the issuer's goodwill. 9.6 therefore has the
 holder check the source lease, and an issuer whose vouchers are meant to
-be secured SHOULD give its source leaf a `NUMS` evictor or a lease that
-runs well past the vouchers' expected redemption.
+be secured SHOULD give its source leaf a lease that runs well past the
+vouchers' expected redemption; a `NUMS` evictor also secures them, at
+the cost to the operator's sweeps that 10.8 describes.
 
 `SPLIT` (7.5.2) is one more way for an issuer to advance `seq` and so void
 its own outstanding vouchers. It adds no capability: an owner could already
@@ -2449,21 +2452,33 @@ keeps the replay argument below intact, since no sequence of `SPLIT`s and
 Both risks disappear for a **dedicated credit leaf**: a source leaf the
 issuer owns, whose `exit_key` is one recipient's, in a tree whose taptree
 carries `CLAIM^x` (7.5.3), `UPDATE^x` (7.4 rule 5) and `EXIT^=` (7.2 rule
-6), carries `REWRITE_h^x` (7.9 rule 7) in place of `REWRITE_h` or no
-`REWRITE_h` at all, and whose evictor is `NUMS`. Over-issuance against
-such a leaf has no second victim, since every voucher pays the same
-recipient, who can watch the leaf's amount in the tree. Voiding needs the leaf to change, and every
+6), and carries `REWRITE_h^x` (7.9 rule 7) in place of `REWRITE_h` or no
+`REWRITE_h` at all. Over-issuance against such a leaf has no second
+victim, since every voucher pays the same recipient, who can watch the
+leaf's amount in the tree. Voiding needs the leaf to change, and every
 transition that could change it now requires the exit key: `CLAIM^x`,
 `UPDATE^x` and `REWRITE_h^x` by rule, and `EXIT^=` because leaving pays
-the whole balance to that key. A plain `REWRITE_h` beside them reopens
-the voiding path: it asks only for the owner's and the operator's
-signatures, which the issuer holds, so the issuer could rewrite the leaf
-down to 1 sat and take the rest as the free decrease of 7.9 rule 6. A
-recipient MUST therefore verify from `m` that the taptree carries no
-plain `REWRITE_h` before treating a credit leaf as covered by this
-paragraph. Only `SPLIT` remains, and a tree hosting credit leaves SHOULD
-omit it from the taptree. The recipient's remaining exposure is the
-issuer's liveness, that is, a provider that stops issuing.
+the whole balance to that key. Eviction also pays the whole balance to
+that key, so it voids nothing the recipient is owed. Only `SPLIT`
+remains, and a tree hosting credit leaves SHOULD omit it from the
+taptree. The recipient's remaining exposure is the issuer's liveness,
+that is, a provider that stops issuing.
+
+A plain `REWRITE_h` beside these variants reopens the voiding path: 7.9
+rule 3 asks only for the owner's and the operator's signatures, which
+the issuer holds, so the issuer could rewrite the leaf down to 1 sat
+and take the rest as the free decrease of 7.9 rule 6. A recipient MUST
+therefore verify from `m` that the taptree carries no plain `REWRITE_h`
+before treating a credit leaf as covered by the preceding paragraph.
+
+A credit leaf SHOULD carry a finite lease long enough for its purpose,
+with the operator as evictor, rather than a `NUMS` evictor. A voucher
+binds the claim leaf's bytes and not its position, so the holder of any
+voucher against a `NUMS`-evictor leaf can redeem it into an empty
+position of any cohort, where the carve inherits the `NUMS` evictor
+(7.5 rule 5) and blocks that cohort's sweep for good (10.8). The carves
+of a leased credit leaf expire with it, and its eviction costs the
+recipient nothing, as above.
 `design/receive.md` works through the wallet case this serves.
 
 A voucher commits to `tree_id` (6.2), so it cannot be replayed in another
@@ -2632,9 +2647,17 @@ cohort's sweep (7.7) by planting a non-evictable leaf in one of its empty
 positions. What the rule does not reach is a leaf the operator admitted
 as non-evictable, with a `NUMS` evictor or a far `evict_after`: it can
 carve leaves of the same terms into any empty position, including a
-cohort's. An operator that relies on `EVICT_SUBTREE_h` SHOULD therefore
-admit such leaves only where that is acceptable, and SHOULD prefer a
-finite `evict_after` to a `NUMS` evictor, since a finite lease still ends.
+cohort's. Nor is the carver always the leaf's owner: a voucher binds the
+claim leaf's bytes and not its position, so whoever redeems a voucher
+against such a leaf chooses the empty position its carve lands in, and
+a credit leaf (10.3) has as many such redeemers as it issues vouchers.
+An operator that relies on `EVICT_SUBTREE_h` SHOULD therefore admit
+such leaves only where that is acceptable, SHOULD prefer a finite
+`evict_after` to a `NUMS` evictor, since a finite lease still ends, and
+a credit leaf SHOULD carry such a lease (10.3). It SHOULD also keep
+cohort subtrees full or detach them (7.10): a full subtree has no empty
+position to carve into, and a detached child can be carved into only
+by its own members.
 
 ### 10.9 Data availability
 
