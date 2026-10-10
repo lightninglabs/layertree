@@ -1,4 +1,4 @@
-# EXIT_2 (MID tier, dense, D=4): 2365 bytes
+# EXIT_2 (MID tier, dense, D=4): 2405 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

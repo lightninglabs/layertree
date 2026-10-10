@@ -1,4 +1,4 @@
-# UPDATE (MID tier, dense, D=4): 1535 bytes
+# UPDATE (MID tier, dense, D=4): 1559 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

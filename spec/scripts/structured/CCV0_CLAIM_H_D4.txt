@@ -1,4 +1,4 @@
-# CLAIM_H (CCV with 0xC0 numerics, in MID macros, dense, D=4): 2270 bytes
+# CLAIM_H (CCV with 0xC0 numerics, in MID macros, dense, D=4): 2310 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 OP_TOALTSTACK 33 OP_PICK 33 OP_PICK 33

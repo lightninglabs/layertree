@@ -52,8 +52,8 @@ vbytes per level and still has to be published.
 | FULL tier, fee taken from the payout | 921 |
 | FULL tier, `D = 8` and `D = 20` | 762 and 1,149 |
 | FULL tier, sparse profile `D = 32` | 1,637 |
-| MID tier | 1,338 |
-| MIN tier | 1,456 |
+| MID tier | 1,355 |
+| MIN tier | 1,473 |
 | CCV tier, tapleaf `0xC2` (PR #6) | 908 |
 | CCV plus native Merkle-sum opcode (PR #7, hypothetical) | 388 |
 | Transaction-tree exit at `D = 16` (Ark or CTV model) | 2,511 |

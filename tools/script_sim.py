@@ -27,7 +27,7 @@ OPS = {
     "OP_ROLL": 0x7a, "OP_ROT": 0x7b, "OP_SWAP": 0x7c, "OP_TUCK": 0x7d,
     "OP_CAT": 0x7e, "OP_SUBSTR": 0x7f, "OP_LEFT": 0x80, "OP_RIGHT": 0x81,
     "OP_SIZE": 0x82, "OP_EQUAL": 0x87, "OP_EQUALVERIFY": 0x88,
-    "OP_1ADD": 0x8b, "OP_1SUB": 0x8c, "OP_NOT": 0x91, "OP_0NOTEQUAL": 0x92,
+    "OP_1ADD": 0x8b, "OP_1SUB": 0x8c, "OP_ABS": 0x90, "OP_NOT": 0x91, "OP_0NOTEQUAL": 0x92,
     "OP_ADD": 0x93, "OP_SUB": 0x94, "OP_NUMEQUAL": 0x9c,
     "OP_NUMEQUALVERIFY": 0x9d, "OP_LESSTHAN": 0x9f,
     "OP_LESSTHANOREQUAL": 0xa1, "OP_GREATERTHANOREQUAL": 0xa2,
@@ -651,6 +651,9 @@ class Interp:
                 self.charge((wordspan(len(a)) + wordspan(len(b))) * 2)
                 x, y = any(a), any(b)
                 pushv(b"\x01" if ((x or y) if name == "OP_BOOLOR" else (x and y)) else b"")
+            elif name == "OP_ABS":
+                a = pop(); self.charge(wordspan(len(a)) * 2)
+                pushv(self.n_enc(abs(self.n_dec(a))))
             elif name == "OP_NOT":
                 a = pop(); self.charge(wordspan(len(a)) * 2)
                 pushv(b"" if any(a) else b"\x01")
@@ -701,6 +704,8 @@ class Interp:
                 a = top()
                 self.charge(wordspan(len(a)) * 2)
                 v = scriptnum_decode(a, 5) if self.mode == "c0" else num_decode(a)
+                if v < 0:
+                    raise ScriptError("CLTV operand negative")
                 if v >= 1 << 32:
                     raise ScriptError("CLTV operand too large")
                 if self.ctx.sequences[self.ctx.input_index] == 0xffffffff:

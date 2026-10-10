@@ -102,6 +102,18 @@ func midRepeat(toks []Token, n int) []Token {
 	return out
 }
 
+// midNonneg is the NONNEG check: [x] -> [x], failing unless x is a
+// minimal non-negative CScriptNum. OP_ABS re-encodes |x| minimally, so the
+// comparison also rejects a negative zero and every non-minimal encoding
+// whatever the MINIMALDATA policy. It guards every witness-supplied number
+// that enters a sum (a sibling sum, a leaf amount, a joined sum): a
+// four-byte number with its top bit set is negative under CScriptNum and
+// would otherwise pass PADZ as the le32 of a value in [2^31, 2^32).
+func midNonneg() []Token {
+	return []Token{Op(txscript.OP_DUP), Op(txscript.OP_DUP),
+		Op(txscript.OP_ABS), Op(txscript.OP_EQUALVERIFY)}
+}
+
 // midPadz is the PADZ gadget: [x z w] -> [le32(x)].
 func midPadz() []Token {
 	return []Token{
@@ -189,8 +201,10 @@ func midLevel(sparse bool) []Token {
 		}...)
 		s = append(s, midRoll(3, 3)...)
 	}
-	// sibling: sc = sh || enc64(ss); keep ss
-	s = append(s, Num(2), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK))
+	// sibling: sc = sh || enc64(ss); keep ss, which must be non-negative
+	s = append(s, Num(2), Op(txscript.OP_PICK))
+	s = append(s, midNonneg()...)
+	s = append(s, Op(txscript.OP_TOALTSTACK))
 	s = append(s, midEnc64()...)
 	s = append(s, Op(txscript.OP_CAT), Op(txscript.OP_FROMALTSTACK))
 	// new accumulator
@@ -321,7 +335,9 @@ var midFieldSizes = [7][2]int64{{0, 4}, {1, 4}, {2, 4}, {3, 32}, {4, 32}, {5, 32
 
 // midLeafJoin re-joins the seven leaf pieces under OP_SIZE checks.
 func midLeafJoin() []Token {
-	s := []Token{Num(2), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK)}
+	s := []Token{Num(2), Op(txscript.OP_PICK)}
+	s = append(s, midNonneg()...)
+	s = append(s, Op(txscript.OP_TOALTSTACK))
 	s = append(s, midLe64()...)
 	s = append(s, Num(7), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY))
 	for _, f := range midFieldSizes {
@@ -388,13 +404,14 @@ func MidExitScript(depth, k int, sparse bool) []Token {
 // midJoinBlock inserts one new subtree (dense) or leaf (sparse).
 func midJoinBlock(sparse bool, depth, height int) []Token {
 	if !sparse {
-		s := []Token{
+		s := midNonneg() // new_sum >= 0
+		s = append(s, []Token{
 			Op(txscript.OP_OVER), Op(txscript.OP_SIZE), Num(32),
 			Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_DROP),
 			Data(midNodePrefix), Op(txscript.OP_ROT), Op(txscript.OP_ROT),
 			Data(midEmptyNodeHash(height)), Op(txscript.OP_0),
 			Op(txscript.OP_2SWAP),
-		}
+		}...)
 		return append(s, midLevels(false, depth, height)...)
 	}
 	s := midLeafJoin()

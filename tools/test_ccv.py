@@ -34,7 +34,7 @@ FAILS = 0
 CHECKS = 0
 P2WPKH = b"\x00\x14" + bytes(20)
 
-BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ADD", "OP_1ADD",
+BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ABS", "OP_ADD", "OP_1ADD",
               "OP_CHECKLOCKTIMEVERIFY", "OP_CHECKSIGVERIFY", "OP_CHECKSIG", "OP_DROP",
               "OP_DUP", "OP_ELSE", "OP_ENDIF", "OP_EQUAL", "OP_EQUALVERIFY",
               "OP_FROMALTSTACK", "OP_IF", "OP_LESSTHANOREQUAL", "OP_NIP", "OP_NOT",
@@ -1382,6 +1382,54 @@ def test_carve_rules_ccv(depth, numeric="c2"):
     sweep(False, f"{tag}: a non-evictable member's NUMS dust still blocks the sweep (10.8)")
 
 
+def test_audit_negatives_ccv(depth):
+    """Negative cases from the byte-level audit (design/audit/script.md).
+
+    c2: output 0 over-funded by one sat (the assign-mode floor is only a
+    lower bound; the OP_TX equality is what pins it), the tree output and
+    the payout swapped, and a payout to a taproot output whose key is the
+    exit key under a taptree (CCV with an empty taptree operand is a bare
+    key). c0: the NONNEG check of the MID encoding (4.5, 10.6): `JOIN_2`
+    with `new_sum` of 2^31 + 2^24, the negative CScriptNum -2^24, and
+    output 0 at S - 2^24, is rejected."""
+    from test_mid import fold_signed, levels_signed, snum
+    w = World(depth, "D")
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    w.tree.leaves = {0: alice, 5: bob}
+    root = w.tree.root()
+    path = w.tree.path(5)
+    t1 = w.clone(); del t1.leaves[5]; r1 = t1.root()
+    outputs = [(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+
+    def go(outs, extra_in=(5_000, P2WPKH)):
+        ctx = w.ctx(outs, extra_in=extra_in)
+        sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+        return w.run("EXIT_1", w.path_witness(path) + [bob.serialize(), sig, b""], ctx)
+    go(outputs)
+    expect_fail(lambda: go([(r1[1] + 1, w.spk(r1)), outputs[1]], (6_000, P2WPKH)), "ccv: output 0 over-funded by one sat")
+    expect_fail(lambda: go([outputs[1], outputs[0]]), "ccv: tree output and payout swapped")
+    expect_fail(lambda: go([outputs[0], (bob.amount, lt.tree_spk(root[0], w.m))]), "ccv: payout to the exit key under a taptree")
+
+    w0 = WorldC0(depth, "D")
+    oper = lt.Leaf(100_000_000, pubkey_x(sk("operator-exit")), pubkey_x(sk("operator-owner")), lt.NUMS_X, 0, 7, 0)
+    w0.tree.leaves = {0: alice, (1 << depth) - 1: oper}
+    root0 = w0.tree.root()
+    S = root0[1]
+    h, idx = 2, 2
+    jpath = w0.tree.path(idx << h, height=h)
+    fake_hash = lt.sha256(b"operator's subtree")
+    r2 = fold_signed(fake_hash, -(1 << 24), jpath)
+    out0 = S - (1 << 24)
+    check(r2[1] == out0, "c0: the signed fold of the joined subtree reaches S - 2^24")
+    ctx = w0.ctx([(out0, w0.spk(r2))], (5_000, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w0.op_sk)
+    neg = snum(-(1 << 24))[0]
+    check(neg == lt.le32((1 << 31) + (1 << 24)), "c0: le32(2^31 + 2^24) is the CScriptNum -2^24")
+    wit = (list(M.pad(out0)) + list(M.pad(S)) + levels_signed(jpath, 0, -(1 << 24)) + [fake_hash, neg, osig])
+    expect_fail(lambda: w0.run("JOIN_2", wit, ctx), "c0: JOIN_2 with new_sum = 2^31 + 2^24 (a negative CScriptNum)")
+
+
 def main():
     global FAILS, CHECKS
     print("CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY)")
@@ -1429,6 +1477,9 @@ def main():
             test_claim_ccv(depth, profile, numeric)
             test_claim_ccv(depth, profile, numeric, hashlock=True)
             print(f"  {profile}/{depth} ({numeric}) CLAIM, CLAIM^h: {CHECKS - before} checks")
+    before = CHECKS
+    test_audit_negatives_ccv(8)
+    print(f"  D/8 audit negatives (c2, c0): {CHECKS - before} checks")
     print(f"\n{CHECKS} checks, {FAILS} failures")
     return 1 if FAILS else 0
 

@@ -92,30 +92,30 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 16444 | 15139 | 129 | 31712 | 22931152 | 37 |
 | D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 5634 | 4905 | 129 | 10668 | 12034293 | 19 |
 | D/subtree | 16 | DETACH_8 | 1548 | 497 | 129 | 2174 | 3152083 | 1 |
-| MID/D | 16 | EXIT_1 (owner) | 3299 | 978 | 129 | 4406 | n/a (0xC0) | 1 |
-| MID/D | 16 | EXIT_1 (evict) | 3299 | 979 | 129 | 4407 | n/a (0xC0) | 1 |
-| MID/D | 16 | JOIN_2 | 2824 | 794 | 129 | 3747 | n/a (0xC0) | 1 |
-| MID/D | 16 | JOINK_2 | 5749 | 1637 | 129 | 7515 | n/a (0xC0) | 1 |
-| MID/D | 16 | UPDATE | 3407 | 1156 | 129 | 4692 | n/a (0xC0) | 2 |
-| MID/D | 16 | CLAIM | 6376 | 1840 | 129 | 8345 | n/a (0xC0) | 1 |
-| MID/S | 31 | EXIT_1 (owner) | 9274 | 796 | 129 | 10199 | n/a (0xC0) | 1 |
-| MID/S | 31 | EXIT_1 (evict) | 9274 | 797 | 129 | 10200 | n/a (0xC0) | 1 |
-| MID/S | 31 | JOIN_0 | 9254 | 783 | 129 | 10166 | n/a (0xC0) | 1 |
-| MID/S | 31 | JOINK_2 | 17985 | 1433 | 129 | 19547 | n/a (0xC0) | 1 |
-| MID/S | 31 | UPDATE | 9393 | 1002 | 129 | 10524 | n/a (0xC0) | 2 |
-| MID/S | 31 | CLAIM | 18326 | 1551 | 129 | 20006 | n/a (0xC0) | 1 |
-| MID/D | 16 | UPDATE_X | 3411 | 1225 | 129 | 4765 | n/a (0xC0) | 3 |
-| MID/S | 31 | UPDATE_X | 9397 | 1032 | 129 | 10558 | n/a (0xC0) | 3 |
-| MID/D | 16 | CLAIM_H | 6384 | 1869 | 129 | 8382 | n/a (0xC0) | 1 |
-| MID/S | 31 | CLAIM_H | 18334 | 1446 | 129 | 19909 | n/a (0xC0) | 1 |
-| MID/D | 16 | SPLIT | 6217 | 1821 | 129 | 8167 | n/a (0xC0) | 1 |
-| MID/S | 31 | SPLIT | 18167 | 1420 | 129 | 19716 | n/a (0xC0) | 1 |
-| MID/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 4097 | 1157 | 129 | 5383 | n/a (0xC0) | 1 |
-| MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7865 | 2417 | 129 | 10411 | n/a (0xC0) | 1 |
-| MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23873 | 7461 | 129 | 31463 | n/a (0xC0) | 1 |
-| MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13149 | 4907 | 129 | 18185 | n/a (0xC0) | 1 |
-| MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |
-| MIN/D | 16 | SPLIT | 6501 | 2018 | 129 | 8648 | n/a (0xC0) | 2 |
+| MID/D | 16 | EXIT_1 (owner) | 3367 | 978 | 129 | 4474 | n/a (0xC0) | 1 |
+| MID/D | 16 | EXIT_1 (evict) | 3367 | 979 | 129 | 4475 | n/a (0xC0) | 1 |
+| MID/D | 16 | JOIN_2 | 2884 | 794 | 129 | 3807 | n/a (0xC0) | 1 |
+| MID/D | 16 | JOINK_2 | 5885 | 1637 | 129 | 7651 | n/a (0xC0) | 1 |
+| MID/D | 16 | UPDATE | 3479 | 1156 | 129 | 4764 | n/a (0xC0) | 2 |
+| MID/D | 16 | CLAIM | 6512 | 1840 | 129 | 8481 | n/a (0xC0) | 1 |
+| MID/S | 31 | EXIT_1 (owner) | 9402 | 796 | 129 | 10327 | n/a (0xC0) | 1 |
+| MID/S | 31 | EXIT_1 (evict) | 9402 | 797 | 129 | 10328 | n/a (0xC0) | 1 |
+| MID/S | 31 | JOIN_0 | 9382 | 783 | 129 | 10294 | n/a (0xC0) | 1 |
+| MID/S | 31 | JOINK_2 | 18241 | 1433 | 129 | 19803 | n/a (0xC0) | 1 |
+| MID/S | 31 | UPDATE | 9525 | 1002 | 129 | 10656 | n/a (0xC0) | 2 |
+| MID/S | 31 | CLAIM | 18582 | 1551 | 129 | 20262 | n/a (0xC0) | 1 |
+| MID/D | 16 | UPDATE_X | 3483 | 1225 | 129 | 4837 | n/a (0xC0) | 3 |
+| MID/S | 31 | UPDATE_X | 9529 | 1032 | 129 | 10690 | n/a (0xC0) | 3 |
+| MID/D | 16 | CLAIM_H | 6520 | 1869 | 129 | 8518 | n/a (0xC0) | 1 |
+| MID/S | 31 | CLAIM_H | 18590 | 1446 | 129 | 20165 | n/a (0xC0) | 1 |
+| MID/D | 16 | SPLIT | 6353 | 1821 | 129 | 8303 | n/a (0xC0) | 1 |
+| MID/S | 31 | SPLIT | 18423 | 1420 | 129 | 19972 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 4169 | 1157 | 129 | 5455 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7977 | 2417 | 129 | 10523 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24169 | 7461 | 129 | 31759 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13321 | 4907 | 129 | 18357 | n/a (0xC0) | 1 |
+| MIN/D | 16 | EXIT_1 (owner) | 3640 | 1175 | 129 | 4944 | n/a (0xC0) | 2 |
+| MIN/D | 16 | SPLIT | 6637 | 2018 | 129 | 8784 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |
 | CCV/D | 16 | EXIT_1 (evict) | 1716 | 839 | 129 | 2684 | 2319708 | 1 |
 | CCV/D | 16 | EXIT_1 (terminal) | 1716 | 837 | 129 | 2682 | 1819116 | 1 |
@@ -135,33 +135,33 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV/S | 32 | EXIT_2 | 9454 | 566 | 129 | 10149 | 4819006 | 2 |
 | CCV/S | 32 | UPDATE_X | 4969 | 547 | 129 | 5645 | 3431700 | 3 |
 | CCV/S | 32 | SPLIT | 9457 | 419 | 129 | 10005 | 3332351 | 1 |
-| CCV-c0/D | 16 | EXIT_1 (owner, c0) | 2934 | 914 | 129 | 3977 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | EXIT_1 (evict, c0) | 2934 | 915 | 129 | 3978 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | EXIT_1 (terminal, c0) | 2934 | 904 | 129 | 3967 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | JOIN_2 (c0) | 2456 | 730 | 129 | 3315 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | UPDATE (c0) | 3039 | 1092 | 129 | 4260 | n/a (0xC0) | 2 |
-| CCV-c0/D | 16 | UPDATE_X (c0) | 3043 | 1156 | 129 | 4328 | n/a (0xC0) | 3 |
-| CCV-c0/D | 16 | EXIT_2 (c0) | 5747 | 1824 | 129 | 7700 | n/a (0xC0) | 2 |
-| CCV-c0/S | 31 | EXIT_1 (owner, c0) | 8909 | 732 | 129 | 9770 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | EXIT_1 (evict, c0) | 8909 | 733 | 129 | 9771 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | EXIT_1 (terminal, c0) | 8909 | 656 | 129 | 9694 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | JOIN_0 (c0) | 8886 | 719 | 129 | 9734 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | UPDATE (c0) | 9025 | 905 | 129 | 10059 | n/a (0xC0) | 2 |
-| CCV-c0/S | 31 | UPDATE_X (c0) | 9029 | 969 | 129 | 10127 | n/a (0xC0) | 3 |
-| CCV-c0/S | 31 | EXIT_2 (c0) | 17697 | 1443 | 129 | 19269 | n/a (0xC0) | 2 |
+| CCV-c0/D | 16 | EXIT_1 (owner, c0) | 3002 | 914 | 129 | 4045 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EXIT_1 (evict, c0) | 3002 | 915 | 129 | 4046 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EXIT_1 (terminal, c0) | 3002 | 904 | 129 | 4035 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | JOIN_2 (c0) | 2516 | 730 | 129 | 3375 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | UPDATE (c0) | 3111 | 1092 | 129 | 4332 | n/a (0xC0) | 2 |
+| CCV-c0/D | 16 | UPDATE_X (c0) | 3115 | 1156 | 129 | 4400 | n/a (0xC0) | 3 |
+| CCV-c0/D | 16 | EXIT_2 (c0) | 5883 | 1824 | 129 | 7836 | n/a (0xC0) | 2 |
+| CCV-c0/S | 31 | EXIT_1 (owner, c0) | 9037 | 732 | 129 | 9898 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | EXIT_1 (evict, c0) | 9037 | 733 | 129 | 9899 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | EXIT_1 (terminal, c0) | 9037 | 656 | 129 | 9822 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | JOIN_0 (c0) | 9014 | 719 | 129 | 9862 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | UPDATE (c0) | 9157 | 905 | 129 | 10191 | n/a (0xC0) | 2 |
+| CCV-c0/S | 31 | UPDATE_X (c0) | 9161 | 969 | 129 | 10259 | n/a (0xC0) | 3 |
+| CCV-c0/S | 31 | EXIT_2 (c0) | 17953 | 1443 | 129 | 19525 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 2340 | 987 | 129 | 3456 | 3332386 | 1 |
 | CCV/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 4960 | 2065 | 129 | 7154 | 8522510 | 1 |
 | CCV/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 15968 | 6391 | 129 | 22488 | 28379132 | 1 |
-| CCV-c0/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 3745 | 1093 | 129 | 4967 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7561 | 2353 | 129 | 10043 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23761 | 7397 | 129 | 31287 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | SPLIT | 5847 | 1757 | 129 | 7733 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | SPLIT | 17797 | 1356 | 129 | 19282 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 3817 | 1093 | 129 | 5039 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7673 | 2353 | 129 | 10155 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24057 | 7397 | 129 | 31583 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | SPLIT | 5983 | 1757 | 129 | 7869 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | SPLIT | 18053 | 1356 | 129 | 19538 | n/a (0xC0) | 1 |
 | CCV/D | 16 | CLAIM | 3472 | 1626 | 129 | 5227 | 2170639 | 1 |
 | CCV/D | 16 | CLAIM_H | 3480 | 1658 | 129 | 5267 | 2174825 | 1 |
 | CCV/S | 32 | CLAIM | 9566 | 419 | 129 | 10114 | 3351874 | 1 |
 | CCV/S | 32 | CLAIM_H | 9574 | 451 | 129 | 10154 | 3356060 | 1 |
-| CCV-c0/D | 16 | CLAIM | 6006 | 1773 | 129 | 7908 | n/a (0xC0) | 1 |
-| CCV-c0/D | 16 | CLAIM_H | 6014 | 1805 | 129 | 7948 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | CLAIM | 17956 | 1350 | 129 | 19435 | n/a (0xC0) | 1 |
-| CCV-c0/S | 31 | CLAIM_H | 17964 | 1382 | 129 | 19475 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | CLAIM | 6142 | 1773 | 129 | 8044 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | CLAIM_H | 6150 | 1805 | 129 | 8084 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | CLAIM | 18212 | 1350 | 129 | 19691 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | CLAIM_H | 18220 | 1382 | 129 | 19731 | n/a (0xC0) | 1 |

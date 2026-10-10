@@ -19,7 +19,7 @@ TREE_ID = lt.tree_id(lt.sha256(b"creation-txid"), 0)
 
 # Design constraint (spec section 4.4): scripts compose ONLY existing candidate
 # opcodes. Any opcode outside this inventory is a test failure.
-BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ADD", "OP_1ADD",
+BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ABS", "OP_ADD", "OP_1ADD",
               "OP_CHECKLOCKTIMEVERIFY", "OP_CHECKSIGVERIFY", "OP_CHECKSIG", "OP_DROP",
               "OP_DUP", "OP_ELSE", "OP_ENDIF", "OP_EQUAL", "OP_EQUALVERIFY",
               "OP_FROMALTSTACK", "OP_IF", "OP_LESSTHANOREQUAL", "OP_NIP", "OP_NOT",
@@ -1536,6 +1536,157 @@ def test_swap(depth, verbose=True):
               f"CLAIM^h script {len(w.compiled['CLAIM_H'])} B; one preimage settles both legs")
 
 
+def test_audit_negatives(depth, verbose=True):
+    """Negative cases the byte-level audit (design/audit/script.md) found no
+    test for. Each targets one rule of section 7 or one encoding check of
+    section 8 by mutating a single element of a passing witness or one
+    field of a passing transaction.
+
+    EXIT: a non-minimal `is_evict` or `dir` (MINIMALIF), a leaf or sibling
+    of the wrong length, a sibling whose `enc64` suffix is not 0x01, a
+    payout at the wrong output index, two `EXIT_2` steps naming the same
+    position (7.6), and an owner payout one sat over `leaf.amount` under
+    `EXIT_1^=` (7.2 rule 6). JOIN: `new_hash` and `new_sum` of the wrong
+    length. REWRITE_2 (7.9 rule 3): an `exit_key` change, an amount
+    decrease, and an amount increase paired with a nonce change, each
+    without the owner's signature; a spurious signature under an unchanged
+    position; old and new elements swapped at an exit position; a 1-byte
+    old element. EVICT_SUBTREE_2 (7.7): an occupied position presented as
+    empty, two leaves in swapped positions, payouts in the wrong order and
+    an empty position supplied as 116 zero bytes."""
+    w = World(depth, "D")
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    w.tree.leaves = {0: alice, 5: bob}
+    root = w.tree.root()
+    path = w.tree.path(5)
+    t1 = w.clone(); del t1.leaves[5]; r1 = t1.root()
+    outputs = [(r1[1], w.spk(r1)), (bob.amount - 1_000, lt.p2tr_spk(bob.exit_key))]
+    ctx = w.ctx(outputs, extra_in=(5_000, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+    pw = w.path_witness(path)
+    tail = [bob.serialize(), sig, b"", root[0], w.m]
+    w.run("EXIT_1", pw + tail, ctx)
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), sig, b"\x02", root[0], w.m], ctx), "EXIT_1 is_evict = 0x02 (MINIMALIF)")
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize()[:115], sig, b"", root[0], w.m], ctx), "EXIT_1 leaf of 115 bytes")
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize() + b"\x00", sig, b"", root[0], w.m], ctx), "EXIT_1 leaf of 117 bytes")
+    for mut, label in ((lambda sc: sc[:40], "40-byte sibling"), (lambda sc: sc + b"\x00", "42-byte sibling"),
+                       (lambda sc: sc[:40] + b"\x02", "sibling with enc64 suffix 0x02")):
+        pw2 = list(pw); pw2[1] = mut(pw2[1])
+        expect_fail(lambda: w.run("EXIT_1", pw2 + tail, ctx), f"EXIT_1 {label}")
+    for dv, label in ((b"\x02", "0x02"), (b"\x00", "0x00")):
+        pw3 = list(pw); pw3[0] = dv
+        expect_fail(lambda: w.run("EXIT_1", pw3 + tail, ctx), f"EXIT_1 dir = {label} (MINIMALIF)")
+    outs3 = [(r1[1], w.spk(r1)), (400, P2WPKH), (bob.amount - 1_000, lt.p2tr_spk(bob.exit_key))]
+    ctx3 = w.ctx(outs3, extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), schnorr_sign(ctx3.sighash(), sk("bob-owner")), b"", root[0], w.m], ctx3),
+                "EXIT_1 payout at output 2 instead of 1")
+    # EXIT_2 naming the same position twice (7.6): the second step finds E_0
+    outs2 = [(r1[1], w.spk(r1)), (bob.amount, lt.p2tr_spk(bob.exit_key)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+    ctx2 = w.ctx(outs2, extra_in=(5_000, P2WPKH))
+    s2 = schnorr_sign(ctx2.sighash(), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_2", w.path_witness(t1.path(5)) + [bob.serialize(), s2, b""] + pw + [bob.serialize(), s2, b""] + [root[0], w.m], ctx2),
+                "EXIT_2 the same position in both steps")
+    # EXIT_1^= with a surplus
+    exact = assemble(ls.exit_script(depth, 1, "D", exact=True))
+    w2 = World(depth, "D"); w2.compiled = dict(w2.compiled); w2.compiled["EXIT_1"] = exact
+    w2.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w2.compiled.values()])
+    w2.tree.leaves = {0: alice, 5: bob}
+    ctx_s = w2.ctx([(r1[1], w2.spk(r1)), (bob.amount + 1, lt.p2tr_spk(bob.exit_key))], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w2.run("EXIT_1", w2.path_witness(path) + [bob.serialize(), schnorr_sign(ctx_s.sighash(), sk("bob-owner")), b"", root[0], w2.m], ctx_s),
+                "EXIT_1^= owner payout one sat over leaf.amount")
+
+    # JOIN_2: new_hash and new_sum of the wrong length
+    w3 = World(depth, "D", join_heights=(0, 2))
+    w3.tree.leaves = {0: alice}
+    root3 = w3.tree.root()
+    h, idx = 2, 2
+    jpath = w3.tree.path(idx << h, height=h)
+    carol = mk_leaf("carol", 30_000, w3.op_pk, 900_000)
+    t2 = w3.clone(); lt.apply_join(t2, h, idx, {0: carol})
+    node, r2 = t2.subtree(h, idx), t2.root()
+    ctxj = w3.ctx([(r2[1], w3.spk(r2))], extra_in=(node[1] + 2_000, P2WPKH))
+    osig = schnorr_sign(ctxj.sighash(), w3.op_sk)
+    pwj = w3.path_witness(jpath, h)
+    w3.run("JOIN_2", pwj + [node[0], lt.le64(node[1]), osig, root3[0], w3.m], ctxj)
+    expect_fail(lambda: w3.run("JOIN_2", pwj + [node[0], lt.le64(node[1])[:7], osig, root3[0], w3.m], ctxj), "JOIN_2 new_sum of 7 bytes")
+    expect_fail(lambda: w3.run("JOIN_2", pwj + [node[0], lt.le64(node[1]) + b"\x00", osig, root3[0], w3.m], ctxj), "JOIN_2 new_sum of 9 bytes")
+    expect_fail(lambda: w3.run("JOIN_2", pwj + [node[0][:31], lt.le64(node[1]), osig, root3[0], w3.m], ctxj), "JOIN_2 new_hash of 31 bytes")
+
+    # REWRITE_2 (7.9 rule 3): changes that need the owner's signature, without it
+    c = rewrite_case(depth, 2, "mixed")
+    wr, name, path_r, base, old, new, rootr = c["w"], c["name"], c["path"], c["base"], c["old"], c["new"], c["root"]
+    n = 4
+
+    def run_rewrite(old_, new_, outs=None, sign=True, extra_sig_at=None):
+        t = wr.clone()
+        for i, x in new_.items():
+            if x:
+                t.leaves[base + i] = x
+            else:
+                t.leaves.pop(base + i, None)
+        outs = outs or ([(t.root()[1], wr.spk(t.root()))] +
+                        [(old_[i].amount, lt.p2tr_spk(old_[i].exit_key)) for i in range(n) if old_[i] and new_[i] is None] + [(400, P2WPKH)])
+        delta = t.root()[1] - rootr[1]
+        ctx_ = wr.ctx(outs, extra_in=(max(delta, 0) + 5_000, P2WPKH))
+        wit, _ = _rewrite_witness(wr, 2, path_r, old_, new_, ctx_, rootr, schnorr_sign(ctx_.sighash(), wr.op_sk), False, sign)
+        if extra_sig_at is not None:
+            pos = wit.index(new_[extra_sig_at].serialize() if new_[extra_sig_at] else b"")
+            wit = wit[:pos] + [schnorr_sign(ctx_.sighash(), sk(f"c{extra_sig_at}-owner"))] + wit[pos:]
+        return wr.run(name, wit, ctx_)
+    i_same = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() == new[i].serialize())
+    lf = old[i_same]
+    nk = dict(new); nk[i_same] = lt.Leaf(lf.amount, pubkey_x(sk("mallory-exit")), lf.owner_key, lf.evictor_key, lf.evict_after, lf.nonce, lf.seq)
+    expect_fail(lambda: run_rewrite(old, nk, sign=False), f"{name} exit_key changed without the owner signature")
+    run_rewrite(old, nk, sign=True)
+    check(True, f"{name} exit_key changed with the owner signature")
+    nd = dict(new); nd[i_same] = lf.with_amount_seq(lf.amount - 1, lf.seq)
+    expect_fail(lambda: run_rewrite(old, nd, sign=False), f"{name} amount decreased without the owner signature")
+    nn = dict(new); nn[i_same] = lt.Leaf(lf.amount + 1, lf.exit_key, lf.owner_key, lf.evictor_key, lf.evict_after, lf.nonce + 1, lf.seq)
+    expect_fail(lambda: run_rewrite(old, nn, sign=False), f"{name} amount increase with a nonce change, no owner signature")
+    expect_fail(lambda: run_rewrite(old, new, extra_sig_at=i_same), f"{name} spurious signature under an unchanged position")
+    i_exit = next(i for i in range(n) if old[i] and new[i] is None)
+    sw_old, sw_new = dict(old), dict(new)
+    sw_old[i_exit], sw_new[i_exit] = None, old[i_exit]
+    expect_fail(lambda: run_rewrite(sw_old, sw_new), f"{name} old and new elements swapped at an exit position")
+
+    def one_byte():
+        wit = list(c["wit"]); wit[wit.index(lf.serialize())] = b"\x01"
+        return wr.run(name, wit, c["ctx"])
+    expect_fail(one_byte, f"{name} a 1-byte old element")
+
+    # EVICT_SUBTREE_2 (7.7): positions and payouts out of order, an empty slot as 116 zero bytes
+    we = World(depth, "D")
+    ename = "EVICT_SUBTREE_2"
+    we.compiled = dict(we.compiled); we.compiled[ename] = assemble(ls.evict_subtree_script(depth, 2, we.op_pk))
+    we.m = lt.taptree_root([lt.tapleaf_hash(x) for x in we.compiled.values()])
+    cohort = {4 + i: mk_leaf(f"c{i}", 10_000 + 7 * i, we.op_pk, 800_000) for i in range(4) if i != 2}
+    we.tree.leaves = dict(cohort); we.tree.leaves[0] = alice
+    roote = we.tree.root()
+    pathe = we.tree.path(4, height=2)
+    te = we.clone()
+    for p_ in cohort:
+        del te.leaves[p_]
+    re_ = te.root()
+
+    def run_evict(leaves_rev, outs):
+        ctx_ = we.ctx(outs, extra_in=(5_000, P2WPKH), locktime=800_000)
+        return we.run(ename, we.path_witness(pathe, 2) + leaves_rev + [schnorr_sign(ctx_.sighash(), we.op_sk), roote[0], we.m], ctx_)
+    present = [4 + i for i in range(4) if 4 + i in cohort]
+    outs_e = [(re_[1], we.spk(re_))] + [(cohort[p_].amount, lt.p2tr_spk(cohort[p_].exit_key)) for p_ in present] + [(400, P2WPKH)]
+    lr = [cohort[4 + i].serialize() if 4 + i in cohort else b"" for i in reversed(range(4))]
+    run_evict(lr, outs_e)
+    hide = list(lr); hide[-1] = b""
+    expect_fail(lambda: run_evict(hide, [outs_e[0]] + outs_e[2:]), f"{ename} an occupied position presented as empty")
+    swap = list(lr); swap[-1], swap[-2] = swap[-2], swap[-1]
+    expect_fail(lambda: run_evict(swap, outs_e), f"{ename} two leaves in swapped positions")
+    expect_fail(lambda: run_evict(lr, [outs_e[0], outs_e[2], outs_e[1]] + outs_e[3:]), f"{ename} payouts in the wrong order")
+    ez = list(lr); ez[1] = bytes(116)
+    expect_fail(lambda: run_evict(ez, outs_e), f"{ename} an empty position supplied as 116 zero bytes")
+    if verbose:
+        print(f"audit negatives D={depth}: EXIT, JOIN, REWRITE_2 and EVICT_SUBTREE_2 mutations rejected")
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
@@ -1582,6 +1733,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_split(d, prof)
     for d in (4, 16):
         test_carve_rules(d)
+    test_audit_negatives(8)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
             test_all(d, prof)
