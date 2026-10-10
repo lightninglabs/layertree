@@ -23,6 +23,12 @@ open LayerTree
 #print axioms join_sound
 #print axioms update_sound
 #print axioms claim_sound
+#print axioms terminal_no_leaf
+#print axioms ExitKT.terminal_conservation
+#print axioms ExitKT.single_terminal
+#print axioms Tree.Sparse.unique
+#print axioms Tree.Sparse.absent
+#print axioms sparseJoin_sound
 #print axioms witness_root_binds
 #print axioms ccv_input_binds
 #print axioms Encoding.serializeLeaf_inj
