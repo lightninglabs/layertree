@@ -2301,10 +2301,10 @@ construction. The "virtual network" of the design notes is this hub.
 
 | Party | Can | Cannot |
 |---|---|---|
-| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves | move, reduce or delay any other leaf; freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
+| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves | move or reduce any other leaf; delay any other leaf's exit beyond the liveness bound of 10.5 (it can contend for the tree output only by fee, like any other spender, and assumption [C] bounds what that buys); freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
 | Owner | `EXIT` at any time; co-sign `UPDATE`; issue vouchers against their leaf; carve their leaf by `SPLIT` or a voucher | affect any other leaf; withdraw more than their leaf's amount; carve out a leaf with another evictor or a later lease than their own (7.5 rule 5) |
 | Anyone | redeem a valid voucher (`CLAIM`); relay transitions | trigger an owner's exit; create leaves; alter amounts |
-| Operator, `DETACH_h` (7.10) | move an aligned cohort into a tree output of its own, which shortens every member's path | change the cohort's rules, keys or balances by doing so: the child is the parent's option set at depth `h` (rule 3), its leaves are the parent's bytes, and its `tree_id` is inherited, so vouchers and channel states survive |
+| Operator, `DETACH_h` (7.10) | with its signature alone (7.10 rule 4), move an aligned cohort into a tree output of its own, which shortens every member's path and gives the cohort its own exit throughput (10.5) | take value from the cohort or from the parent: output 1 carries exactly the cohort's sum under the cohort's own root and output 0 the remainder (7.10 rules 1 to 3); change the cohort's rules, keys or balances: the child is the parent's option set at depth `h` (rule 3), its leaves are the parent's bytes, and its `tree_id` is inherited, so vouchers and channel states survive |
 
 Custody is never with the operator: the tree output's key path is
 unspendable (section 6.1) and every script path requires either a proof
@@ -2411,32 +2411,75 @@ the script set is authenticated natively and the witness carries neither
 implementation MUST NOT add a witness-supplied taptree operand anywhere
 the input or output 0 is checked.
 
-### 10.5 Concurrency and pinning
+### 10.5 Concurrency, liveness and pinning
 
-All transitions spend the same UTXO, so at most one confirms per tree per
-block position and conflicting transitions are resolved by fee. An owner's
-`EXIT_1` conflicts with a pending operator `JOIN`; either party can replace
-the other under BIP-125 rules if it pays the required increment. An attacker
-holding one leaf can therefore impose a replacement cost on the operator
-once per leaf per round. Mitigations: operators SHOULD honour cooperative
-exit requests promptly (removing the incentive), MAY chain several
-transitions off one confirmed output within mempool descendant limits, and
-SHOULD use anchor outputs so that either party can bump fees. Signatures
-cover outputs, so a third party cannot alter where an exit pays.
+All transitions spend the same UTXO, so conflicting transitions are
+resolved by fee. An owner's `EXIT_1` conflicts with a pending operator
+`JOIN`; either party can replace the other under the replacement rules of
+BIP-125 if it pays the required increment. An attacker holding one leaf
+can therefore impose a replacement cost on the operator once per leaf per
+round. Signatures cover outputs, so a third party cannot alter where an
+exit pays.
 
-Because every transition spends and recreates the one tree output,
-uncooperative exits are serialised through it: default mempool policy
-(25 descendants) bounds a tree to roughly 25 single-leaf exits per block,
-and `EXIT_K` raises that only for parties who cooperate. Operators SHOULD
-size each tree by this exit throughput rather than by depth, and SHOULD
-shard a deployment into several trees when the time to drain one at 25
-leaves per block would exceed the time-sensitive commitments its leaves
-carry (for channel leaves, Appendix C.9.5 gives the bound).
+How long an honest transition can be delayed is not a consequence of
+consensus. The chain admits any number of valid conflicting spends of the
+tree output, and a corrupt member can produce them without removing a
+leaf: a `SPLIT` of its balance back and forth between two positions, or a
+voucher to itself redeemed by `CLAIM`; a corrupt operator can do the same
+with a `JOIN` and `EXIT` of a leaf it funds. Each confirmed spend
+invalidates a pending honest transition, which must be rebuilt against the
+new root (9.7). This document therefore states the exit-latency bound as
+a policy assumption with two parameters it does not derive:
+
+**[C] (contention).** At most `kappa >= 1` spends of one tree output
+confirm per block, and while an honest transition is pending at the
+prevailing fee rate at most `beta` conflicting spends confirm ahead of it.
+
+`kappa` is mempool policy, not consensus: 25 under Bitcoin Core's default
+ancestor and descendant count limits (section 15, Bitcoin Core policy); a
+per-cluster limit under cluster mempool, which replaces the chain limit
+with a bound on the size and count of the connected component the tree's
+chain belongs to; and as low as 1 once any participant attaches
+unconfirmed descendants to a payout or change output, which every
+transition leaves free. `beta` is economic: it is bounded by the
+adversary's fee budget against the honest bid and by nothing else, so
+without a bound on it a unilateral exit is a fee auction. Under [C] an
+honest transition with `q` honest transitions queued ahead of it takes
+effect within
+
+```
+Delta(q) = Delta_L · (ceil((beta + q) / kappa) + 1)
+```
+
+blocks, where `Delta_L` is the latency of one confirmation at the chosen
+fee rate. Nothing in the bound depends on the tree's membership `N`, which
+a corrupt operator controls by grafting. Appendix C.4.4 consumes
+`Delta(q)` as `G_exit`, and the cell "cannot delay" of 10.1 means this
+bound and nothing stronger.
+
+*(informative)* Cooperatively (`beta = 0`, `kappa = 25`, `Delta_L = 1`)
+a tree drains 25 single-leaf exits per block, so 10,000 leaves leaving at
+once take about 400 blocks; `EXIT_K` raises the rate only for parties who
+cooperate. That throughput is a cooperative-case figure, not a guarantee.
+TRUC (BIP-431) is not an option for transitions, since it caps an
+unconfirmed chain at two transactions and the chain is the throughput;
+pinning by a low-fee-rate ancestor on the fee input, or by descendants
+hung off a payout or change output, is outside what [C] models and is
+mitigated by policy (package relay, anchors), not by the scripts.
+
+Operators SHOULD size each tree by exit throughput rather than by depth,
+and SHOULD shard a deployment into several trees when the time to drain
+one at `kappa` leaves per block would exceed the time-sensitive
+commitments its leaves carry (for channel leaves, Appendix C.9.5 gives the
+rule). Operators SHOULD honour cooperative exit requests promptly
+(removing the incentive to contend), MAY chain several transitions off one
+confirmed output within the chain limit, and SHOULD use anchor outputs so
+that either party can bump fees.
 
 `DETACH_h` (7.10) is sharding on demand. A detached cohort spends its own
-output, so its transitions form their own unconfirmed chain and the
-descendant bound applies to it separately: an operator that detaches `k`
-cohorts raises the deployment's exit throughput to about `25·(k + 1)` leaves
+output, so its transitions form their own unconfirmed chain and `kappa`
+applies to it separately: an operator that detaches `k` cohorts raises the
+deployment's cooperative exit throughput to about `kappa · (k + 1)` leaves
 per block. Operators SHOULD detach a cohort when its leaves become
 time-sensitive, for instance channel leaves whose HTLC deadlines are near,
 rather than size every tree for the worst case in advance.
@@ -3072,6 +3115,15 @@ and signature-hash models are simplified as documented in its header.
 * BIP-443 — `OP_CHECKCONTRACTVERIFY` (Ingala), pinned at `bitcoin/bips`
   commit `24e96e87` (4.1): the data-tweaked internal key used here follows
   the same pattern.
+* Bitcoin Core mempool policy: the ancestor and descendant count limits
+  (`src/policy/policy.h`, `DEFAULT_ANCESTOR_LIMIT` and
+  `DEFAULT_DESCENDANT_LIMIT`, 25) and the 80-byte tapscript witness item
+  limit (`MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE`),
+  `https://github.com/bitcoin/bitcoin`.
+* Cluster mempool (Wuille, Daftuar, Zhao), Delving Bitcoin,
+  `https://delvingbitcoin.org/t/an-overview-of-the-cluster-mempool-proposal/393`.
+* BIP-125, Opt-in Full Replace-by-Fee Signaling; BIP-431, Topology
+  Restrictions for Pinning (TRUC).
 * Merkle Sum Sparse Merkle Trees, Taproot Assets BIP draft (Osuntokun).
 * Ark protocol documentation (Ark Labs; Second).
 * `design/unified-batching.md` — the essay in which LayerTree was first

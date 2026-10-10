@@ -3,7 +3,7 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.3.0
+Version:  0.3.1
 Requires: spec/layertree.md 0.7.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
@@ -538,6 +538,18 @@ leaf needs `cltv_expiry_delta ≥ ~220` blocks against the ~40 typical on the
 public network. Operators and users MUST set `cltv_expiry_delta` for channel
 leaves accordingly, and MUST NOT accept forwards that leave less headroom.
 
+`G_exit` is not a constant. It is `Delta(q)` of 10.5 under the contention
+assumption [C], `Delta_L · (ceil((beta + q) / kappa) + 1)`, where `q` is
+the number of leaves that may need to exit ahead of this one in the same
+window, `kappa` the spends of one tree output that confirm per block under
+relay policy and `beta` the conflicting spends an adversary gets confirmed
+first. At `Delta_L = 1`, `G_exit = 72` therefore covers
+`beta + q ≤ 71 · kappa`: about 1,775 channel leaves at `kappa = 25` and
+`beta = 0`. A tree whose channel leaves outnumber that, or whose members
+must outbid a contending counterparty (`beta > 0`), MUST use a larger
+`G_exit`, growing by `Delta_L` for every further `kappa` leaves, and so a
+larger `cltv_expiry_delta`, or be sharded or detached (C.9.5, 10.5).
+
 *(informative)* The deadline reasoning above is exercised block by block in
 `tools/test_chan.py` (C.12), on a chain model that enforces BIP-65 and BIP-68.
 Counting as those rules do, the payee is safe at
@@ -1026,17 +1038,28 @@ a future `evict_after` and give up routing (C.6.4).
 ### C.9.5 Mass exit serialises through one UTXO
 
 Every removal from the tree spends the tree output and recreates it, so
-unilateral exits form a chain of descendants of a single UTXO. Mempool
-descendant limits (25 transactions) bound an uncooperative mass exit to about
-25 leaves per confirmed tree output, i.e. ≈ 25 channel force-closes per block.
-A tree hosting 10,000 channel leaves needs ≈ 400 blocks — the better part of
-three days — to force-close all of them, during which HTLC deadlines continue
-to run (C.4.4). This is the channel-leaf form of the contention problem of
-10.5 and it is the strongest argument for sharding a deployment into several
-trees: the exit throughput of a tree, not its depth, bounds how many channels
-it should host. Operators SHOULD size trees so that
-`leaves / 25 blocks < cltv_expiry_delta − csv_delay`, and SHOULD prefer
-cooperative `EXIT_K` batching whenever users are responsive.
+unilateral exits form a chain of spends of a single UTXO, and an exit's
+latency is `Delta(q)` under the contention assumption [C] of 10.5:
+`Delta_L · (ceil((beta + q) / kappa) + 1)` blocks, with `kappa` the spends
+of one output that confirm per block under relay policy (25 under Bitcoin
+Core's ancestor and descendant count limits, a per-cluster limit under
+cluster mempool, 10.5) and `beta` the conflicting spends an adversary gets
+confirmed ahead of the honest one. Cooperatively (`beta = 0`, `kappa = 25`,
+`Delta_L = 1`) that is about 25 channel force-closes per block, so a tree
+hosting 10,000 channel leaves needs about 400 blocks, the better part of
+three days, to force-close all of them, during which HTLC deadlines
+continue to run (C.4.4). That figure is a cooperative-case drain time, not
+a bound: the counterparty of a channel leaf is normally the operator,
+which can issue competing spends of the tree output, so the budget of
+C.4.4 holds only while the member can outbid them, which is what `beta`
+assumes. This is the channel-leaf form of the contention problem of 10.5
+and it is the strongest argument for sharding a deployment into several
+trees: the exit throughput of a tree, not its depth, bounds how many
+channels it should host. Operators SHOULD size trees so that
+`beta + leaves ≤ (G_exit / Delta_L − 1) · kappa`, which at `beta = 0` and
+`Delta_L = 1` with the budget of C.4.4 is
+`leaves / kappa < cltv_expiry_delta − csv_delay − 3 − G_sweep`, and SHOULD
+prefer cooperative `EXIT_K` batching whenever users are responsive.
 
 ### C.9.6 Fee bumping and pinning
 
