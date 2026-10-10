@@ -40,16 +40,34 @@ with numbers.
 
 ## In flight right now
 
-- Paper review round: three Opus reviewers (cryptographer on the UC
-  argument, Bitcoin protocol engineer on scripts and assumptions,
-  systems reviewer on measurements and writing) each write
-  `paper/reviews/{crypto,protocol,systems}.md` in their own worktrees;
-  the orchestrator merges the three files, then an Opus writer answers
-  them in `paper/review-response.md` style, fixes the paper, rebuilds
-  both PDFs. The paper is reconciled with spec 0.9.0 (cb81f99): short
-  version 64 pages with References on 16, full version 70 pages with
-  References on 33 (body about 32.8 pages, two over the target; the
-  writer may move something to an appendix).
+- Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
+  on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
+  up; the UC liveness bound Delta(N) does not follow from the model, the
+  functionality's opaque slots are too coarse for the simulator, plus
+  twelve fixable items); protocol engineer weak reject (same liveness
+  problem; "only proposals already made" overstated; prior art TLUV,
+  CoinPool OP_MERKLESUB, OP_EVICT missing; the s = e + 1 trick is
+  Poelstra 2021; vB figures omit witness length prefixes); systems weak
+  accept conditional (forty headline numbers re-derive; the fee model is
+  stated three ways; baselines unsourced; short body spills onto page
+  16; 29-row inconsistency table). An Opus writer is answering all
+  three in `paper/review-response.md` round two and fixing the paper.
+- Spec-level findings from the reviews, queued for a spec worker after
+  the rule worker lands (same files): 10.5's liveness bound must be
+  restated as an explicit policy assumption (competing spends per
+  block), with the BIP-125 citation for kappa replaced and cluster
+  mempool noted; 11's fee model must state that witness item prefixes
+  are excluded (about 10 to 14 vB per exit) or fold them in, and "131 WU
+  per level" is 129 by the data; 11's sweep rows (165/116 per leaf) and
+  break-even "near D = 5" disagree with sizes.md's model (203/158);
+  "input 0" is false for CCV; the BIP-443 commit should be pinned in 4.1;
+  self-funded cohort joins are a signing round (9.2 wording); CLAIM^h is
+  a hash-locked cheque, not an atomic swap, where 9.6.1 overclaims;
+  MIN's raw extra_outs element can exceed the 80-byte 0xC0 witness-item
+  policy limit (8.x note); the 220-block HTLC budget at G_exit = 72 fits
+  about 1,775 leaves (C.4.4 should tie G_exit to N).
+- The radix experiment crashed at HEAD after the channel-leaf simulator
+  change (CCV per-input init with no context); fixed in 727afa3.
 - `tree_id` in every tier (Fable worker, spec 0.10.0): the voucher
   message binds a per-lineage `tree_id` constant instead of `m` in FULL
   and MID as it already does in CCV; a detached child inherits it, so
