@@ -707,6 +707,93 @@ def test_claim_h(depth, profile, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_claim_x(depth, profile, hashlock=False, verbose=True):
+    """CLAIM^x and CLAIM^hx (spec 7.5.3): CLAIM / CLAIM^h plus a signature
+    over the transaction by the source leaf's exit_key.
+
+    The scenario is the dedicated credit leaf of 10.3: the operator owns the
+    source leaf (owner_key) and the recipient holds its exit_key. Under
+    CLAIM^x the recipient's own redemptions carry the exit signature for
+    free, and the operator cannot carve the leaf, not even with a voucher it
+    signed to itself, because it does not hold the exit key. The variant is a
+    tree-creation parameter and is swapped into the taptree under the name
+    CLAIM_X (CLAIM_HX); m is recomputed.
+    """
+    name = "CLAIM_HX" if hashlock else "CLAIM_X"
+    w = World(depth, profile)
+    toks = ls.claim_script(depth, profile, hashlock=hashlock, exit_consent=True)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    plain = assemble(ls.claim_script(depth, profile, hashlock=hashlock))
+    check(len(script) - len(plain) == 8, f"{name} is eight bytes over its plain form")
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    # credit leaf: the operator is the owner (issuer), the recipient holds the exit key
+    credit = lt.Leaf(1_000_000, pubkey_x(sk("recipient-exit")), w.op_pk, lt.NUMS_X, 0,
+                     int.from_bytes(lt.sha256(b"credit")[:4], "little"), 0)
+    alice = mk_leaf("alice", 50_000)
+    s_credit, s_alice = w.slot(credit, (1 << depth) - 1), w.slot(alice, 0)
+    w.tree.leaves = {s_credit: credit, s_alice: alice}
+    root = w.tree.root()
+
+    # the recipient redeems the cumulative voucher into its own claim leaf
+    claim = mk_leaf("recipient", 40_000, w.op_pk, 900_000)
+    s_claim = w.slot(claim, 3)
+    spath = w.tree.path(s_credit)
+    t1 = w.clone(); lt.apply_claim(t1, s_credit, s_claim, claim)
+    cpath = t1.path(s_claim); r1 = t1.root()
+    check(r1[1] == root[1], f"{name} conserves sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    preimage = lt.sha256(b"credit-preimage")
+    if hashlock:
+        vsig = schnorr_sign(lt.voucher_h_msg(w.m, credit, claim, lt.sha256(preimage)), w.op_sk)
+    else:
+        vsig = schnorr_sign(lt.voucher_msg(w.m, credit, claim), w.op_sk)
+    xsig = schnorr_sign(ctx.sighash(), sk("recipient-exit"))
+    head = (w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [credit.serialize()] +
+            w.bm(cpath) + [claim.serialize(), vsig] + ([preimage] if hashlock else []))
+    wit = head + [xsig, root[0], w.m]
+    it = w.run(name, wit, ctx)
+    check(True, f"{name} redeemed with the voucher and the exit-key signature")
+
+    # negatives
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(name, head + [osig, root[0], w.m], ctx),
+                f"{name} exit_sig by the wrong key (the operator, who owns the leaf)")
+    expect_fail(lambda: w.run(name, head + [bytes(64), root[0], w.m], ctx), f"{name} garbage exit_sig")
+    expect_fail(lambda: w.run(name, head + [root[0], w.m], ctx), f"{name} missing exit_sig")
+    vpos = len(head) - (2 if hashlock else 1)          # index of vsig in head
+    novoucher = head[:vpos] + head[vpos + 1:]
+    expect_fail(lambda: w.run(name, novoucher + [xsig, root[0], w.m], ctx), f"{name} without the voucher")
+    txsig = head[:vpos] + [osig] + head[vpos + 1:]      # a transaction signature is not a voucher
+    expect_fail(lambda: w.run(name, txsig + [xsig, root[0], w.m], ctx),
+                f"{name} with a transaction signature in place of the voucher")
+    # the operator cannot drain the credit leaf: its own voucher and its own
+    # transaction signature are not the exit key
+    drain = mk_leaf("operator-drain", credit.amount, w.op_pk, 900_000)
+    s_drain = w.slot(drain, 6)
+    t2 = w.clone(); lt.apply_claim(t2, s_credit, s_drain, drain)
+    cpath2 = t2.path(s_drain); r2 = t2.root()
+    ctx2 = w.ctx([(r2[1], w.spk(r2))], extra_in=(600, P2WPKH))
+    if hashlock:
+        dsig = schnorr_sign(lt.voucher_h_msg(w.m, credit, drain, lt.sha256(preimage)), w.op_sk)
+    else:
+        dsig = schnorr_sign(lt.voucher_msg(w.m, credit, drain), w.op_sk)
+    expect_fail(lambda: w.run(name, w.path_witness(cpath2) + w.path_witness(spath) + w.bm(spath) +
+                              [credit.serialize()] + w.bm(cpath2) + [drain.serialize(), dsig] +
+                              ([preimage] if hashlock else []) +
+                              [schnorr_sign(ctx2.sighash(), w.op_sk), root[0], w.m], ctx2),
+                f"{name} operator draining the credit leaf without the recipient")
+    if hashlock:
+        expect_fail(lambda: w.run(name, head[:-1] + [lt.sha256(b"wrong"), xsig, root[0], w.m], ctx),
+                    f"{name} wrong preimage")
+    if verbose:
+        print(f"{name} {profile} D={depth}: script {len(script)} B (plain {len(plain)} B), "
+              f"witness {sum(len(x) for x in wit)} B, varops {it.cost}")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 def test_split(depth, profile, verbose=True):
     """SPLIT (spec 7.5.2): CLAIM authorised by the owner's transaction
     signature instead of a voucher.
@@ -883,6 +970,8 @@ if __name__ == "__main__" and "--subtree" not in sys.argv:
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
         test_claim_h(d, prof)
+        test_claim_x(d, prof)
+        test_claim_x(d, prof, hashlock=True)
         test_split(d, prof)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:

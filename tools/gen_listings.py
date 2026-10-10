@@ -55,6 +55,9 @@ with open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w") as f:
 with open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w") as f:
     f.write(listing(f"SPLIT (owner-authorised carve, dense, D={D})",
                     ls.split_script(D, "D")))
+with open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w") as f:
+    f.write(listing(f"CLAIM_X (exit-key consent, dense, D={D})",
+                    ls.claim_script(D, "D", exit_consent=True)))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:
     f.write(listing("LEVEL (dense): one merkle-sum level, both accumulators", ls.level_dense()))
     f.write("\n")
@@ -78,6 +81,10 @@ for prof, d in (("D", 16), ("S", 32)):
 for prof, d in (("D", 16), ("S", 32)):
     it, sl, wl = test_scripts.test_split(d, prof, verbose=False)
     rows.append((prof, d, "SPLIT", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+for prof, d in (("D", 16), ("S", 32)):
+    for hl, name in ((False, "CLAIM_X"), (True, "CLAIM_HX")):
+        it, sl, wl = test_scripts.test_claim_x(d, prof, hashlock=hl, verbose=False)
+        rows.append((prof, d, name, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 ls.COMPRESSION["S"] = "bitmap"
 for d in (32, 64):
     costs, w = test_scripts.test_all(d, "S", verbose=False)

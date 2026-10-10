@@ -49,10 +49,11 @@ add("CCV", "S", 8, "UPDATE_X", CV.update_script_ccv(8, OP_KEY, "S", exit_consent
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
-# CLAIM^h the hash-locked voucher (7.5.1), and SPLIT the owner-authorised
-# carve (7.5.2). None is part of the reference taptree, so all are added
-# after the sets above and excluded from taptree_full_d4 below.
-VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT")
+# CLAIM^h the hash-locked voucher (7.5.1), SPLIT the owner-authorised
+# carve (7.5.2), and CLAIM^x / CLAIM^hx the exit-consent carves (7.5.3).
+# None is part of the reference taptree, so all are added after the sets
+# above and excluded from taptree_full_d4 below.
+VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT", "CLAIM_X", "CLAIM_HX")
 add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
@@ -68,6 +69,10 @@ add("MID", "S", 8, "SPLIT", M.split_script(8, True), "c0")
 add("MIN", "D", 4, "SPLIT", N.split_script(4), "c0")
 add("CCV", "D", 4, "SPLIT", CV.split_script_ccv(4, "D"), "c2")
 add("CCV", "S", 8, "SPLIT", CV.split_script_ccv(8, "S"), "c2")
+add("FULL", "D", 4, "CLAIM_X", F.claim_script(4, "D", exit_consent=True), "c2")
+add("FULL", "S", 8, "CLAIM_X", F.claim_script(8, "S", exit_consent=True), "c2")
+add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, "D", hashlock=True, exit_consent=True), "c2")
+add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, "S", hashlock=True, exit_consent=True), "c2")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

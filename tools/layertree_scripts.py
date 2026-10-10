@@ -352,17 +352,23 @@ def update_script(depth, operator_key, profile="D", exit_consent=False):
     return s + check_old_root_from_alt(profile) + final_output(depth)
 
 
-def claim_script(depth, profile="D", hashlock=False):
+def claim_script(depth, profile="D", hashlock=False, exit_consent=False):
     """CLAIM (spec 7.5), or CLAIM^h (7.5.1) with hashlock=True.
 
     Witness: [claim path] [source path] src_leaf claim_leaf voucher_sig
-    [preimage] root m. With hashlock=True the witness carries a 32-byte
-    preimage below root and the signed message gains SHA256(preimage) as a
-    fourth field under a separate tag. The script never compares the payment
-    hash to a witness copy: it computes it from the preimage and feeds it to
-    the message, so a wrong preimage fails as a bad signature.
+    [preimage] [exit_sig] root m. With hashlock=True the witness carries a
+    32-byte preimage below root and the signed message gains SHA256(preimage)
+    as a fourth field under a separate tag. The script never compares the
+    payment hash to a witness copy: it computes it from the preimage and
+    feeds it to the message, so a wrong preimage fails as a bad signature.
+
+    exit_consent=True is the CLAIM^x variant (spec 7.5.3): the element
+    directly below root is one more signature, exit_sig, which MUST be valid
+    over the transaction by src_leaf.exit_key, exactly as UPDATE^x (7.4 rule
+    5) adds exit-key consent to UPDATE. Both flags together give CLAIM^hx.
     """
-    return _carve_script(depth, profile, "hashlock" if hashlock else "voucher")
+    return _carve_script(depth, profile, "hashlock" if hashlock else "voucher",
+                         exit_consent)
 
 
 def split_script(depth, profile="D"):
@@ -378,14 +384,26 @@ def split_script(depth, profile="D"):
     return _carve_script(depth, profile, "owner")
 
 
-def _carve_script(depth, profile, auth):
+def _carve_script(depth, profile, auth, exit_consent=False):
     """Shared body of CLAIM, CLAIM^h and SPLIT: carve a new leaf out of an
-    existing one. `auth` selects the authorisation and nothing else."""
+    existing one. `auth` selects the authorisation and nothing else.
+
+    exit_consent=True (CLAIM^x, CLAIM^hx; spec 7.5.3) consumes one more
+    witness element, exit_sig, directly below root, before anything else:
+    it is lifted over the spare copy of m and checked against
+    src_leaf.exit_key, so every stack depth below is as in the plain form.
+    Eight bytes over the plain script in either form: UPDATE^x's seven plus
+    the OP_SWAP that moves the signature above m.
+    """
     assert auth in ("voucher", "hashlock", "owner")
     hashlock = auth == "hashlock"
     s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
          "OP_2DUP"] + tree_spk() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim sig [pre] m | m r
+         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim sig [pre] [xsig] m | m r
+    if exit_consent:
+        # src is 4 deep under xsig (5 with the preimage in between)
+        s += ["OP_SWAP", 5 if hashlock else 4, "OP_PICK",
+              OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]  # src claim sig [pre] m
     if auth == "owner":
         # the owner signs the transaction, so no message is rebuilt; drop the
         # spare copy of m and check the signature against src.owner_key

@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.8.5
+Version:  0.8.6
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -368,6 +368,7 @@ are interchangeable, with one numeric cap noted below.
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | no: the voucher message binds `m`, which the CCV witness does not carry (4.6) |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | no (same message as `CLAIM`, 4.6) |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes in `0xC2`; `0xC0` not implemented |
+| `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | not implemented | no (no `CLAIM`) | no (no `CLAIM`, 4.6) |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | not implemented | no | `0xC2` only (`0xC0` needs an element-based leaf step, 4.6) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
@@ -395,6 +396,7 @@ script / witness data:
 | `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | n/a (4.6) | 9,896 / 688 | 18,241 / 1,543 | n/a (4.6) |
 | `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | n/a (4.6) | 9,905 / 515 | 18,250 / 1,438 | n/a (4.6) |
 | `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 3,338 / 1,610 | 9,822 / 483 | 18,110 / 1,412 | 9,432 / 419 |
+| `CLAIM^x` | 3,810 / 1,754 | — | n/a | n/a (4.6) | 9,904 / 547 | — | n/a (4.6) |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`): dense `D = 16` — `EXIT_1`
@@ -1052,6 +1054,44 @@ and only a signature over that output says which. Rule 1's coverage
 requirement is therefore what stops a relayer rewriting the recipient
 (10.7).
 
+#### 7.5.3 CLAIM^x (exit-key consent)
+
+`CLAIM^x` is `CLAIM` whose redemption additionally requires the consent of
+the source leaf's `exit_key`, exactly as `UPDATE^x` (7.4 rule 5) adds that
+consent to `UPDATE`. `CLAIM^hx` is the same addition to `CLAIM^h`. Both
+are tree-creation parameters: a taptree MAY include any combination of
+`CLAIM`, `CLAIM^h`, `CLAIM^x` and `CLAIM^hx`, and the choice is visible in
+`m`.
+
+Witness inputs: as `CLAIM` (or `CLAIM^h`), with one further element
+`exit_sig` directly below `r`, that is, above `voucher_sig` and, in the
+hash-locked form, above `preimage`.
+
+Rules: as 7.5 (or 7.5.1), plus
+
+5. `exit_sig` MUST be a valid BIP-340 signature over `tx` by
+   `source_leaf.exit_key`, with the same hash-type requirement as 7.2
+   rule 3.
+
+Rules 1 to 4 are unchanged, so `CLAIM^x` conserves the total, is
+single-use, advances `seq` and empties a drained source position exactly
+as `CLAIM` does; the voucher is still required, and a transaction
+signature by the source owner does not stand in for it.
+
+*(informative)* The variant exists for the **dedicated credit leaf** of
+10.3: a source leaf the issuer owns (`owner_key`) whose `exit_key` is the
+recipient's. Every voucher against such a leaf pays the same recipient,
+so the recipient's own redemptions carry `exit_sig` at no cost, and the
+issuer cannot carve the leaf at all, not even with a voucher it signs to
+itself, because it does not hold the exit key. With `UPDATE^x` and
+`EXIT^=` in the same taptree and a `NUMS` evictor, the credit leaf's
+balance can only grow or be paid to its recipient, which removes the
+voiding race of 10.3 for that leaf. The reference generator exposes the
+variant as `claim_script(…, exit_consent=True)`. It costs 8 bytes over
+`CLAIM` or `CLAIM^h` in the FULL tier (`UPDATE^x`'s seven, plus one
+`OP_SWAP` that lifts the signature over the spare copy of `m` the voucher
+message needs) and 64 bytes of witness.
+
 ### 7.6 Composition and variants
 
 Transition types compose by sequencing: a script that applies transitions
@@ -1507,6 +1547,26 @@ raw introspection elements of `EXIT_1` at its bottom. The source owner
 signs after the spender has ground the fee input's `nSequence`, since the
 signature covers it. Listing: `spec/scripts/MIN_SPLIT_D4.txt`.
 
+#### 8.6.3 CLAIM^x and CLAIM^hx
+
+Witness: as 8.6 (or 8.6.1) with `exit_sig` directly below `r`. The
+signature is checked first, immediately after the prologue parks `m` and
+`r`, so every stack depth in the rest of the script is as in the plain
+form:
+
+```
+<SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
+OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim vsig [pre] xsig r m
+OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim vsig [pre] xsig m   | m r
+OP_SWAP OP_4 OP_PICK OP_8 32 OP_SUBSTR              # src claim vsig m xsig src.exit_key
+OP_CHECKSIGVERIFY                                   # src claim vsig m
+... as 8.6 from OP_3 OP_PICK onwards (8.6.1 from OP_SWAP OP_SIZE 32 onwards), unchanged ...
+```
+
+In `CLAIM^hx` the pick depth is `OP_5`, since the preimage sits between
+`voucher_sig` and `exit_sig`. Either form costs 8 bytes over its plain
+script (section 8.8). Listing: `spec/scripts/CLAIM_X_D4.txt`.
+
 ### 8.7 EVICT_SUBTREE_h
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  leaf_{2^h−1} … leaf_0  sig  r  m`
@@ -1891,6 +1951,19 @@ do the same alone by redeeming a voucher issued to itself. A recipient's
 position is unchanged, and the `seq` increment `SPLIT` shares with `CLAIM`
 keeps the replay argument below intact, since no sequence of `SPLIT`s and
 `CLAIM`s returns a leaf to a byte string it held before.
+
+Both risks disappear for a **dedicated credit leaf**: a source leaf the
+issuer owns, whose `exit_key` is one recipient's, in a tree whose taptree
+carries `CLAIM^x` (7.5.3), `UPDATE^x` (7.4 rule 5) and `EXIT^=` (7.2 rule
+6) and whose evictor is `NUMS`. Over-issuance against such a leaf has no
+second victim, since every voucher pays the same recipient, who can watch
+the leaf's amount in the tree. Voiding needs the leaf to change, and every
+transition that could change it now requires the exit key: `CLAIM^x` and
+`UPDATE^x` by rule, and `EXIT^=` because leaving pays the whole balance to
+that key. Only `SPLIT` remains, and a tree hosting credit leaves SHOULD
+omit it from the taptree. The recipient's remaining exposure is the
+issuer's liveness, that is, a provider that stops issuing.
+`design/receive.md` works through the wallet case this serves.
 
 A voucher commits to `m`, so it cannot be replayed in another tree; it
 commits to the full source leaf including `seq`, so it cannot be replayed
@@ -2327,7 +2400,15 @@ exits in a batch" as `EXIT_K` (section 13).
   the operator, by the recipient, with a garbage signature, with a voucher
   signature in place of a transaction signature, over-splitting, into an
   occupied position, against a stale root, or reused for a transaction
-  that swaps in a different recipient all fail), 425 checks in
+  that swaps in a different recipient all fail) and the exit-consent
+  `CLAIM^x` and `CLAIM^hx` of 7.5.3 (dense at `D = 4` and `16`, sparse at
+  `D = 8`, against a dedicated credit leaf whose owner is the operator and
+  whose exit key is the recipient's: the recipient's redemption with the
+  voucher and its exit-key signature succeeds, and an `exit_sig` by the
+  operator, a garbage or absent `exit_sig`, a witness without the voucher,
+  a transaction signature in place of the voucher, the operator draining
+  the leaf with a voucher to itself and, under the hash lock, a wrong
+  preimage all fail), 528 checks in
   total. Run: `python3 tools/test_scripts.py`.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
@@ -2362,7 +2443,8 @@ exits in a batch" as `EXIT_K` (section 13).
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
-  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`, and
+  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`,
+  `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4` and `FULL/S/D8`, and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

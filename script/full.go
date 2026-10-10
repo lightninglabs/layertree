@@ -505,7 +505,25 @@ const (
 // FullClaimScript is CLAIM (spec 8.7):
 // witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m.
 func FullClaimScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authVoucher)
+	return fullCarveScript(depth, sparse, authVoucher, false)
+}
+
+// FullClaimXScript is CLAIM^x, the exit-consent variant of CLAIM (spec
+// 7.5.3): witness =
+// [claim path] [source path] src_leaf claim_leaf voucher_sig exit_sig root m,
+// with exit_sig a signature over the transaction by src_leaf.exit_key, as
+// UPDATE^x adds to UPDATE. It is a tree-creation parameter: it makes a
+// dedicated credit leaf trust-free (10.3) because the issuer, who owns the
+// leaf, cannot carve it without the holder of its exit key.
+func FullClaimXScript(depth int, sparse bool) []Token {
+	return fullCarveScript(depth, sparse, authVoucher, true)
+}
+
+// FullClaimHXScript is CLAIM^hx, the hash-locked voucher with exit-key
+// consent (spec 7.5.3): CLAIM^h's witness with exit_sig between the preimage
+// and root.
+func FullClaimHXScript(depth int, sparse bool) []Token {
+	return fullCarveScript(depth, sparse, authHashlock, true)
 }
 
 // FullClaimHScript is CLAIM^h, the hash-locked voucher variant of CLAIM
@@ -517,7 +535,7 @@ func FullClaimScript(depth int, sparse bool) []Token {
 // wrong preimage fails as a bad signature. It is a tree-creation parameter: a
 // tree uses either CLAIM or CLAIM^h, never both.
 func FullClaimHScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authHashlock)
+	return fullCarveScript(depth, sparse, authHashlock, false)
 }
 
 // FullSplitScript is SPLIT (spec 7.5.2): CLAIM authorised by the owner's
@@ -528,13 +546,18 @@ func FullClaimHScript(depth int, sparse bool) []Token {
 // body. Like CLAIM^h it is a tree-creation parameter and stays out of the
 // reference taptree.
 func FullSplitScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authOwner)
+	return fullCarveScript(depth, sparse, authOwner, false)
 }
 
 // fullCarveScript is the shared body of CLAIM, CLAIM^h and SPLIT: carve a new
 // leaf out of an existing one. auth selects the authorisation and nothing
-// else.
-func fullCarveScript(depth int, sparse bool, auth string) []Token {
+// else. exitConsent (CLAIM^x, CLAIM^hx) consumes one more witness element,
+// exit_sig, directly below root, before anything else: it is lifted over the
+// spare copy of m and checked against src_leaf.exit_key, so every stack depth
+// below is as in the plain form. Eight bytes over the plain script.
+func fullCarveScript(depth int, sparse bool, auth string,
+	exitConsent bool) []Token {
+
 	hashlock := auth == authHashlock
 	s := fullCat(
 		[]Token{
@@ -545,9 +568,21 @@ func fullCarveScript(depth int, sparse bool, auth string) []Token {
 		[]Token{
 			Num(SelInSpk), Op(OP_TX), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), Op(ts.OP_SWAP),
-			Op(ts.OP_TOALTSTACK), // src claim vsig [pre] m | m r
+			Op(ts.OP_TOALTSTACK), // src claim vsig [pre] [xsig] m | m r
 		},
 	)
+	if exitConsent {
+		// src is 4 deep under xsig, 5 with the preimage in between.
+		srcDepth := int64(4)
+		if hashlock {
+			srcDepth = 5
+		}
+		s = fullCat(s, []Token{
+			Op(ts.OP_SWAP), Num(srcDepth), Op(ts.OP_PICK),
+			Num(fullOffExitKey), Num(32), Op(OP_SUBSTR),
+			Op(ts.OP_CHECKSIGVERIFY), // src claim vsig [pre] m
+		})
+	}
 	if auth == authOwner {
 		// SPLIT: the owner signs the transaction, so no message is rebuilt.
 		// Drop the spare copy of m, which only the voucher message needed,

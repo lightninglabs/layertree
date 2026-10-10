@@ -300,6 +300,8 @@ open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w").write(
     structured(f"CLAIM_H (hash-locked voucher, dense, D={D})", F.claim_script(D, "D", hashlock=True), "c2", FULL))
 open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (owner-authorised carve, dense, D={D})", F.split_script(D, "D"), "c2", FULL))
+open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w").write(
+    structured(f"CLAIM_X (exit-key consent, dense, D={D})", F.claim_script(D, "D", exit_consent=True), "c2", FULL))
 for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
     open(os.path.join(OUT, f"{name}_S8.txt"), "w").write(structured(f"{name} (sparse, D=8)", toks, "c2", FULL))
 open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w").write(

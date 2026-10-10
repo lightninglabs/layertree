@@ -63,6 +63,10 @@ func fullScriptFor(profile string, depth int, name string,
 		return FullClaimScript(depth, sparse), nil
 	case name == "CLAIM_H":
 		return FullClaimHScript(depth, sparse), nil
+	case name == "CLAIM_X":
+		return FullClaimXScript(depth, sparse), nil
+	case name == "CLAIM_HX":
+		return FullClaimHXScript(depth, sparse), nil
 	case name == "SPLIT":
 		return FullSplitScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
@@ -297,6 +301,45 @@ func TestFullClaimH(t *testing.T) {
 		[]int{2})["CLAIM_H"]; ok {
 
 		t.Error("CLAIM_H must stay out of FullAllScripts")
+	}
+}
+
+// TestFullClaimX checks the exit-consent carves CLAIM^x and CLAIM^hx (spec
+// 7.5.3) in both profiles. Like UPDATE^x they are tree-creation parameters
+// and stay out of FullAllScripts.
+func TestFullClaimX(t *testing.T) {
+	g, key := loadGolden(t)
+
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_X", FullClaimXScript(4, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_X", FullClaimXScript(8, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_HX", FullClaimHXScript(4, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_HX", FullClaimHXScript(8, true))
+
+	// The exit-key check costs exactly eight bytes over the plain form in
+	// both the plain and the hash-locked carve.
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		plain := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
+		x := MustAssemble(FullClaimXScript(tc.depth, tc.sparse), ModeC2)
+		if len(x)-len(plain) != 8 {
+			t.Errorf("depth %d sparse %v: CLAIM^x is %d bytes over CLAIM, "+
+				"want 8", tc.depth, tc.sparse, len(x)-len(plain))
+		}
+		h := MustAssemble(FullClaimHScript(tc.depth, tc.sparse), ModeC2)
+		hx := MustAssemble(FullClaimHXScript(tc.depth, tc.sparse), ModeC2)
+		if len(hx)-len(h) != 8 {
+			t.Errorf("depth %d sparse %v: CLAIM^hx is %d bytes over CLAIM^h, "+
+				"want 8", tc.depth, tc.sparse, len(hx)-len(h))
+		}
+	}
+
+	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	for _, name := range []string{"CLAIM_X", "CLAIM_HX"} {
+		if _, ok := set[name]; ok {
+			t.Errorf("%s must stay out of FullAllScripts", name)
+		}
 	}
 }
 
