@@ -1,0 +1,33 @@
+% Shared by both versions: related work.
+
+\emph{Payment pools.} CoinPool~\cite{coinpool} is a shared UTXO with
+per-user balances whose one-transaction withdrawal rests on a new opcode,
+\op{MERKLESUB}; \texttt{OP\_TAPLEAF\_\allowbreak UPDATE\_\allowbreak VERIFY}~\cite{tluv} recreates a pool
+output with the leaver's key and leaf removed, and \op{EVICT}~\cite{opevict}
+removes unresponsive members. LayerTree reaches one-transaction exit
+from opcodes proposed as general primitives, holds balances in a
+Merkle-sum tree rather than keys in a taptree, and adds lease-based
+eviction, cohort grafts, channel leaves and a composable statement.
+\emph{Transaction trees.} Channel factories~\cite{factories} need all $N$
+members to sign every change. Ark~\cite{ark}, deployed today~\cite{arkd},
+batches users into rounds whose outputs are leaves of a pre-signed MuSig2
+tree; covenant Ark replaces the signing with CTV
+templates~\cite{clark} but keeps the tree, its unrolled exit and its expiry. Timeout
+trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
+expiries and Decker-Wattenhofer factories; MATT-style
+trees~\cite{matt,bip443} replace signatures by templates.
+Table~\ref{tab:compare} (Appendix~\ref{app:eval}) compares them. \emph{Beyond Bitcoin.} Plasma's forced exits~\cite{plasma} prove a
+balance against a committed root, enforced by a contract. Proofs of
+liabilities~\cite{gpol,brokensolvency} use Merkle-sum trees, where a node
+that hashes only its children's total admits the inflation that hashing
+each child's sum avoids. None of these states its guarantees as a
+functionality; we build on the ledger model of~\cite{bmtz17} and the
+channel functionalities of~\cite{genchannels,gscn}. \emph{Components.}
+The Merkle-sum sparse Merkle tree is Taproot Assets'~\cite{mssmt},
+truncated and verified in script; the data-tweaked key follows
+BIP-443~\cite{bip443}; the generator-key signature is
+Poelstra's~\cite{catschnorr}, and its ECDSA analogue has been used on
+Bitcoin Cash as \texttt{OP\_PUSH\_TX}. Liquid's tapscript~\cite{elements} has \op{CAT}, CSFS, per-field
+introspection and 64-bit arithmetic, so MID is close to expressible
+there; Simplicity~\cite{simplicity} would express the predicates
+directly.

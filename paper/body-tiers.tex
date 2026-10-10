@@ -1,0 +1,70 @@
+% Shared by both versions: the tier table and the per-tier paragraphs.
+% The section heading and its first paragraph are in main.tex.
+
+\begin{table}[tbp]
+\centering
+\caption{The four opcode tiers. ``Shape'' says whether inputs and outputs the predicate does not constrain are free or fixed by the script. Sizes are bytes of script / witness data for \tr{EXIT}$_1$ in the dense profile at $D=16$; the last row is the transaction size on the model of \S\ref{sec:eval}. MID's sweep fits at most 54 occupied positions at $h = 6$ (stack limit).}
+\label{tab:tiers}
+\setlength{\tabcolsep}{1.5pt}\scriptsize
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \textbf{FULL} & \textbf{MID} & \textbf{MIN} & \textbf{CCV} \\
+\midrule
+Tapleaf version & \texttt{0xC2} & \texttt{0xC0} & \texttt{0xC0} & \texttt{0xC2} or \texttt{0xC0} \\
+Beyond BIP-342 & \op{CAT}, splice, & \op{CAT}, \op{TX}, & \op{CAT}, & \op{CCV} (BIP-443), \\
+ & bit ops, \op{TX}, & CSFS, & \op{TWEAKADD} & \op{TX} \\
+ & CSFS, EC ops & \op{TWEAKADD} & & \\
+Numerics & any length & 4-byte, $< 2^{31}$ & 4-byte, $< 2^{31}$ & as FULL or MID \\
+Owner payout & $\le$ amount & exact & exact & exact \\
+Predicates & all & all & \tr{EXIT}$_1$, \tr{SPLIT} & all \\
+Vouchers / channels / shape & yes / yes / free & yes / yes / free & no / no / fixed & option / yes / free \\
+\tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}367 / 978 & 3{,}640 / 1{,}175 & 1{,}716 / 838 \\
+\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}355 & 1{,}473 & 908 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{FULL and MID.} With \texttt{0xC2} the leaf is one 116-byte
+stack element read with \op{SUBSTR}, sums use arbitrary-length arithmetic,
+one \tr{LEVEL} of the fold is 88 bytes, and $\TreeSpk$ is recomputed with
+the EC opcodes; replacing the splice and EC opcodes by \op{CAT} and
+\op{TWEAKADD} costs 2{,}378 bytes of script at $D = 16$ against 2{,}101.
+
+Under \texttt{0xC0} (MID) fields arrive as separate witness elements,
+checked with \op{SIZE} and joined with \op{CAT}, and a computed sum is
+widened to 8 bytes by a witness-supplied zero pad
+(Appendix~\ref{app:scripts}); a cap of $2^{31}$ satoshis (21.47\,BTC) per
+tree and exact payouts are the price of 4-byte arithmetic.
+
+\paragraph{MIN: introspection from a signature.}\label{sec:min}
+Without \op{TX} the only opcode that sees the transaction is
+\op{CHECKSIG}. The script \emph{constructs} the BIP-341 signature message
+from values it has derived (the recomputed $\TreeSpk(r,m)$, the input
+amount, the new tree output, the payout) and raw witness pieces for what
+it does not constrain, and demands a Schnorr signature under the
+generator $G$ with nonce $G$, Poelstra's construction~\cite{catschnorr}:
+the challenge is $e = H_{\mathsf{challenge}}(G_x \,\|\, G_x \,\|\,
+\mathsf{msg})$, and $s G = (1 + e) G$ has the unique solution
+$s = e + 1 \bmod n$. The script computes $e$ from its message and calls
+\op{CHECKSIG} with signature $G_x \,\|\, s$ and key $G_x$; since
+\op{CHECKSIG} hashes the real transaction, it passes only if the two
+messages are equal, which is assumption [MIN]. Without long
+arithmetic, $e + 1$ is formed by grinding the fee input's sequence number
+until $e$ ends in $\mathtt{00}$ (256 trials on average, repeated on every
+fee bump; Appendix~\ref{app:scripts}). What is new is the use: the
+field-by-field enforcement and the signature as a tier's only
+introspection. \tr{EXIT}$_1$ costs
+$3{,}640$ bytes of script at $D = 16$ (73\% more than FULL) and
+$1{,}473\vB$ (44\% more); vouchers and channel leaves need a signature
+over stack data and are out of reach, \tr{SPLIT} is not ($6{,}501$
+bytes). Whether a 64-leaf sweep (16 kB in FULL) fits MIN is open.
+
+\paragraph{CCV: binding by opcode.}\label{sec:ccv}
+\op{CHECKCONTRACTVERIFY}~\cite{bip443} replaces every taproot-key
+recomputation of FULL: one call binds the old root to the input under
+the input's own taptree, one commits output~0 to the new root with the
+residual assigned, one per payout asserts a P2TR of the leaf's exit key
+and deducts its amount. The state key becomes the BIP-443 data tweak of
+$\NUMS$ by the root; the fold and the authorisation are FULL's, in either
+numeric encoding, and $r$ and $m$ leave every witness. One \op{TX} read
+per constrained amount survives, hence exact payouts.

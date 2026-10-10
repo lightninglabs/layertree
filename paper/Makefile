@@ -24,7 +24,7 @@ version.tex: FORCE
 listings: ../tools/gen_structured.py ../tools/layertree_scripts.py ../tools/layertree_mid.py ../tools/layertree_min.py
 	python3 ../tools/gen_structured.py
 
-SOURCES = main.tex refs.bib appendix-*.tex full-*.tex version.tex \
+SOURCES = main.tex refs.bib appendix-*.tex full-*.tex $(wildcard body-*.tex short-*.tex table-*.tex) version.tex \
 	$(wildcard figures/*.pdf) $(wildcard ../spec/scripts/structured/*.txt)
 
 main.pdf: $(SOURCES)

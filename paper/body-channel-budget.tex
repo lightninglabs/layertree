@@ -1,0 +1,20 @@
+% Shared by both versions: the HTLC deadline budget of a channel leaf
+% and the hub size it implies.
+
+\paragraph{Deadlines and hub size.} Settlement outputs include one per
+in-flight hashed time-locked contract (HTLC). A forwarding node keeps
+$\mathsf{cltv\_expiry\_delta}$ blocks between an incoming and an outgoing
+HTLC's expiry, and a channel leaf needs
+$\mathsf{cltv\_expiry\_delta} \ge G_{\mathrm{exit}} + 3 + \mathsf{csv\_delay} + G_{\mathrm{sweep}}$,
+with $\mathsf{csv\_delay}$ the settlement's relative delay,
+$G_{\mathrm{sweep}}$ the time to confirm an HTLC sweep and
+$G_{\mathrm{exit}}$ the time to confirm the exit, $\lat(q)$ under [C].
+With $\mathsf{csv\_delay} = 144$, $G_{\mathrm{sweep}} = 2$ and
+$G_{\mathrm{exit}} = 72$ this is about 220 blocks, against 40 to 80 on
+the public network. At $\lat_L = 1$, $G_{\mathrm{exit}} = 72$ needs
+$\beta + q \le 71\kappa$; with $\kappa = 25$ and $\beta = 0$, about
+1{,}775 channel leaves may close in one window, and larger hubs shard.
+The counterparty is normally the operator, which can issue competing
+spends, so the budget holds only while the member can outbid them, which
+is what $\beta$ assumes. MID allows seven HTLCs per state (the 520-byte
+element limit) and $2^{31}$ satoshis per tree.
