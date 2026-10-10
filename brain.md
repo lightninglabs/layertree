@@ -5,7 +5,7 @@ stands, what is in flight, what is next, and what is undecided. Update it
 whenever the answer to "where are we" changes. `design/status.md` is the
 formal hand-off with the decision log; this file is the informal one.
 
-Last updated 2026-10-09, after the six-worker round landed (spec 0.9.0, Appendix C 0.3.0).
+Last updated 2026-10-10, after the A1/A2 rule worker's branch landed (spec 0.11.0, Appendix C 0.4.0 header).
 
 ## What we are trying to do
 
@@ -29,8 +29,8 @@ with numbers.
 
 | Area | State |
 |---|---|
-| Spec | 0.10.0 on main: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
-| Python simulator | 956 / 228 / 35 / 864 checks (FULL / MID / MIN / CCV), 149 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
+| Spec | 0.11.0 on main: `NONNEG` after every `0xC0` sum, `DUST_MIN` creation parameter and 7.5 rule 6 on every carve, `REWRITE_h`'s amount-only exemption stops at `SEQ_FINAL` (7.9 rule 3), 7.9 rule 7 a MUST beside `UPDATE^x`/`CLAIM^x` (status.md decision 22); 0.10.x: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
+| Python simulator | 1,054 / 268 / 55 / 972 checks (FULL / MID / MIN / CCV), 149 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
 | Go | 79 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
 | Lean | Builds clean, no sorry, 60 audited theorems (about 3,400 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
 | Paper | Two versions from one source (`make` builds `main.pdf`, 35 pages, body ends on 15 with References at the top of 16 and no slack, and `main-full.pdf`, 74 pages with References on 29); four tiers throughout; round-two review response landed; 0.10.0 CLAIM figures in (0d8c0bd, PDFs 0580c8b). Open: citations to verify, one overfull bibliography line, trimming the full version. |
@@ -216,11 +216,20 @@ with numbers.
 
 ## HANDOFF 2026-10-10 (rate limit killed both rule workers; owner moving agents)
 
-Main is at 4b2dd70 plus this commit. Everything landed before this point is
-pushed. Two worker branches hold unmerged work; neither is pushed. Both
-were killed by the session spend limit, not by errors.
+Main was at 4b2dd70 plus the handoff commit. Two worker branches held
+unmerged work. Both were killed by the session spend limit, not by errors.
 
-1. Branch `worktree-agent-a12aa50d8c1e7f647`, worktree
+1. LANDED 2026-10-10 (merge d14d61d and the reconciliation commit after
+   it): full matrix green on the merged tree (1,054 / 268 / 55 / 972 /
+   149 / 61, Go, gofmt, Lean exit 0, golden/listings/structured/
+   fee-analysis regenerate clean); every owed item below was already on
+   the branch; REWRITE per-leaf figures moved to 362 / 198 / 161 (exits)
+   and 147 (update), 120 per unchanged position, CLAIM 1,660 / CLAIM^h
+   1,670 / CLAIM^x 1,678 vB at D = 16, and were fixed in batching.md,
+   cost-comparison.md, graft.md, receive.md, CONCEPTS, the site, the
+   paper (both versions, counts, Table batch, the full-batching figure)
+   and gen_cost_figures; review.md F22/F23/F24/F34 fixed; status.md
+   decision 22. Original item: Branch `worktree-agent-a12aa50d8c1e7f647`, worktree
    `.claude/worktrees/agent-a12aa50d8c1e7f647`, tree clean, three
    commits on top of main: `4de18b3` (A1: REWRITE_h keeps the owner
    signature on SEQ_FINAL leaves, every tier, Go, golden, tests),

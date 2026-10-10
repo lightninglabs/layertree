@@ -893,8 +893,8 @@ varops, computes the real BIP-341 signature message and enforces
 \texttt{MINIMALDATA}; it models consensus limits, not standardness.
 Every compiled predicate runs against a reference tree with positive and
 negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
-unconserved amount, early eviction, voucher replay, and others): 956
-FULL, 228 MID, 35 MIN and 864 CCV checks, failing if a script uses an
+unconserved amount, early eviction, voucher replay, and others): 1{,}054
+FULL, 268 MID, 55 MIN and 972 CCV checks, failing if a script uses an
 opcode outside its tier, plus 149 for channel leaves and 61 for the
 hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
 \texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
@@ -930,7 +930,7 @@ the tree. LayerTree is about 60\% smaller at $D = 16$; a radix-4 tree
 needs $2{,}031\vB$, and an Ark member of a 256-member round unrolls
 $1{,}311\vB$. Under mass exit a tree's interior is shared, about $261\vB$
 per member at radix 2 and $191\vB$ at radix 4 with the claim, against
-$158\vB$ for a cohort leaving by \tr{REWRITE}$_6$ (Table~\ref{tab:ark},
+$161\vB$ for a cohort leaving by \tr{REWRITE}$_6$ (Table~\ref{tab:ark},
 Appendix~\ref{app:eval}). The model prices neither the latency of $D$
 sequential confirmations nor the larger opcode set.
 
@@ -974,8 +974,8 @@ removal & leaves & tx & per leaf & addition or change & leaves & tx & per leaf \
 \tr{EXIT}$_2$ & 2 & 1{,}684 & 842 & \tr{JOIN}$_2$ & 4 & 872 & 218 \\
 \tr{EVICT\_SUBTREE}$_4$ & 13 & 2{,}638 & 203 & \tr{JOIN}$_8$ (operator-funded) & 256 & 679 & 2.7 \\
 \tr{EVICT\_SUBTREE}$_6$ & 51 & 8{,}057 & 158 & sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}601 & 1{,}601 \\
-\tr{REWRITE}$_2$, all leave & 4 & 1{,}437 & 359 & \tr{REWRITE}$_6$, keys rotated & 64 & 9{,}208 & 144 \\
-\tr{REWRITE}$_6$, all leave & 64 & 10{,}104 & 158 & \tr{UPDATE}, one leaf & 1 & 1{,}030 & 1{,}030 \\
+\tr{REWRITE}$_2$, all leave & 4 & 1{,}448 & 362 & \tr{REWRITE}$_6$, keys rotated & 64 & 9{,}384 & 147 \\
+\tr{REWRITE}$_6$, all leave & 64 & 10{,}280 & 161 & \tr{UPDATE}, one leaf & 1 & 1{,}030 & 1{,}030 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1002,9 +1002,9 @@ sigop budget.
 \paragraph{Artefact.} Every number here is regenerated from the
 repository~\cite{layertreerepo} at the revision on the title page
 (\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
-(956 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
-cohort shapes), \path{test_mid.py} (228), \path{test_min.py} (35),
-\path{test_ccv.py} (864), \path{test_chan.py} (149), \path{test_msu.py}
+(1{,}054 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
+cohort shapes), \path{test_mid.py} (268), \path{test_min.py} (55),
+\path{test_ccv.py} (972), \path{test_chan.py} (149), \path{test_msu.py}
 (61), \path{gen_listings.py} (the size table), \path{fee_analysis.py}
 (the fee model), \path{gen_golden.py} and \path{experiments/radix4.py}
 (55); by \texttt{go test ./...}; and by \texttt{lake build} in

@@ -58,7 +58,7 @@ bulk the cost per leaf depends on who signs: with \tr{EXIT}$_K$ every
 leaf carries its own path, so a second exit adds $665\vB$, while the
 operator's sweep of expired leases (only for members who accepted a
 lease) and the owners' cohort rewrite share the path and reach about
-$158\vB$ per leaf, within 1.4 times a bare spend
+$160\vB$ per leaf, under 1.5 times a bare spend
 (\S\ref{sec:batching}). The chain limit counts transactions, not
 leaves.
 
@@ -69,7 +69,7 @@ one output in an on-chain batch and about $154\vB$ for a channel opened
 in its own transaction (\S\ref{sec:graft}); a self-funded member adds
 its own $58\vB$ input and the signing round of \S\ref{sec:parties}. An
 on-chain \tr{UPDATE} is $1{,}030\vB$ and a voucher redemption
-$1{,}614\vB$ (neither has a payout output; on the skeleton that carries
+$1{,}617\vB$ (neither has a payout output; on the skeleton that carries
 one, an \tr{UPDATE} is $1{,}073\vB$), so moving value by rewriting leaves would cost about ten times a bare
 spend per payment. Value moves off-chain instead, as it does in
 Lightning and Ark: in channel leaves as HTLC forwards

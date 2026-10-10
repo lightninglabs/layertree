@@ -287,7 +287,7 @@ payment, has no minimum amount and never expires, and the recipient can
 redeem the latest voucher alone if the operator stops cooperating. One gap
 remained until spec 0.9.0. With plain `CLAIM` the operator can issue
 itself a voucher against the credit leaf and drain it, voiding the
-recipient's. The trust-free version is `CLAIM^x` (spec 7.5.3), eight
+recipient's. The trust-free version is `CLAIM^x` (spec 7.5.3), seven
 bytes more script, which also requires a signature from the source leaf's
 exit key, which is the recipient; with `UPDATE^x` and exact payouts the
 credit leaf can only grow or pay its recipient. The
@@ -329,8 +329,8 @@ that accepted a lease. The owner-side equivalent is the cohort rewrite
 `REWRITE_h` (spec 7.9): members of one subtree publish the subtree twice,
 before and after, sign only the positions they change, and exit, join,
 rotate keys or settle balances among themselves in one transaction. Sixty
-four owners who all leave pay 159 vB each, the same as the operator's
-sweep, and a cohort that rewrites every balance pays about 145 vB per
+four owners who all leave pay 161 vB each, three more than the operator's
+sweep, and a cohort that rewrites every balance pays about 147 vB per
 leaf against 1,073 for one `UPDATE` each. `DETACH_h` (7.10) moves a
 cohort into its own tree output for about 780 vB, after which each exit
 pays the shorter path and the cohort has its own mempool chain.
@@ -425,7 +425,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 2,083 executable checks across four tiers (956 FULL, 228 MID, 35 MIN, 864 CCV), positive and negative, plus 149 for the channel leaves of Appendix C |
+| Compiled scripts | 2,349 executable checks across four tiers (1,054 FULL, 268 MID, 55 MIN, 972 CCV), positive and negative, plus 149 for the channel leaves of Appendix C |
 | Python against Go | 77 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 

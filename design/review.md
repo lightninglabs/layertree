@@ -487,7 +487,10 @@ anchor and no default node relays it. It is reachable in any tree that
 carries `REWRITE_h` or `REWRITE_h^x` and hosts channel leaves in a
 cohort, at 1 sat per leaf. The fix is a script rule: the exemption does
 not apply when `old_i.seq = SEQ_FINAL`, with C.2.4's "merely burns"
-sentence corrected. Status: fix in flight (script rule, spec 0.11.0).
+sentence corrected. Status: fixed (spec 0.11.0: 7.9 rule 3 and the
+8.9 listing, every tier's `REWRITE_STEP`, the Go mirror and the golden
+vectors, with the probe as a `test_rewrite` negative and the signed raise
+as a positive).
 
 ### F23. Sub-dust carves squat a slot for good
 
@@ -497,8 +500,10 @@ leaf below 330 sat can never be removed by a standard transaction: it
 blocks its cohort's sweep and every graft over it (audit A2). Any member
 can do it with one `SPLIT`, and a small honest redemption does it by
 accident. The fix is a script rule in 7.5, a `DUST_MIN` floor on the
-claim amount and on a nonzero residual. Status: fix in flight (script
-rule, spec 0.11.0).
+claim amount and on a nonzero residual. Status: fixed (spec 0.11.0:
+`DUST_MIN` in 6.2 and 7.5 rule 6, `CARVE_RULES` and `DRAIN_RULE` in
+every tier and both numerics, the Go mirror and the golden vectors, with
+the 0, 1 and residual-1 probes as negatives in every suite).
 
 ### F24. Plain `REWRITE_h` reopens credit-leaf and channel voiding
 
@@ -513,7 +518,7 @@ batching. Fixed in text: 10.3 now lists `REWRITE_h^x` in place of
 and C.9.7 require the counterparty to verify from `m` that no plain
 `REWRITE_h` is present; `design/receive.md` says the same. 7.5.3's
 reference to the checklist, and 7.9 rule 7 becoming a MUST in trees
-that carry `UPDATE^x` or `CLAIM^x`, land with the spec 0.11.0 rule
+that carry `UPDATE^x` or `CLAIM^x`, landed with the spec 0.11.0 rule
 change.
 
 ### F25. Eviction voids vouchers
@@ -645,7 +650,7 @@ was accepted with no owner signature (`design/audit/channels.md`, B5).
 Reachable as F22. The fix is F22's script rule in 7.9 rule 3, the
 generators, the Go mirror and the golden vectors, with the probe as a
 `test_rewrite` negative, and F22's status naming which layers carry it.
-Status: fix in flight (rule, Appendix C 0.4.0 / spec 0.11.0).
+Status: fixed with F22 (spec 0.11.0, Appendix C 0.4.0).
 
 ### F35. `chan_id` binds `m`, which is not unique to a tree
 

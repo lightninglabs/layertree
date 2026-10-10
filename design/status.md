@@ -1,17 +1,17 @@
 # Status and hand-off
 
-Last updated 2026-10-09 (spec 0.9.0, Appendix C 0.3.0, paper v0.1).
+Last updated 2026-10-10 (spec 0.11.0, Appendix C 0.4.0, paper v0.1).
 
 ## Where things stand
 
 | Area | State |
 |---|---|
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
-| Cohort transitions (0.9.0) | `CLAIM^x` and `CLAIM^hx` (7.5.3, the dedicated credit leaf of `design/receive.md`), `REWRITE_h` with its `^x` form (7.9, `design/batching.md` Shape 2 with the exit rule) and `DETACH_h` (7.10, Shape 3) are built in the FULL tier only: generator, tests, golden vectors, Go mirror, listings. Measured at `D = 16`: `REWRITE_6` 16,444 B of script, about 145 vB per changed leaf; `DETACH_8` 1,548 / 497 B, exits at 765 vB afterwards. MID and CCV: not implemented; MIN: no. Lean: `rewrite_sound`, `rewrite_exit_conservation`, `detach_sound` and `detach_member_payable` in `Cohort.lean`. |
+| Cohort transitions (0.9.0) | `CLAIM^x` and `CLAIM^hx` (7.5.3, the dedicated credit leaf of `design/receive.md`), `REWRITE_h` with its `^x` form (7.9, `design/batching.md` Shape 2 with the exit rule) and `DETACH_h` (7.10, Shape 3) are built in the FULL tier only: generator, tests, golden vectors, Go mirror, listings. Measured at `D = 16`: `REWRITE_6` 17,148 B of script, about 147 vB per changed leaf; `DETACH_8` 1,548 / 497 B, exits at 765 vB afterwards. MID and CCV: not implemented; MIN: no. Lean: `rewrite_sound`, `rewrite_exit_conservation`, `detach_sound` and `detach_member_payable` in `Cohort.lean`. |
 | Appendix C channel leaves | Complete, 0.3.0: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. Executable (C.12): `tools/layertree_chan.py` generates `UPD_F` / `REBIND_n` / `SETTLE_n`, and `tools/test_chan.py` (149 checks) runs the state machine on a chain model with BIP-65 / BIP-68, from a tree exit through contest, settlement and HTLC sweeps, in both tapleaf versions, plus the C.4.4 / 9.6.2 deadlines as block sequences. Go mirror `script/chan.go` byte-exact against the golden `chan` section; TLV messages in `msg/chan.go`. Measured: `SETTLE_n` is 79 B under 0xC2 (80 under 0xC0), HTLC sweeps 155 / 138 vB (the old table missed the 65-byte control block), the C.4.4 bound has two blocks of margin, and a MID channel carries at most seven HTLC outputs per state (520-byte collation). |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 956 + 228 + 35 + 864 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 77 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 42 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
+| Python reference and simulator | 1,054 + 268 + 55 + 972 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 79 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 42 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
 | Lean model | `formal/`: sections 5 (including sparse positions), 7 (including `EVICT_SUBTREE_h` and the terminal branch), 10.2, the encodings, and the cohort shapes `REWRITE_h` and `DETACH_h` of `design/batching.md` (`Cohort.lean`); axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, four opcode tiers FULL/MID/MIN/CCV, UC theorem, channel composition), built in two versions from one source by an `\iffullversion` switch keyed on the job name. Revised for the second review round (`paper/reviews/{crypto,protocol,systems}.md`, answered item by item in `paper/review-response.md`): the liveness bound Delta(N) is replaced by an explicit contention assumption [C] (kappa, beta; Delta(q) = Delta_L(ceil((beta+q)/kappa)+1)); the functionality is a partial tree with opaque nodes at any height, `REVEAL`, `VOUCH`, creation as a join, a protocol-aware `EXIT(p, v, f)`; Lemma 2 (`Step.sound`), a paper-only path-maintenance Lemma 3 (Lean item handed off), Claim 1 (simulation invariant, proved by case in Appendix A); Theorem 5 excludes `REWRITE_h`/`DETACH_h`, uses the ROM for same-sign taproot binding and [MIN] for the generator-key check; Theorem 6 is Conjecture 1; a deployment-assumptions table mirrors spec 4.1's [A-1] to [A-6]; prior art (TLUV, `OP_MERKLESUB`, `OP_EVICT`, Poelstra's CAT/Schnorr tricks, Plasma, proofs of liabilities) added; one stated fee model with corrected derived figures (REWRITE 359/195/158, joins and carves without a phantom payout, sparse 244 + 41k). Spec 0.10.0 rules (`tree_id` in every tier, the carve constraint, `m_h` with the parent's options) are described without sizes; `TODO(0.10.0 sizes)` marks the `CLAIM`, `CLAIM^h` and `SPLIT` figures to update. `main.pdf` (FC submission) is 35 pages, body ending on page 15 with References at the top of page 16, appendices A to E (Appendix F listings now full version only). `main-full.pdf` is 73 pages, References on page 29: the UC proof and the channel scripts lifted into the body with inline Lean signatures, the Lean development an appendix, plus the five full-only sections. Both PDFs stamped 761188b. Spec, tools, formal and design items the reviews raised are listed under "Handed off" in the response. |
@@ -142,6 +142,24 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     carries measured element sizes and new 8.11 the 80-byte policy cap
     on MIN's `extra_outs`; 10.1 bounds "cannot delay" by [C]. Open from
     the pass: split MIN's `extra_outs` per output (8.11).
+
+22. **Rule change 0.11.0** (2026-10-10; Appendix C 0.4.0). Three script
+    rules from the audits under `design/audit/`. `NONNEG` (`OP_DUP OP_DUP
+    OP_ABS OP_EQUALVERIFY`) follows every `PADZ` sum in the `0xC0` tiers,
+    so a sign-magnitude negative such as `00 00 00 81` cannot pass as a
+    four-byte amount (script audit; 4 bytes per level). `DUST_MIN` is a
+    creation parameter (6.2, RECOMMENDED 330 sat) that 7.5 rule 6 applies
+    to every carve's claim leaf and to a non-zero residual, in every tier,
+    so no member can plant a sub-dust leaf that blocks its cohort's sweep
+    and every graft over it (protocol audit A2, F23; 15 bytes under
+    `0xC2`, 14 under `0xC0`). `REWRITE_h`'s amount-only exemption (7.9
+    rule 3) stops at a `SEQ_FINAL` leaf, so the operator alone cannot
+    raise a channel leaf's capacity and strand its pre-signed states at
+    the relay layer (A1, F22, F34; 11 bytes per position). 7.9 rule 7 is a
+    MUST in trees that carry `UPDATE^x` or `CLAIM^x` (A3, F24). `JOIN`,
+    `UPDATE` and `REWRITE_h` carry no dust floor because the operator
+    signs each of them (7.8). Counts: FULL 1,054, MID 268, MIN 55, CCV
+    972.
 
 ## Assumptions that could change the design
 

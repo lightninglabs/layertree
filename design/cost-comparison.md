@@ -95,9 +95,9 @@ carries the subtree's leaves, the exiting owners' signatures, and the
 siblings of the shared path above the subtree, so leaves in the same
 subtree share the levels above it. It is built as the exit-only case of
 the cohort rewrite `REWRITE_h` (spec 7.9), and measured at `D = 16`:
-four owners leaving a height-2 subtree pay about 359 vbytes per leaf,
-sixteen leaving a height-4 subtree about 195, and sixty four leaving a
-height-6 subtree about 158, the same as the operator's sweep.
+four owners leaving a height-2 subtree pay about 362 vbytes per leaf,
+sixteen leaving a height-4 subtree about 198, and sixty four leaving a
+height-6 subtree about 161, within three vbytes of the operator's sweep.
 `design/batching.md` has the shape and two more.
 
 What a script fixes is the height and alignment of the subtree, not
@@ -152,7 +152,7 @@ script walks all 32 levels.
 ## Moving value: on-chain transitions are the wrong path
 
 An on-chain `UPDATE` at `D = 16` costs 1,073 vbytes and a voucher
-redemption with `CLAIM` costs 1,656, against 111 for a bare spend. If
+redemption with `CLAIM` costs 1,660, against 111 for a bare spend. If
 members moved value by rewriting leaves on-chain, the shared UTXO would
 cost ten times more per move than separate UTXOs. That comparison is the
 one a sceptic makes, and on its own terms it is right.
@@ -218,8 +218,8 @@ Four things reduce it, in increasing order of change.
   interior is paid once and each rewritten leaf adds its 116 bytes twice
   and a signature, about 120 vbytes. Leaves in the subtree that do not
   change need no signature; they are supplied for the fold or stand behind
-  a sibling hash. This is `REWRITE_h` (spec 7.9), measured at about 144
-  vbytes per changed leaf and 117 per unchanged position at `h = 6`
+  a sibling hash. This is `REWRITE_h` (spec 7.9), measured at about 147
+  vbytes per changed leaf and 120 per unchanged position at `h = 6`
   (`design/batching.md`).
 
 The subtree rewrite is also a batch of intra-tree payments: moving an
@@ -253,7 +253,7 @@ The non-taproot anchor commitment of BOLT 3 is 1,124 weight units,
 member who leaves alone pays 1,020 vbytes for the first exit from a dense
 `D = 16` tree (665 for each further exit in an `EXIT_K`), about twice a
 channel's 530-vbyte force close and about 1.5 times its 684-vbyte
-lifetime; a voucher redemption with `CLAIM` is 1,656. A channel leaf
+lifetime; a voucher redemption with `CLAIM` is 1,660. A channel leaf
 inside the tree (Appendix C) costs its `EXIT_1` plus an update, a
 settlement and their two anchor children, about 1,681 vbytes in all and
 about 146 blocks, against 684 for a channel with its own funding output.
