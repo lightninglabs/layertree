@@ -20,6 +20,7 @@ opcodes it relies on are proposals, not consensus.
 | Specification (RFC 2119) | `spec/layertree.md` (base), `spec/channel-leaves.md` (Appendix C), `spec/fee-analysis.md` | none directly; every normative script claim is backed by a test below |
 | Python reference + tapscript simulator | `tools/` | `python3 tools/test_scripts.py`, `test_mid.py`, `test_min.py` |
 | Go implementation (btcd, lnd, taproot-assets) | `tree/`, `script/`, `txn/`, `msg/` | `GOTOOLCHAIN=local go test ./...` |
+| Channel leaves (Appendix C) in executable form | `tools/layertree_chan.py`, `script/chan.go`, `msg/chan.go` | `python3 tools/test_chan.py`; the Go mirror is checked against the `chan` section of `spec/golden.json` |
 | Golden vectors linking Python and Go | `spec/test-vectors.json`, `spec/golden.json` | `python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json` |
 | Formal model (Lean 4, core only) | `formal/` | `cd formal && lake build` (prints the axiom audit) |
 | Design history and findings | `design/review.md` (F1..F18), `design/p-model.md`, `notes.md` | none |
@@ -195,6 +196,7 @@ python3 tools/test_scripts.py      # FULL tier, both profiles (425 checks)
 python3 tools/test_mid.py          # MID tier (125 checks)
 python3 tools/test_min.py          # MIN tier (31 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (309 checks)
+python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (149 checks)
 python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (61 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)

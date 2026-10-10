@@ -96,6 +96,47 @@ out["sighash_vector"] = {
 }
 out["tree_spk_vector"] = {"root_hash": root_hash.hex(), "merkle_root": m,
                           "internal_key": lt.internal_key(root_hash).hex(), "scriptPubKey": spk0.hex()}
+
+# Channel leaves (Appendix C): the C.2.2 context, the C.3 scripts in both
+# tapleaf versions, the C.4.1 HTLC leaves, the funding and update output
+# keys, and the [C-A1] collations with their signed messages.
+import layertree_chan as CH  # noqa: E402
+_m = bytes.fromhex(out["taptree_full_d4"]["merkle_root"])
+_p = pubkey_x(lt.sha256(b"P_chan"))
+_owner = pubkey_x(lt.sha256(b"alice-owner"))
+_ch = CH.Channel(_m, _owner, 7, _p, 1_000_000, 0, 144)
+_ph, _yk, _xk = lt.sha256(b"htlc-preimage"), pubkey_x(lt.sha256(b"V-claim")), pubkey_x(lt.sha256(b"U-claim"))
+_n = 5
+chan = {"params": {"m": _m.hex(), "owner_key": _owner.hex(), "nonce": 7, "p_chan": _p.hex(),
+                   "capacity": 1_000_000, "epoch": 0, "csv_delay": 144, "state": _n,
+                   "payment_hash": _ph.hex(), "htlc_claim_key": _yk.hex(), "htlc_refund_key": _xk.hex(),
+                   "cltv_expiry": 800_400},
+        "chan_id": _ch.chan_id.hex(), "ctx_upd": _ch.ctx_upd.hex(), "ctx_set": _ch.ctx_set.hex(),
+        "scripts": {}}
+for _mode in ("c2", "c0"):
+    _v = 0xc2 if _mode == "c2" else 0xc0
+    for _name, _toks in (("UPD_F", CH.upd_f_script(_ch.ctx_upd, _p)),
+                         ("REBIND_%d" % _n, CH.rebind_script(_n, _ch.ctx_upd, _p)),
+                         ("SETTLE", CH.settle_script(144, _ch.ctx_set, _p)),
+                         ("HTLC_SUCCESS", CH.htlc_success_script(_ph, _yk)),
+                         ("HTLC_TIMEOUT", CH.htlc_timeout_script(800_400, _xk))):
+        _s = assemble(_toks, _mode)
+        chan["scripts"][f"{_mode.upper()}/{_name}"] = {"hex": _s.hex(), "leaf_version": _v,
+                                                        "tapleaf_hash": lt.tapleaf_hash(_s, _v).hex()}
+chan["exit_key"] = _ch.exit_key.hex()
+chan["update_output_spk"] = _ch.update_output(_n).spk.hex()
+_htlc = CH.htlc_output(_p, _ph, 800_400, _xk, _yk)
+_ut = _ch.update_tx(_n)
+_st = _ch.settle_tx(_n, _ch.settle_outputs(600_000, 340_000, _owner, _yk, [(60_000, _htlc)]))
+for _label, _tx, _sel, _msg in (("update", _ut, CH.SEL_CHAN_UPD, CH.msg_upd(_ch.ctx_upd, _ut)),
+                                ("settle", _st, CH.SEL_CHAN_SET, CH.msg_set(_ch.ctx_set, _st))):
+    chan[_label + "_tx"] = {
+        "version": _tx.version, "locktime": _tx.locktime, "sequence": _tx.sequences[0],
+        "spent_amount": _tx.inputs[0][0], "spent_spk": _tx.inputs[0][1].hex(),
+        "outputs": [{"amount": a, "scriptPubKey": s.hex()} for a, s in _tx.outputs],
+        "selector": _sel, "collation": CH.collate(_tx, _sel).hex(), "msg": _msg.hex()}
+out["chan"] = chan
+
 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "spec", "golden.json")
 with open(path, "w") as f:
     json.dump(out, f, indent=1)
