@@ -1120,8 +1120,8 @@ hold many leaves, a tree MAY instead include scripts whose *shape* is fixed:
 the set of positions they act on is known at script-generation time, the
 internal nodes of the union of paths are hashed exactly once each, and every
 stack depth is static, so no runtime flags are needed. This document defines
-one such shape, `EVICT_SUBTREE_h` (section 7.7); others (sibling pairs,
-partially filled subtrees, multi-exit within a subtree) follow the same
+two such shapes, `EVICT_SUBTREE_h` (section 7.7) and `REWRITE_h` (section
+7.9); others (sibling pairs, partially filled subtrees) follow the same
 construction. A general "any `K` positions" multiproof driven by witness
 flags is possible but saves only witness bytes and hashing, not script,
 because each unrolled step must carry both branches.
