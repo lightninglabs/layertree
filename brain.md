@@ -57,10 +57,13 @@ with numbers.
   cryptographer's finding 6 (`m` names a rule set, so two trees with the
   same parameters share it and vouchers replay). The frozen D4 golden
   root moves once, by design.
-- Awaiting the owner's yes on the carve fix (cryptographer's finding 9):
-  a claim leaf's `evictor_key` MUST equal the source's and its
-  `evict_after` MUST be no later, so `SPLIT` and a self-issued `CLAIM`
-  cannot escape eviction or block a cohort sweep with a dust leaf.
+- Same worker, approved 2026-10-10: the carve constraint (a claim leaf's
+  `evictor_key` MUST equal the source's and its `evict_after` MUST be no
+  later, every tier, so `SPLIT` and a self-issued `CLAIM` cannot escape
+  eviction or block a cohort sweep with a dust leaf; cryptographer's
+  finding 9) and the `DETACH_h` creation rule (`m_h` MUST be compiled
+  with the parent's options so detached channel leaves keep exact
+  payouts; finding 7).
 - All six build workers (A to G) landed on main; the matrix is green
   on the combined tree (852 / 198 / 31 / 798 / 149 / 61, golden and
   listings clean, Go ok, Lean rc 0).
@@ -77,10 +80,8 @@ with numbers.
 1. Paper review round (in flight, above); after it, the response pass
    and a rebuild; then trim the full version back to about 30 body
    pages if the reviewers do not already force cuts.
-2. Decided and in flight: `tree_id` in every tier (above). Then the
-   carve constraint if approved, and the `DETACH_h` creation rule that
-   `m_h` is compiled with the parent's options (exact payouts, `^x`,
-   carves), from the cryptographer's findings 9 and 7.
+2. In flight, one worker: `tree_id` in every tier, the carve
+   constraint, the `DETACH_h` creation rule (above).
 3. Cohort transitions beyond FULL (status.md open work 9): MID
    `REWRITE_STEP`, CCV `DETACH_h` second output, the one-byte "unchanged"
    marker for `REWRITE_h` (about 29 vB per unchanged position).
