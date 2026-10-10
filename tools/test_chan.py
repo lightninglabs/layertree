@@ -19,8 +19,15 @@ Sections:
     chan_id (m, capacity, epoch), NUM_INPUTS (C.2.3), tampered fields;
   * MID numerics: the same machine under tapleaf 0xC0, and the 520-byte
     element limit on the settlement collation;
-  * deadlines: C.4.4's budget, and the voucher/HTLC swap of 9.6.2 with its
-    ordering violations.
+  * dust floor: C.3.4's DUST_CHAN, sub-dust balances and HTLCs trimmed into
+    the anchor;
+  * lease and evictor: C.6.4 (no eviction before evict_after) and C.6.3 (a
+    NUMS evictor leaves the counterparty no force-close);
+  * epochs and renewal: C.6.7 (a lease renewal leaves update_n bindable) and
+    C.5.2 (an old epoch's update fails against the new funding output);
+  * deadlines: C.4.4's budget with and without stale updates confirmed ahead
+    of the honest one (beta_chan), and the voucher/HTLC swap of 9.6.2 with
+    its ordering violations.
 """
 import copy
 import hashlib
@@ -554,7 +561,9 @@ def test_state_machine(mode, verbose=True):
     for label, other in (("m", lc.Channel(lt.sha256(b"other tree"), ch.owner_key, 7, p_chan, C, 0, csv, mode)),
                          ("capacity", lc.Channel(host.m, ch.owner_key, 7, p_chan, C + 1, 0, csv, mode)),
                          ("epoch", lc.Channel(host.m, ch.owner_key, 7, p_chan, C, 1, csv, mode)),
-                         ("nonce", lc.Channel(host.m, ch.owner_key, 8, p_chan, C, 0, csv, mode))):
+                         ("nonce", lc.Channel(host.m, ch.owner_key, 8, p_chan, C, 0, csv, mode)),
+                         ("owner_key", lc.Channel(host.m, pubkey_x(sk("other-owner")), 7, p_chan, C, 0, csv, mode)),
+                         ("csv_delay", lc.Channel(host.m, ch.owner_key, 7, p_chan, C, 0, csv + 1, mode))):
         check(other.chan_id != ch.chan_id, f"chan_id commits {label}")
         osig = schnorr_sign(lc.msg_upd(other.ctx_upd, ut), p_sk)
         expect_fail(lambda: c.mine(party.update(c, n_last, fund_op, sig=osig)),
@@ -706,7 +715,7 @@ def test_deadlines(verbose=True):
     spec = lc.cltv_budget_spec(g_exit, csv, g_sweep)
     check(spec == exact + 2, "the C.4.4 bound has two blocks of margin over the exact count")
 
-    def scenario(delta, rule_2_violation=False, advance_seq=False):
+    def scenario(delta, rule_2_violation=False, advance_seq=False, stale=0):
         chain = Chain(800_000)
         host = TreeHost(chain)
         p_sk = sk("P_chan")
@@ -731,7 +740,13 @@ def test_deadlines(verbose=True):
         E = t + delta
         u_claim, v_claim = sk("U-claim"), sk("V-claim")
         htlc = lc.htlc_output(pubkey_x(sk("agg")), ph, E, pubkey_x(u_claim), pubkey_x(v_claim))
-        party.sign_state(1, ch.settle_outputs(C - 50_000, 0, pubkey_x(sk("U")), pubkey_x(sk("V")),
+        # stale states 1..stale are balance-only; the honest state n carries
+        # the HTLC (C.4.4, beta_chan).
+        n = stale + 1
+        for j in range(1, n):
+            party.sign_state(j, ch.settle_outputs(C - 10_000 * j, 10_000 * j,
+                                                  pubkey_x(sk("U")), pubkey_x(sk("V"))))
+        party.sign_state(n, ch.settle_outputs(C - 50_000, 0, pubkey_x(sk("U")), pubkey_x(sk("V")),
                                               [(50_000, htlc)]))
         log = {}
         # V evicts at tip t; contention delays confirmation by g_exit blocks
@@ -740,11 +755,20 @@ def test_deadlines(verbose=True):
         chain.mine(etx)
         host.commit(etx, t1)
         log["exit"] = chain.height
-        utx = party.update(chain, 1, (etx.txid(), 1))
+        # the counterparty confirms its stale updates one per block, each
+        # bound to the previous one's output; the honest update_n lands on
+        # the last of them (TRUC admits one unconfirmed ancestor, so the
+        # rounds serialise)
+        prev, prev_state = (etx.txid(), 1), None
+        for j in range(1, n):
+            stale_tx = party.update(chain, j, prev, rebind_from=prev_state)
+            chain.mine(stale_tx)
+            prev, prev_state = (stale_tx.txid(), 0), j
+        utx = party.update(chain, n, prev, rebind_from=prev_state)
         chain.mine(utx)
         log["update"] = chain.height
         chain.advance(csv - 1)
-        stx = party.settle(chain, 1, (utx.txid(), 0))
+        stx = party.settle(chain, n, (utx.txid(), 0))
         chain.mine(stx)
         log["settle"] = chain.height
         h_op = next(op for op, v in chain.utxos.items() if v[1] == htlc.spk)
@@ -812,9 +836,147 @@ def test_deadlines(verbose=True):
 
     log, E, chain, redeem = scenario(exact, advance_seq=True)
     expect_fail(redeem, "9.6.2 rule 3 violated: the issuer advanced seq, the paid-for voucher is void")
+
+    # C.4.4 beta_chan: each stale update confirmed ahead of the honest one
+    # costs a block; the two blocks of margin absorb two and not three.
+    log, E, chain, redeem = scenario(spec, stale=2)
+    check(log["update"] == log["exit"] + 3, "two stale updates ahead: the honest update lands three blocks after the exit")
+    check(log["sweep"] == E and not log["timeout_competes"],
+          "C.4.4 bound, beta_chan = 2: the margin absorbs the stale updates, the sweep lands in block cltv_expiry")
+    redeem()
+    check(True, "C.4.4 bound, beta_chan = 2: the voucher still redeems second")
+    log, E, chain, late_claim = scenario(spec, stale=3)
+    check(log["timeout_valid_at"] == E + 1,
+          "C.4.4 bound, beta_chan = 3: the offerer's refund is final before the payee can sweep")
+    expect_fail(late_claim, "C.4.4 bound, beta_chan = 3: the payee's success sweep after the refund")
+    bound3 = lc.cltv_budget_spec(g_exit, csv, g_sweep, beta_chan=3)
+    check(bound3 == spec + 3, "the bound grows by one block per stale update counted")
+    log, E, chain, redeem = scenario(bound3, stale=3)
+    check(log["sweep"] <= E and not log["timeout_competes"],
+          "the bound with beta_chan = 3 holds against three stale updates")
+    redeem()
+    check(True, "beta_chan = 3 bound: the voucher redeems second")
     if verbose:
         print(f"C.4.4: exact budget {exact} blocks, spec bound {spec} "
               f"(g_exit={g_exit}, csv={csv}, g_sweep={g_sweep})")
+
+
+def fork_host(host):
+    """A copy of the host on a fork of its chain: same scripts, same keys, its
+    own tree and UTXO set."""
+    h = copy.copy(host)
+    h.chain = host.chain.fork()
+    h.tree = copy.deepcopy(host.tree)
+    return h
+
+
+def test_lease_and_evictor():
+    """C.6.4 and C.6.3: a channel leaf with evict_after in the future gives the
+    counterparty no unilateral path until the lease passes, and a NUMS
+    evictor gives it none at all; the owner can exit either leaf at any
+    time, and the states signed before the exit bind afterwards."""
+    chain = Chain(800_000)
+    host = TreeHost(chain)
+    p_sk = sk("P_chan")
+    C = 1_000_000
+    ch = lc.Channel(host.m, pubkey_x(sk("alice-owner")), 7, pubkey_x(p_sk), C, 0, 144)
+    party = Party(ch, p_sk)
+    party.sign_state(1, ch.settle_outputs(C, 0, pubkey_x(sk("U")), pubkey_x(sk("V"))))
+    lease = chain.height + 100
+    s_lease, s_nums = 5, 9
+    host.tree.leaves = {s_lease: chan_leaf(host, ch, "alice-owner", evict_after=lease),
+                        s_nums: lt.Leaf(C, ch.exit_key, pubkey_x(sk("bob-owner")), lt.NUMS_X, 0, 8,
+                                        0xFFFFFFFF)}
+    host.owner_sk = {s_lease: sk("alice-owner"), s_nums: sk("bob-owner")}
+    host.publish()
+
+    # C.6.4: before evict_after the counterparty cannot evict, whether it
+    # sets nLockTime to the tip (CLTV fails) or to the lease (not final).
+    f = fork_host(host)
+    expect_fail(lambda: f.chain.mine(f.exit_tx(s_lease, evict=True, locktime=f.chain.height)[0]),
+                "eviction of a channel leaf before evict_after (C.6.4)")
+    expect_fail(lambda: f.chain.mine(f.exit_tx(s_lease, evict=True, locktime=lease)[0]),
+                "eviction with nLockTime = evict_after before that height")
+    xtx, _ = f.exit_tx(s_lease)
+    f.chain.mine(xtx)
+    f.chain.mine(party.update(f.chain, 1, (xtx.txid(), 1)))
+    check(True, "the owner exits a leased channel leaf at any time and update_1 binds")
+    # at the lease the counterparty's force-close is unconditional
+    g = fork_host(host)
+    g.chain.height = lease
+    etx, _ = g.exit_tx(s_lease, evict=True, locktime=lease)
+    g.chain.mine(etx)
+    g.chain.mine(party.update(g.chain, 1, (etx.txid(), 1)))
+    check(True, "at evict_after the counterparty evicts and update_1 binds to the funding output")
+
+    # C.6.3: a NUMS evictor cannot be signed for, so the counterparty has no
+    # force-close at all, now or ever.
+    h = fork_host(host)
+    expect_fail(lambda: h.chain.mine(h.exit_tx(s_nums, evict=True, locktime=h.chain.height)[0]),
+                "eviction of a NUMS-evictor channel leaf (C.6.3)")
+    h.chain.height = lease + 1_000
+    expect_fail(lambda: h.chain.mine(h.exit_tx(s_nums, evict=True, locktime=h.chain.height)[0]),
+                "eviction of a NUMS-evictor channel leaf, long after opening")
+    xtx, _ = h.exit_tx(s_nums)
+    h.chain.mine(xtx)
+    check(True, "only the owner can bring a NUMS-evictor channel leaf on-chain")
+    print("lease and evictor: no eviction before evict_after, none ever with a NUMS evictor")
+
+
+def test_epoch_and_renewal(mode):
+    """C.6.7 and C.5.2: an UPDATE that renews evict_after leaves every signed
+    state bindable, because chan_id omits the lease; an UPDATE that moves the
+    leaf to a new epoch's exit_key makes the old epoch's states fail against
+    the new funding output and the new epoch's bind."""
+    chain = Chain(800_000)
+    host = TreeHost(chain)
+    p_sk = sk("P_chan")
+    C, csv = 1_000_000, 144
+    owner = pubkey_x(sk("alice-owner"))
+    ch0 = lc.Channel(host.m, owner, 7, pubkey_x(p_sk), C, 0, csv, mode)
+    ch1 = lc.Channel(host.m, owner, 7, pubkey_x(p_sk), C, 1, csv, mode)
+    check(ch0.chan_id != ch1.chan_id and ch0.exit_key != ch1.exit_key,
+          "a new epoch gives the channel a new chan_id and a new exit_key (C.5.2)")
+    p0, p1 = Party(ch0, p_sk), Party(ch1, p_sk)
+    uk, vk = pubkey_x(sk("U-payout")), pubkey_x(sk("V-payout"))
+    p0.sign_state(3, ch0.settle_outputs(700_000, 300_000, uk, vk))
+    p1.sign_state(1, ch1.settle_outputs(700_000, 300_000, uk, vk))
+    s = 5
+    host.tree.leaves = {s: chan_leaf(host, ch0, "alice-owner")}
+    host.owner_sk = {s: sk("alice-owner")}
+    host.publish()
+
+    # C.6.7: renewal is an UPDATE of evict_after alone.
+    leaf = host.tree.leaves[s]
+    renewed = lt.Leaf(leaf.amount, leaf.exit_key, leaf.owner_key, leaf.evictor_key,
+                      chain.height + 1_000, leaf.nonce, leaf.seq)
+    utx, t1 = host.update_tx(s, renewed, sk("alice-owner"))
+    chain.mine(utx)
+    host.commit(utx, t1)
+    f = fork_host(host)
+    xtx, _ = f.exit_tx(s)
+    f.chain.mine(xtx)
+    f.chain.mine(p0.update(f.chain, 3, (xtx.txid(), 1)))
+    check(True, "update_n signed before a lease renewal binds to the renewed leaf's funding output (C.6.7)")
+
+    # C.5.2: the splice moves the leaf to epoch 1's exit_key.
+    spliced = lt.Leaf(leaf.amount, ch1.exit_key, leaf.owner_key, leaf.evictor_key, 0,
+                      leaf.nonce, leaf.seq)
+    utx2, t2 = host.update_tx(s, spliced, sk("alice-owner"))
+    chain.mine(utx2)
+    host.commit(utx2, t2)
+    xtx2, t3 = host.exit_tx(s)
+    chain.mine(xtx2)
+    host.commit(xtx2, t3)
+    fund1 = (xtx2.txid(), 1)
+    check(chain.utxos[fund1][:2] == (C, lt.p2tr_spk(ch1.exit_key)),
+          "the exit after the splice creates the new epoch's funding output")
+    expect_fail(lambda: chain.mine(p0.update(chain, 3, fund1)),
+                "an old epoch's update_n against the new epoch's funding output (C.5.2, C.9.1)")
+    chain.mine(p1.update(chain, 1, fund1))
+    check(True, "the new epoch's update_1 binds to the new funding output")
+    lv = "0xC2" if mode == "c2" else "0xC0"
+    print(f"epochs and renewal, tapleaf {lv}: renewal keeps states, a splice retires them")
 
 
 def report_sizes():
@@ -841,11 +1003,13 @@ def report_sizes():
 if __name__ == "__main__":
     for mode in ("c2", "c0"):
         test_state_machine(mode)
+        test_epoch_and_renewal(mode)
     sz = SIZES
     check(sz[("c2", "update_n (funding)")] == 153, "update_n bound to funding is 153 vB (C.5.4)")
     check(sz[("c2", "update_n (rebind)")] == 161, "update_n bound to U_j is 161 vB (C.5.4)")
     check(sz[("c2", "settle_n (2 HTLCs)")] == 204 + 43 * 2, "settle_n with 2 HTLCs is 204 + 43h vB (C.5.4)")
     test_dust_floor()
+    test_lease_and_evictor()
     test_mid_collation_limit()
     test_deadlines()
     report_sizes()

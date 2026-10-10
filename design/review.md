@@ -594,8 +594,11 @@ HTLC, and the capacity is then locked at `U_n` at the relay layer
 cost, and by default at opening. The fix is a rule in C.3.4: every
 non-anchor settlement output MUST be at least the dust threshold, and
 trimmed value goes to the anchor; `settle_outputs` and
-`StateProposal.Validate` enforce it. Status: fix in flight (rule,
-Appendix C 0.4.0 / spec 0.11.0).
+`StateProposal.Validate` enforce it. Status: fixed (Appendix C 0.4.0:
+`DUST_CHAN` in C.3.4, the trimmed value carried by the anchor, C.5.5;
+`settle_outputs`, `ChanOpen.DustChan` and `StateProposal.Validate`, with
+the single-funded state 1, a 329-sat balance and a 200-sat HTLC as cases
+in `test_chan.py` and `msg/chan_test.go`).
 
 ### F31. The receive flow inverted 9.6.2 rule 1
 
@@ -637,8 +640,11 @@ lets the offerer's timeout sweep become final before the payee's claim
 (`design/audit/channels.md`, B4). Reachable by the HTLC offerer at about
 313 vB per block of delay, against an honest party who can outbid in
 the mempool. The fix adds a `beta_chan` term to the C.4.4 budget and a
-fee-reserve and replacement rule to C.4.4, C.5.5 and C.9.6. Status: fix
-in flight (rule, Appendix C 0.4.0 / spec 0.11.0).
+fee-reserve and replacement rule to C.4.4, C.5.5 and C.9.6. Status: fixed
+(Appendix C 0.4.0: `beta_chan` in the C.4.4 bound and
+`cltv_budget_spec`, the reserve rule in C.5.5, replacement in C.9.6;
+`test_chan.py` runs two and three stale updates at the bound and three
+at the bound with `beta_chan = 3`).
 
 ### F34. F22's fix had reached the Lean model only
 

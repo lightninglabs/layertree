@@ -408,15 +408,32 @@ input 0    nSequence = csv_delay, prevout = U_n (unknown at signing)
 output 0   to_owner : amount b_U, P2TR(U_payout)
 output 1   to_cp    : amount b_V, P2TR(V_payout)
 output 2.. one output per non-trimmed in-flight HTLC (C.4.1)
-output last amount 0, spk = OP_1 <0x4e73>   (P2A, ephemeral anchor)
+output last amount = trimmed value (0 when nothing is trimmed), spk = OP_1 <0x4e73>   (P2A, ephemeral anchor)
 witness    <set_sig_n> SETTLE_n <control block>
 ```
 
-with `b_U + b_V + Σ htlc_j = C`; the transaction is zero-fee. Because there
-is no punishment, `to_owner` and `to_cp` are plain key outputs with no
-relative timelock: the `csv_delay` on `U_n` is the entire dispute window.
-Trimming below the dust limit follows BOLT-3 practice and is decided when the
-state is signed, since the output set is committed.
+with `b_U + b_V + Σ htlc_j + trimmed = C`; the transaction is zero-fee.
+Because there is no punishment, `to_owner` and `to_cp` are plain key outputs
+with no relative timelock: the `csv_delay` on `U_n` is the entire dispute
+window.
+
+**Dust floor.** Every output other than the anchor MUST be at least
+`DUST_CHAN`, a channel parameter agreed at opening like `evict_after`
+(C.5.1) and, like it, outside `chan_id`. It MUST NOT be below the P2TR dust
+threshold under Bitcoin Core's default dust relay fee, 330 sat, and that
+value is RECOMMENDED. A balance or HTLC below `DUST_CHAN` MUST be omitted
+from `settle_n` and its value added to the anchor output, which therefore
+carries the sum of the trimmed amounts and is the 0-value ephemeral output
+only when nothing is trimmed. Trimming is decided when the state is signed,
+since the output set is committed. BOLT-3 trims into fees, which a zero-fee
+transaction cannot do: the settlement's fee is its anchor child's (C.5.5),
+and a transaction with a 0-value anchor is relayed only if it pays no fee
+and carries no other dust output. A sub-dust balance beside the anchor,
+which is what state 1 of every single-funded channel (C.5.1 model (ii),
+`b_V = 0`) would otherwise be, is a settlement no default node relays, and
+it leaves the capacity stranded at `U_n` for as long as the parties do not
+cooperate (`design/audit/channels.md`, B1). The reference `settle_outputs`
+and `StateProposal.Validate` in `msg/chan.go` enforce the floor (C.12).
 
 ### C.3.5 State encoding and lock-time ranges
 
@@ -536,15 +553,16 @@ its owner must start going on-chain is larger for a channel leaf than for an
 ordinary channel, because the funding output must first be *created*:
 
 ```
-cltv_expiry_delta  >=  G_exit + 1 + 1 + csv_delay + 1 + G_sweep
+cltv_expiry_delta  >=  G_exit + 1 + beta_chan + 1 + csv_delay + 1 + G_sweep
 ```
 
 where `G_exit` is the time to get an `EXIT_1` confirmed *including contention
-for the tree output* (10.5, C.9.5), then one block each for the update and
-settlement transactions, `csv_delay` between them, and `G_sweep` for the HTLC
-claim. With `csv_delay = 144` and a conservative `G_exit = 72`, a channel
-leaf needs `cltv_expiry_delta ≥ ~220` blocks against the ~40 typical on the
-public network. Operators and users MUST set `cltv_expiry_delta` for channel
+for the tree output* (10.5, C.9.5), then one block for the update plus
+`beta_chan` for the stale updates the counterparty gets confirmed ahead of
+it (below), one for the settlement, `csv_delay` between them, and `G_sweep`
+for the HTLC claim. With `csv_delay = 144`, a conservative `G_exit = 72` and
+`beta_chan = 0`, a channel leaf needs `cltv_expiry_delta ≥ ~220` blocks
+against the ~40 typical on the public network. Operators and users MUST set `cltv_expiry_delta` for channel
 leaves accordingly, and MUST NOT accept forwards that leave less headroom.
 
 `G_exit` is not a constant. It is `Delta(q)` of 10.5 under the contention
@@ -558,6 +576,26 @@ first. At `Delta_L = 1`, `G_exit = 72` therefore covers
 must outbid a contending counterparty (`beta > 0`), MUST use a larger
 `G_exit`, growing by `Delta_L` for every further `kappa` leaves, and so a
 larger `cltv_expiry_delta`, or be sharded or detached (C.9.5, 10.5).
+
+`beta_chan` is the channel's own contention term. An `update_m` binds to
+`U_j` for every `j < m` (C.3.3), so a counterparty holding the signed
+states `1..k` can publish them one on top of the other, each in its own
+block (TRUC admits one unconfirmed ancestor, so the honest `update_n` and
+its anchor child cannot be chained onto an unconfirmed stale update), and
+the honest update lands only after the last of them; `csv_delay` then runs
+from `U_n` as before, so every stale update confirmed ahead costs the payee
+exactly one block of the budget. The two blocks of margin in the bound
+above absorb two; a third makes the offerer's timeout sweep final before
+the payee's claim at the spec bound (C.12). A stale update in the mempool
+conflicts with the honest `update_n` bound to the same output and is
+replaceable under TRUC's rules, so the delay is an auction the counterparty
+must win every block, at about 313 vB (an update and its anchor child) per
+block of delay; `beta_chan` is bounded by fee exactly as `beta` is under
+[C]. A party SHOULD hold a fee reserve in proportion to the HTLC value it
+has in flight (C.5.5), SHOULD replace a pending stale update rather than
+wait for it to confirm (C.9.6), and MUST count the `beta_chan` it is
+prepared to outbid in its `cltv_expiry_delta`
+(`design/audit/channels.md`, B4).
 
 *(informative)* The deadline reasoning above is exercised block by block in
 `tools/test_chan.py` (C.12), on a chain model that enforces BIP-65 and BIP-68.
@@ -575,7 +613,11 @@ the payee's sweep may confirm in block `cltv_expiry` itself. The bound above
 therefore carries two blocks of margin. With `G_exit = 72`,
 `csv_delay = 144` and `G_sweep = 2` the test confirms the payee's sweep at
 `t + 219`, against a bound of 221, and at a delta of 218 shows the
-offerer's refund becoming final first and the payee's claim failing.
+offerer's refund becoming final first and the payee's claim failing. Each
+stale update the counterparty confirms ahead of the honest one moves the
+sweep one block later: at the bound of 221 the margin absorbs two, three
+make the refund final first, and the bound with `beta_chan = 3` holds
+again.
 
 ## C.5 Lifecycle
 
@@ -728,7 +770,11 @@ on-chain UTXO** to close a channel leaf unilaterally; a user with no on-chain
 coins can exit the leaf (endogenous fees are available for the `EXIT` in
 principle — but see C.6.1, which forbids them for channel leaves) and cannot
 drive the update chain. Wallets SHOULD maintain a fee reserve as a condition
-of opening a channel leaf.
+of opening a channel leaf, and the reserve SHOULD grow with the HTLC value
+the party has in flight: a counterparty can spend about 313 vB per block to
+delay the settlement with stale updates (C.4.4, `beta_chan`), and the
+honest party's answer is to outbid each one. The anchor carries the trimmed
+value of C.3.4, 0 when nothing was trimmed; the child spends it either way.
 
 *(informative)* An alternative that avoids the 0-value ephemeral anchor
 [C-A2] is a 240-sat P2A on each update transaction, with the update output
@@ -1110,6 +1156,15 @@ anchor is keyless, so a watchtower or any third party can bump on a party's
 behalf. Implementations MUST NOT rely on the update transaction being
 package-relayed together with the `EXIT` (C.5.4).
 
+The other pinning surface is the update chain itself. A stale `update_j`
+that confirms ahead of the honest `update_n` costs the honest party one
+block of its C.4.4 budget (`beta_chan`), and TRUC serialises the rounds, so
+a counterparty with `k` old states can buy `k` blocks of delay at about
+313 vB each. A stale update in the mempool conflicts with the honest
+`update_n` bound to the same output, so an implementation SHOULD replace
+it by fee rather than wait for it to confirm and rebind on top of it;
+waiting hands the counterparty the block for free.
+
 ### C.9.7 Residual trust
 
 The counterparty's channel balance inside a leaf rests on four properties
@@ -1188,9 +1243,9 @@ normative script claim above is backed by one of these files.
 |---|---|
 | `tools/script_sim.py` | `OP_CHECKSEQUENCEVERIFY` (BIP-112, the script half) and `OP_TX` with `TXSELECT_COLLATE` laid out as [C-A1]; `collate()` is also the off-chain serialiser |
 | `tools/layertree_chan.py` | generators for `UPD_F`, `REBIND_n` and `SETTLE_n` with stack comments, `chan_id` / `ctx_upd` / `ctx_set`, `msg_upd` / `msg_set`, the funding and update output keys, the update and settlement templates of C.3.3 and C.3.4, HTLC outputs (the C.4.1 leaves are imported from `tools/layertree_scripts.py`), and the two deadline budgets of C.4.4 |
-| `tools/test_chan.py` | the whole state machine on a chain model: 149 checks |
+| `tools/test_chan.py` | the whole state machine on a chain model: 210 checks |
 | `script/chan.go` | the Go mirror, byte-exact against the `chan` section of `spec/golden.json` in both tapleaf versions, with `ChanCollate` and the signed messages |
-| `msg/chan.go` | TLV messages: `ChanOpen`, `StateProposal`, `StateSig` with the `SigningRound` order check of C.3.6, `HtlcAdd`, `HtlcFulfill`, `HtlcFail`, `RebindAnnounce` (C.5.4) and `SpliceProposal` (C.5.2) |
+| `msg/chan.go` | TLV messages: `ChanOpen` (with `DUST_CHAN`), `StateProposal` whose `Validate` applies the dust floor of C.3.4 and the `0xC0` collation limit of C.7, `StateSig` with the `SigningRound` order check of C.3.6, `HtlcAdd` with `CheckDeadline` counting the C.4.4 budget from the lease when it is later than the tip (C.6.4), `HtlcFulfill`, `HtlcFail`, `RebindAnnounce` (C.5.4) and `SpliceProposal` (C.5.2) |
 
 The chain model under `tools/test_chan.py` keeps a UTXO set with
 confirmation heights, checks each input's control block against the spent
@@ -1216,14 +1271,31 @@ modelled. The test covers, in both tapleaf versions:
 * **negatives**: altered balances, `nSequence < csv_delay`, an update
   signature as a settlement witness and the reverse, each collation signed
   under the other context, states signed for a `chan_id` with another `m`,
-  capacity, epoch or nonce, a changed `nLockTime`, `nVersion` or output, a
+  capacity, epoch, nonce, `owner_key` or `csv_delay` (C.9.1), a changed `nLockTime`, `nVersion` or output, a
   height-range `nLockTime` (C.3.5), `settle_n` against the funding output,
   and two funding outputs with the same script spent by one transaction
   (C.2.3);
+* **dust floor**: C.3.4 on the single-funded state 1, a 329-sat balance, a
+  200-sat HTLC and a sub-dust balance beside a sub-dust HTLC: each is
+  trimmed into the anchor, the settlement still pays `C`, and the untrimmed
+  split would have carried two dust outputs; `DUST_CHAN` is outside
+  `chan_id` and refused below 330;
+* **lease and evictor**: C.6.4, a channel leaf with `evict_after` in the
+  future cannot be evicted before it (with `nLockTime` at the tip or at the
+  lease) and can at it, while the owner exits at any time and `update_1`
+  binds in every case; C.6.3, a `NUMS`-evictor channel leaf cannot be
+  evicted at all;
+* **epochs and renewal**: C.6.7, an `UPDATE` that renews `evict_after`
+  leaves `update_n` bindable; C.5.2, after an `UPDATE` to the next epoch's
+  `exit_key` the old epoch's `update_n` fails against the new funding output
+  and the new epoch's binds;
 * **MID numerics**: the 520-byte limit of C.7, seven HTLC outputs accepted
   and eight refused under `0xC0`;
 * **deadlines**: C.4.4 and the swap of 9.6.2 as block sequences, as
-  described in C.4.3 and C.4.4.
+  described in C.4.3 and C.4.4, and `beta_chan`: two stale updates
+  confirmed ahead of the honest one are absorbed by the bound's margin,
+  three make the offerer's refund final first, and the bound with
+  `beta_chan = 3` holds again.
 
 Measured sizes, `csv_delay = 144`, 64-byte signatures:
 

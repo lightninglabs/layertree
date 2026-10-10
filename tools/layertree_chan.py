@@ -280,12 +280,14 @@ def htlc_output(internal_x, payment_hash, cltv_expiry, offerer_claim, recipient_
 
 
 # -------------------------------------------------------------- deadlines --
-def cltv_budget_spec(g_exit, csv_delay, g_sweep):
-    """The C.4.4 bound: G_exit + 1 + 1 + csv_delay + 1 + G_sweep."""
-    return g_exit + 1 + 1 + csv_delay + 1 + g_sweep
+def cltv_budget_spec(g_exit, csv_delay, g_sweep, beta_chan=0):
+    """The C.4.4 bound: G_exit + 1 + beta_chan + 1 + csv_delay + 1 + G_sweep,
+    where beta_chan is the number of stale updates the counterparty gets
+    confirmed ahead of the honest one."""
+    return g_exit + 1 + beta_chan + 1 + csv_delay + 1 + g_sweep
 
 
-def cltv_budget_exact(g_exit, csv_delay, g_sweep):
+def cltv_budget_exact(g_exit, csv_delay, g_sweep, beta_chan=0):
     """The smallest cltv_expiry - t at which the HTLC payee wins, counting
     blocks as BIP-65 and BIP-68 do.
 
@@ -294,9 +296,10 @@ def cltv_budget_exact(g_exit, csv_delay, g_sweep):
     the update's own block), and the sweep g_sweep blocks after that. The
     offerer's timeout sweep has nLockTime = cltv_expiry and is final first
     in block cltv_expiry + 1, so the payee is safe iff its sweep confirms in
-    a block <= cltv_expiry.
+    a block <= cltv_expiry. Every stale update confirmed ahead of the honest
+    one (beta_chan) moves the update, and so the sweep, one block later.
     """
-    return g_exit + 1 + csv_delay + g_sweep
+    return g_exit + 1 + beta_chan + csv_delay + g_sweep
 
 
 if __name__ == "__main__":

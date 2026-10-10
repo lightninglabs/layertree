@@ -30,7 +30,7 @@ with numbers.
 | Area | State |
 |---|---|
 | Spec | 0.11.0 on main: `NONNEG` after every `0xC0` sum, `DUST_MIN` creation parameter and 7.5 rule 6 on every carve, `REWRITE_h`'s amount-only exemption stops at `SEQ_FINAL` (7.9 rule 3), 7.9 rule 7 a MUST beside `UPDATE^x`/`CLAIM^x` (status.md decision 22); 0.10.x: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
-| Python simulator | 1,054 / 268 / 55 / 972 checks (FULL / MID / MIN / CCV), 149 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
+| Python simulator | 1,054 / 268 / 55 / 972 checks (FULL / MID / MIN / CCV), 210 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
 | Go | 79 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
 | Lean | Builds clean, no sorry, 60 audited theorems (about 3,400 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
 | Paper | Two versions from one source (`make` builds `main.pdf`, 35 pages, body ends on 15 with References at the top of 16 and no slack, and `main-full.pdf`, 74 pages with References on 29); four tiers throughout; round-two review response landed; 0.10.0 CLAIM figures in (0d8c0bd, PDFs 0580c8b). Open: citations to verify, one overfull bibliography line, trimming the full version. |
@@ -251,7 +251,15 @@ unmerged work. Both were killed by the session spend limit, not by errors.
    before redoing it. Then update review.md F22/F23 to fixed, status.md
    decision 22 (0.11.0: NONNEG, DUST_MIN, REWRITE SEQ_FINAL exclusion),
    rebuild the paper (sizes change again for CLAIM/SPLIT), push.
-2. Branch `worktree-agent-aaa2f4093b7c67fba`, worktree
+2. LANDED 2026-10-10 (merge 58ee31d plus the completion commit after
+   it): Appendix C 0.4.0 text for B1 (C.3.4 `DUST_CHAN`, anchor carries the
+   trimmed value, C.5.5) and B4 (`beta_chan` in the C.4.4 bound, C.5.5
+   reserve, C.9.6 replacement), `cltv_budget_spec(beta_chan)`, new
+   test_chan cases (stale updates k = 2 / 3 / bound+3, C.6.3/C.6.4
+   lease and NUMS evictor, C.5.2/C.6.7 epoch and renewal, chan_id on
+   owner_key and csv_delay): 210 checks; C.12, counts, status.md row,
+   review.md F30/F33 fixed. Go side was already on the branch. Original
+   item: Branch `worktree-agent-aaa2f4093b7c67fba`, worktree
    `.claude/worktrees/agent-aaa2f4093b7c67fba`: one WIP commit on top of
    main with B1 (settlement dust floor in `settle_outputs` and Go
    `StateProposal.Validate`, msg/chan.go, tests) and B4 tests; its last
