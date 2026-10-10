@@ -93,8 +93,10 @@ go from a leaf to empty (an exit, paid out), from empty to a leaf (a
 join, funded) or from one leaf to another (a payment, renewal, resize or
 key rotation). \emph{Authorised by} the operator and by the owner of
 every leaf that changes; a leaf that only gains amount needs no
-signature, so a payment within a cohort needs only the payer's, and a
-leaf nobody signs for passes through unchanged. \emph{Proves} the old
+signature unless its \textsf{seq} is \textsf{SEQ\_FINAL} (a channel leaf,
+\S\ref{sec:channels}, whose capacity its signed states fix), so a payment
+within a cohort needs only the payer's, and a leaf nobody signs for passes
+through unchanged. \emph{Proves} the old
 subtree, every leaf of it published, against the root, and computes the
 new one. \emph{On chain} each emptied leaf is paid exactly its amount at
 its exit key, so the operator cannot use the rewrite to remove a leaf

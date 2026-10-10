@@ -3,7 +3,7 @@
 
 This appendix describes the mechanised model behind \S\ref{sec:security}
 in enough detail that a reader can judge what has been proved, under
-what assumptions, and what has not. The development is about 1{,}900
+what assumptions, and what has not. The development is about 3{,}400
 lines of Lean~4~\cite{lean4} in eight modules and depends on nothing but the
 core library: no Mathlib, no external tactics. It builds in seconds and
 prints an axiom audit for \LeanTheoremCount{} headline theorems; as \texttt{lake build}
@@ -257,7 +257,7 @@ hypothesis & stands for & used by \\
 real-tree invariant & creation check + grounded grafts (off-chain) & every theorem stated for a \lean{Tree} \\
 \midrule
 \multicolumn{3}{@{}l}{\emph{used by Theorem~\ref{thm:uc} but outside Lean}} \\
-compiler correctness & the bytecode implements $\Pred_\tau$ (tested, 2{,}083 checks) & $\Gledger[\Pred_\tau]$ \\
+compiler correctness & the bytecode implements $\Pred_\tau$ (tested, 2{,}349 checks) & $\Gledger[\Pred_\tau]$ \\
 opcode semantics & [A-1] to [A-6] (Table~\ref{tab:assume}) & every tier \\
 {[C]} & contention: $\kappa$, $\beta$ (\S\ref{sec:func}) & liveness \\
 {[MIN]} & CR of TapSighash and the challenge hash & MIN \\

@@ -173,7 +173,7 @@ stated assumption on how many competing spends of the shared output can
 confirm ahead of an honest one, with the tree-level lemmas mechanised in
 Lean~4. Lightning channels compose with the functionality as leaves whose
 exit key is shared, so a hub sized by exit throughput occupies one
-output. A simulator, a byte-exact Go implementation and 2{,}083
+output. A simulator, a byte-exact Go implementation and 2{,}349
 executable checks accompany the design.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and universal
 composability \and payment channels \and formal verification}
@@ -192,7 +192,7 @@ recipient, including payments received over Lightning, cost nothing
 on-chain and never expire. The design compiles to four tiers of proposed
 opcodes, the smallest needing \op{CAT} and one point-tweak opcode;
 channels live in leaves; the tree rules are mechanised in Lean~4, and a
-simulator, a byte-exact Go implementation and 2{,}083 executable checks
+simulator, a byte-exact Go implementation and 2{,}349 executable checks
 accompany it.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and vouchers \and
 payment channels \and formal verification}
@@ -550,7 +550,7 @@ whose opcode numbers collide.
 \section{Security}\label{sec:security}
 
 The tree-level facts are theorems about the abstract predicates,
-mechanised in Lean~4~\cite{lean4} in about 1{,}900 lines without Mathlib
+mechanised in Lean~4~\cite{lean4} in about 3{,}400 lines without Mathlib
 (Appendix~\ref{app:lean}) and cited by name; the composable claim is a
 simulation argument in the hybrid model of \S\ref{sec:background},
 sketched here and given in \lifted{app:uc}. We work in the idealised hash
@@ -727,7 +727,7 @@ nodes. The cases and hybrids are in \lifted{app:uc}.
 \fi
 
 \paragraph{What the theorem leaves out.} The bytecode is matched to
-$\Pred_\tau$ by 2{,}083 executable checks, not a verified compiler. Fee
+$\Pred_\tau$ by 2{,}349 executable checks, not a verified compiler. Fee
 pinning is outside the ledger model: a low-feerate transition early in
 the chain caps the feerate behind it, a descendant hung off any payout or
 change output consumes the chain's policy limit, and TRUC
