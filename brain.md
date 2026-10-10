@@ -85,9 +85,6 @@ with numbers.
    now 4.5. Spec 0.8.5.
 3b. MID join negatives are thin (only an underfunded JOIN_2): add
    occupied slot, join without operator, and JOINK_2 stale second path.
-   (The sparse demotion wording is item 3 above:
-   CONCEPTS, README and the paper, as one editorial commit after the
-   merges; spec 0.8.3.
 4. Build `REWRITE_h`, the cohort rewrite with per-leaf signatures
    (owner's call: build it). FULL tier first, MID stated as unsupported
    for the sweep's reason. Generator from the `EVICT_SUBTREE_h` post-order
