@@ -1042,8 +1042,9 @@ unilateral exits form a chain of spends of a single UTXO, and an exit's
 latency is `Delta(q)` under the contention assumption [C] of 10.5:
 `Delta_L · (ceil((beta + q) / kappa) + 1)` blocks, with `kappa` the spends
 of one output that confirm per block under relay policy (25 under Bitcoin
-Core's ancestor and descendant count limits, a per-cluster limit under
-cluster mempool, 10.5) and `beta` the conflicting spends an adversary gets
+Core's ancestor and descendant count limits before 31.0, at most 64 under
+the cluster limit since, and the lower of what a deployment's relay peers
+enforce, 10.5) and `beta` the conflicting spends an adversary gets
 confirmed ahead of the honest one. Cooperatively (`beta = 0`, `kappa = 25`,
 `Delta_L = 1`) that is about 25 channel force-closes per block, so a tree
 hosting 10,000 channel leaves needs about 400 blocks, the better part of

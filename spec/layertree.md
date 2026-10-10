@@ -281,6 +281,17 @@ design does not.
    to diff against, and the tests then show which of the CCV tier's
    arguments (4.6) the revision touches.
 
+8. **BIP-449 `OP_TWEAKADD`** (Rubin, `bip-0449.md`), defined for tapleaf
+   `0xC0`: pops `tweak32 pubkey32` and pushes `x(P + t·G)`. The MID and
+   MIN tiers of 4.5 use it in place of the EC opcodes; FULL and CCV do
+   not. MIN needs only BIP-347 `OP_CAT` and BIP-449, both defined for
+   `0xC0`, so it is the one tier whose opcodes are used in the tapleaf
+   version their proposals define. Every other tier assumes some opcode
+   in a leaf version its proposal does not cover: FULL assumes
+   `OP_CHECKSIGFROMSTACK` and the EC opcodes in `0xC2` ([A-2], [A-3]),
+   MID assumes `OP_TX` in `0xC0` ([A-5]), and CCV assumes BIP-443 in
+   `0xC2` or `OP_TX` in `0xC0` ([A-5], [A-6]).
+
 ### 4.2 Not required
 
 * `OP_INTERNALKEY` is not used: the scripts verify the full input
@@ -390,7 +401,10 @@ are interchangeable, with one numeric cap noted below.
 **[A-5]** The `OP_TX` draft defines the opcode for tapleaf `0xC2`. The MID
 tier assumes it is also available (with `CScriptNum` outputs for the
 "varint or int" fields) in `0xC0`; if it is not, MID collapses into MIN for
-introspection and keeps `OP_CHECKSIGFROMSTACK` for vouchers.
+introspection and keeps `OP_CHECKSIGFROMSTACK` for vouchers. MIN is the
+only tier that uses every opcode in the tapleaf version its proposal
+defines (BIP-347 and BIP-449, both `0xC0`); FULL, MID and CCV each assume
+at least one opcode outside its proposal's leaf version (4.1 item 8).
 
 Measured sizes at `D = 16` (dense) and `D = 31/32` (sparse), bytes of
 script / witness data:
@@ -3217,6 +3231,7 @@ and signature-hash models are simplified as documented in its header.
 * BIP-443, `OP_CHECKCONTRACTVERIFY` (Ingala), pinned at `bitcoin/bips`
   commit `24e96e87` (4.1): the data-tweaked internal key used here follows
   the same pattern.
+* BIP-449, `OP_TWEAKADD` (Rubin), `bip-0449.md`.
 * Bitcoin Core mempool policy: the ancestor and descendant count limits
   (`src/policy/policy.h`, `DEFAULT_ANCESTOR_LIMIT` and
   `DEFAULT_DESCENDANT_LIMIT`, 25, deprecated since 31.0), the cluster
