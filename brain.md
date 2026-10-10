@@ -46,6 +46,17 @@ with numbers.
   5.2), the MIN tier SPLIT measured (6,441 script / 2,010 witness at
   D=16), new negatives in every tier, spec 0.8.3.
 - Opus writer on `design/graft.md`: grafting and its trust model.
+- Resume note (2026-10-09 evening): main is at the CONCEPTS update
+  (411fd23 or later). #8 and #10 are merged. The #6/#7 worker's worktree
+  (`.claude/worktrees/agent-ae0ecacb4cf73f727`, branch `ccv-work`) holds
+  three new CCV commits (Lean `BindingModel` instance 1747c17; SPLIT and
+  measured UPDATE^x under CCV plus BIP-443 pins and two-tree-input tests
+  310ca4b; 4.5 capability column and four-tier wording cc11c89) and was
+  mid-merge of origin/main when the laptop closed. If the worker does not
+  resume: finish that merge by hand (spec version 0.8.4, keep main's MIN
+  SPLIT cell and 425/120/31 counts, add the CCV column and rows), run the
+  matrix, push `ccv-work` to `ccv-tier`, merge #6, then merge
+  `ccv-tier` into `msu-hypothetical`, run test_msu, push, merge #7.
 - Opus worker on #6 and #7: add the CCV `BindingModel` instance in Lean,
   add the CCV column to the 4.5 capability table, measure UPDATE^x under
   CCV, implement SPLIT under CCV if bounded, update the four-tier wording,
