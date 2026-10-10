@@ -1,0 +1,72 @@
+% Full version only: batch shapes. Source: design/batching.md; measured
+% rows from spec/scripts/sizes.md and spec section 11, the others labelled
+% estimates as the design page labels them.
+\section{Batching}\label{sec:batching}
+
+The path is most of a transition's cost, about $510\vB$ of a $1{,}020\vB$
+exit at $D = 16$, so batching is the question of how many leaves can
+share one. A transition has a fixed part (skeleton, state binding,
+epilogue, control block; about $470\vB$) paid once per transaction, about
+$32\vB$ per shared level paid once per path, and about 100 to $120\vB$
+per leaf touched (its 116 bytes, signature, payout and hashing script),
+which no shape removes (all three are estimates from the measured
+sizes). Batching therefore helps only leaves under one aligned subtree,
+which cohort grafts create and the sparse profile cannot.
+
+\paragraph{What exists.} \tr{EXIT}$_K$ chains single-leaf steps, each
+with its full path, and saves only the skeleton ($665\vB$ for a second
+exit). \tr{EVICT\_SUBTREE}$_h$ is the real batch: the witness carries the
+path above an aligned subtree once and every position of the subtree,
+the script folds the subtree in post order checking each lease and
+evictor key, and folds the result and $\Emp_h$ up the shared path
+($158\vB$ per leaf for 51 leaves).
+
+\paragraph{The cohort rewrite, \tr{REWRITE}$_h$.} Generalising the sweep
+gives the general cohort transition. For each position of an aligned
+subtree the witness carries an old and a new element (leaf or empty
+marker); the old root, folded from the old elements, must fold with the
+shared path to $(r, S)$; the new root is folded from the new elements;
+output~0 is $(S - \sum\mathrm{old} + \sum\mathrm{new}, \TreeSpk(r', m))$,
+an increase funded by other inputs. The owner of each changed leaf signs,
+the operator signs once, and a leaf replaced by $\Emp_0$ must be paid to
+its exit key from the next unused output, which makes the rewrite a safe
+mass exit and subsumes the owner multiproof of spec 13.4. In one
+transaction a cohort can then exit, join, resize, renew, rotate keys and
+pay between members with the sum conserved, with only members whose
+balances fall signing: the settlement step of an Ark round without a
+round, an expiry, or unchanged members online. Exits cost the sweep plus
+about 64 bytes of signature and 10 of script per leaf, 353, 222 and
+$177\vB$ per leaf for 4, 13 and 51 owners, about 1.1 times the operator's
+sweep; a changed leaf costs about $120\vB$ and an unchanged one $57\vB$
+(estimates). The Lean model covers it as one \lean{Step} whose old and new
+nodes are published subtrees: \lean{Steps.sum} gives conservation and
+\lean{Steps.sound} grounding from the witness, so a cohort that joins
+this way cannot be opaque.
+
+\paragraph{Caching the path, \tr{DETACH}$_h$.} Script cannot read a
+previous witness, so the upper levels of a cohort's path can only be
+cached in an output of its own. \tr{DETACH}$_h$, signed by the operator,
+proves an aligned subtree's node $(R_h, s_h)$ against $(r, S)$, leaves
+$\Emp_h$ in output~0 for $S - s_h$, and creates output~1 as a depth-$h$
+tree with root $R_h$, amount $s_h$ and a taptree $m_h$ fixed at creation;
+members' paths truncated to the lower $h$ levels are their new proofs. At
+$D = 16$, $h = 8$ it costs about $815\vB$ and every later exit $762\vB$
+instead of $1{,}020\vB$ (estimates), repaid by the third exit. The larger
+effect is throughput: the cohort's exits form their own chain of
+unconfirmed spends, so $\lat(N)$ applies to it separately, and the
+operator can shard on demand when, say, channel leaves near their HTLC
+deadlines. Vouchers bind $m$ and must be reissued under $m_h$; channel
+leaves need nothing, as their $\mathsf{chan\_id}$ fixes $m$ at creation
+and a detach leaves every leaf's bytes unchanged. The Lean model needs a
+two-output step to cover it.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=0.78\linewidth]{figures/batching-shapes.pdf}
+\caption{Batch shapes at $D = 16$ on the model of \S\ref{sec:cost}. \tr{EXIT}$_K$ and the sweep are measured; the owner multiproof (now part of \tr{REWRITE}$_h$), the rewrite and the detach are estimates.}
+\label{fig:batching}
+\end{figure}
+
+Figure~\ref{fig:batching} places the shapes. The new ones are variants
+of the sweep's post-order fold; none lowers the per-leaf floor of about
+$100\vB$ for a leaf that leaves.
