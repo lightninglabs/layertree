@@ -83,7 +83,7 @@
         ]
       },
       {
-        "title": "MID: about 1,338 vB",
+        "title": "MID: about 1,355 vB",
         "caption": "MID keeps today's tapscript rules and adds OP_CAT, OP_TX, OP_CHECKSIGFROMSTACK and OP_TWEAKADD. Numbers are limited to four bytes, so a leaf arrives as seven separate fields that the script joins back together, and sums carry padding. It supports everything except the cohort rewrite and the detach.",
         "ops": [
           {"op": "path", "pos": 2},
@@ -141,8 +141,8 @@
       </thead>
       <tbody>
         <tr><td>FULL</td><td>new tapleaf version restoring the disabled opcodes (BIP-441), <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code> (BIP-348), elliptic-curve opcodes</td><td>every transition</td><td class="num">2,101 / 902</td><td class="num">1,020</td></tr>
-        <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code>; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree)</td><td class="num">3,299 / 978</td><td class="num">1,338</td></tr>
-        <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,572 / 1,175</td><td class="num">1,456</td></tr>
+        <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code>; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree)</td><td class="num">3,367 / 978</td><td class="num">1,355</td></tr>
+        <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,640 / 1,175</td><td class="num">1,473</td></tr>
         <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code></td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
       </tbody>
     </table>
@@ -164,7 +164,8 @@
   therefore arrives as seven field elements that the script joins with
   <code>OP_CAT</code> after checking their sizes, and every 8-byte sum carries a
   padding element so that it can be both added and hashed. The padding and the
-  size checks are most of MID's extra 31% per exit. Sums must stay under 2<sup>31</sup> satoshis per tree.
+  size checks are most of MID's extra 33% per exit. Sums must stay under 2<sup>31</sup> satoshis per tree,
+  and the scripts enforce it: every number the witness feeds into a sum is checked to be non-negative.
   The Liquid sidechain already has most of these opcodes.</p>
 
   <h2 id="min">MIN</h2>

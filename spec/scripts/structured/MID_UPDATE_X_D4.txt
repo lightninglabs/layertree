@@ -1,4 +1,4 @@
-# UPDATE_X (MID tier, exit-key consent, dense, D=4): 1539 bytes
+# UPDATE_X (MID tier, exit-key consent, dense, D=4): 1563 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

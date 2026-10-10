@@ -194,25 +194,56 @@ theorem leafStep_sound {d : Nat} (t : Tree d) (path : List (Bool × Node H))
   cases t.getSub p with
   | tip q => intro hold; exact (leafNode_inj hold).symm
 
+/-! ### Payouts -/
+
+/-- A payout output as the script reads it with `OP_TX`: the x-only key
+its scriptPubKey pays (`P2TR(key)`) and its amount. The key is what
+7.2 rule 2, 7.7 rule 2 and 7.9 rule 5 compare with the leaf's
+`exit_key`; the model carries it so that every payout theorem names the
+key the output pays. -/
+structure Payout where
+  key : Nat
+  amount : Nat
+  deriving DecidableEq, Repr
+
+/-- The payout a leaf is owed when it is removed: `leaf.amount` to
+`P2TR(leaf.exit_key)` (7.2 rule 2 with rule 4, 7.7 rule 2, 7.9 rule 5). -/
+def Leaf.payout (l : Leaf) : Payout := ⟨l.exitKey, l.amount⟩
+
+def payoutTotal : List Payout → Nat
+  | [] => 0
+  | p :: rest => p.amount + payoutTotal rest
+
+omit M in
+theorem payoutTotal_append (a b : List Payout) :
+    payoutTotal (a ++ b) = payoutTotal a + payoutTotal b := by
+  induction a with
+  | nil => simp [payoutTotal]
+  | cons p rest ih => simp [payoutTotal, ih]; omega
+
 /-! ### EXIT (section 7.2) -/
 
-/-- One `EXIT` block: the leaf, its path, the payout it receives, and the
-authorisation (owner signature, or evictor signature plus lock time). -/
+/-- One `EXIT` block: the leaf, its path, the payout output it receives
+(key and amount, as the script reads output `i`), and the authorisation
+(owner signature, or evictor signature plus lock time). -/
 structure ExitBlock (H : Type) where
   leaf : Leaf
   path : List (Bool × Node H)
-  payout : Nat
+  payout : Payout
   isEvict : Bool
   authorised : Prop
 
 /-- The step an exit block performs: the leaf becomes `E_0`. -/
 def ExitBlock.step (b : ExitBlock H) : Step H := leafStep b.path (some b.leaf) none
 
-/-- The payout rule of section 7.2 rules 3 and 4, and rule 6 for the exact
-variant: an owner exit pays at most the leaf amount (exactly, in
-`EXIT_K^=` and in the MID and MIN tiers), an eviction pays exactly it. -/
+/-- The payout rule of section 7.2: the output pays `P2TR(leaf.exit_key)`
+(rule 2), and its amount is at most the leaf amount for an owner exit
+(rule 3), exactly the leaf amount for an eviction (rule 4) and for every
+exit in the exact variant `EXIT_K^=` (rule 6, always in MID and MIN). -/
 def ExitBlock.payoutOk (exact : Bool) (b : ExitBlock H) : Prop :=
-  if b.isEvict || exact then b.payout = b.leaf.amount else b.payout ≤ b.leaf.amount
+  b.payout.key = b.leaf.exitKey ∧
+    if b.isEvict || exact then b.payout.amount = b.leaf.amount
+    else b.payout.amount ≤ b.leaf.amount
 
 /-- What the `EXIT_K` script accepts (sections 7.2 and 7.6): the blocks
 chain from the current root to `r'`, output 0 carries `r'.sum` (rule 7.1),
@@ -226,7 +257,7 @@ structure ExitK (exact : Bool) (r : Node H) (blocks : List (ExitBlock H)) (r' : 
 
 def payoutSum : List (ExitBlock H) → Nat
   | [] => 0
-  | b :: rest => b.payout + payoutSum rest
+  | b :: rest => b.payout.amount + payoutSum rest
 
 def amountSum : List (ExitBlock H) → Nat
   | [] => 0
@@ -254,7 +285,14 @@ theorem payoutSum_le (exact : Bool) (blocks : List (ExitBlock H))
     have hr := ih (fun b hb => h b (by simp [hb]))
     simp only [payoutSum, amountSum]
     unfold ExitBlock.payoutOk at hb
+    obtain ⟨_, hb⟩ := hb
     split at hb <;> omega
+
+omit M in
+/-- **Every exit pays the leaf's exit key** (7.2 rule 2): whatever the
+amount rule, the payout output's key is the leaf's `exit_key`. -/
+theorem ExitBlock.payoutOk_key {exact : Bool} {b : ExitBlock H} (h : b.payoutOk exact) :
+    b.payout.key = b.leaf.exitKey := h.1
 
 /-- **No inflation on exit**: output 0 plus every payout is at most the
 input amount. The difference is what section 7.2 rule 3 leaves "available
@@ -278,6 +316,15 @@ theorem payoutSum_eq (blocks : List (ExitBlock H))
     simp [ExitBlock.payoutOk] at hb
     simp only [payoutSum, amountSum]
     omega
+
+/-- **The exits of an `EXIT_K` pay their leaves' exit keys**: output `i`
+pays `P2TR(leaf_i.exit_key)` for every block. With `no_inflation` and
+`single_sound` this is the full payout statement of 7.2: the right key,
+and at most (owner) or exactly (eviction, exact variant) the amount. -/
+theorem ExitK.pays_exit_key {exact : Bool} {r r' : Node H} {blocks : List (ExitBlock H)}
+    {out0 : Nat} (h : ExitK exact r blocks r' out0) :
+    ∀ b ∈ blocks, b.payout.key = b.leaf.exitKey :=
+  fun b hb => (h.payouts b hb).1
 
 /-- **Exact conservation in `EXIT_K^=`**: with exact payouts nothing is left
 over, so every satoshi of the input is accounted for by output 0 and the
@@ -335,6 +382,30 @@ theorem payable {d : Nat} (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = 
   · intro q hq
     exact Tree.get_set_ne t p q none (Ne.symm hq)
 
+/-- **The honest `EXIT_1` is accepted and pays the exit key.** `payable`
+stated as an `ExitK`: for any tree, any position holding a leaf, either
+payout rule, either branch (owner exit or eviction) and any authorisation
+the signer can supply (the owner's signature, or the evictor's with the
+lock time), the block made of the leaf, its honest path and the payout
+`(leaf.exit_key, leaf.amount)` is an accepted single exit from the current
+root to the root of the tree without the leaf, with output 0 carrying the
+remaining sum. This is the form of 10.2's claim that names the key the
+payout goes to. -/
+theorem exit_available {d : Nat} (exact isEvict : Bool) (t : Tree d) (p : Pos d 0) (l : Leaf)
+    (hl : t.get p = some l) (auth : Prop) (ha : auth) :
+    ExitK exact t.root [⟨l, t.path p, l.payout, isEvict, auth⟩]
+      (t.set p none).root (t.set p none).root.sum := by
+  have hv := (payable t p l hl).1
+  refine ⟨Steps.cons hv (Steps.nil _), rfl, ?_, ?_⟩
+  · intro b hb
+    simp at hb; subst hb
+    refine ⟨rfl, ?_⟩
+    simp only [Leaf.payout]
+    cases exact <;> cases isEvict <;> simp
+  · intro b hb
+    simp at hb; subst hb
+    exact ha
+
 /-! ### JOIN (section 7.3) -/
 
 /-- What `JOIN_h` accepts: one step whose old node is the hard-coded `E_h`
@@ -370,17 +441,21 @@ theorem join_sound {auth : Prop} {d h : Nat} (t : Tree d) (path : List (Bool × 
 
 /-! ### UPDATE (section 7.4) -/
 
-structure Update (auth : Prop) (r : Node H) (path : List (Bool × Node H)) (old new : Leaf)
-    (r' : Node H) (out0 : Nat) : Prop where
+/-- What `UPDATE` accepts: one leaf-level step from `old` to `new`,
+output 0 carrying the new sum, both signatures as `auth`, and the dust
+floor of 7.5 rule 6 on the written leaf: `new.amount ≥ DUST_MIN`. -/
+structure Update (auth : Prop) (π : Params) (r : Node H) (path : List (Bool × Node H))
+    (old new : Leaf) (r' : Node H) (out0 : Nat) : Prop where
   step : (leafStep path (some old) (some new)).valid r r'
   out0_eq : out0 = r'.sum
+  new_dust : π.dustMin ≤ new.amount
   authorised : auth
 
 /-- **An update replaces exactly one leaf** and moves the output amount by
 the difference of the two amounts. -/
-theorem update_sound {auth : Prop} {d : Nat} (t : Tree d) (path : List (Bool × Node H))
-    (old new : Leaf) (r' : Node H) (out0 : Nat) (hwf : path.length = d)
-    (hu : Update auth t.root path old new r' out0) :
+theorem update_sound {auth : Prop} {π : Params} {d : Nat} (t : Tree d)
+    (path : List (Bool × Node H)) (old new : Leaf) (r' : Node H) (out0 : Nat)
+    (hwf : path.length = d) (hu : Update auth π t.root path old new r' out0) :
     ∃ p : Pos d 0, t.get p = some old ∧ r' = (t.set p (some new)).root ∧
       out0 + old.amount = t.root.sum + new.amount := by
   obtain ⟨p, hget, hr'⟩ := leafStep_sound t path (some old) (some new) r'
@@ -406,10 +481,16 @@ theorem claimedSource_amount (src : Leaf) (v : Nat) (hv : v ≤ src.amount) :
   · simp; omega
 
 /-- What `CLAIM` accepts: the source step then the claim step (rules 2 and
-3), output 0 carrying the final sum, the voucher authorisation, and the
-carve rule (rule 5): the claim leaf keeps the source's evictor key and a
-lease no longer than the source's, so nothing carved out of a leaf is
-harder to evict than the leaf itself.
+3), output 0 carrying the final sum, the voucher authorisation, the
+`seq` check of rule 2 (`seq + 1` must encode in four bytes, so the source
+`seq` is below the tier's `SEQ_FINAL`, `π.seqFinal`; `Leaf.seqFinalFull`
+and `Leaf.seqFinalMid` are the two values and `LayerTree.Encoding` shows
+why), the carve rule (rule 5): the claim leaf keeps the source's evictor
+key and a lease no longer than the source's, so nothing carved out of a
+leaf is harder to evict than the leaf itself, and the dust floor (rule
+6): the claim leaf's amount is at least `DUST_MIN` and the source's
+residual is either zero (the position becomes `E_0`) or at least
+`DUST_MIN`, so no carve leaves a leaf whose exit would be non-standard.
 
 `auth` is opaque, so this structure covers both voucher forms of the spec.
 Plain `CLAIM` (7.5) instantiates it with "`voucher_sig` verifies under
@@ -420,11 +501,15 @@ Plain `CLAIM` (7.5) instantiates it with "`voucher_sig` verifies under
 who may redeem and when, never what the redemption does to the tree, so
 `claim_sound` below applies verbatim to both and the model needs no case
 for the variant. -/
-structure Claim (auth : Prop) (r : Node H) (srcPath claimPath : List (Bool × Node H))
-    (src claim : Leaf) (r' : Node H) (out0 : Nat) : Prop where
+structure Claim (auth : Prop) (π : Params) (r : Node H)
+    (srcPath claimPath : List (Bool × Node H)) (src claim : Leaf) (r' : Node H) (out0 : Nat) :
+    Prop where
   amount_le : claim.amount ≤ src.amount
+  seq_lt : src.seq < π.seqFinal
   evictorKey_eq : claim.evictorKey = src.evictorKey
   evictAfter_le : claim.evictAfter ≤ src.evictAfter
+  claim_dust : π.dustMin ≤ claim.amount
+  residual_dust : claim.amount = src.amount ∨ π.dustMin ≤ src.amount - claim.amount
   steps : Steps r [leafStep srcPath (some src) (claimedSource src claim.amount),
                    leafStep claimPath none (some claim)] r'
   out0_eq : out0 = r'.sum
@@ -434,22 +519,32 @@ structure Claim (auth : Prop) (r : Node H) (srcPath claimPath : List (Bool × No
 may evict the source leaf at height `h` may evict the claim leaf there too,
 with the same key. Eviction is therefore a property of a balance, not of
 one leaf: no sequence of carves escapes it. -/
-theorem claim_evictable {auth : Prop} {r r' : Node H}
+theorem claim_evictable {auth : Prop} {π : Params} {r r' : Node H}
     {srcPath claimPath : List (Bool × Node H)} {src claim : Leaf} {out0 : Nat}
-    (hc : Claim auth r srcPath claimPath src claim r' out0)
+    (hc : Claim auth π r srcPath claimPath src claim r' out0)
     (h : Nat) (hsrc : src.evictAfter ≤ h) :
     claim.evictorKey = src.evictorKey ∧ claim.evictAfter ≤ h :=
   ⟨hc.evictorKey_eq, Nat.le_trans hc.evictAfter_le hsrc⟩
+
+/-- **A final leaf is never a source** (5.2, rule 2): no `CLAIM` or `SPLIT`
+accepts a source leaf whose `seq` is the tier's `SEQ_FINAL`, because the
+script requires `seq + 1` to encode in four bytes.
+`Encoding.seqFinalFull_succ_length` and `Encoding.seqFinalMid_succ_length`
+show the two constants are exactly the values whose successor needs five. -/
+theorem claim_not_final {auth : Prop} {π : Params} {r r' : Node H}
+    {srcPath claimPath : List (Bool × Node H)} {src claim : Leaf} {out0 : Nat}
+    (hc : Claim auth π r srcPath claimPath src claim r' out0) : src.seq ≠ π.seqFinal :=
+  Nat.ne_of_lt hc.seq_lt
 
 /-- **A claim conserves the total** (rule 4) and **rewrites exactly the
 source and claim positions**: the source position held the source leaf,
 the claim position was empty *after* the source step (so a drained source
 may be re-used as the claim position, and nothing else), and output 0
 commits to the tree with both rewritten. -/
-theorem claim_sound {auth : Prop} {d : Nat} (t : Tree d) (srcPath claimPath : List (Bool × Node H))
-    (src claim : Leaf) (r' : Node H) (out0 : Nat)
+theorem claim_sound {auth : Prop} {π : Params} {d : Nat} (t : Tree d)
+    (srcPath claimPath : List (Bool × Node H)) (src claim : Leaf) (r' : Node H) (out0 : Nat)
     (hwf₁ : srcPath.length = d) (hwf₂ : claimPath.length = d)
-    (hc : Claim auth t.root srcPath claimPath src claim r' out0) :
+    (hc : Claim auth π t.root srcPath claimPath src claim r' out0) :
     out0 = t.root.sum ∧
     ∃ (p₁ p₂ : Pos d 0), t.get p₁ = some src ∧
       (t.set p₁ (claimedSource src claim.amount)).get p₂ = none ∧
@@ -579,6 +674,15 @@ theorem Tree.Sparse.unique {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d
   rw [h₁] at h₂
   exact ⟨rfl, Option.some.inj h₂⟩
 
+/-- **A leaf occupies one position** in a sparse tree: the same leaf bytes
+at two positions force the positions equal, because both are
+`pos(owner_key, nonce)`. In the dense profile this is not structural;
+5.2's uniqueness rule is what forbids the duplicate there. -/
+theorem Tree.Sparse.one_position {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d}
+    (hs : t.Sparse pos) {p₁ p₂ : Pos d 0} {l : Leaf} (h₁ : t.get p₁ = some l)
+    (h₂ : t.get p₂ = some l) : p₁ = p₂ :=
+  (hs.unique h₁ h₂ rfl rfl).1
+
 /-- **Non-inclusion by an `E_0` proof**: in a sparse tree, an empty derived
 position means no leaf with that `(owner_key, nonce)` is in the tree. -/
 theorem Tree.Sparse.absent {d : Nat} {pos : Nat → Nat → Pos d 0} {t : Tree d} (hs : t.Sparse pos)
@@ -637,5 +741,23 @@ theorem sparseJoin_sound {auth : Prop} {d : Nat} {pos : Nat → Nat → Pos d 0}
   · have hsum := Step.sum _ _ _ hj.join.step
     simp only [Tree.emptyNode_sum, leafNode_some] at hsum
     rw [hj.join.out0_eq]; omega
+
+/-- **A position collision is rejected, not resolved.** Two leaves with
+different `(owner_key, nonce)` can derive the same position (`pos` is an
+arbitrary function, and the model proves nothing about how often this
+happens); when it does, the sparse `JOIN_0` of the second leaf is not
+accepted against the tree holding the first, because the script's `E_0`
+proof at the derived position fails. The joiner picks another nonce
+(5.4). What the model does not prove is that a fresh nonce exists or how
+many tries it takes; that is a property of `H_pos`, which is not
+modelled. -/
+theorem sparse_collision_rejected {auth : Prop} {d : Nat} {pos : Nat → Nat → Pos d 0}
+    (t : Tree d) (hs : t.Sparse pos) (path : List (Bool × Node H)) (l l' : Leaf) (r' : Node H)
+    (out0 : Nat) (hwf : path.length = d) (hocc : t.get (pos l.ownerKey l.nonce) = some l') :
+    ¬ SparseJoin auth pos t.root path l r' out0 := by
+  intro hj
+  have := (sparseJoin_sound t hs path l r' out0 hwf hj).1
+  rw [this] at hocc
+  cases hocc
 
 end LayerTree

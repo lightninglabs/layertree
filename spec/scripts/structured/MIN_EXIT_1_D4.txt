@@ -1,4 +1,4 @@
-# EXIT_1 (MIN tier, dense, D=4): 1700 bytes
+# EXIT_1 (MIN tier, dense, D=4): 1720 bytes
 # macros in CAPITALS are defined in MACROS_MIN.txt; raw opcodes are wrapped and indented
 
 OP_2DUP

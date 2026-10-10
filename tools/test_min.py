@@ -76,6 +76,10 @@ def test_min(depth, verbose=True):
     expect_fail(lambda: run(ctx, wbad), "min: wrong m")
     wbad = list(wit); wbad[0] = bytes(31)                 # wrong e31
     expect_fail(lambda: run(ctx, wbad), "min: wrong e31")
+    # every raw introspection piece is bound by the signature: flip one byte of each
+    for i, label in enumerate(("sha_seqs", "tapleaf", "sha_prevouts", "ver", "lock", "spk_in1", "amt_in1", "extra_outs"), 1):
+        wraw = list(wit); wraw[i] = bytes([wraw[i][0] ^ 1]) + wraw[i][1:]
+        expect_fail(lambda: run(ctx, wraw), f"min: raw piece {label} substituted")
     ctx_early = make_ctx(bob.amount, locktime=799_999, extra=())
     e31x, _ = N.grind(ctx_early, mutate); esx = schnorr_sign(ctx_early.sighash(), op_sk)
     expect_fail(lambda: run(ctx_early, witness(ctx_early, bob, esx, b"\x01", e31x)), "min: early evict")
@@ -173,6 +177,30 @@ def test_split(depth, verbose=True):
     expect_fail(lambda: run(g[0], w_), "min: SPLIT tree output underfunded")
     wbad = list(wit); wbad[0] = bytes(31)
     expect_fail(lambda: run(good[0], wbad), "min: SPLIT wrong e31")
+    # NONNEG (spec 4.5, 10.6): a claim leaf amount of 2^31 + 2^24 is the
+    # negative CScriptNum -2^24, so the source would gain 2^24 with output
+    # 0 unchanged; the tree output is built as the script would fold it
+    from test_mid import big_leaf, fold_signed, levels_signed, leaf10_signed, snum
+    BIG = (1 << 31) + (1 << 24)
+    claim = big_leaf("claim", BIG, alice.evictor_key, alice.evict_after, 11)
+    amt_new = alice.amount + (1 << 24)
+    src2 = alice.with_amount_seq(amt_new, alice.seq + 1)
+    spath = tree.path(s_a)
+    t1 = lt.Tree(depth); t1.leaves = dict(tree.leaves); t1.leaves[s_a] = src2
+    cpath = t1.path(3)
+    r1 = fold_signed(claim.hash(), -(1 << 24), cpath)
+    check(r1[1] == root[1], "min: the signed carve conserves the script's total while the source gains 2^24")
+    ctx_n = TxContext([(root[1], lt.tree_spk(root[0], m)), (5_000, P2WPKH)],
+                      [(root[1], lt.tree_spk(r1[0], m)), (400, P2WPKH)], tapleaf_hash=leaf_hash)
+    e31n, _ = N.grind(ctx_n, mutate)
+    sig_n = schnorr_sign(ctx_n.sighash(), sk("alice-owner"))
+    extras = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) + list(M.pad(amt_new)) +
+              [M.scriptnum(alice.evict_after)] + list(M.pad(alice.evict_after)) +
+              [M.scriptnum(claim.evict_after)] + list(M.pad(claim.evict_after)))
+    wit_n = (N.raw_pieces(ctx_n, e31n, 1) + list(M.pad(root[1])) + levels_signed(cpath, 0, -(1 << 24)) +
+             list(M.pad(root[1])) + M.w_levels(spath, alice.node(), src2.node(), False) +
+             M.w_leaf(alice) + leaf10_signed(claim, snum(-(1 << 24))) + extras + [sig_n, root[0], m])
+    expect_fail(lambda: run(ctx_n, wit_n), "min: SPLIT with a claim leaf amount of 2^31 + 2^24")
     if verbose:
         print(f"MIN SPLIT D={depth}: script {len(script)} B, witness {sum(len(x) for x in wit)} B, "
               f"maxdepth {it.max_depth}")

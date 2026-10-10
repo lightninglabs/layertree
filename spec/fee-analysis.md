@@ -71,8 +71,8 @@ State every number here explicitly; nothing below is looked up live.
 | FULL dense EXIT_1, D=20 | 3648 | 4594 | 1149 | 1,149 | 2,298 | 5,745 | 11,490 | 28,725 | 57,450 | 114,900 | 287,250 |
 | FULL sparse EXIT_1, D=32 | 5602 | 6548 | 1637 | 1,637 | 3,274 | 8,185 | 16,370 | 40,925 | 81,850 | 163,700 | 409,250 |
 | FULL sparse EXIT_1, D=64 | 9954 | 10900 | 2725 | 2,725 | 5,450 | 13,625 | 27,250 | 68,125 | 136,250 | 272,500 | 681,250 |
-| MID dense EXIT_1, D=16 | 4406 | 5352 | 1338 | 1,338 | 2,676 | 6,690 | 13,380 | 33,450 | 66,900 | 133,800 | 334,500 |
-| MIN dense EXIT_1, D=16 | 4876 | 5822 | 1456 | 1,456 | 2,912 | 7,280 | 14,560 | 36,400 | 72,800 | 145,600 | 364,000 |
+| MID dense EXIT_1, D=16 | 4474 | 5420 | 1355 | 1,355 | 2,710 | 6,775 | 13,550 | 33,875 | 67,750 | 135,500 | 338,750 |
+| MIN dense EXIT_1, D=16 | 4944 | 5890 | 1473 | 1,473 | 2,946 | 7,365 | 14,730 | 36,825 | 73,650 | 147,300 | 368,250 |
 
 Illustrative USD, at 10 sat/vB and 100 sat/vB, $100,000/BTC:
 
@@ -83,13 +83,13 @@ Illustrative USD, at 10 sat/vB and 100 sat/vB, $100,000/BTC:
 | FULL dense EXIT_1, D=20 | 11,490 sat | $1.15 | 114,900 sat | $11.49 |
 | FULL sparse EXIT_1, D=32 | 16,370 sat | $1.64 | 163,700 sat | $16.37 |
 | FULL sparse EXIT_1, D=64 | 27,250 sat | $2.73 | 272,500 sat | $27.25 |
-| MID dense EXIT_1, D=16 | 13,380 sat | $1.34 | 133,800 sat | $13.38 |
-| MIN dense EXIT_1, D=16 | 14,560 sat | $1.46 | 145,600 sat | $14.56 |
+| MID dense EXIT_1, D=16 | 13,550 sat | $1.36 | 135,500 sat | $13.55 |
+| MIN dense EXIT_1, D=16 | 14,730 sat | $1.47 | 147,300 sat | $14.73 |
 
 Reading this table: depth costs about 30 WU per level of script plus witness
 (the D=8 -> D=20 spread is only 762 -> 1,149 vbytes, +51%, over a 4,096x
 increase in tree size); one tier step costs as much as 10 to 14 levels of
-depth (MID is +31%, MIN is +43% over FULL at the same D=16); sparse costs
+depth (MID is +33%, MIN is +44% over FULL at the same D=16); sparse costs
 about 1.6-2.7x dense on the six-leaf measurement above (1.7 to 2.8x at
 N = 2^16), because a sparse tree needs D=32-64 levels of proof where a
 dense tree needs 8-20.
@@ -264,7 +264,7 @@ sat: a D=16 exit at 10 sat/vB costs 10,200 sat, 1% of a 1,020,000 sat
 (~0.01 BTC) balance. Depth barely matters (D=8 to D=20 spans 762-1,149
 vbytes, +51%, across a 4,096x range of tree size) so operators should pick
 D for their addressing needs, not to save fees. Tier matters much more:
-MID costs +31% and MIN +43% over FULL at the same D, so a chain that has
+MID costs +33% and MIN +44% over FULL at the same D, so a chain that has
 not activated the FULL opcode set pays a real, fixed tax on every exit
 regardless of tree size. The sparse profile costs 1.6x (D=32) to 2.7x
 (D=64) a comparable dense exit on the six-leaf measurement (1.7x to 2.8x

@@ -287,6 +287,172 @@ def test_mid(depth, sparse, verbose=True):
     return costs, w
 
 
+def snum(n):
+    """A signed CScriptNum with its PADZ pad: (x, z, w), size(x) + size(z) == 4."""
+    from script_sim import scriptnum_encode
+    x = scriptnum_encode(n)
+    assert len(x) <= 4
+    return x, bytes(4 - len(x)), bytes(len(x))
+
+
+def signed_read(v):
+    """What a four-byte le32(v) is as a CScriptNum: sign-magnitude, so a
+    value with its top bit set reads as -(v - 2^31)."""
+    return v if v < (1 << 31) else -(v - (1 << 31))
+
+
+def fold_signed(h, acc, path):
+    """The fold as LEVEL_MID computes it when the accumulator is a signed
+    CScriptNum: the node's sum bytes are x || z || 00000000 || 01 with x the
+    sign-magnitude encoding of acc, and a sibling's committed sum enters
+    the accumulator as signed_read of its le32."""
+    for d, sib in path:
+        x, z, _ = snum(acc)
+        me = h + x + z + bytes(4) + b"\x01"
+        sb = sib[0] + lt.enc64(sib[1])
+        h = lt.tagged_hash(lt.TAG_NODE, (sb + me) if d else (me + sb))
+        acc += signed_read(sib[1])
+    return h, acc
+
+
+def levels_signed(path, old_sum, new_sum):
+    """Level items (bottom..top) for signed accumulators; a sibling whose
+    sum is 2^31 or more is supplied as the negative number its le32 is."""
+    per = []
+    os_, ns = old_sum, new_sum
+    for k, (d, sib) in enumerate(path):
+        ss, zs, ws = snum(signed_read(sib[1]))
+        _, zn, wn = snum(ns)
+        _, zo, wo = snum(os_)
+        per.append([zo, wo, zn, wn, b"\x01" if d else b"", sib[0], ss, zs, ws])
+        os_ += signed_read(sib[1]); ns += signed_read(sib[1])
+    items = []
+    for lv in reversed(per):
+        items += lv
+    return items
+
+
+def leaf10_signed(leaf, amt_num):
+    """A ten-element leaf whose amount number is supplied as given."""
+    b = leaf.serialize()
+    x, z, w = amt_num
+    return [b[0:8], b[8:40], b[40:72], b[72:104], b[104:108], b[108:112], b[112:116], x, z, w]
+
+
+def big_leaf(label, amount, evictor, evict_after, nonce):
+    """A Leaf whose amount bypasses the constructor's range checks."""
+    lf = lt.Leaf(1, pubkey_x(sk(label + "-exit")), pubkey_x(sk(label + "-owner")), evictor, 0, nonce, 0)
+    lf.amount, lf.evict_after = amount, evict_after
+    return lf
+
+
+def test_sign_rules(depth, verbose=True):
+    """NONNEG (spec 4.5, 10.6): CScriptNum is sign-magnitude, so a four-byte
+    number with its top bit set is negative. 2^31 + 2^24 is le32
+    `00 00 00 81`, a minimal CScriptNum equal to -2^24, and without the
+    check it passes PADZ as the le32 of 2^31 + 2^24 while entering every
+    accumulator as -2^24. Each case below commits a sum of 2^31 + 2^24 to
+    the tree while the script's arithmetic sees -2^24, and expects the
+    witness-supplied number to be rejected at the site it enters:
+
+    * `JOIN_2`: `new_sum` (the dense join block), output 0 at S - 2^24;
+    * `JOIN_0`: a leaf amount (`LEAF_JOIN`), output 0 at S - 2^24;
+    * `SPLIT`: the claim leaf's amount (`LEAF_JOIN`), so the source gains
+      2^24 with output 0 unchanged;
+    * `EXIT_1`: a sibling sum (`LEVEL_MID`), with a tree whose root was
+      folded the way the script would fold it.
+
+    `evict_after` and `seq` are not sums and keep their PADZ-only
+    treatment; the last case checks that a leaf whose `evict_after` is
+    2^31 + 2^24 (negative as a CScriptNum) cannot be evicted at any lock
+    time, which is BIP-65's negative-operand rule."""
+    w = MidWorld(depth, False)
+    alice = mk_leaf("alice", 50_000)
+    oper = mk_leaf("operator", 100_000_000)
+    w.tree.leaves = {0: alice, (1 << depth) - 1: oper}
+    root = w.tree.root()
+    S = root[1]
+    BIG = (1 << 31) + (1 << 24)
+    NEG = snum(-(1 << 24))
+    assert NEG[0] == b"\x00\x00\x00\x81" and NEG[0] == lt.le32(BIG)
+    out0 = S - (1 << 24)
+
+    # JOIN_2: a subtree whose committed sum is BIG
+    h, idx = 2, 2
+    jpath = w.tree.path(idx << h, height=h)
+    fake_hash = lt.sha256(b"operator's subtree")
+    r2 = fold_signed(fake_hash, -(1 << 24), jpath)
+    check(r2[1] == out0, "mid: the signed fold of the joined subtree reaches S - 2^24")
+    ctx = w.ctx([(out0, w.spk(r2))], (5_000, P2WPKH))
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    wit = (list(M.pad(out0)) + list(M.pad(S)) + levels_signed(jpath, 0, -(1 << 24)) +
+           [fake_hash, NEG[0], osig, root[0], w.m])
+    expect_fail(lambda: w.run("JOIN_2", wit, ctx), "mid: JOIN_2 with new_sum = 2^31 + 2^24 (a negative CScriptNum)")
+
+    # JOIN_0: a leaf of amount BIG
+    big = big_leaf("big", BIG, w.op_pk, 900_000, 7)
+    jpath0 = w.tree.path(9)
+    r3 = fold_signed(big.hash(), -(1 << 24), jpath0)
+    ctx3 = w.ctx([(out0, w.spk(r3))], (5_000, P2WPKH))
+    osig3 = schnorr_sign(ctx3.sighash(), w.op_sk)
+    wit3 = (list(M.pad(out0)) + list(M.pad(S)) + levels_signed(jpath0, 0, -(1 << 24)) +
+            [big.hash(), NEG[0], osig3, root[0], w.m])
+    expect_fail(lambda: w.run("JOIN_0", wit3, ctx3), "mid: JOIN_0 with a leaf amount of 2^31 + 2^24")
+
+    # SPLIT: a claim leaf of amount BIG, so the source gains 2^24
+    w.compiled = dict(w.compiled); w.compiled["SPLIT"] = assemble(M.split_script(depth, False), mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    root = w.tree.root()
+    claim = big_leaf("claim", BIG, alice.evictor_key, alice.evict_after, 11)
+    amt_new = alice.amount + (1 << 24)
+    src2 = alice.with_amount_seq(amt_new, alice.seq + 1)
+    spath = w.tree.path(0)
+    t1 = w.clone(); t1.leaves[0] = src2
+    cpath = t1.path(3)
+    r1 = fold_signed(claim.hash(), -(1 << 24), cpath)
+    check(r1[1] == S, "mid: the signed carve conserves the script's total while the source gains 2^24")
+    ctxs = w.ctx([(S, w.spk(r1))], (600, P2WPKH))
+    asig = schnorr_sign(ctxs.sighash(), sk("alice-owner"))
+    extras = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) + list(M.pad(amt_new)) +
+              [M.scriptnum(alice.evict_after)] + list(M.pad(alice.evict_after)) +
+              [M.scriptnum(claim.evict_after)] + list(M.pad(claim.evict_after)))
+    wits = (list(M.pad(S)) + levels_signed(cpath, 0, -(1 << 24)) +
+            list(M.pad(S)) + M.w_levels(spath, alice.node(), src2.node(), False) +
+            M.w_leaf(alice) + leaf10_signed(claim, NEG) + extras + [asig, root[0], w.m])
+    expect_fail(lambda: w.run("SPLIT", wits, ctxs), "mid: SPLIT with a claim leaf amount of 2^31 + 2^24")
+
+    # EXIT_1: a sibling whose committed sum is BIG, in a tree folded as the script folds
+    bob = mk_leaf("bob", 20_000_000)
+    sib = (lt.sha256(b"a node of sum 2^31 + 2^24"), BIG)
+    path = [(1, sib)] + [(0, lt.empty_node(k)) for k in range(1, depth)]
+    r_old = fold_signed(bob.hash(), bob.amount, path)
+    r_new = fold_signed(lt.EMPTY_LEAF_HASH, 0, path)
+    S_old = r_old[1]
+    check(S_old == bob.amount - (1 << 24), "mid: the signed fold reads the sibling as -2^24")
+    out_new = int.from_bytes(snum(r_new[1])[0] + snum(r_new[1])[1] + bytes(4), "little")
+    ctx_e = TxContext([(S_old, w.spk(r_old)), (5_000, P2WPKH)],
+                      [(out_new, w.spk(r_new)), (bob.amount, lt.p2tr_spk(bob.exit_key))])
+    sig_e = schnorr_sign(ctx_e.sighash(), sk("bob-owner"))
+    wit_e = (list(snum(r_new[1])[1:]) + list(M.pad(S_old)) + levels_signed(path, bob.amount, 0) +
+             M.w_leaf_exit(bob) + [sig_e, b"", r_old[0], w.m])
+    expect_fail(lambda: w.run("EXIT_1", wit_e, ctx_e), "mid: EXIT_1 with a sibling sum of 2^31 + 2^24")
+
+    # evict_after of 2^31 + 2^24: a negative CLTV operand fails (BIP-65)
+    w2 = MidWorld(depth, False)
+    late = big_leaf("late", 125_000, w2.op_pk, BIG, 3)
+    w2.tree.leaves = {0: alice, 5: late}
+    root2 = w2.tree.root()
+    path2 = w2.tree.path(5)
+    t2 = w2.clone(); del t2.leaves[5]; r2_ = t2.root()
+    ctx_l = w2.ctx([(r2_[1], w2.spk(r2_)), (late.amount, lt.p2tr_spk(late.exit_key))], (5_000, P2WPKH), locktime=0)
+    esig = schnorr_sign(ctx_l.sighash(), w2.op_sk)
+    wit_l = (list(M.pad(r2_[1])) + list(M.pad(root2[1])) + M.w_levels(path2, late.node(), lt.EMPTY_NODE, False) +
+             M.w_leaf(late) + [NEG[0], NEG[1], NEG[2], esig, b"\x01", root2[0], w2.m])
+    expect_fail(lambda: w2.run("EXIT_1", wit_l, ctx_l), "mid: eviction with evict_after = 2^31 + 2^24 (negative CLTV operand)")
+    if verbose:
+        print(f"MID sign rules D={depth}: negative sums rejected at LEVEL_MID, LEAF_JOIN and the join block; negative CLTV operand rejected")
+
+
 def test_update_x(depth, sparse, verbose=True):
     """MID UPDATE^x (spec 7.4 rule 5): UPDATE plus a signature by old.ek.
 
@@ -653,6 +819,7 @@ def test_evict_subtree(depth, height, verbose=True, full=False):
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
+    test_sign_rules(16)
     test_update_x(16, False)
     test_update_x(31, True)
     test_claim_h(16, False)

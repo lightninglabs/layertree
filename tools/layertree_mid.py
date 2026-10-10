@@ -15,13 +15,20 @@ no arbitrary-precision arithmetic. Consequences, all handled here:
   gadget: the witness supplies a zero pad z and a filler w with
   z||w == 00000000 and size(x)+size(z) == 4. Sums keep the FULL tier's
   enc64 encoding, so the tree format is tier independent.
-* Every sum in a MID tree MUST be below 2^31 satoshis.
+* Every sum in a MID tree MUST be below 2^31 satoshis. CScriptNum is
+  sign-magnitude, so a four-byte number with its top bit set is negative
+  and would pass PADZ as the le32 of a value in [2^31, 2^32): the
+  NONNEG check (`OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY`) rejects it wherever a
+  witness-supplied number enters a sum (a sibling sum, a leaf amount, a
+  joined sum). Everything else that is summed is derived from those.
 * Payouts are exact (8-byte comparison with OP_TX); no fee-from-payout.
 * Sparse positions: direction bits are witness items folded into an
   accumulator that must equal pos_lo, the first 4 bytes of H_pos, which the
   witness supplies split as pos_lo || pos_hi. The nonce is chosen so that
   pos_lo is a minimal positive CScriptNum (top bit clear, last byte
-  non-zero). D <= 31.
+  non-zero) below 2^D, since the D-bit accumulator is compared with all
+  32 bits of pos_lo: 25 <= D <= 31, and below D = 31 the nonce needs
+  2^(31-D) times the grinding (pos_ok).
 """
 import os
 import sys
@@ -39,6 +46,15 @@ EXTRA_OPCODES = {"OP_CAT", "OP_TX", "OP_CHECKSIGFROMSTACK", "OP_TWEAKADD"}
 
 def tagged(prefix):
     return [prefix, "OP_SWAP", "OP_CAT", "OP_SHA256"]
+
+
+def nonneg():
+    """[x] -> [x], failing unless x is a minimal non-negative CScriptNum.
+
+    OP_ABS re-encodes |x| minimally, so the comparison also rejects a
+    negative zero (00 00 00 80) and any non-minimal encoding whatever the
+    MINIMALDATA policy; the check is consensus-grade."""
+    return ["OP_DUP", "OP_DUP", "OP_ABS", "OP_EQUALVERIFY"]
 
 
 def padz():
@@ -89,8 +105,8 @@ def level(sparse):
               "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK",  # ... sh' E'             | plo acc' pw'
               "OP_TOALTSTACK"]                            # ... dir ss zs ws sh'    | plo acc' pw' E'
         s += roll(3, 3)                                  # ... dir sh' ss zs ws
-    # sibling: sc = sh || enc64(ss); keep ss
-    s += [2, "OP_PICK", "OP_TOALTSTACK"] + enc64() + ["OP_CAT", "OP_FROMALTSTACK"]   # ... zo wo zn wn dir sc ss
+    # sibling: sc = sh || enc64(ss); keep ss, which must be non-negative
+    s += [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"] + enc64() + ["OP_CAT", "OP_FROMALTSTACK"]   # ... zo wo zn wn dir sc ss
     # new accumulator
     s += [7, "OP_PICK", "OP_OVER", "OP_ADD", "OP_TOALTSTACK"]     # | .. ns'
     s += roll(7) + roll(5, 2)                            # T oh os nh zo wo dir sc ss ns zn wn
@@ -169,8 +185,12 @@ FIELD_SIZES = [(0, 4), (1, 4), (2, 4), (3, 32), (4, 32), (5, 32), (6, 8)]  # (de
 
 
 def leaf_join():
-    """[amt8 ek ok evk ea nonce seq amt_num za wa] -> [leaf] | .. amt_num"""
-    s = [2, "OP_PICK", "OP_TOALTSTACK"]
+    """[amt8 ek ok evk ea nonce seq amt_num za wa] -> [leaf] | .. amt_num
+
+    amt_num must be a non-negative number: le64(amt_num) == amt8 alone
+    would accept a leaf amount in [2^31, 2^32) as the negative number its
+    le32 encodes."""
+    s = [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"]
     s += le64() + [7, "OP_PICK", "OP_EQUALVERIFY"]       # amt8 ek ok evk ea nonce seq
     for d, size in FIELD_SIZES:
         s += ([d, "OP_PICK"] if d else ["OP_DUP"]) + ["OP_SIZE", size, "OP_EQUALVERIFY", "OP_DROP"]
@@ -209,7 +229,7 @@ def exit_script(depth, k=1, sparse=False):
 def join_block(sparse, depth, height):
     if not sparse:
         e_h = lt.empty_node(height)[0]
-        s = ["OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",      # new_hash new_sum
+        s = nonneg() + ["OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",   # new_hash new_sum  (new_sum >= 0)
              F.NODE_PREFIX, "OP_ROT", "OP_ROT", e_h, "OP_0", "OP_2SWAP"]  # T E_h 0 new_hash new_sum
         return s + levels(False, depth, height)
     s = leaf_join() + tagged(F.LEAF_PREFIX) + ["OP_FROMALTSTACK"]   # nh ns
@@ -625,9 +645,15 @@ def w_pos(leaf):
     return [leaf.owner_key, lt.le32(leaf.nonce), h[:4], h[4:]]
 
 
-def pos_ok(leaf):
+def pos_ok(leaf, depth=31):
+    """Whether the leaf's nonce is usable in a MID sparse tree of `depth`:
+    pos_lo must be a minimal positive four-byte CScriptNum (top bit clear,
+    last byte non-zero), and since the script compares the D-bit direction
+    accumulator with all 32 bits of pos_lo, pos_lo must be below 2^depth.
+    With the last byte non-zero that needs depth >= 25; at depth 31 the
+    two conditions coincide (spec 4.5)."""
     h = lt.tagged_hash(lt.TAG_POS, leaf.owner_key + lt.le32(leaf.nonce))
-    return (h[3] & 0x80) == 0 and h[3] != 0
+    return (h[3] & 0x80) == 0 and h[3] != 0 and int.from_bytes(h[:4], "little") < (1 << depth)
 
 
 def position(leaf, depth):

@@ -1,4 +1,4 @@
-# CLAIM (MID tier, dense, D=4): 2632 bytes
+# CLAIM (MID tier, dense, D=4): 2672 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

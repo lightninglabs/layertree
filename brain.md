@@ -32,7 +32,7 @@ with numbers.
 | Spec | 0.10.0 on main: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
 | Python simulator | 956 / 228 / 35 / 864 checks (FULL / MID / MIN / CCV), 149 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
 | Go | 79 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
-| Lean | Builds clean, no sorry, 32 audited theorems (`claim_evictable` added): tree binding, conservation, payability, JOIN, UPDATE, CLAIM, the sweep, terminal exit, sparse positions, `REWRITE_h`, `DETACH_h` (including truncated-path reuse). Not covered: scripts or timing. |
+| Lean | Builds clean, no sorry, 60 audited theorems (about 3,400 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
 | Paper | Two versions from one source (`make` builds `main.pdf`, 35 pages, body ends on 15 with References at the top of 16 and no slack, and `main-full.pdf`, 74 pages with References on 29); four tiers throughout; round-two review response landed; 0.10.0 CLAIM figures in (0d8c0bd, PDFs 0580c8b). Open: citations to verify, one overfull bibliography line, trimming the full version. |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
@@ -167,6 +167,25 @@ with numbers.
   Merge order: rule worker, then text worker (both touch spec, different
   sections), then B, then C2 if it changed generators (or C2 first if
   it lands before the rule worker).
+  Landed since: text worker (merge a0c6b62, F22 to F29 in review.md)
+  and the Lean worker (merge before 8246e07; paper macro
+  `\LeanTheoremCount` is 60). Lean worker's spec notes (self-voucher
+  replay is a no-op, 5.2 uniqueness is the non-replay hypothesis) were
+  sent to the rule worker for 7.5 and 5.2; 10.3's "seq only advances"
+  is a bookkeeping rule, not a covenant property: fix in 10.3 after the
+  rule worker lands. Paper rebuild pending the rule worker (sizes).
+  C2 landed (merge 4531729, design/audit/script.md, tools/test_probe.py
+  kept): one real bug, MID/MIN/CCV-0xC0 accepted negative CScriptNum
+  sums (sign-magnitude `00 00 00 81` passes PADZ as 2^31+2^24; JOIN
+  new_sum, JOIN_0 amount and SPLIT claim amount could be short or rich
+  by 2^24); fixed with NONNEG (OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY, +4 B
+  per level, MID EXIT_1 D=16 3,367 B, 1,355 vB, +33% over FULL), plus a
+  simulator negative-CLTV fix and MID sparse 25 <= D <= 31. Counts now
+  FULL 1,017, MID 250, MIN 47, CCV 886. Spec header is 0.11.0 (shared
+  with the rule worker's changes). Stale after merge, fix once
+  weights.md is regenerated: fee-analysis.md:38, spec 11 measured rows
+  (MID 1,381/1,338), CONCEPTS.md MID 1,338. The rule worker was told to
+  merge main first and recompute golden/counts once.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the

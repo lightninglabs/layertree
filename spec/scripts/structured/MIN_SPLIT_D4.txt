@@ -1,4 +1,4 @@
-# SPLIT (MIN tier, owner-authorised carve, dense, D=4): 2757 bytes
+# SPLIT (MIN tier, owner-authorised carve, dense, D=4): 2797 bytes
 # macros in CAPITALS are defined in MACROS_MIN.txt; raw opcodes are wrapped and indented
 
 OP_2DUP
