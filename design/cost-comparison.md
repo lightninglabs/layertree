@@ -152,7 +152,7 @@ script walks all 32 levels.
 ## Moving value: on-chain transitions are the wrong path
 
 An on-chain `UPDATE` at `D = 16` costs 1,073 vbytes and a voucher
-redemption with `CLAIM` costs 1,642, against 111 for a bare spend. If
+redemption with `CLAIM` costs 1,656, against 111 for a bare spend. If
 members moved value by rewriting leaves on-chain, the shared UTXO would
 cost ten times more per move than separate UTXOs. That comparison is the
 one a sceptic makes, and on its own terms it is right.

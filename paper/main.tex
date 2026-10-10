@@ -609,9 +609,8 @@ field-by-field enforcement and the signature as a tier's only
 introspection. \tr{EXIT}$_1$ costs
 $3{,}572$ bytes of script at $D = 16$ (70\% more than FULL) and
 $1{,}456\vB$ (43\% more); vouchers and channel leaves need a signature
-over stack data and are out of reach, \tr{SPLIT} is not ($6{,}441$
-bytes% TODO(0.10.0 sizes): MIN SPLIT grows with the carve constraint.
-). Whether a 64-leaf sweep (16 kB in FULL) fits MIN is open.
+over stack data and are out of reach, \tr{SPLIT} is not ($6{,}501$
+bytes). Whether a 64-leaf sweep (16 kB in FULL) fits MIN is open.
 
 \paragraph{CCV: binding by opcode.}\label{sec:ccv}
 \op{CHECKCONTRACTVERIFY}~\cite{bip443} replaces every taproot-key

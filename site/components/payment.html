@@ -116,8 +116,12 @@
   </script>
 
   <h2 id="vouchers">Vouchers and CLAIM</h2>
-  <p>A voucher is a message signed by a leaf's owner that names the owner's leaf
-  (the source) and a new leaf (the claim). Anyone holding it can redeem it with
+  <p>A voucher is a message signed by a leaf's owner that names the tree, the
+  owner's leaf (the source) and a new leaf (the claim). The tree is named by a
+  32-byte identifier fixed when it is created, so a voucher signed for one tree
+  cannot be redeemed against another, even one whose leaves happen to match, and
+  a cohort that is detached into its own output inherits the identifier, so
+  vouchers against its leaves keep working. Anyone holding a voucher can redeem it with
   the <code>CLAIM</code> transition, without the owner and without the operator.
   <code>CLAIM</code> is two steps in one transaction: the source leaf shrinks by
   the claim's amount and its counter <code>seq</code> rises by one, then the claim
@@ -127,7 +131,7 @@
   covenant prevents redeeming more than the source holds, but nothing prevents
   its owner from signing more vouchers than that, so a recipient treats a voucher
   as credit until it is redeemed or the issuer settles it another way. A
-  redemption proves two positions and costs about 1,642 vB at depth 16, more than
+  redemption proves two positions and costs about 1,656 vB at depth 16, more than
   an exit, so most vouchers are settled off-chain and redemption is the fallback
   if the issuer stops cooperating.</p>
 

@@ -190,8 +190,9 @@
   at about 25 unconfirmed transactions. A detached cohort has its own output and
   its own queue. Detaching is a way to split a deployment when a cohort's members
   may need to leave quickly, for example channel leaves with HTLCs near their
-  deadlines. Leaf bytes do not change, so channel leaves are unaffected; vouchers
-  that name the parent tree must be reissued for the cohort's tree.</p>
+  deadlines. Leaf bytes do not change, so channel leaves are unaffected, and vouchers
+  stay valid too: a voucher binds the tree's identifier, which the cohort
+  inherits from its parent.</p>
 
   <h2 id="floor">The floor no batch removes</h2>
   <p>A leaf that leaves must be published, must authorise its exit, and must be
