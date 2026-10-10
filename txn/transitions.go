@@ -562,3 +562,75 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	}
 	return spend, next, nil
 }
+
+// BuildEvictSubtree builds EVICT_SUBTREE_h (spec 7.7), dense profile only:
+// sweep every leaf of the aligned subtree of height h at index, each paid
+// exactly to its exit key on the next output from 1 in position order, under
+// one operator signature. Every leaf must name the operator as evictor and
+// opts.LockTime must have reached every evict_after. If the sweep empties
+// the tree, opts.Terminal is output 0 (spec 7.8).
+func BuildEvictSubtree(st *TreeState, height int, index uint64,
+	opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	cur := st.Tree
+	switch {
+	case st.Sparse:
+		return nil, nil, errors.New("txn: EVICT_SUBTREE_h is a dense " +
+			"profile script")
+	case height < 0 || height > cur.Depth:
+		return nil, nil, fmt.Errorf("txn: sweep height %d out of "+
+			"range", height)
+	case index >= uint64(1)<<uint(cur.Depth-height):
+		return nil, nil, fmt.Errorf("txn: sweep index %d out of range",
+			index)
+	}
+	var lockTime uint32
+	if opts != nil {
+		lockTime = opts.LockTime
+	}
+
+	next := cur.Clone()
+	base := index << uint(height)
+	leaves := make([]*tree.Leaf, 1<<uint(height))
+	var payouts []Payout
+	for off := range leaves {
+		pos := base + uint64(off)
+		leaf := cur.Leaves[pos]
+		if leaf == nil {
+			continue
+		}
+		if leaf.EvictorKey != st.OperatorKey {
+			return nil, nil, fmt.Errorf("txn: the leaf at %d is not "+
+				"evictable by the operator", pos)
+		}
+		if lockTime < leaf.EvictAfter {
+			return nil, nil, fmt.Errorf("txn: lock time %d is before "+
+				"the evict_after %d of the leaf at %d", lockTime,
+				leaf.EvictAfter, pos)
+		}
+		leaves[off] = leaf
+		payouts = append(payouts, Payout{
+			ExitKey: leaf.ExitKey, Amount: int64(leaf.Amount),
+		})
+		delete(next.Leaves, pos)
+	}
+	if len(payouts) == 0 {
+		return nil, nil, errors.New("txn: the subtree is empty")
+	}
+
+	in := st.Input()
+	stack := EvictSubtreeWitness(
+		DensePathWitness(cur.Path(base, height)), leaves,
+		sigPlaceholder(), in.RootHash, in.MerkleRoot,
+	)
+	sigs := []SigSlot{{
+		Index: len(stack) - 3, Key: st.OperatorKey, Role: "operator",
+	}}
+
+	name := fmt.Sprintf("EVICT_SUBTREE_%d", height)
+	spend, err := finish(st, next, name, payouts, stack, sigs, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return spend, next, nil
+}

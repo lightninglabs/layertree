@@ -451,6 +451,60 @@ func carveCases(depth int, sparse bool) []txCase {
 	}}
 }
 
+// evictCases are EVICT_SUBTREE_2 and EVICT_SUBTREE_4 in the dense profile,
+// laid out as the suite's test_evict_subtree: a cohort with a common lease
+// in the subtree at index 1, every fifth position from the fourth already
+// empty, alice and the operator's leaf outside it. When the subtree is the
+// whole tree (h = D) there is no room outside it, so the sweep is the
+// terminal transition of spec 7.8.
+func evictCases(depth int) []txCase {
+	var cases []txCase
+	for _, h := range []int{2, 4} {
+		h := h
+		name := fmt.Sprintf("EVICT_SUBTREE_%d", h)
+		cases = append(cases, txCase{
+			name: name, depth: depth, variants: []string{name},
+			build: func(w *world) (*Spend, *tree.Tree, error) {
+				opKey := w.st.OperatorKey
+				index := uint64(1)
+				if h == w.depth {
+					index = 0
+				}
+				base := index << uint(h)
+				tr := w.st.Tree
+				for i := 0; i < 1<<uint(h); i++ {
+					if i%5 == 3 {
+						continue
+					}
+					tr.Leaves[base+uint64(i)] = w.mkLeaf(
+						fmt.Sprintf("c%d", i),
+						10_000+7*uint64(i), &opKey, 800_000,
+					)
+				}
+				opts := &TxOpts{
+					LockTime: 800_000,
+					Inputs:   w.fee(5_000),
+				}
+				if h == w.depth {
+					opts.Terminal = wire.NewTxOut(
+						400, p2wpkh(w.t),
+					)
+				} else {
+					tr.Leaves[0] = w.mkLeaf("alice", 50_000, nil, 0)
+					tr.Leaves[uint64(1)<<w.depth-1] = w.mkLeaf(
+						"operator", 1_000_000, nil, 0,
+					)
+					opts.Outputs = []*wire.TxOut{
+						wire.NewTxOut(400, p2wpkh(w.t)),
+					}
+				}
+				return BuildEvictSubtree(w.st, h, index, opts)
+			},
+		})
+	}
+	return cases
+}
+
 // allCases is every transition at every depth and profile covered.
 func allCases() []txCase {
 	var cases []txCase
@@ -462,6 +516,9 @@ func allCases() []txCase {
 		cases = append(cases, joinCases(p.depth, p.sparse)...)
 		cases = append(cases, updateCases(p.depth, p.sparse)...)
 		cases = append(cases, carveCases(p.depth, p.sparse)...)
+		if !p.sparse {
+			cases = append(cases, evictCases(p.depth)...)
+		}
 	}
 	return cases
 }
@@ -472,6 +529,8 @@ var pythonSighash = map[string]string{
 	"FULL/D/D16/CLAIM":              "eacaf8f177b01e2db2e053e2481d416ccd6d15193cf33a8248d12dd87cca2f2f",
 	"FULL/D/D16/CLAIM drain":        "ed4083e32dd00dcc66e1dae7af59833bb73d66e3650c3adf6d287f43ac37728a",
 	"FULL/D/D16/CLAIM_H":            "723e2ce77c867263b8ea36a7891d3ba06693734f4128e3019875d42f1a3c05dd",
+	"FULL/D/D16/EVICT_SUBTREE_2":    "1dadcf6048b64f8cb215d53a6c5657c156a90699dad6b6bc4f511238f5518bcb",
+	"FULL/D/D16/EVICT_SUBTREE_4":    "c0577e474007bbb8bd56ebae361938331e981c1e904480a412c9c1bc8faae2ad",
 	"FULL/D/D16/EXIT_1 evict":       "ce37c829f9498e3d573df2c8d0e4860b520d5b21f6855518ee0c320c44d5ca82",
 	"FULL/D/D16/EXIT_1 owner":       "a7c7b2851d3a8d3d20d396daa027cd1e7256ba7f3ecd03097bdcd373ab02808f",
 	"FULL/D/D16/EXIT_1 terminal":    "e625212bcdb29d2b2974496203fa5a33644c5cfe47bfe59ebd7bd61818094b51",
@@ -485,6 +544,8 @@ var pythonSighash = map[string]string{
 	"FULL/D/D4/CLAIM":               "ff76e8556d3ff933c75a3e2d761b2b53bec5d6dc9b330997cfba03e3b0361d9d",
 	"FULL/D/D4/CLAIM drain":         "6dab711202fce1c41b43edfb62c4d080f61a4c1bbaa289e8f40b7d14466e6f3b",
 	"FULL/D/D4/CLAIM_H":             "d3a6fdc92ecb95a596b3555ca41c8cd5273045fdf01da4ed3355bcaca3988fbf",
+	"FULL/D/D4/EVICT_SUBTREE_2":     "1770c6a29fc057ed269cd7ac38ae42c0db9e011574183ec12f4c245278c15b40",
+	"FULL/D/D4/EVICT_SUBTREE_4":     "ba3ede4ae301fb1798298d65c31703c7cf7769fd6f6ecde414e3d8b6f1e4abaa",
 	"FULL/D/D4/EXIT_1 evict":        "e0e0e3cb177cf844cd8469b459ec1d9ac94dc0502f3f454b6352a715eda54e6c",
 	"FULL/D/D4/EXIT_1 owner":        "510bd24c7d848faa9172be058fb018ecce260ce4cb0795470c50ecb9ab6dec23",
 	"FULL/D/D4/EXIT_1 terminal":     "ea05448dd87f911ea0d2d705f4c8b882b6eeb3d1f30db2fd955dbb9bc76733d8",
@@ -834,6 +895,23 @@ func TestBuilderRejects(t *testing.T) {
 			return err
 		},
 	}, {
+		name: "sweep before the lease expires",
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildEvictSubtree(w.st, 2, sBob>>2,
+				&TxOpts{LockTime: 799_999, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		name: "sweep over a leaf the operator cannot evict",
+		build: func(w *world) error {
+			w.base()
+			w.st.Tree.Leaves[6] = w.mkLeaf("stubborn", 5_000, nil, 0)
+			_, _, err := BuildEvictSubtree(w.st, 2, 1,
+				&TxOpts{LockTime: 800_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
 		name: "sparse update that moves the leaf", sparse: true,
 		build: func(w *world) error {
 			alice, _, _, sAlice, _, _ := w.base()
@@ -859,9 +937,11 @@ func TestBuilderRejects(t *testing.T) {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			w := newWorld(t, 4, c.sparse)
-			if err := c.build(w); err == nil {
+			err := c.build(w)
+			if err == nil {
 				t.Fatal("builder accepted it")
 			}
+			t.Log(err)
 		})
 	}
 }
