@@ -1355,7 +1355,11 @@ node the members already hold proofs against, so every later transition
 on the cohort pays `h` levels instead of `D`, and the cohort's output
 spends independently of the parent's (10.5). It is a tree-creation
 parameter and the operator's decision, like `JOIN_h`: it spends nobody's
-balance and only shortens every member's path.
+balance and shortens every member's path. It also fixes the cohort's
+supply of empty positions: a cohort detached with none, or one the
+operator first fills by `JOIN_0`, leaves every partial-balance voucher
+against its leaves unredeemable until a position frees, since 7.5 rule
+3 places the claim leaf in an empty position (9.6, 10.1).
 
 Witness inputs: sibling path of the subtree root (`D − h` levels),
 `R_h` (32 bytes), `sum_h` (8 bytes `le64`), `sig`, `r`, `m`.
@@ -1390,7 +1394,9 @@ binds the parent's `m` as a creation-time constant of the channel scripts,
 not as anything a tree script re-derives. Vouchers are unaffected as
 well: they bind `tree_id`, which the detached tree inherits (6.2) and
 whose `CLAIM` scripts carry the same constant, so a voucher issued against
-a leaf of the cohort redeems in the detached tree as issued (9.6).
+a leaf of the cohort redeems in the detached tree as issued (9.6),
+provided the detached tree has an empty position for the claim leaf
+when the voucher draws less than the source's whole balance.
 
 *(informative)* Value is conserved across two tree outputs,
 `S = (S − sum_h) + sum_h`; the Lean model states the second output
@@ -2155,8 +2161,8 @@ voids every outstanding voucher against its source exactly as a `CLAIM`
 does, and also lowers the balance they draw on, so the rebuilt set MUST
 fit the reduced amount. A `DETACH_h` (7.10) of the subtree holding the
 source leaf changes nothing: the detached tree inherits `tree_id` and the
-leaf is unchanged, so outstanding vouchers redeem there as issued.
-Eviction is different. Once the source leaf's `evict_after` has passed,
+leaf is unchanged, so outstanding vouchers redeem there as issued, given
+an empty position for the claim leaf (below). Eviction is different. Once the source leaf's `evict_after` has passed,
 its evictor can remove it by `EXIT_1` with `is_evict`, `EXIT_K` or
 `EVICT_SUBTREE_h` (7.7), paying the whole balance to the source's
 `exit_key`; every outstanding voucher against it is then void, although
@@ -2173,9 +2179,18 @@ confirm under the bound `Delta(q)` of 10.5, as unsecured credit. A
 recipient SHOULD require an issuer's lease to run past the recipient's
 own redemption deadline plus `Delta(q)`. A source leaf whose
 `evictor_key` is `NUMS`, or whose `evictor_key` is the recipient's own,
-cannot be evicted out from under the voucher. The recipient
-SHOULD treat the voucher as settled only after (a) redeeming it via
-`CLAIM`, or (b) the issuer has included `claim_leaf` via `JOIN`/`UPDATE`
+cannot be evicted out from under the voucher.
+
+A voucher that draws less than the source's whole balance needs an empty
+position for its claim leaf (7.5 rule 3); a full-balance voucher uses the
+drained source position. The operator controls the supply of empty
+positions (10.1), so a recipient SHOULD prefer a full-balance voucher,
+or SHOULD verify that an empty position exists in the source's cohort
+subtree, which is the whole of the tree once that cohort is detached
+(7.10), and redeem before it is filled.
+
+The recipient SHOULD treat the voucher as settled only after (a)
+redeeming it via `CLAIM`, or (b) the issuer has included `claim_leaf` via `JOIN`/`UPDATE`
 and the recipient has verified inclusion. Until then the recipient bears the
 risk that the issuer double-issues against the same balance; the covenant
 prevents *over*-redemption, not over-issuance (section 10.3).
@@ -2359,7 +2374,7 @@ construction. The "virtual network" of the design notes is this hub.
 
 | Party | Can | Cannot |
 |---|---|---|
-| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves | move or reduce any other leaf; delay any other leaf's exit beyond the liveness bound of 10.5 (it can contend for the tree output only by fee, like any other spender, and assumption [C] bounds what that buys); freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
+| Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves; leave a cohort with no empty position (`JOIN_0` into every gap, or `DETACH_h` of a full cohort), which makes every partial-balance voucher against the cohort's leaves unredeemable until a position frees (7.10, 9.6) | move or reduce any other leaf; delay any other leaf's exit beyond the liveness bound of 10.5 (it can contend for the tree output only by fee, like any other spender, and assumption [C] bounds what that buys); freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
 | Owner | `EXIT` at any time; co-sign `UPDATE`; issue vouchers against their leaf; carve their leaf by `SPLIT` or a voucher | affect any other leaf; withdraw more than their leaf's amount; carve out a leaf with another evictor or a later lease than their own (7.5 rule 5) |
 | Anyone | redeem a valid voucher (`CLAIM`); relay transitions | trigger an owner's exit; create leaves; alter amounts |
 | Operator, `DETACH_h` (7.10) | with its signature alone (7.10 rule 4), move an aligned cohort into a tree output of its own, which shortens every member's path and gives the cohort its own exit throughput (10.5) | take value from the cohort or from the parent: output 1 carries exactly the cohort's sum under the cohort's own root and output 0 the remainder (7.10 rules 1 to 3); change the cohort's rules, keys or balances: the child is the parent's option set at depth `h` (rule 3), its leaves are the parent's bytes, and its `tree_id` is inherited, so vouchers and channel states survive |
@@ -3024,6 +3039,14 @@ exits in a batch" as `EXIT_K` (section 13).
    The entry is kept so the numbering stays stable.
 10. **`UPDATE` with `exit_key` consent.** Now specified as 7.4 rule 5
    (`UPDATE^x`); the entry is kept so the numbering stays stable.
+11. **A `CLAIM` that credits an existing leaf.** A partial-balance
+   voucher needs an empty position, whose supply the operator controls
+   (10.1, 9.6). A `CLAIM` form whose second step is an amount-only
+   increase of a leaf the recipient already holds, named by the voucher,
+   needs no empty position and reuses the exemption test of `REWRITE_h`'s
+   step (7.9 rule 3). It is also the natural shape for the sibling-pair
+   claim of item 4 and `design/receive.md`. It is new script work and
+   is not specified (`design/audit/protocol.md`, A5).
 
 ## 14. Test Vectors and Reference Code
 
