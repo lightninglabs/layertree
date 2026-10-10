@@ -2137,10 +2137,27 @@ Operators SHOULD organise members into **cohorts**: a batch grafted with
 `JOIN_h` into one aligned subtree, sharing an `evict_after`. An expired
 cohort is swept with one `EVICT_SUBTREE_h` (section 7.7) at a small
 fraction of the per-leaf cost of individual evictions (section 11).
-Members who renew (`UPDATE`) before expiry, or who set a different evictor,
-are not swept; a single non-evictable leaf blocks the sweep of its subtree,
-so operators SHOULD require `evictor_key = OPERATOR_KEY` as a condition of
-joining a cohort subtree.
+A sweep requires a lock time of at least the `evict_after` of every leaf
+in the subtree (7.7 rule 2), so one leaf whose lease runs later holds up
+the sweep of its whole cohort until that lease passes, and a leaf with
+another evictor blocks it outright. Operators SHOULD therefore require
+`evictor_key = OPERATOR_KEY` as a condition of joining a cohort subtree.
+
+A renewal in place blocks the sweep the same way: a member renewed by
+`UPDATE` keeps its position, and its cohort cannot be swept until the
+new lease passes. Renewal SHOULD therefore relocate the leaf into a
+cohort whose lease matches the new one, for example by an `UPDATE` that
+renews the lease followed by a `SPLIT` of the whole balance into an
+empty position of that cohort (the drained position becomes `E_0` and
+the carve keeps the renewed terms, 7.5 rule 5), or by a cooperative exit
+and a `JOIN_0` there. Operators SHOULD align leases per cohort.
+
+A member whose own lease is later than a cohort's can also carve a leaf
+on its own terms into one of that cohort's empty positions, by `SPLIT`
+or a voucher it issues itself. 7.5 rule 5 allows this, since the carve
+inherits the carver's lease, and it delays the cohort's sweep until the
+carver's lease passes. Operators SHOULD keep cohort subtrees full or
+detach them (7.10, 10.8).
 
 ### 9.5 Updates
 
@@ -2643,8 +2660,11 @@ Carves preserve it. A leaf created by `CLAIM` or `SPLIT` keeps the
 source's `evictor_key` and a lease no later than the source's (7.5 rule
 5), so eviction holds per balance: no sequence of carves takes value out
 from under a lease, and a member of an evictable cohort cannot block the
-cohort's sweep (7.7) by planting a non-evictable leaf in one of its empty
-positions. What the rule does not reach is a leaf the operator admitted
+cohort's sweep (7.7) for good by planting a non-evictable leaf in one of
+its empty positions. A member whose lease is later than the cohort's can
+still delay the sweep until its own lease passes, by carving a leaf on
+its own terms into an empty position of the cohort, and a member renewed
+in place delays it the same way (9.4). What the rule does not reach is a leaf the operator admitted
 as non-evictable, with a `NUMS` evictor or a far `evict_after`: it can
 carve leaves of the same terms into any empty position, including a
 cohort's. Nor is the carver always the leaf's owner: a voucher binds the
