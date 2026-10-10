@@ -40,7 +40,17 @@ with numbers.
 
 ## In flight right now
 
-- Nothing. All six workers (A to G) landed on main; the matrix is green
+- Paper review round: three Opus reviewers (cryptographer on the UC
+  argument, Bitcoin protocol engineer on scripts and assumptions,
+  systems reviewer on measurements and writing) each write
+  `paper/reviews/{crypto,protocol,systems}.md` in their own worktrees;
+  the orchestrator merges the three files, then an Opus writer answers
+  them in `paper/review-response.md` style, fixes the paper, rebuilds
+  both PDFs. The paper is reconciled with spec 0.9.0 (cb81f99): short
+  version 64 pages with References on 16, full version 70 pages with
+  References on 33 (body about 32.8 pages, two over the target; the
+  writer may move something to an appendix).
+- All six build workers (A to G) landed on main; the matrix is green
   on the combined tree (852 / 198 / 31 / 798 / 149 / 61, golden and
   listings clean, Go ok, Lean rc 0).
 - Reconciliation landed with the last merge: spec 11 CCV rows recomputed
@@ -53,16 +63,9 @@ with numbers.
 
 ## Next, in order
 
-1. Paper reconciliation plus reviewer pass (one Opus writer, three Opus
-   reviewers with distinct profiles, findings answered in
-   `paper/review-response.md` style): replace the batching estimates
-   (353/222/177, 120/57) with the measured `REWRITE_h` numbers (370/198/
-   159 per leaf exiting; 145 per changed leaf; 117 unchanged), mark
-   `CLAIM^x` as built (8 bytes) and the sibling-pair `CLAIM` as still an
-   estimate, HTLC sweeps 155 and 138 vB (not 146 and 130), check counts
-   1,879 plus 149, 77 golden scripts (not 39), MID sweep bounded by the
-   stack limit, CCV `CLAIM` via `tree_id`, `DETACH_h` 780 vB; rebuild
-   both PDFs and commit them with version.tex.
+1. Paper review round (in flight, above); after it, the response pass
+   and a rebuild; then trim the full version back to about 30 body
+   pages if the reviewers do not already force cuts.
 2. Owner decision: adopt `tree_id` in every tier (status.md open work 8).
    Pro: vouchers survive a detach, one voucher message. Cost: every
    FULL/MID `CLAIM` script changes bytes and the frozen
