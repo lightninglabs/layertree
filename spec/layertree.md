@@ -559,10 +559,12 @@ profiles, both numerics), tests in `tools/test_ccv.py`, Go mirror in
 ### 4.7 Policy assumptions
 
 *(informative)* Relay of `0xC2` script-path spends with witnesses of a few
-kilobytes is assumed to be standard once BIP-441 activates. Transitions use
-exogenous fees (section 9.3); a Pay-to-Anchor (`OP_1 <0x4e73>`) output at any
-index ≥ 1 (or ≥ K+1 for a K-payout transition) is compatible with all
-scripts in this document.
+kilobytes and 116-byte leaf elements is assumed to be standard once
+BIP-441 activates. The `0xC0` tiers are subject to today's 80-byte
+witness item limit, which only MIN's `extra_outs` element can exceed
+(8.11, 10.10). Transitions use exogenous fees (section 9.3); a
+Pay-to-Anchor (`OP_1 <0x4e73>`) output at any index ≥ 1 (or ≥ K+1 for a
+K-payout transition) is compatible with all scripts in this document.
 
 ## 5. Data Structures
 
@@ -2005,6 +2007,27 @@ depth `h`. The
 script is `JOIN_h` plus 235 bytes, almost all of them the second
 `TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
 
+### 8.11 MIN witness elements and standardness
+
+*(informative)* The MIN tier reconstructs the BIP-341 signature message
+from witness-supplied serialisations (4.5), and its `EXIT_1` and `SPLIT`
+pass every output beyond the ones the script constrains as one raw
+element, `extra_outs` (`tools/layertree_min.py`), which the script
+concatenates into the output hash. Consensus bounds that element at 520
+bytes under tapleaf `0xC0`. Policy is tighter: Bitcoin Core relays a
+`0xC0` tapscript spend only if no witness item exceeds 80 bytes
+(`MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE`, section 15). A serialised P2TR
+output is 43 bytes and a Pay-to-Anchor output 13, so one P2TR change
+output plus an anchor (56 bytes) fits and two P2TR change outputs (86
+bytes) do not: such a MIN transaction is valid but not relayed by default
+nodes today. This is a policy limit, not a consensus one; a spender keeps
+`extra_outs` under 80 bytes (one change output, an anchor if any), and a
+future revision of the generator could split the element per output at
+the cost of one `OP_CAT` each. Every other witness element in the `0xC0`
+tiers is at most 64 bytes (10.10). The simulator checks consensus limits
+(520-byte elements, 1,000 stack elements) and the `MINIMALDATA` rules,
+not this standardness rule.
+
 ## 9. Off-Chain Protocol
 
 This section specifies the behaviour of operators and participants around
@@ -2556,9 +2579,24 @@ for the two `TREE_SPK` evaluations (82 sigops units each), 0.5M for the
 signature, and about 0.3M for hashing and stack work. The sparse profile at
 `D = 32` uses 3.07M against a budget of about 65M for its weight (4.7%),
 and the 256-level tree 9.3M against about 376M (2.5%): the fraction falls
-with depth because the budget scales with transaction weight. Stack depth peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80)
-against a limit of 32,768, and no element exceeds 40 bytes except the script
-itself.
+with depth because the budget scales with transaction weight. Stack depth
+peaks at 42 elements (`CLAIM`: 75; sparse `EXIT_2`: 80) against a limit
+of 32,768 (1,000 in the `0xC0` tiers, 4.5).
+
+Element sizes, measured on the reference witnesses: in FULL and in CCV
+under `0xC2` the largest witness element is the 116-byte leaf, with
+everything else at most 64 bytes (a signature; a sibling is 40 bytes);
+in MID, MIN and CCV under `0xC0` the leaf travels as seven field elements
+and no witness element exceeds 64 bytes, except MIN's raw `extra_outs`
+(8.11). The largest elements built during execution are the voucher
+message of `CLAIM` (328 bytes, 360 bytes for `CLAIM^h`), the tagged node
+preimage (144 bytes) and, in MIN, the reconstructed sighash message (276
+bytes), all under the 520-byte element limit of `0xC0`. The
+policy-relevant size is Bitcoin Core's 80-byte standardness cap on `0xC0`
+tapscript witness items (section 15): the `0xC0` tiers stay under it
+except as 8.11 describes, and the 116-byte leaf of the `0xC2` tiers
+relies on the relay assumption of 4.7, since no standardness rule for
+`0xC2` exists yet.
 
 ### 10.11 Reorganisations
 
