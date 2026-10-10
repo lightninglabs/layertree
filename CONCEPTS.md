@@ -285,10 +285,12 @@ payment to the operator, which reissues one hash-locked voucher for the
 running total against the same claim leaf. That costs no on-chain bytes per
 payment, has no minimum amount and never expires, and the recipient can
 redeem the latest voucher alone if the operator stops cooperating. One gap
-remains. With plain `CLAIM` the operator can issue itself a voucher against
-the credit leaf and drain it, voiding the recipient's. A trust-free version
-needs a `CLAIM^x` variant that also requires a signature from the source
-leaf's exit key, which is the recipient; it is not yet in the spec. The
+remained until spec 0.9.0. With plain `CLAIM` the operator can issue
+itself a voucher against the credit leaf and drain it, voiding the
+recipient's. The trust-free version is `CLAIM^x` (spec 7.5.3), eight
+bytes more script, which also requires a signature from the source leaf's
+exit key, which is the recipient; with `UPDATE^x` and exact payouts the
+credit leaf can only grow or pay its recipient. The
 structure is one-way on purpose. If the recipient could also spend from the
 credit, an older and larger voucher would be a stale state, and refuting
 it needs a contest window, which is what the channel leaf provides.
@@ -323,9 +325,15 @@ constant: it does not grow with the number of members.
 still carry a full path, so two batched exits average 842 vB. The
 operator's sweep shares one path across a subtree and costs 203 vB per leaf
 for 13 leaves and 158 vB per leaf for 51, but it works only on leaves
-that accepted a lease. The owner-side equivalent, a multiproof that lets
-members of one subtree exit under one shared path, is specified but not
-built; its estimates are 222 vB per leaf for 13 owners and 177 vB for 51.
+that accepted a lease. The owner-side equivalent is the cohort rewrite
+`REWRITE_h` (spec 7.9): members of one subtree publish the subtree twice,
+before and after, sign only the positions they change, and exit, join,
+rotate keys or settle balances among themselves in one transaction. Sixty
+four owners who all leave pay 159 vB each, the same as the operator's
+sweep, and a cohort that rewrites every balance pays about 145 vB per
+leaf against 1,073 for one `UPDATE` each. `DETACH_h` (7.10) moves a
+cohort into its own tree output for about 780 vB, after which each exit
+pays the shorter path and the cohort has its own mempool chain.
 
 **Entry is almost free in bulk.** In a cohort graft each member's share is
 under one vB at a thousand members, against 43 vB for one output in an
@@ -417,8 +425,8 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 890 executable checks across four tiers (425 FULL, 125 MID, 31 MIN, 309 CCV), positive and negative |
-| Python against Go | 56 byte-exact golden scripts, shared signature-hash vector |
+| Compiled scripts | 1,879 executable checks across four tiers (852 FULL, 198 MID, 31 MIN, 798 CCV), positive and negative, plus 149 for the channel leaves of Appendix C |
+| Python against Go | 77 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 
 ## Where to read more

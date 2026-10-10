@@ -757,7 +757,9 @@ parameters:
 * the profile (dense or sparse);
 * `D`, the depth;
 * `OPERATOR_KEY`, a 32-byte x-only key;
-* the set of supported `JOIN` heights (dense) and `EXIT_K` sizes.
+* the set of supported `JOIN` heights (dense) and `EXIT_K` sizes;
+* in the CCV tier, `tree_id` (4.6), the per-tree constant its vouchers
+  bind in place of `m`.
 
 A conforming taptree MUST contain `EXIT_1`. It SHOULD contain at least one
 `JOIN_h` (`JOIN_0` in the sparse profile), and MAY contain `UPDATE`, `CLAIM`
@@ -2148,7 +2150,11 @@ only the voucher is redeemed on-chain, so a swap between a channel leaf and
 a tree balance costs one `CLAIM^h` transaction and nothing else. Section 13
 item 9 notes that both legs are specified; their composition is exercised
 by `test_swap` in `tools/test_scripts.py`, which settles both with one
-preimage, but there is no end-to-end test of the deadline reasoning above.
+preimage. The deadline reasoning above is exercised block by block by
+`tools/test_chan.py` (Appendix C.12): the HTLC payee's sweep reveals the
+preimage, the voucher redeems second, and a delta one block below the
+budget, an HTLC left waiting on the voucher, and an issuer advancing `seq`
+each make the honest party's transaction fail.
 
 ### 9.7 Data retention and proof maintenance
 
@@ -2447,8 +2453,8 @@ larger set.
 | sparse | 32 | 2^32 | 5,147 | 326 + 41·log2 N | ≈ 6,260 (N = 65k) | ≈ 7,210 | ≈ 1,800 |
 | sparse | 64 | 2^64 | 9,499 | 326 + 41·log2 N | ≈ 10,610 (N = 65k) | ≈ 11,560 | ≈ 2,890 |
 | sparse | 256 | 2^256 | 35,611 | 285 + 41·log2 N | ≈ 36,680 (N = 65k) | ≈ 37,630 | ≈ 9,410 |
-| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,741 | ≈ 3,690 | ≈ 925 |
-| sparse, CCV tier | 32 | 2^32 | 4,762 | 262 + 41·log2 N | ≈ 5,190 (N = 65k) | ≈ 6,150 | ≈ 1,540 |
+| dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,683 | ≈ 3,630 | ≈ 908 |
+| sparse, CCV tier | 32 | 2^32 | 4,762 | 262 + 41·log2 N | ≈ 5,810 (N = 65k) | ≈ 6,760 | ≈ 1,690 |
 
 The CCV-tier rows (section 4.6) replace the `TREE_SPK` recomputations
 with `OP_CHECKCONTRACTVERIFY` calls: about 390 script bytes and 64

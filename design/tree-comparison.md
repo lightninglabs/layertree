@@ -116,9 +116,12 @@ bytes, over twice as many levels, are the whole difference.
 | Transaction vbytes (65,536 leaves) | 1,020 | about 1,800 | about 2,890 |
 
 The bitmap encoding of the MS-SMT BIP, in which the witness carries a
-bitmap of empty levels and only the non-empty siblings, saves 28 witness
-bytes at `D = 32` and costs 276 bytes of script, because each level must
-extract a bit and conditionally roll a witness element. It is the right
+bitmap of empty levels and only the non-empty siblings, costs 276 bytes
+of script at `D = 32` (5,423 against 5,147), because each level must
+extract a bit and conditionally roll a witness element, and at the
+measured occupancy saves nothing on the witness (330 bytes against 326):
+a one-byte marker per empty sibling is already as small as the bitmap
+plus the elements it must roll. It is the right
 wire format between operator and member and the wrong one on-chain, and
 the reference implementation keeps it only so the comparison is measured
 (spec 5.5).

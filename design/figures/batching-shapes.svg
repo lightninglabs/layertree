@@ -242,7 +242,7 @@ L 92.103617 168.351709
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="332.221702" y="286.903975" transform="rotate(-0 332.221702 286.903975)">121</text>
    </g>
    <g id="text_21">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="414.268936" y="170.580484" transform="rotate(-0 414.268936 170.580484)">765</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="414.268936" y="171.04783" transform="rotate(-0 414.268936 171.04783)">762</text>
    </g>
    <g id="text_22">
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="399.840557" y="266.853648" transform="rotate(-0 399.840557 266.853648)">147</text>
@@ -339,7 +339,7 @@ z
 " style="stroke: #4a3aa7; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#me995862ea1" x="414.268936" y="180.346909" style="fill: #ffffff; stroke: #4a3aa7; stroke-width: 1.44"/>
+     <use xlink:href="#me995862ea1" x="414.268936" y="180.814255" style="fill: #ffffff; stroke: #4a3aa7; stroke-width: 1.44"/>
     </g>
    </g>
   </g>

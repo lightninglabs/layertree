@@ -71,7 +71,7 @@ leave in one transaction, and how far it falls depends on who signs.
 ![Cost per leaf against batch size](figures/exit-amortisation.svg)
 
 Owners who coordinate can leave together with `EXIT_K`. Each leaf still
-carries its own full path, so the second leaf of an `EXIT_2` costs 664
+carries its own full path, so the second leaf of an `EXIT_2` costs 665
 vbytes and the average is 842. The operator can sweep an aligned subtree
 of expired leaves with `EVICT_SUBTREE_h` for far less, because the sweep
 publishes the subtree's leaves once and shares the path above it: 203

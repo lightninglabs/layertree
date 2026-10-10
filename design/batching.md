@@ -45,7 +45,7 @@ are placed by hash, as in the sparse profile, cannot batch at all.
 
 `EXIT_K` chains `K` independent single-leaf exits in one transaction.
 Each carries its own full path, so the saving is only the skeleton: the
-second leaf of an `EXIT_2` costs 664 vbytes against 1,020 alone.
+second leaf of an `EXIT_2` costs 665 vbytes against 1,020 alone.
 
 `EVICT_SUBTREE_h` is the real batch. The witness carries the path above
 an aligned subtree of height `h` once and then every position of the

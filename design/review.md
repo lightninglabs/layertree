@@ -397,13 +397,17 @@ What did not change, and why:
   output 0 above `ns`, breaking rule 5; so the tier takes the MID/MIN
   trade (exact payouts, exogenous fees) rather than FULL's
   fee-from-payout option.
-* **CLAIM and CLAIM^h are out, for now.** The voucher message binds `m`,
-  which the CCV witness no longer carries and which BIP-443 exposes only
-  as an operand special value, never as a stack item; vouchers need a
-  redefined message that still separates trees (dropping `m` alone would
-  let a voucher replay across two trees sharing an owner key) and stay
-  the tier's follow-up. The tier does not assume `OP_CHECKSIGFROMSTACK`
-  either. `CLAIM^h` signs the same message plus the payment hash.
+* **CLAIM and CLAIM^h bind a `tree_id` instead of `m`.** The voucher
+  message of the other tiers binds `m`, which the CCV witness no longer
+  carries and which BIP-443 exposes only as an operand special value,
+  never as a stack item. Dropping `m` alone would let a voucher replay
+  across two trees sharing an owner key, so the CCV tier's vouchers bind
+  a per-tree constant `tree_id` baked into the scripts (spec 4.6, 9.6);
+  since every CCV script carries it, `m` differs per tree as before.
+  These are the only CCV scripts that need `OP_CHECKSIGFROMSTACK`, so
+  they are tree-creation options like `SPLIT`. `CLAIM^h` signs the same
+  message plus the payment hash. Open work item 8 of `design/status.md`
+  asks whether every tier should adopt `tree_id`.
 * **SPLIT is in.** It is authorised by the source owner's transaction
   signature, which commits to the spent scriptPubKey without naming `m`,
   so the FULL carve body carries over with only the binding swapped:

@@ -603,7 +603,7 @@ def fig_radix(png_dir):
 # point are estimates from the spec; the other series reuse the constants
 # above.
 COHORT_REWRITE = [(64, 121)]
-DETACH_EXIT = [(256, 765)]
+DETACH_EXIT = [(256, 762)]
 VIOLET = "#4a3aa7"
 
 
@@ -634,7 +634,7 @@ def fig_batching_shapes(png_dir):
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 51, 177, "177", 0, 12, ha="center")
     label(ax, 64, 121, "121", 10, -4)
-    label(ax, 256, 765, "765", 0, 12, ha="center")
+    label(ax, 256, 762, "762", 0, 12, ha="center")
     label(ax, 206, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA),

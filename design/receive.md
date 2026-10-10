@@ -122,9 +122,10 @@ The 1,652 vbytes is the FULL tier at `D = 16` with no help, and it is
 large for a structural reason: a `CLAIM^h` proves two positions, the
 source leaf and the claim slot, so it carries two full paths of sixteen
 unrolled levels each, two leaves, the voucher signature and the preimage.
-The CCV tier of PR #6 does not reduce it today, because that tier drops
-`CLAIM` altogether: the voucher message binds the taptree root `m`, and
-the CCV witness no longer carries `m`.
+The CCV tier reduces it a little: since its vouchers bind a per-tree
+`tree_id` constant in place of `m` (spec 4.6), it carries `CLAIM^h` at
+3,455 bytes of script and 1,658 of witness at `D = 16`, about 1,550
+vbytes against the FULL tier's 1,652.
 
 The largest saving needs no new opcode. A credit leaf dedicated to one
 recipient can have its sibling slot reserved for that recipient's claim
