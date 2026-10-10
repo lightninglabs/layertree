@@ -25,6 +25,7 @@ test suite fails if a script uses anything else.
 | [`formal/`](formal/README.md) | Lean 4 formalisation of the tree and covenant rules: conservation, proof soundness, payability, encodings (core library only, `lake build`) |
 | [`design/review.md`](design/review.md) | Scrutiny of the original sketch and the resulting design decisions |
 | [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and where it does not: exit, entry and lifetime bytes against bare UTXOs, Lightning and transaction trees, with generated figures |
+| [`design/receive.md`](design/receive.md) | Receiving over Lightning into a tree: cumulative hash-locked vouchers against an Ark client's out-of-round payments and credits |
 | [`design/unified-batching.md`](design/unified-batching.md) | The essay in which LayerTree was first described |
 | [`design/layertree.md`](design/layertree.md) | Raw design sketch (verbatim) |
 | [`notes.md`](notes.md) | Notes distilled from the working vault |
