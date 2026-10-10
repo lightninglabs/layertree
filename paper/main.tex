@@ -522,8 +522,8 @@ Beyond BIP-342 & \op{CAT}, splice, bit ops, & \op{CAT}, \op{TX}, CSFS, & \op{CAT
 Introspection & \op{TX} & \op{TX} & constructive (\S\ref{sec:min}) & \op{TX} \\
 Numerics, sum cap & any length, none & 4-byte, $2^{31}$ sat & 4-byte, $2^{31}$ sat & any length, none \\
 Owner payout & $\le$ amount (fee option) & exact & exact & exact \\
-Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense & all but \tr{CLAIM}, \tr{CLAIM}$^h$, \tr{SPLIT} \\
-Executable checks & 422 & 113 & 7 & 139 \\
+Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense & all but \tr{CLAIM}, \tr{CLAIM}$^h$ \\
+Executable checks & 422 & 113 & 7 & 309 \\
 Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed & no / yes / free \\
 \tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 & 1{,}716 / 838 \\
 \tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 & $\approx$925 \\
@@ -596,10 +596,11 @@ into the script: one \op{TX} read per constrained amount survives
 0 the tier takes the exact-payout rule of MID and MIN, fees exogenous.
 Vouchers are the predicate the tier cannot carry as is: their message
 binds $m$, which no witness holds any more. \tr{CLAIM}$^h$ shares that
-message and \tr{SPLIT} is simply not yet implemented for this tier. Measured at dense
+message; \tr{SPLIT}, authorised by a transaction signature that names no
+$m$, carries over unchanged. Measured at dense
 $D=16$: \tr{EXIT}$_1$ 1{,}716 B of script and 838 B of witness against
 FULL's 2{,}101 / 902, i.e.\ the binding machinery that cost a third of
-every script becomes three opcode calls, and 139 executable checks
+every script becomes three opcode calls, and 309 executable checks
 cover both profiles.
 
 \section{Security}\label{sec:security}

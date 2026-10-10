@@ -397,15 +397,30 @@ What did not change, and why:
   output 0 above `ns`, breaking rule 5; so the tier takes the MID/MIN
   trade (exact payouts, exogenous fees) rather than FULL's
   fee-from-payout option.
-* **CLAIM is out, for now.** The voucher message binds `m`, which the
-  CCV witness no longer carries; vouchers need a redefined message
-  (tagged over the leaves alone, the taptree now being bound by the
-  opcode) and stay the tier's follow-up.
+* **CLAIM and CLAIM^h are out, for now.** The voucher message binds `m`,
+  which the CCV witness no longer carries and which BIP-443 exposes only
+  as an operand special value, never as a stack item; vouchers need a
+  redefined message that still separates trees (dropping `m` alone would
+  let a voucher replay across two trees sharing an owner key) and stay
+  the tier's follow-up. The tier does not assume `OP_CHECKSIGFROMSTACK`
+  either. `CLAIM^h` signs the same message plus the payment hash.
+* **SPLIT is in.** It is authorised by the source owner's transaction
+  signature, which commits to the spent scriptPubKey without naming `m`,
+  so the FULL carve body carries over with only the binding swapped:
+  dense `D = 16` 3,338 / 1,610 against FULL's 3,728 / 1,674. A CCV tree
+  thus keeps member-to-member payment without vouchers. `UPDATE^x` is
+  measured in both numerics (dense `D = 16` 1,759 / 1,080 in `0xC2`).
+* **Two tree inputs cannot share output 0.** Every call names the current
+  input, so two trees in different states cannot meet; two inputs with
+  the same state are stopped by BIP-443's per-output minimum, which
+  accumulates both residuals while `out0 == ns` allows only one. The
+  BIP-443 amount rules this depends on are pinned in spec 4.1 [A-6]
+  against a named commit of the BIP and tested one by one.
 * The fold, the chained-step consistency checks, sparse position
   derivation and the authorisation are the FULL tier's, byte for byte;
-  the Lean model's `Binding.lean` hypothesis covers the CCV tweak as
-  another `treeSpk` instance (tweak injectivity stands in for the same
-  discrete-log-plus-collision-resistance argument).
+  the Lean model's `Binding.lean` builds the CCV state key as
+  `CCVTweak.binding`, a second `BindingModel` whose injectivity is
+  proved from the two tweak stages (data tweak, then TapTweak).
 
 ## 3. Things deliberately left out
 
