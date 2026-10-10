@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-09-19 (spec 0.7.0, Appendix C 0.2.0, paper v0.1).
+Last updated 2026-09-19 (spec 0.7.1, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 
@@ -9,7 +9,7 @@ Last updated 2026-09-19 (spec 0.7.0, Appendix C 0.2.0, paper v0.1).
 | Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 325 + 86 + 7 checks pass. Every script uses only the allowed opcode set. |
+| Python reference and simulator | 369 + 86 + 7 checks pass. Every script uses only the allowed opcode set. |
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 34 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
@@ -92,12 +92,13 @@ ones most likely to move:
 5. **Off-chain message set.** `msg/` covers proofs, vouchers and join
    offers; channel-leaf messages (C.2, C.3 signing rounds) are unspecified
    as TLV.
-6. **Voucher/HTLC atomic swap** (13.9). Both legs now exist: `CLAIM^h`
-   (7.5.1) and the channel-leaf HTLC (Appendix C.4.1) can share a payment
-   hash. The combination has no end-to-end test and no worked deadline
-   analysis; that is the remaining work. Hash-locked vouchers themselves
-   (13.6) are done: specified in 7.5.1/9.6.1/10.3, implemented in FULL and
-   MID, tested in both profiles.
+6. **Channel-leaf scripts beyond the HTLC outputs.** The voucher/HTLC swap
+   of 13.9 is specified in 9.6.2 and tested: `HTLC_SUCCESS` and
+   `HTLC_TIMEOUT` (C.4.1) are implemented and one preimage settles them
+   together with a `CLAIM^h`. What is still absent is the rest of Appendix
+   C in executable form, the `REBIND_n` and `SETTLE_n` update machine, so
+   the deadline reasoning of 9.6.2 and C.4.4 is argued rather than
+   exercised. The Go side carries no Appendix C scripts at all.
 7. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
