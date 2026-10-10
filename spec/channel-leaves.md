@@ -4,7 +4,7 @@
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
 Version:  0.2.0
-Requires: spec/layertree.md 0.6.1, FULL or MID tier (section C.7)
+Requires: spec/layertree.md 0.7.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
 

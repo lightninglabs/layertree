@@ -387,7 +387,7 @@ scripts in this document.
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
 | `LEAF_LEN` | 116 |
 | `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
-| `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/upd"`, `"LayerTree/chan/set"` (Appendix C) |
+| `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/update"`, `"LayerTree/chan/settle"` (Appendix C) |
 
 `H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_pos` denote
 `H_tag` with the
@@ -1898,7 +1898,7 @@ exits in a batch" as `EXIT_K` (section 13).
   `CLAIM^h` variant of 7.5.1 in both profiles.
 * `tools/test_scripts.py` — executes every FULL-tier script in both profiles (dense
   at `D = 4` and `16`, sparse at `D = 8` and `32`) against the reference
-  tree, 88 checks including negative cases (forged leaf, stale
+  tree, including negative cases (forged leaf, stale
   root, attacker-chosen `m`, unconserved amount, underfunded join, join over
   an occupied position, early eviction, evictor shortchange, unsigned update,
   voucher replay, over-claim, wrong voucher signer, stale second path in
