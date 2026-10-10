@@ -523,7 +523,7 @@ Introspection & \op{TX} & \op{TX} & constructive (\S\ref{sec:min}) \\
 Numerics, sum cap & any length, none & 4-byte, $2^{31}$ sat & 4-byte, $2^{31}$ sat \\
 Owner payout & $\le$ amount (fee option) & exact & exact \\
 Predicates realised & all, both profiles & all but \tr{EVICT\_SUBTREE}$_h$ & \tr{EXIT}$_1$, dense \\
-Executable checks & 422 & 113 & 7 \\
+Executable checks & 425 & 120 & 7 \\
 Vouchers / channels / tx shape & yes / yes / free & yes / yes / free & no / no / fixed \\
 \tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}299 / 978 & 3{,}572 / 1{,}175 \\
 \tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}338 & 1{,}456 \\
@@ -818,8 +818,8 @@ message and enforces \texttt{MINIMALDATA}. Every compiled predicate runs
 against a reference tree with positive and negative cases per rule
 (forged leaf, stale root, attacker-chosen $m$, unconserved amount,
 underfunded join, early eviction, evictor shortfall, unsigned update,
-voucher replay, over-claim, stale second path, wrong preimage): 422 FULL,
-113 MID and 7 MIN checks, failing if any script uses an opcode outside the
+voucher replay, over-claim, stale second path, wrong preimage): 425 FULL,
+120 MID and 7 MIN checks, failing if any script uses an opcode outside the
 candidate set. A Go implementation on \texttt{btcd} and \texttt{lnd}
 generates the same scripts, byte-exact against 38 golden vectors, and its
 BIP-341 signature hash equals the simulator's, which makes the MIN tier
