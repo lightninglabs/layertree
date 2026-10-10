@@ -256,15 +256,24 @@
       : !root.empty;
 
     // Classify nodes by the highlights of this step.
-    var cls = {}, delays = {}, pathEdges = {};
+    var cls = {}, delays = {}, pathEdges = {}, onPath = {};
     function add(k, c) { cls[k] = (cls[k] || '') + ' ' + c; }
-    view.paths.forEach(function (p) {
-      var pn = pathNodes(p.h || 0, p.pos, st.depth);
+    var pns = view.paths.map(function (p) { return pathNodes(p.h || 0, p.pos, st.depth); });
+    pns.forEach(function (pn) {
       pn.nodes.forEach(function (nd, j) {
-        add(key(nd[0], nd[1]), 'is-path');
-        if (j > 0) pathEdges[key(nd[0], nd[1]) + '>' + key(pn.nodes[j - 1][0], pn.nodes[j - 1][1])] = true;
+        var k = key(nd[0], nd[1]);
+        if (!onPath[k]) add(k, 'is-path');
+        onPath[k] = true;
+        if (j > 0) pathEdges[k + '>' + key(pn.nodes[j - 1][0], pn.nodes[j - 1][1])] = true;
       });
-      if (p.siblings !== false) pn.sibs.forEach(function (nd) { add(key(nd[0], nd[1]), 'is-sib'); });
+    });
+    // With two proofs shown at once, a node on either path is drawn as a
+    // path node even where it is also the other proof's sibling.
+    pns.forEach(function (pn) {
+      pn.sibs.forEach(function (nd) {
+        var k = key(nd[0], nd[1]);
+        if (!onPath[k] && (cls[k] || '').indexOf('is-sib') < 0) add(k, 'is-sib');
+      });
     });
     view.folds.forEach(function (f) {
       var pn = pathNodes(f.h || 0, f.pos, st.depth);
