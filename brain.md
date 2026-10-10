@@ -120,6 +120,10 @@ with numbers.
 
 - Should `chan_id` exclude `m` so that a `DETACH_h` does not invalidate
   channel-leaf states? Argued yes in `design/batching.md`; not decided.
+- A `SLASH` transition that pays an operator bond leaf to anyone
+  presenting two conflicting vouchers (over-issuance proof) for the
+  shared bond-leaf model; voiding has no compact proof and is handled by
+  `CLAIM^x` instead (`design/receive.md`).
 - Who authorises `DETACH_h`: operator only, or a cohort parameter at
   graft time?
 - Is the MIN tier worth extending beyond EXIT_1 (SPLIT is the first

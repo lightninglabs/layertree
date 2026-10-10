@@ -182,6 +182,47 @@ is not in the spec and would follow the `UPDATE^x` checklist: generator,
 tests, golden vectors, Go mirror, tier matrix row. The Lean model is
 unaffected, since `Claim` takes an opaque authorisation.
 
+## A bond against equivocation
+
+A bond that the operator forfeits on misbehaviour reaches one of the two
+risks and not the other, and the line between them is whether the
+misbehaviour has a compact proof.
+
+Over-issuance is equivocation, and equivocation is provable. Two
+vouchers signed by the same key against the same source leaf, byte for
+byte and at the same `seq`, whose claim amounts sum to more than the
+leaf holds, are a self-contained fraud proof; so is a single voucher
+whose claim exceeds its own source leaf's amount. A `SLASH` transition
+could check that in script with two `OP_CHECKSIGFROMSTACK` verifications
+over the voucher messages and an amount comparison, and pay the
+operator's bond leaf to whoever presents the proof, at about the cost of
+a `CLAIM`. The vouchers bind `m`, so a proof from another tree does not
+verify here, and nobody can forge the operator's signature, so a false
+slash is impossible. This is what makes the shared bond-leaf model of
+9.6, one operator leaf backing vouchers to many recipients, an honest
+instrument rather than a promise. Its limit is sizing: a bond is claimed
+once, so it is a deterrent and first-victim insurance, not full
+coverage of every outstanding voucher.
+
+Voiding has no compact proof, so no bond reaches it. A `seq` advance on
+the source leaf looks the same in script whether another recipient
+redeemed a legitimate voucher, after which the issuer must reissue and
+a failure to reissue is an absence nothing can prove, or the operator
+rewrote the leaf itself. Proving that the operator authorised a spend
+which replaced the leaf by something other than the holder's claim
+would mean reconstructing another transaction's sighash in script,
+hundreds of bytes and a large witness, to catch what the seven bytes of
+`CLAIM^x` prevent outright. For the dedicated credit leaf the right
+design removes the capability. A dedicated leaf also turns over-issuance
+into a recipient-side check, because every voucher against that leaf
+goes to the same recipient, who verifies the leaf's amount in the tree
+before accepting.
+
+So the two models pair with two remedies: a slashable bond for the
+shared bond leaf, where equivocation is the risk; and `CLAIM^x` with
+`UPDATE^x` and `EXIT^=` for the dedicated credit leaf, where nothing is
+left to slash.
+
 ## Why it is one-way
 
 The same structure does not give a one-shot two-way channel, and the
