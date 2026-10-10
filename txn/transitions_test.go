@@ -284,6 +284,62 @@ func exitCases(depth int, sparse bool) []txCase {
 	}}
 }
 
+// joinCases are JOIN_0, JOINK_2 and, in the dense profile, JOIN_2.
+func joinCases(depth int, sparse bool) []txCase {
+	cases := []txCase{{
+		name: "JOIN_0", depth: depth, sparse: sparse,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			w.base()
+			opKey := w.st.OperatorKey
+			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
+			sErin := w.slot(erin, 9, w.st.Tree)
+			return BuildJoin(w.st, 0, sErin,
+				map[uint64]*tree.Leaf{0: erin},
+				&TxOpts{Inputs: w.fee(int64(erin.Amount) + 500)})
+		},
+	}, {
+		name: "JOINK_2", depth: depth, sparse: sparse,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			w.base()
+			opKey := w.st.OperatorKey
+			hank := w.mkLeaf("hank", 9_000, &opKey, 900_000)
+			sHank := w.slot(hank, 12, w.st.Tree)
+			ivy := w.mkLeaf("ivy", 11_000, &opKey, 900_000)
+			taken := tree.New(w.depth)
+			taken.Leaves[sHank] = hank
+			sIvy := w.slot(ivy, 13, w.st.Tree, taken)
+			return BuildJoinK(w.st, []PlacedLeaf{
+				{Pos: sHank, Leaf: hank},
+				{Pos: sIvy, Leaf: ivy},
+			}, &TxOpts{Inputs: w.fee(
+				int64(hank.Amount+ivy.Amount) + 700,
+			)})
+		},
+	}}
+	if sparse {
+		return cases
+	}
+	return append(cases, txCase{
+		name: "JOIN_2", depth: depth, sparse: sparse,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			w.base()
+			opKey := w.st.OperatorKey
+			carol := w.mkLeaf("carol", 30_000, &opKey, 900_000)
+			dave := w.mkLeaf("dave", 70_000, &opKey, 900_000)
+			return BuildJoin(w.st, 2, 2,
+				map[uint64]*tree.Leaf{0: carol, 3: dave},
+				&TxOpts{
+					Inputs: w.fee(
+						int64(carol.Amount+dave.Amount) + 2_000,
+					),
+					Outputs: []*wire.TxOut{
+						wire.NewTxOut(900, p2wpkh(w.t)),
+					},
+				})
+		},
+	})
+}
+
 // allCases is every transition at every depth and profile covered.
 func allCases() []txCase {
 	var cases []txCase
@@ -292,6 +348,7 @@ func allCases() []txCase {
 		sparse bool
 	}{{4, false}, {16, false}, {8, true}} {
 		cases = append(cases, exitCases(p.depth, p.sparse)...)
+		cases = append(cases, joinCases(p.depth, p.sparse)...)
 	}
 	return cases
 }
@@ -303,14 +360,22 @@ var pythonSighash = map[string]string{
 	"FULL/D/D16/EXIT_1 owner":       "a7c7b2851d3a8d3d20d396daa027cd1e7256ba7f3ecd03097bdcd373ab02808f",
 	"FULL/D/D16/EXIT_1 terminal":    "e625212bcdb29d2b2974496203fa5a33644c5cfe47bfe59ebd7bd61818094b51",
 	"FULL/D/D16/EXIT_2 owner+evict": "f576c2b58d84f07e54fbd914bb35df49031388ae51af051a0c6ecabdc7a4fc4f",
+	"FULL/D/D16/JOINK_2":            "21255b80d08dc94ba44a9c224a49702db0e08ecfebfb42607c80568f69bc87d4",
+	"FULL/D/D16/JOIN_0":             "0262562a1214a0335dda0ee74470d80ba9993c92ab23bfcdc78e000d5d88d732",
+	"FULL/D/D16/JOIN_2":             "e9335a1d92ebed3017335a2f3aaf050f29fd0d382e1ff05b78a44519a136c295",
 	"FULL/D/D4/EXIT_1 evict":        "e0e0e3cb177cf844cd8469b459ec1d9ac94dc0502f3f454b6352a715eda54e6c",
 	"FULL/D/D4/EXIT_1 owner":        "510bd24c7d848faa9172be058fb018ecce260ce4cb0795470c50ecb9ab6dec23",
 	"FULL/D/D4/EXIT_1 terminal":     "ea05448dd87f911ea0d2d705f4c8b882b6eeb3d1f30db2fd955dbb9bc76733d8",
 	"FULL/D/D4/EXIT_2 owner+evict":  "90910fb8016c9b622c310f4d40352be1b04a1448b44fbb72157e1b356bea2d77",
+	"FULL/D/D4/JOINK_2":             "db5dd9c44b0d28171080ecb7d5d69d1374bc10152016203f64530be9dec75f4b",
+	"FULL/D/D4/JOIN_0":              "aebb00edb4dd482df4715a61c64a3aa01c11b45176b6f61f6b0cac45b5756377",
+	"FULL/D/D4/JOIN_2":              "8a71422e21bb636a9738821d265df2c9c466d7f3ecc10b5c45fd9bf339d3c147",
 	"FULL/S/D8/EXIT_1 evict":        "10fdfcec310f6b26c5df5a677d2b22cbd1cd3fa9e8501965b2c4acbf18cad9f2",
 	"FULL/S/D8/EXIT_1 owner":        "15e749e2dc8452e4ea8afe76c4fe9f3e66f17ff1396a90629b69084c27807f64",
 	"FULL/S/D8/EXIT_1 terminal":     "d24aec9d575201584c1348dc3e027b201eef60f27e7886e8615aa374593c352e",
 	"FULL/S/D8/EXIT_2 owner+evict":  "2d7b226c2a86f89d53be35e62327fc40ae5b67b963eae05dd4770efe3ebd99ed",
+	"FULL/S/D8/JOINK_2":             "d42bb153448e06826b82079beb096239f59f67d5ae4cf215f3a014b9025cb9dd",
+	"FULL/S/D8/JOIN_0":              "0492b7c416f5175d3b2e10a0c93504f7fc3efe5f22626606c95975b237dcef11",
 }
 
 // dumpCase is one case as LAYERTREE_TXN_DUMP writes it.
@@ -530,8 +595,9 @@ func checkSpend(t *testing.T, w *world, before *tree.Tree, s *Spend,
 // covenant would reject, rather than producing them.
 func TestBuilderRejects(t *testing.T) {
 	cases := []struct {
-		name  string
-		build func(w *world) error
+		name   string
+		sparse bool
+		build  func(w *world) error
 	}{{
 		name: "eviction before evict_after",
 		build: func(w *world) error {
@@ -573,11 +639,56 @@ func TestBuilderRejects(t *testing.T) {
 				&TxOpts{Terminal: wire.NewTxOut(1, p2wpkh(w.t))})
 			return err
 		},
+	}, {
+		name: "join over an occupied subtree",
+		build: func(w *world) error {
+			w.base()
+			opKey := w.st.OperatorKey
+			carol := w.mkLeaf("carol", 30_000, &opKey, 900_000)
+			_, _, err := BuildJoin(w.st, 2, 0,
+				map[uint64]*tree.Leaf{1: carol},
+				&TxOpts{Inputs: w.fee(40_000)})
+			return err
+		},
+	}, {
+		name: "underfunded join",
+		build: func(w *world) error {
+			w.base()
+			opKey := w.st.OperatorKey
+			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
+			_, _, err := BuildJoin(w.st, 0, 9,
+				map[uint64]*tree.Leaf{0: erin},
+				&TxOpts{Inputs: w.fee(12_344)})
+			return err
+		},
+	}, {
+		name: "JOINK_2 naming one position twice",
+		build: func(w *world) error {
+			w.base()
+			opKey := w.st.OperatorKey
+			hank := w.mkLeaf("hank", 9_000, &opKey, 900_000)
+			ivy := w.mkLeaf("ivy", 11_000, &opKey, 900_000)
+			_, _, err := BuildJoinK(w.st, []PlacedLeaf{
+				{Pos: 12, Leaf: hank}, {Pos: 12, Leaf: ivy},
+			}, &TxOpts{Inputs: w.fee(30_000)})
+			return err
+		},
+	}, {
+		name: "sparse join away from the derived position", sparse: true,
+		build: func(w *world) error {
+			opKey := w.st.OperatorKey
+			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
+			pos := erin.Position(w.depth) ^ 1
+			_, _, err := BuildJoin(w.st, 0, pos,
+				map[uint64]*tree.Leaf{0: erin},
+				&TxOpts{Inputs: w.fee(20_000)})
+			return err
+		},
 	}}
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			w := newWorld(t, 4, false)
+			w := newWorld(t, 4, c.sparse)
 			if err := c.build(w); err == nil {
 				t.Fatal("builder accepted it")
 			}

@@ -240,3 +240,118 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 	}
 	return spend, cur, nil
 }
+
+// BuildJoin builds JOIN_h (spec 7.3): graft the subtree of height h at
+// index, whose leaves are given by their offset within the subtree, into an
+// empty position. The operator signs; the value the subtree adds to output
+// 0 must come from opts.Inputs. In the sparse profile h is 0, the subtree is
+// one leaf, and index must be the position that leaf derives.
+func BuildJoin(st *TreeState, height int, index uint64,
+	leaves map[uint64]*tree.Leaf, opts *TxOpts) (*Spend, *tree.Tree,
+	error) {
+
+	cur := st.Tree
+	switch {
+	case height < 0 || height > cur.Depth:
+		return nil, nil, fmt.Errorf("txn: join height %d out of range",
+			height)
+	case index >= uint64(1)<<uint(cur.Depth-height):
+		return nil, nil, fmt.Errorf("txn: join index %d out of range",
+			index)
+	case len(leaves) == 0:
+		return nil, nil, errors.New("txn: a join needs a leaf")
+	case st.Sparse && (height != 0 || len(leaves) != 1):
+		return nil, nil, errors.New("txn: the sparse profile joins " +
+			"one leaf at height 0")
+	}
+	if cur.Subtree(height, index) != tree.EmptyNode(height) {
+		return nil, nil, fmt.Errorf("txn: subtree (%d, %d) is not "+
+			"empty", height, index)
+	}
+
+	next := cur.Clone()
+	var leaf *tree.Leaf
+	for off, l := range leaves {
+		if off >= uint64(1)<<uint(height) {
+			return nil, nil, fmt.Errorf("txn: offset %d outside a "+
+				"subtree of height %d", off, height)
+		}
+		next.Leaves[index<<uint(height)+off] = l
+		leaf = l
+	}
+	if err := st.checkPos(index, leaf); err != nil {
+		return nil, nil, err
+	}
+
+	in := st.Input()
+	path := st.pathWitness(cur.Path(index<<uint(height), height), height)
+	var stack [][]byte
+	if st.Sparse {
+		stack = JoinLeafWitness(
+			path, leaf, sigPlaceholder(), in.RootHash, in.MerkleRoot,
+		)
+	} else {
+		stack = JoinWitness(
+			path, next.Subtree(height, index), sigPlaceholder(),
+			in.RootHash, in.MerkleRoot,
+		)
+	}
+	sigs := []SigSlot{{
+		Index: len(stack) - 3, Key: st.OperatorKey, Role: "operator",
+	}}
+
+	name := fmt.Sprintf("JOIN_%d", height)
+	spend, err := finish(st, next, name, nil, stack, sigs, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return spend, next, nil
+}
+
+// BuildJoinK builds JOINK_K for K = len(joins) (spec 7.3, 7.6): K
+// single-leaf joins in order under one operator signature, each proven
+// against the root the previous one left.
+func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
+	*tree.Tree, error) {
+
+	if len(joins) == 0 {
+		return nil, nil, errors.New("txn: JOINK_K needs a leaf")
+	}
+	cur := st.Tree.Clone()
+	blocks := make([][][]byte, len(joins))
+	for i, j := range joins {
+		if j.Pos >= uint64(1)<<uint(cur.Depth) {
+			return nil, nil, fmt.Errorf("txn: join %d: position "+
+				"%d out of range", i+1, j.Pos)
+		}
+		if _, ok := cur.Leaves[j.Pos]; ok {
+			return nil, nil, fmt.Errorf("txn: join %d: position "+
+				"%d is occupied", i+1, j.Pos)
+		}
+		if err := st.checkPos(j.Pos, j.Leaf); err != nil {
+			return nil, nil, err
+		}
+		path := st.pathWitness(cur.Path(j.Pos, 0), 0)
+		if st.Sparse {
+			blocks[i] = JoinBlock(path, tree.Node{}, j.Leaf)
+		} else {
+			blocks[i] = JoinBlock(path, j.Leaf.Node(), nil)
+		}
+		cur.Leaves[j.Pos] = j.Leaf
+	}
+
+	in := st.Input()
+	stack := JoinKWitness(
+		blocks, sigPlaceholder(), in.RootHash, in.MerkleRoot,
+	)
+	sigs := []SigSlot{{
+		Index: len(stack) - 3, Key: st.OperatorKey, Role: "operator",
+	}}
+
+	name := fmt.Sprintf("JOINK_%d", len(joins))
+	spend, err := finish(st, cur, name, nil, stack, sigs, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return spend, cur, nil
+}
