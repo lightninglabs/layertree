@@ -73,26 +73,36 @@ with numbers.
    Makefile targets `main.pdf` and `main-full.pdf`, both stamped. Build
    order stays: sources first, then make, then commit PDFs with
    version.tex.
-3. Build the batching shapes: `EXIT_SUBTREE_h` (owner multiproof, spec
-   13.4), `REWRITE_h` (cohort rewrite with per-leaf signatures), and
-   `DETACH_h` (move a subtree to its own output). All three are variants
-   of the `EVICT_SUBTREE_h` post-order generator; `DETACH_h` needs a
-   two-output Lean step. Run the change checklist for each.
-4. `CLAIM^x`: a `CLAIM` variant requiring the source leaf's exit-key
+3. Demote sparse in the spec (5.4 wording, 4.5 matrix ordering, 11),
+   CONCEPTS, README and the paper, as one editorial commit after the
+   merges; spec 0.8.3.
+4. Build `REWRITE_h`, the cohort rewrite with per-leaf signatures
+   (owner's call: build it). FULL tier first, MID stated as unsupported
+   for the sweep's reason. Generator from the `EVICT_SUBTREE_h` post-order
+   fold, tests, golden (a tree-creation variant, excluded from the D4
+   root), Go mirror, spec 7.9 and 8.x, 4.5 row, Lean `Rewrite` step and
+   theorem, status. Then `EXIT_SUBTREE_h` and `DETACH_h` the same way;
+   `DETACH_h` needs a two-output Lean step.
+5. `CLAIM^x`: a `CLAIM` variant requiring the source leaf's exit-key
    signature at redemption, seven bytes like `UPDATE^x`. It is what makes
    a dedicated credit leaf trust-free (`design/receive.md`).
-5. Regression test named after taproot-assets-private#112 (sibling-sum
+6. Regression test named after taproot-assets-private#112 (sibling-sum
    binding), even though the node format already excludes it; deferred
    only because changing the check count ripples through the PR stack.
-6. The older open list from `design/status.md`: P model (issue #1), Go
+7. The older open list from `design/status.md`: P model (issue #1), Go
    builders for every transition, channel-leaf TLV messages, regtest
    harness, verified interpreter.
 
 ## Decisions taken today (not yet in status.md)
 
 - Radix 2 stays for the dense tree; measured, not estimated.
-- The sparse profile is documented as the key-addressed option, 1.6 to
-  2.7 times the dense cost, not the cheaper one.
+- The sparse profile is demoted, not deleted (owner's call, 2026-10-09):
+  dense is the default and the recommendation; sparse stays specified,
+  generated and tested as the key-addressed option and the measured
+  comparison, and leaves the headline rows of the tier matrix and the
+  paper. The spec, CONCEPTS, README and paper wording changes are queued
+  for after the PR merges because they touch the 4.5 matrix (patch bump
+  to 0.8.3).
 - Cost pages compare against bare UTXOs, Lightning and Ark on lifetime
   bytes per member with stated assumptions; the paper will inherit those
   tables.
