@@ -105,12 +105,12 @@ what makes the off-chain settlement safe to accept.
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
 | Funding the receive capacity | none on-chain: the swap server funds the VTXO or books a ledger credit | the operator tops up each credit leaf as credit accrues, by amount-only `REWRITE_h^x`, about 117 vbytes per position batched per cohort; capacity funded ahead of the vouchers is the recipient's on every unilateral path |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
-| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,660 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
+| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,674 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
 
 The redemption cost is the economic floor. At 10 sat/vB a `CLAIM^x`
-costs about 16,600 sat, so a recipient would not redeem a small balance
+costs about 16,700 sat, so a recipient would not redeem a small balance
 alone; they would let it accumulate, have the operator graft it as a leaf
 in a cohort, or redeem it straight into a channel leaf whose exit key is a
 2-of-2 and pay onward over Lightning from there.
@@ -141,7 +141,7 @@ trust model, the funding modes and their costs.
 
 ## Making redemption cheaper
 
-The roughly 1,660 vbytes is the FULL tier at `D = 16` with no help, and
+The roughly 1,674 vbytes is the FULL tier at `D = 16` with no help, and
 it is large for a structural reason: a `CLAIM^x` proves two positions,
 the source leaf and the claim slot, so it carries two full paths of
 sixteen unrolled levels each, two leaves, the voucher signature and the

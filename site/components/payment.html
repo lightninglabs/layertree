@@ -177,7 +177,7 @@
   for and tops it up as payments arrive. Plain <code>CLAIM</code> would leave a gap,
   because the operator could sign itself a voucher and drain the leaf first. The
   variant <code>CLAIM^x</code> closes it by also requiring a signature from the
-  source leaf's exit key, which is the recipient's, for 8 more bytes of script.
+  source leaf's exit key, which is the recipient's, for 7 more bytes of script.
   The arrangement is one-way on purpose: if the recipient could also spend from
   the leaf, an older and larger voucher would become a stale state, and refuting
   it would need a contest window, which is what a channel leaf provides. Receiving

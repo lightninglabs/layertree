@@ -147,6 +147,10 @@
     <li>No script enforces rule 3, so the voucher holder redeems as soon as they
     learn the secret, and treats the swap as complete only once the redemption is
     buried deep enough to survive a reorganisation.</li>
+    <li>Before offering the HTLC or paying the invoice, the voucher holder checks
+    the source leaf's lease. Eviction voids every voucher against the evicted
+    leaf, so a source whose lease can pass before the redemption confirms is no
+    security at all, and the holder treats such a voucher as unsecured.</li>
   </ol>
 
   <h2 id="residual">What the hash lock does not remove</h2>
@@ -167,7 +171,7 @@
     <h2 id="deeper">Deeper</h2>
     <ul>
       <li><a href="../../spec/layertree.md#751-claimh-hash-locked-voucher">Spec 7.5.1</a>: <code>CLAIM^h</code> and why it has no on-chain expiry.</li>
-      <li><a href="../../spec/layertree.md#961-hash-locked-vouchers-and-swaps">Spec 9.6.1</a> and <a href="../../spec/layertree.md#962-swaps-against-a-channel-leaf-htlc">9.6.2</a>: the swap protocol and its four ordering rules.</li>
+      <li><a href="../../spec/layertree.md#961-hash-locked-vouchers-and-swaps">Spec 9.6.1</a> and <a href="../../spec/layertree.md#962-swaps-against-a-channel-leaf-htlc">9.6.2</a>: the swap protocol and its five ordering rules.</li>
       <li><a href="../../spec/channel-leaves.md">Appendix C</a>, C.4: HTLC outputs in channel leaves and their deadlines.</li>
       <li><a href="../../design/receive.md"><code>design/receive.md</code></a>: receiving over Lightning, where the operator settles first and the voucher needs no hash lock.</li>
     </ul>
