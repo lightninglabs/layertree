@@ -64,7 +64,10 @@ its witness and translates it into $\Ftree$ calls:
   adversary's join messages (or records as ungrounded, see below); a leaf
   replaced by a leaf is $\mathsf{UPDATE}$; the two-step pattern of
   \S\ref{sec:protocol} is $\mathsf{CLAIM}$; the post-order pattern is
-  $\mathsf{SWEEP}$.
+  $\mathsf{SWEEP}$; a \tr{REWRITE}$_h$ is one call per changed position
+  ($\mathsf{EXIT}$ for a leaf replaced by $\Emp_0$, $\mathsf{JOIN}$ of a
+  published leaf, $\mathsf{UPDATE}$ otherwise) taking effect together,
+  located by \lean{rewrite\_sound}.
 \item Verify with $\Fsig$ that the authorising signatures are valid for
   the keys the leaf names. A valid signature for an honest party's key that
   the honest party did not produce is a forgery (abort event
@@ -151,8 +154,20 @@ taptree, so the step of $\Sim$ that reads $r$ and $m$ from the witness
 reads them from the spent output instead, and the binding of
 \lean{witness\_root\_binds} rests on the BIP-443 data tweak in place of
 $\TreeSpk$, with the same reduction to the discrete logarithm of
-$\NUMS$ and collisions in the tweak hash. Its interfaces are FULL's,
-with \iface{CLAIM} only in its \tr{SPLIT} form, under exact payouts.
+$\NUMS$ and collisions in the tweak hash (\lean{CCVTweak.binding},
+\lean{ccv\_input\_binds}). Its interfaces are FULL's under exact
+payouts, with the voucher message naming the tree's creation-time
+$\mathsf{tree\_id}$ in place of $m$; cross-tree replay is excluded as
+$m$ excludes it, since a voucher for another tree names another
+$\mathsf{tree\_id}$.
+
+\paragraph{The detach.} \tr{DETACH}$_h$ splits the tree output in two,
+which $\Ftree$ as stated, with one output, does not express. A tree whose
+taptree carries it is covered up to the detach; afterwards each output
+is a tree of its own, and \lean{detach\_sound} gives that the detached
+output is a well-formed tree output of depth $h$ holding exactly the
+subtree's leaves and sum, with $\mathit{out}_0 + \mathit{out}_1 = S$, so
+the simulation continues as two instances of $\Ftree$.
 
 \subsection{Composition for Channel Leaves}
 
@@ -170,4 +185,6 @@ carries the full capacity to the channel key: exact payouts
 \lean{SEQ\_FINAL} facts), and a lease at or below the tip so that
 $\mathsf{EVICT}$ is available to the counterparty. We give this as a
 sketch and leave the full channel-level proof, in particular the HTLC
-deadline argument under $\Delta(N)$, to future work.
+deadline argument under $\Delta(N)$, to future work; the argument is
+exercised block by block on the simulator's chain model
+(\lifted{app:channels}), not proved.

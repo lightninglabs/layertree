@@ -35,14 +35,14 @@ $n$.
   \langle P_{\mathsf{chan}} \rangle\ \op{CHECKSIGFROMSTACK}
 }}
 \pchspace
-\scalebox{0.85}{\procedure{$\mathsf{SETTLE}_n$ \quad (tapleaf 0xC2, 80 B)}{
+\scalebox{0.85}{\procedure{$\mathsf{SETTLE}_n$ \quad (tapleaf 0xC2, 79 B)}{
   \langle \mathsf{csv\_delay} \rangle\ \op{CHECKSEQUENCEVERIFY}\ \op{DROP} \\
   \langle \mathsf{SEL\_CHAN\_SET} \rangle\ \op{TX} \pccomment{$+$ input amount, spk} \\
   \langle \mathsf{ctx}_{\mathsf{set}} \rangle\ \op{SWAP}\ \op{CAT}\ \op{SHA256} \\
   \langle P_{\mathsf{chan}} \rangle\ \op{CHECKSIGFROMSTACK}
 }}
 \end{pchstack}
-\caption{The two leaves of a channel leaf's update output for state $n$.}
+\caption{The two leaves of a channel leaf's update output for state $n$, sized at $\mathsf{csv\_delay} = 144$; under \texttt{0xC0} $\mathsf{SETTLE}_n$ is 80 B, since 144 needs two bytes as a \texttt{CScriptNum}.}
 \label{fig:chan}
 \end{figure}
 
@@ -70,18 +70,35 @@ update$_n$ bound to the funding output & 153 & $t+1$ \\
 anchor child for update$_n$ & 152 & $t+1$ \\
 settlement$_n$ (two payouts, anchor) & 204 & $t + 1 + \mathsf{csv}$ \\
 anchor child for settlement$_n$ & 152 & $t + 1 + \mathsf{csv}$ \\
-total & $\approx 1{,}680$ & $\approx 146$ blocks \\
+total & $\approx 1{,}681$ & $\approx 146$ blocks \\
 \midrule
 contested rebind to an earlier update output & 161 & per contest \\
 settlement with $h$ HTLC outputs & $204 + 43h$ & \\
+HTLC-success sweep & 155 & after settlement \\
+HTLC-timeout sweep & 138 & after $\mathsf{cltv\_expiry}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The lifetime on-chain footprint of a channel leaf that is force-closed is
-therefore about $1{,}680\vB$, against roughly $280\vB$ for a Lightning
+An HTLC output has two leaves, so each sweep carries a 65-byte control
+block. The lifetime on-chain footprint of a channel leaf that is
+force-closed is therefore about $1{,}680\vB$, against roughly $280\vB$ for a Lightning
 channel's funding transaction plus force close; cooperative closes,
 splices and lease renewals of a channel leaf cost one tree transition or
 nothing. The update transaction cannot be packaged with the exit because
 a version-3 transaction may not spend an unconfirmed version-2 parent, so
 $G_{\mathrm{exit}}$ in \S\ref{sec:channels} is measured to confirmation.
+
+\paragraph{Limits and execution.} Under \texttt{0xC0} every stack element
+is at most 520 bytes, including the collated settlement blob of
+$156 + 43h$ bytes, so a MID channel carries at most seven HTLC outputs
+per state; FULL has no such limit. The scripts and transactions above
+run, in both tapleaf versions, on a chain model that enforces BIP-65 and
+BIP-68 (149 checks): a leaf leaves a tree by \tr{EXIT}$_1^{=}$, a state
+signed before the exit binds to whichever funding output an exit or an
+eviction creates, a stale update is answered in the last block of its
+window, and both HTLC sweeps confirm at their deadlines. Counted as
+those rules count, the budget of \S\ref{sec:channels} has two blocks of
+margin: with $G_{\mathrm{exit}} = 72$ and $G_{\mathrm{sweep}} = 2$ the
+payee's sweep confirms at $t + 219$ against a bound of 221. A Go mirror
+generates the same scripts byte for byte, with TLV channel messages.

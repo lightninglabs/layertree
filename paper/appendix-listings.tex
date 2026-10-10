@@ -2,13 +2,15 @@
 
 This appendix reproduces every script the reference generators emit, for
 the smallest depths that exercise every construct: dense $D = 4$ and
-sparse $D = 8$. Tapscript has no subroutines, so a compiled script is one
+sparse $D = 8$, and dense $D = 8$ for the cohort shapes of FULL. Tapscript has no subroutines, so a compiled script is one
 flat opcode stream; the generators, however, build every script from a
 small set of helpers, and the listings below are those streams
 \emph{collapsed back} into named macro calls, one per line, with the
 remaining raw opcodes wrapped between them. Each tier's macros are defined
-once in \S\ref{app:macros-full} to \S\ref{app:macros-min}, themselves
-collapsed against the other macros. The collapse is mechanical
+once (\S\ref{app:macros-full}, \S\ref{app:macros-mid},
+\S\ref{app:macros-min}, \S\ref{app:macros-ccv}), themselves collapsed
+against the other macros; the CCV tier under \texttt{0xC0} numerics uses
+MID's. The collapse is mechanical
 (\path{tools/gen_structured.py}) and verified: expanding a structured
 listing reproduces the compiled bytes exactly, so these listings and the
 flat ones in \path{spec/scripts/} describe the same scripts, and the byte
@@ -38,9 +40,14 @@ level adds one \textsf{LEVEL} (88 bytes dense, 135 sparse, 156 MID).
 \listingfile{UPDATE_D4.txt}
 \listingfile{UPDATE_X_D4.txt}
 \listingfile{CLAIM_D4.txt}
+\listingfile{CLAIM_H_D4.txt}
+\listingfile{CLAIM_X_D4.txt}
+\listingfile{SPLIT_D4.txt}
 
-\subsection{FULL Tier, Cohort Sweep ($D = 8$, $h = 2$)}
+\subsection{FULL Tier, Cohort Shapes ($D = 8$, $h = 2$)}
 \listingfile{EVICT_SUBTREE_2_D8.txt}
+\listingfile{REWRITE_2_D8.txt}
+\listingfile{DETACH_2_D8.txt}
 
 \subsection{FULL Tier, Sparse Profile ($D = 8$)}
 \listingfile{EXIT_1_S8.txt}
@@ -60,15 +67,49 @@ replaced by \op{CAT}, \op{SIZE} and \op{TWEAKADD}.
 
 \subsection{MID Tier, Dense Profile ($D = 4$)}
 \listingfile{MID_EXIT_1_D4.txt}
+\listingfile{MID_EXIT_2_D4.txt}
 \listingfile{MID_JOIN_0_D4.txt}
 \listingfile{MID_JOIN_2_D4.txt}
 \listingfile{MID_JOINK_2_D4.txt}
 \listingfile{MID_UPDATE_D4.txt}
 \listingfile{MID_UPDATE_X_D4.txt}
 \listingfile{MID_CLAIM_D4.txt}
+\listingfile{MID_CLAIM_H_D4.txt}
+\listingfile{MID_SPLIT_D4.txt}
+\listingfile{MID_EVICT_SUBTREE_2_D4.txt}
 
 \subsection{MIN Tier Macros}\label{app:macros-min}
 \listingfile{MACROS_MIN.txt}
 
 \subsection{MIN Tier, Dense Profile ($D = 4$)}
 \listingfile{MIN_EXIT_1_D4.txt}
+\listingfile{MIN_SPLIT_D4.txt}
+
+\subsection{CCV Tier Macros}\label{app:macros-ccv}
+\listingfile{MACROS_CCV.txt}
+
+\subsection{CCV Tier, \texttt{0xC2} Numerics, Dense Profile ($D = 4$)}
+\listingfile{CCV_EXIT_1_D4.txt}
+\listingfile{CCV_EXIT_2_D4.txt}
+\listingfile{CCV_JOIN_0_D4.txt}
+\listingfile{CCV_JOIN_2_D4.txt}
+\listingfile{CCV_JOINK_2_D4.txt}
+\listingfile{CCV_UPDATE_D4.txt}
+\listingfile{CCV_UPDATE_X_D4.txt}
+\listingfile{CCV_CLAIM_D4.txt}
+\listingfile{CCV_CLAIM_H_D4.txt}
+\listingfile{CCV_SPLIT_D4.txt}
+\listingfile{CCV_EVICT_SUBTREE_1_D4.txt}
+\listingfile{CCV_EVICT_SUBTREE_2_D4.txt}
+
+\subsection{CCV Tier, \texttt{0xC2} Numerics, Sparse Profile ($D = 8$)}
+\listingfile{CCV_EXIT_1_S8.txt}
+\listingfile{CCV_JOIN_0_S8.txt}
+\listingfile{CCV_JOINK_2_S8.txt}
+\listingfile{CCV_UPDATE_S8.txt}
+
+\subsection{CCV Tier, \texttt{0xC0} Numerics, Dense Profile ($D = 4$)}
+\listingfile{CCV0_CLAIM_D4.txt}
+\listingfile{CCV0_CLAIM_H_D4.txt}
+\listingfile{CCV0_SPLIT_D4.txt}
+\listingfile{CCV0_EVICT_SUBTREE_2_D4.txt}

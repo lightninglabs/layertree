@@ -74,6 +74,7 @@ coins would be frozen.
 batching depends on, and a cohort should share a lease, since one leaf
 with a NUMS evictor or a later lease blocks the sweep of its subtree.
 \tr{REWRITE}$_h$ is a graft that publishes its leaves: grounded by
-construction, at an estimated $60\vB$ or more per leaf against under 3
+construction, at about $117\vB$ per position of the rewritten subtree
+(measured at $h = 6$, \S\ref{sec:batching}) against under 3 per member
 for \tr{JOIN}$_8$. A graft also settles off-chain credit as exitable
 leaves (\S\ref{sec:receive}).

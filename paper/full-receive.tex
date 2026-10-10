@@ -1,6 +1,7 @@
 % Full version only: the receive case. Source: design/receive.md; sizes
 % from spec/scripts/sizes.md on the fee model of spec/fee-analysis.md,
-% the proposed CLAIM^x variant and the sibling-pair claim labelled.
+% CLAIM^x is built (spec 7.5.3); the sibling-pair claim is labelled an
+% estimate.
 \section{Receiving over Lightning}\label{sec:receive}
 
 A user with no on-chain funds receives a Lightning payment and wants a
@@ -25,8 +26,10 @@ and it never prefers a smaller state.
 \paragraph{Settlement.} The voucher is insurance. Normally the operator
 puts the claim leaf into the next cohort graft at about one vbyte per
 recipient (\S\ref{sec:graft}) and retires the voucher by advancing the
-credit leaf's $\mathsf{seq}$: one \tr{UPDATE} today ($1{,}073\vB$), about
-120 to $240\vB$ per recipient with \tr{REWRITE}$_h$ (estimate).
+credit leaf's $\mathsf{seq}$: one \tr{UPDATE} each ($1{,}073\vB$), or
+one \tr{REWRITE}$_h$ for a subtree of credit leaves at about $133\vB$
+per changed leaf and $16\vB$ more under the exit-consent form (measured
+at $h = 6$, \S\ref{sec:batching}).
 Unilaterally the recipient redeems one \tr{CLAIM}$^{h}$: $1{,}652\vB$ at
 $D = 16$, about 16{,}500\,sat at 10\,sat/vB, no timelock, against about
 $2{,}511\vB$ and a timelock to unroll an Ark round tree. The redemption
@@ -45,11 +48,15 @@ to that recipient, who can watch its amount. Of the operator's ways to
 void, \tr{UPDATE}$^{x}$ (the exit key, which is the recipient's, must
 sign), exact payouts and a NUMS evictor close three; the fourth, a
 voucher the operator issues itself and redeems with plain \tr{CLAIM}, is
-closed only by a \tr{CLAIM}$^{x}$ variant requiring a signature by the
-source leaf's exit key. With the three variants in the taptree a credit
-leaf can only grow or pay its recipient, whose exposure is the operator's
-liveness. \tr{CLAIM}$^{x}$ is proposed, not specified; the Lean model is
-unaffected, since \lean{Claim} carries an opaque authorisation. Where one
+closed by \tr{CLAIM}$^{x}$, which requires a signature by the source
+leaf's exit key (Appendix~\ref{app:claim}). With the three variants in
+the taptree a credit leaf can only grow or pay its recipient, whose
+exposure is the operator's liveness. \tr{CLAIM}$^{x}$ and its
+hash-locked form \tr{CLAIM}$^{hx}$ are built in the FULL tier, at 8 bytes
+of script over the plain forms and 64 of witness, and the test suite runs
+the credit-leaf case: the operator's own voucher with its own
+transaction signature fails. The Lean model is unaffected, since
+\lean{Claim} carries an opaque authorisation. Where one
 operator leaf backs many recipients, over-issuance is equivocation with a
 compact proof, which a slashable bond can deter; voiding has no compact
 proof, so no bond reaches it.

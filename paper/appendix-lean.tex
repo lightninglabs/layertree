@@ -3,12 +3,13 @@
 
 This \thispart{} describes the mechanised model behind \S\ref{sec:security}
 in enough detail that a reader can judge what has been proved, under
-what assumptions, and what has not. The development is about 1{,}300
-lines of Lean~4~\cite{lean4} in seven modules and depends on nothing but the
+what assumptions, and what has not. The development is about 1{,}900
+lines of Lean~4~\cite{lean4} in eight modules and depends on nothing but the
 core library: no Mathlib, no external tactics. It builds in seconds and
-prints an axiom audit for every headline theorem; each depends only on
-\lean{propext}, \lean{Quot.sound} and, in one case, \lean{Classical.choice},
-and none on \lean{sorryAx}. The code is in the artefact~\cite{layertreerepo}.
+prints an axiom audit for 31 headline theorems; each depends only on
+\lean{propext}, \lean{Quot.sound} and, for those that case on a
+\lean{Bool} or on \lean{Steps}, \lean{Classical.choice}, and none on
+\lean{sorryAx}. The code is in the artefact~\cite{layertreerepo}.
 
 \subsection{Design of the Model}
 
@@ -174,6 +175,54 @@ root is the grafted node. \lean{claim\_sound} exposes the drained-source
 case: the claim position must be empty in the tree \emph{after} the source
 step, which is why a source reduced to zero may host the claim.
 
+The terminal branch of \textsf{Final} and the sparse profile have their
+own statements: \lean{terminal\_no\_leaf} (a tree whose root is
+$\Emp_D$ holds no leaf, so the terminal branch is reachable only when the
+last leaf leaves), \lean{ExitKT.terminal\_conservation} (on that branch
+the payouts are at most $S$, exactly $S$ under exact payouts),
+\lean{Tree.Sparse.unique} (two leaves with the same owner key and nonce
+are the same leaf at the same position) and \lean{sparseJoin\_sound} (a
+sparse join lands at the position derived from the leaf, which was
+empty, and keeps the tree sparse).
+
+\paragraph{Cohort transitions.} The sweep, \tr{REWRITE}$_h$ and
+\tr{DETACH}$_h$ are one step each from a subtree root at a position
+\lean{p : Pos d h}; a position inside it is \lean{p.append q}. The sweep
+and the rewrite take the published subtrees as values of \lean{Tree h},
+since the witness carries their $2^h$ elements and \lean{leaves\_inj}
+says those name one tree, so neither needs a \lean{Grounded} hypothesis.
+In \lean{Rewrite}, authorisation is a predicate required at every
+position whose element changes, and the payouts are those of the leaves
+replaced by $\Emp_0$, in position order:
+
+\begin{lstlisting}
+theorem rewrite_sound (t : Tree d) (hwf : path.length + h = d)
+    (hr : Rewrite h auth t.root path old new r' out0 payouts) :
+    ∃ p : Pos d h, t.getSub p = old ∧ r' = (t.setSub p new).root ∧
+      (∀ q : Pos h 0, t.get (p.append q) = old.get q ∧
+        (t.setSub p new).get (p.append q) = new.get q) ∧
+      (∀ q : Pos d h, q ≠ p → (t.setSub p new).getSub q = t.getSub q) ∧
+      out0 + old.total = t.root.sum + new.total ∧
+      out0 + payoutTotal payouts ≤ t.root.sum + new.total
+
+theorem detach_sound (t : Tree d) (hwf : path.length + h = d)
+    (hd : Detach auth h t.root path sub r' out0 r₁ out1) :
+    ∃ p : Pos d h, out0 + out1 = t.root.sum ∧
+      r' = (t.setSub p (Tree.empty h)).root ∧
+      r₁ = (t.getSub p).root.hash ∧ out1 = (t.getSub p).total ∧
+      ∀ q : Pos h 0, (t.getSub p).get q = t.get (p.append q) ∧
+        (t.getSub p).path q = (t.path (p.append q)).drop (d - h)
+\end{lstlisting}
+
+\lean{rewrite\_exit\_conservation} specialises \lean{rewrite\_sound} to
+an emptied subtree: output~0 plus the payouts equals the input amount.
+\lean{detach\_member\_payable} applies \lean{payable} inside the
+detached tree to the truncated path. \lean{evictSubtree\_sound} is the
+sweep's analogue of \lean{rewrite\_sound} with the new subtree empty, on
+either \textsf{Final} branch. \lean{Detach} states its second tree output as a
+root hash and an amount rather than generalising \lean{Step}: the
+detached output's taptree $m_h$ is a binding fact, outside the step.
+
 \subsection{Assumption Ledger}
 
 Every hypothesis outside Lean's logic, what it stands for in the
@@ -188,6 +237,7 @@ hypothesis & stands for & used by \\
 \lean{hNode\_inj} & SHA-256 collision resistance + \lean{serializeNode\_inj} & \lean{root\_inj}, \lean{fold\_sound} \\
 \lean{hNode\_ne\_hLeaf}, \lean{hNode\_ne\_empty}, \lean{hLeaf\_ne\_empty} & distinct tags (random-oracle heuristic) & \lean{leafNode\_inj}, \lean{fold\_sound} \\
 \lean{treeSpk\_inj} & DL on secp256k1 + CR of $\Hstate$, TapTweak & \lean{witness\_root\_binds} \\
+\lean{CCVTweak.dataTweak\_inj}, \lean{tapTweak\_inj} & CR of SHA-256 over $\NUMS \| r$, DL of $\NUMS$; TapTweak & \lean{CCVTweak.binding}, \lean{ccv\_input\_binds} \\
 real-tree invariant & creation check + grounded grafts (off-chain) & every theorem stated for a \lean{Tree} \\
 \midrule
 (none) & & \lean{Steps.sum}, \lean{ExitK.no\_inflation}, encodings \\
@@ -210,11 +260,12 @@ module & lines & contents \\
 \midrule
 \lean{Hash.lean} & 59 & the \lean{HashModel} class \\
 \lean{Leaf.lean} & 96 & \lean{Leaf}, \lean{Leaf.WF}, \lean{Node}, \lean{leafNode}, \lean{leafNode\_inj} \\
-\lean{Tree.lean} & 335 & trees, positions, paths, \lean{fold}, all tree theorems \\
-\lean{Transitions.lean} & 458 & \lean{Step}, \lean{Steps}, the transitions and their theorems \\
-\lean{Binding.lean} & 60 & \lean{BindingModel} and the two binding theorems \\
+\lean{Tree.lean} & 440 & trees, positions, paths, \lean{fold}, subtree positions (\lean{Pos.append}), all tree theorems \\
+\lean{Transitions.lean} & 625 & \lean{Step}, \lean{Steps}, the transitions, the terminal branch, sparse positions \\
+\lean{Cohort.lean} & 300 & \tr{EVICT\_SUBTREE}$_h$, \tr{REWRITE}$_h$, \tr{DETACH}$_h$ on published subtrees \\
+\lean{Binding.lean} & 111 & \lean{BindingModel}, the binding theorems, the CCV tweak (\lean{CCVTweak}) \\
 \lean{Encoding.lean} & 238 & encodings, serialisation injectivity, \lean{SEQ\_FINAL} \\
-\lean{Axioms.lean} & 32 & the axiom audit \\
+\lean{Axioms.lean} & 45 & the axiom audit \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -249,7 +300,12 @@ $\NUMS$; $x(P_r) = x(P_{r'})$ with $m \ne m'$, a collision in
 $H_{\mathsf{TapTweak}}$; or distinct internal keys with $Q = \pm Q'$,
 again a linear relation in $\NUMS$ and $G$ solvable for the discrete
 logarithm of $\NUMS$. Making the hypothesis explicit is the point: it is
-what a future script change must not break.
+what a future script change must not break. For the CCV tier the map is
+built rather than assumed: \lean{CCVTweak.binding} composes the BIP-443
+data tweak of $\NUMS$ by the root with the taproot tweak by $m$ and
+proves \lean{treeSpk\_inj} from the injectivity of each stage, so the
+binding theorems hold for a CCV tree unchanged (\lean{ccv\_input\_binds}
+states the first for the input's own taptree).
 
 \subsection{Encodings}
 

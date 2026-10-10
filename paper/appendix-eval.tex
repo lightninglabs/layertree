@@ -7,7 +7,7 @@ behind Figure~\ref{fig:plot} and Table~\ref{tab:tiers}.
 
 \begin{table}[htbp]
 \centering
-\caption{Measured \tr{EXIT}$_1$ cost (FULL). WU include a 129-byte control block for the eight-leaf reference script set (each doubling of the set adds 8 vB); the transaction adds a fee input, change and overhead ($\approx 950\WU$). Sparse witness is $326 + 41\log_2 N$ bytes, tabulated at $N = 2^{16}$. Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
+\caption{Measured \tr{EXIT}$_1$ cost (FULL unless noted). WU include a 129-byte control block for the eight-leaf reference script set (each doubling of the set adds 8 vB); the transaction adds a fee input, change and overhead ($\approx 950\WU$). Sparse witness is $326 + 41\log_2 N$ bytes, tabulated at $N = 2^{16}$. Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
 \label{tab:sizes}
 \setlength{\tabcolsep}{3.5pt}\scriptsize
 \begin{tabular}{@{}lrrrrrr@{}}
@@ -23,6 +23,7 @@ sparse & 64 & 9{,}499 & $326 + 41\log_2 N$ & $\approx 10{,}610$ & $\approx 2{,}8
 \midrule
 MID dense & 16 & 3{,}299 & 978 & 4{,}406 & 1{,}338 & \\
 MIN dense & 16 & 3{,}572 & 1{,}175 & 4{,}876 & 1{,}456 & \\
+CCV dense & 16 & 1{,}716 & 838 & 2{,}683 & 908 & \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -33,7 +34,9 @@ A voucher is a BIP-340 signature by the source leaf's owner over
 \[
 H_{\mathsf{voucher}}(m \,\|\, \ell_{\mathrm{src}} \,\|\, \ell_{\mathrm{claim}}),
 \]
-verified with \op{CHECKSIGFROMSTACK}. \tr{CLAIM} is two steps: the source
+verified with \op{CHECKSIGFROMSTACK}; a CCV tree, whose witness carries
+no $m$, binds its creation-time $\mathsf{tree\_id}$ in its place.
+\tr{CLAIM} is two steps: the source
 leaf's amount is reduced by the claim amount and its $\mathsf{seq}$
 advanced by one (or the position emptied if drained), then the claim leaf
 is placed at an empty position. The total is unchanged. Replay is
@@ -55,8 +58,8 @@ channel-leaf HTLC or a Lightning invoice carrying the same hash. The
 script does not compare a witness-supplied hash against the preimage: it
 computes $\mathrm{SHA256}(\mathsf{preimage})$ and feeds it into the signed
 message, so a wrong preimage fails as an invalid signature. That costs one
-hash opcode, nine bytes of script in both tiers that realise \tr{CLAIM},
-and no opcode beyond those \tr{CLAIM} already needs. The separate tag is
+hash opcode, nine bytes of script in FULL and MID and eight in CCV, and
+no opcode beyond those \tr{CLAIM} already needs. The separate tag is
 load-bearing: reusing $H_{\mathsf{voucher}}$ for both forms would let a
 redeemer strip the hash lock.
 
@@ -68,6 +71,16 @@ in the other leg of the swap, and an issuer retires an unredeemed voucher
 by advancing the source leaf's $\mathsf{seq}$. Redemption publishes the
 preimage, which is what settles the other leg and also what obliges a
 redeemer to secure its own leg first.
+
+\paragraph{Exit-key consent (\tr{CLAIM}$^{x}$, \tr{CLAIM}$^{hx}$).} The
+FULL tier also builds both forms with one further signature over the
+transaction by the source leaf's exit key, as \tr{UPDATE}$^{x}$ adds to
+\tr{UPDATE}: 8 bytes of script over the plain form (\tr{UPDATE}$^{x}$'s
+seven and one \op{SWAP}) and 64 of witness. Its use is a credit leaf
+owned by an issuer and exiting to one recipient: every voucher against it
+pays that recipient, whose own redemptions carry the exit-key signature
+at no cost, and the issuer cannot carve the leaf even with a voucher it
+signs to itself.
 
 \subsection{Comparison Table}
 
