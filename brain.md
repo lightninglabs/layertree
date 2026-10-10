@@ -29,22 +29,23 @@ with numbers.
 
 | Area | State |
 |---|---|
-| Spec | 0.7.0 on main (0.8.1 after #10 lands, 0.8.2 after #6). Complete for the scoped design. Editorial fixes landed today: check counts, channel tag strings, 5.5 sibling element is 41 bytes, 13.2 radix note replaced by the measured result. |
-| Python simulator | 325 / 86 / 7 checks on main; 422 / 113 / 7 plus 139 CCV plus 47 MSU across the PR stack. |
+| Spec | 0.8.3 on main after #8 and #10 merged (swap rules in 9.6.2; SPLIT in FULL, MID and MIN; 11.1 script-set cost). 0.8.4 after #6 (CCV tier) lands, 0.8.5 after the sparse demotion. Editorial fixes landed today: check counts, channel tag strings, 5.5 sibling element is 41 bytes, 13.2 radix note replaced by the measured result. |
+| Python simulator | 425 / 120 / 31 checks on main (FULL / MID / MIN); plus 139 CCV and 47 MSU on the remaining PRs. |
 | Go | 34 golden scripts byte-exact; EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
 | Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
 | Paper | 15 body pages, six appendices, PDF stamped 8d8ccc0 and stale against today's source edits. The 15-page FC limit is being lifted into a two-version build (see below). |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
-| PR stack | One linear stack: #8 (swap rules) then #10 (SPLIT) then #6 (CCV tier) then #7 (hypothetical native opcode). Opus workers are integrating each for merge in that order. |
+| PR stack | #8 and #10 merged on 2026-10-09. #6 (CCV tier) and #7 (hypothetical native opcode) remain, with an Opus worker merging main into them and adding the Lean binding instance, the CCV capability column and the measured UPDATE^x and SPLIT under CCV. |
 
 ## In flight right now
 
-- Opus worker on #8: verify against the checklist, dry-merge, review the
-  9.6.2 rules, strip the attribution footer. Expected: ready as is.
-- Opus worker on #10: issue #9 acceptance items, decide the MIN-tier
-  SPLIT (implement if bounded, otherwise state the blocker), review the
-  seq interaction with outstanding vouchers.
+- #8 merged with one added fix: 9.6.2 rule 3 now holds from the HTLC
+  offer until redemption or HTLC failure, not only "while in flight".
+- #10 merged with four added commits: SPLIT voids vouchers (9.6, 10.3,
+  5.2), the MIN tier SPLIT measured (6,441 script / 2,010 witness at
+  D=16), new negatives in every tier, spec 0.8.3.
+- Opus writer on `design/graft.md`: grafting and its trust model.
 - Opus worker on #6 and #7: add the CCV `BindingModel` instance in Lean,
   add the CCV column to the 4.5 capability table, measure UPDATE^x under
   CCV, implement SPLIT under CCV if bounded, update the four-tier wording,
@@ -61,9 +62,9 @@ with numbers.
 
 ## Next, in order
 
-1. Merge the stack: #8, #10, #6, #7, each after its worker reports ready
-   and a dry merge is clean. Reconcile counts and the spec version on
-   main after the last merge and run the full matrix.
+1. Merge #6 then #7 after their worker reports ready and a dry merge is
+   clean. Reconcile counts and the spec version on main after the last
+   merge, run the full matrix, rebuild the paper PDF.
 2. Paper, two versions from one source. A `\fullversion` toggle like the
    existing `\anontrue`: the short build keeps the FC body under the
    limit and sends the rest to appendices; the full build lifts the limit
