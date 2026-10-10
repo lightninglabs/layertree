@@ -1,4 +1,4 @@
-# CLAIM (CCV tier, tree_id voucher, dense, D=4): 1335 bytes
+# CLAIM (CCV tier, dense, D=4): 1335 bytes
 # macros in CAPITALS are defined in MACROS_CCV.txt; raw opcodes are wrapped and indented
 
 OP_2 OP_PICK OP_2 OP_PICK OP_CAT <TREE_ID> OP_SWAP OP_CAT

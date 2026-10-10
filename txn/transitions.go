@@ -13,12 +13,15 @@ import (
 
 // TreeState is a tree output as the transition builders see it: the
 // off-chain tree it commits to, its profile, its taptree (whose root is m),
-// the operator key its scripts embed, and the outpoint that holds it.
+// the operator key and tree_id its scripts embed, and the outpoint that
+// holds it. TreeID is the voucher binding of spec 6.2: its CLAIM scripts
+// carry it as a constant, and SignVoucher signs over it.
 type TreeState struct {
 	Tree        *tree.Tree
 	Sparse      bool
 	TapTree     *TapTree
 	OperatorKey [32]byte
+	TreeID      [32]byte
 	OutPoint    wire.OutPoint
 }
 
@@ -428,21 +431,22 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 }
 
 // SignVoucher is the source owner's voucher for a CLAIM (spec 7.5): a
-// BIP-340 signature over H_voucher(m || source || claim). It commits to no
-// transaction, so it is made off-chain, before any CLAIM is built.
-func SignVoucher(ownerKey *btcec.PrivateKey, merkleRoot [32]byte, source,
+// BIP-340 signature over H_voucher(tree_id || source || claim), treeID being
+// the tree's TreeState.TreeID. It commits to no transaction, so it is made
+// off-chain, before any CLAIM is built.
+func SignVoucher(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf) ([]byte, error) {
 
-	msg := tree.VoucherMsg(merkleRoot, source, claim)
+	msg := tree.VoucherMsg(treeID, source, claim)
 	return SignSchnorr(ownerKey, msg[:])
 }
 
 // SignVoucherH is the voucher for a CLAIM^h (spec 7.5.1): a signature over
-// H_voucher_h(m || source || claim || payment_hash).
-func SignVoucherH(ownerKey *btcec.PrivateKey, merkleRoot [32]byte, source,
+// H_voucher_h(tree_id || source || claim || payment_hash).
+func SignVoucherH(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf, paymentHash [32]byte) ([]byte, error) {
 
-	msg := tree.VoucherHMsg(merkleRoot, source, claim, paymentHash)
+	msg := tree.VoucherHMsg(treeID, source, claim, paymentHash)
 	return SignSchnorr(ownerKey, msg[:])
 }
 

@@ -17,7 +17,13 @@ import layertree_min as N  # noqa: E402
 from script_sim import TxContext, assemble, pubkey_x  # noqa: E402
 
 OP_KEY = pubkey_x(lt.sha256(b"operator"))
-out = {"operator_key": OP_KEY.hex(), "scripts": {}}
+# Every tier's vouchers bind the tree's tree_id (spec 6.2, 7.5), a constant
+# of the CLAIM scripts; the vector fixes the RECOMMENDED derivation over a
+# placeholder creation outpoint and every CLAIM below is built over it.
+TXID = lt.sha256(b"creation-txid")
+TREE_ID = lt.tree_id(TXID, 0)
+out = {"operator_key": OP_KEY.hex(), "tree_id": {"txid": TXID.hex(), "vout": 0, "tree_id": TREE_ID.hex()},
+       "scripts": {}}
 
 
 def add(tier, profile, depth, name, toks, mode):
@@ -27,15 +33,15 @@ def add(tier, profile, depth, name, toks, mode):
         "tapleaf_hash": lt.tapleaf_hash(script, 0xc2 if mode == "c2" else 0xc0).hex()}
 
 
-for name, toks in F.all_scripts(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
+for name, toks in F.all_scripts(4, OP_KEY, (0, 2), (1, 2), "D", (2,), TREE_ID).items():
     add("FULL", "D", 4, name, toks, "c2")
 add("FULL", "D", 4, "EVICT_SUBTREE_2", F.evict_subtree_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 16, "EXIT_1", F.exit_script(16, 1, "D"), "c2")
-for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S", (2,)).items():
+for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S", (2,), TREE_ID).items():
     add("FULL", "S", 8, name, toks, "c2")
-for name, toks in M.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,)).items():
+for name, toks in M.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,), tree_id=TREE_ID).items():
     add("MID", "D", 4, name, toks, "c0")
-for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,)).items():
+for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,), tree_id=TREE_ID).items():
     add("MID", "S", 8, name, toks, "c0")
 for h in (1, 2):
     add("MID", "D", 4, f"EVICT_SUBTREE_{h}", M.evict_subtree_script(4, h, OP_KEY), "c0")
@@ -54,16 +60,11 @@ for h in (1, 2):
     add("CCV0", "D", 4, f"EVICT_SUBTREE_{h}", CV._evict_subtree_script_ccv0(4, h, OP_KEY), "c0")
 add("CCV0", "D", 4, "SPLIT", CV._split_script_ccv0(4, False), "c0")
 add("CCV0", "S", 8, "SPLIT", CV._split_script_ccv0(8, True), "c0")
-# CCV vouchers bind a per-tree tree_id (spec 4.6, 6.2, 9.6), a constant of
-# the CLAIM scripts; the vector fixes the RECOMMENDED derivation.
-CCV_TXID = lt.sha256(b"creation-txid")
-CCV_TREE_ID = CV.tree_id(CCV_TXID, 0)
-out["ccv_tree_id"] = {"txid": CCV_TXID.hex(), "vout": 0, "tree_id": CCV_TREE_ID.hex()}
 for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
-    add("CCV", "D", 4, nm, CV.claim_script_ccv(4, CCV_TREE_ID, "D", hl), "c2")
-    add("CCV", "S", 8, nm, CV.claim_script_ccv(8, CCV_TREE_ID, "S", hl), "c2")
-    add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, CCV_TREE_ID, False, hl), "c0")
-    add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, CCV_TREE_ID, True, hl), "c0")
+    add("CCV", "D", 4, nm, CV.claim_script_ccv(4, TREE_ID, "D", hl), "c2")
+    add("CCV", "S", 8, nm, CV.claim_script_ccv(8, TREE_ID, "S", hl), "c2")
+    add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, TREE_ID, False, hl), "c0")
+    add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, TREE_ID, True, hl), "c0")
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
@@ -78,10 +79,10 @@ add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=Tru
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
 add("MID", "S", 8, "UPDATE_X", M.update_script(8, OP_KEY, True, exit_consent=True), "c0")
-add("FULL", "D", 4, "CLAIM_H", F.claim_script(4, "D", hashlock=True), "c2")
-add("FULL", "S", 8, "CLAIM_H", F.claim_script(8, "S", hashlock=True), "c2")
-add("MID", "D", 4, "CLAIM_H", M.claim_script(4, False, hashlock=True), "c0")
-add("MID", "S", 8, "CLAIM_H", M.claim_script(8, True, hashlock=True), "c0")
+add("FULL", "D", 4, "CLAIM_H", F.claim_script(4, TREE_ID, "D", hashlock=True), "c2")
+add("FULL", "S", 8, "CLAIM_H", F.claim_script(8, TREE_ID, "S", hashlock=True), "c2")
+add("MID", "D", 4, "CLAIM_H", M.claim_script(4, TREE_ID, False, hashlock=True), "c0")
+add("MID", "S", 8, "CLAIM_H", M.claim_script(8, TREE_ID, True, hashlock=True), "c0")
 add("FULL", "D", 4, "SPLIT", F.split_script(4, "D"), "c2")
 add("FULL", "S", 8, "SPLIT", F.split_script(8, "S"), "c2")
 add("MID", "D", 4, "SPLIT", M.split_script(4, False), "c0")
@@ -89,13 +90,13 @@ add("MID", "S", 8, "SPLIT", M.split_script(8, True), "c0")
 add("MIN", "D", 4, "SPLIT", N.split_script(4), "c0")
 add("CCV", "D", 4, "SPLIT", CV.split_script_ccv(4, "D"), "c2")
 add("CCV", "S", 8, "SPLIT", CV.split_script_ccv(8, "S"), "c2")
-add("FULL", "D", 4, "CLAIM_X", F.claim_script(4, "D", exit_consent=True), "c2")
-add("FULL", "S", 8, "CLAIM_X", F.claim_script(8, "S", exit_consent=True), "c2")
-add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, "D", hashlock=True, exit_consent=True), "c2")
-add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, "S", hashlock=True, exit_consent=True), "c2")
+add("FULL", "D", 4, "CLAIM_X", F.claim_script(4, TREE_ID, "D", exit_consent=True), "c2")
+add("FULL", "S", 8, "CLAIM_X", F.claim_script(8, TREE_ID, "S", exit_consent=True), "c2")
+add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, TREE_ID, "D", hashlock=True, exit_consent=True), "c2")
+add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, TREE_ID, "S", hashlock=True, exit_consent=True), "c2")
 add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
-add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY)), "c2")
+add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

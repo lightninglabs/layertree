@@ -37,6 +37,7 @@ from script_sim import (Interp, ScriptError, TxContext, assemble, pubkey_x,  # n
 FAILS = 0
 CHECKS = 0
 P2WPKH = b"\x00\x14" + bytes(20)
+TREE_ID = lt.tree_id(lt.sha256(b"creation-txid"), 0)   # the suites' shared tree_id (spec 6.2)
 MTP = 1_700_000_000           # median time past: any S + n lock time is final
 
 # Appendix C.7: the channel scripts use these opcodes and nothing else.
@@ -215,9 +216,10 @@ class TreeHost:
         self.chain, self.depth = chain, depth
         self.op_sk = sk("operator")
         self.op_pk = pubkey_x(self.op_sk)
-        scripts = ls.all_scripts(depth, self.op_pk, (0,), (1,), "D")
+        self.tree_id = TREE_ID
+        scripts = ls.all_scripts(depth, self.op_pk, (0,), (1,), "D", tree_id=self.tree_id)
         scripts["EXIT_1"] = ls.exit_script(depth, 1, "D", exact=True)
-        scripts["CLAIM_H"] = ls.claim_script(depth, "D", hashlock=True)
+        scripts["CLAIM_H"] = ls.claim_script(depth, self.tree_id, "D", hashlock=True)
         self.names = list(scripts)
         self.compiled = [assemble(s) for s in scripts.values()]
         self.m = lt.taptree_root([lt.tapleaf_hash(s) for s in self.compiled])
@@ -669,7 +671,7 @@ def test_deadlines(verbose=True):
         bought = lt.Leaf(40_000, pubkey_x(sk("bought-exit")), pubkey_x(sk("bought-owner")),
                          host.op_pk, 0, 3, 0)
         s_bought = 9
-        vsig = schnorr_sign(lt.voucher_h_msg(host.m, op_leaf, bought, ph), sk("operator-owner"))
+        vsig = schnorr_sign(lt.voucher_h_msg(host.tree_id, op_leaf, bought, ph), sk("operator-owner"))
         t = chain.height
         E = t + delta
         u_claim, v_claim = sk("U-claim"), sk("V-claim")

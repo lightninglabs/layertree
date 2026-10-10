@@ -410,10 +410,10 @@ theorem claimedSource_amount (src : Leaf) (v : Nat) (hv : v ≤ src.amount) :
 
 `auth` is opaque, so this structure covers both voucher forms of the spec.
 Plain `CLAIM` (7.5) instantiates it with "`voucher_sig` verifies under
-`src.owner_key` over `H_voucher(m ‖ src ‖ claim)`"; the hash-locked
+`src.owner_key` over `H_voucher(tree_id ‖ src ‖ claim)`"; the hash-locked
 `CLAIM^h` (7.5.1) instantiates it with "`preimage` is 32 bytes and
 `voucher_sig` verifies under `src.owner_key` over
-`H_voucher_h(m ‖ src ‖ claim ‖ SHA256(preimage))`". The hash lock changes
+`H_voucher_h(tree_id ‖ src ‖ claim ‖ SHA256(preimage))`". The hash lock changes
 who may redeem and when, never what the redemption does to the tree, so
 `claim_sound` below applies verbatim to both and the model needs no case
 for the variant. -/

@@ -409,8 +409,9 @@ def test_quarantine():
                       ("CCV 0xC2", TC.ALLOWED), ("CCV 0xC0", TC.C0_OPCODES)):
         check(U.MSU not in ops, f"quarantine: {name} allowed set excludes OP_MERKLESUMUPDATE")
     key = pubkey_x(lt.sha256(b"operator"))
-    sets = [F.all_scripts(4, key, (0, 2), (1, 2), "D", (2,)), F.all_scripts(8, key, (0,), (1,), "S", (2,)),
-            M.all_scripts(4, key, False), M.all_scripts(8, key, True),
+    tid = TS.TREE_ID
+    sets = [F.all_scripts(4, key, (0, 2), (1, 2), "D", (2,), tid), F.all_scripts(8, key, (0,), (1,), "S", (2,), tid),
+            M.all_scripts(4, key, False, tree_id=tid), M.all_scripts(8, key, True, tree_id=tid),
             {"EXIT_1": N.exit_script(4), "SPLIT": N.split_script(4)},
             CV.all_scripts_ccv(4, key, (0, 2), (1, 2), "D", (2,)), CV.all_scripts_ccv(8, key, (0,), (1,), "S", (2,)),
             CV.all_scripts_ccv(4, key, (0, 2), (1, 2), "D", (2,), numeric="c0")]

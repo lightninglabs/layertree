@@ -398,16 +398,22 @@ What did not change, and why:
   trade (exact payouts, exogenous fees) rather than FULL's
   fee-from-payout option.
 * **CLAIM and CLAIM^h bind a `tree_id` instead of `m`.** The voucher
-  message of the other tiers binds `m`, which the CCV witness no longer
-  carries and which BIP-443 exposes only as an operand special value,
+  message of the other tiers bound `m`, which the CCV witness does not
+  carry and which BIP-443 exposes only as an operand special value,
   never as a stack item. Dropping `m` alone would let a voucher replay
-  across two trees sharing an owner key, so the CCV tier's vouchers bind
-  a per-tree constant `tree_id` baked into the scripts (spec 4.6, 9.6);
-  since every CCV script carries it, `m` differs per tree as before.
-  These are the only CCV scripts that need `OP_CHECKSIGFROMSTACK`, so
-  they are tree-creation options like `SPLIT`. `CLAIM^h` signs the same
-  message plus the payment hash. Open work item 8 of `design/status.md`
-  asks whether every tier should adopt `tree_id`.
+  across two trees sharing an owner key, so the CCV tier's vouchers bound
+  a per-tree constant `tree_id` baked into the scripts. The paper review
+  (`paper/reviews/crypto.md`, finding 6) then showed that `m` never did
+  the job in FULL and MID either: it names a rule set, which two trees
+  with the same parameters share, so a voucher over `m` verified in both
+  against identical source-leaf bytes. Since spec 0.10.0 every tier binds
+  `tree_id` (6.2, 7.5): a creation parameter, unique per lineage, carried
+  by every `CLAIM` script as a constant and inherited across a
+  `DETACH_h`, so vouchers survive a detach. The CCV scripts now share the
+  FULL and MID voucher checks token for token. `CLAIM` and `CLAIM^h` are
+  the only CCV scripts that need `OP_CHECKSIGFROMSTACK`, so they are
+  tree-creation options like `SPLIT`. `CLAIM^h` signs the same message
+  plus the payment hash.
 * **SPLIT is in.** It is authorised by the source owner's transaction
   signature, which commits to the spent scriptPubKey without naming `m`,
   so the FULL carve body carries over with only the binding swapped:
@@ -433,7 +439,7 @@ What did not change, and why:
 * Hash-locked vouchers and swap flows (spec 13.6): judged at the time to
   belong with the liquidity-marketplace design in the notes rather than the
   base protocol. Reversed later: they are now specified and implemented as
-  `CLAIM^h` (spec 7.5.1, 9.6.1, 10.3), which cost 9 bytes of script over
+  `CLAIM^h` (spec 7.5.1, 9.6.1, 10.3), which cost 8 bytes of script over
   `CLAIM` and no new opcode.
 * MuSig2 adaptor signatures (from `design/layertree.md`): an off-chain
   concern for channel leaves and swaps; nothing in the base protocol needs

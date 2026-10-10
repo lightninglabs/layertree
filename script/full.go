@@ -497,15 +497,16 @@ func fullUpdateScript(depth int, operatorKey [32]byte, sparse,
 // SPLIT. They pick the authorisation check and nothing else: everything from
 // the leaf size check onward is identical in all three.
 const (
-	authVoucher  = "voucher"  // CLAIM: a voucher signature over m||src||claim
+	authVoucher  = "voucher"  // CLAIM: a voucher signature over tree_id||src||claim
 	authHashlock = "hashlock" // CLAIM^h: the same, plus SHA256(preimage)
 	authOwner    = "owner"    // SPLIT: the owner's transaction signature
 )
 
-// FullClaimScript is CLAIM (spec 8.7):
+// FullClaimScript is CLAIM (spec 8.6):
 // witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m.
-func FullClaimScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authVoucher, false)
+// treeID is the tree's voucher binding (spec 6.2), a constant of the script.
+func FullClaimScript(depth int, treeID [32]byte, sparse bool) []Token {
+	return fullCarveScript(depth, treeID, sparse, authVoucher, false)
 }
 
 // FullClaimXScript is CLAIM^x, the exit-consent variant of CLAIM (spec
@@ -515,15 +516,15 @@ func FullClaimScript(depth int, sparse bool) []Token {
 // UPDATE^x adds to UPDATE. It is a tree-creation parameter: it makes a
 // dedicated credit leaf trust-free (10.3) because the issuer, who owns the
 // leaf, cannot carve it without the holder of its exit key.
-func FullClaimXScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authVoucher, true)
+func FullClaimXScript(depth int, treeID [32]byte, sparse bool) []Token {
+	return fullCarveScript(depth, treeID, sparse, authVoucher, true)
 }
 
 // FullClaimHXScript is CLAIM^hx, the hash-locked voucher with exit-key
 // consent (spec 7.5.3): CLAIM^h's witness with exit_sig between the preimage
 // and root.
-func FullClaimHXScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authHashlock, true)
+func FullClaimHXScript(depth int, treeID [32]byte, sparse bool) []Token {
+	return fullCarveScript(depth, treeID, sparse, authHashlock, true)
 }
 
 // FullClaimHScript is CLAIM^h, the hash-locked voucher variant of CLAIM
@@ -534,8 +535,8 @@ func FullClaimHXScript(depth int, sparse bool) []Token {
 // copy; it computes it from the preimage and feeds it to the message, so a
 // wrong preimage fails as a bad signature. It is a tree-creation parameter: a
 // tree uses either CLAIM or CLAIM^h, never both.
-func FullClaimHScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authHashlock, false)
+func FullClaimHScript(depth int, treeID [32]byte, sparse bool) []Token {
+	return fullCarveScript(depth, treeID, sparse, authHashlock, false)
 }
 
 // FullSplitScript is SPLIT (spec 7.5.2): CLAIM authorised by the owner's
@@ -544,51 +545,60 @@ func FullClaimHScript(depth int, sparse bool) []Token {
 // the seq increment, the drained-source rule and conservation are exactly
 // CLAIM's; only the authorisation differs, which is why it shares CLAIM's
 // body. Like CLAIM^h it is a tree-creation parameter and stays out of the
-// reference taptree.
+// reference taptree. It carries no tree_id: nothing in it signs a message.
 func FullSplitScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, sparse, authOwner, false)
+	return fullCarveScript(depth, [32]byte{}, sparse, authOwner, false)
+}
+
+// fullVoucherAuth is the voucher check of CLAIM and CLAIM^h (spec 7.5 rule
+// 1, 7.5.1 rule 1), shared with the CCV tier: [src claim vsig] -> [src
+// claim], with SHA256(preimage) parked on the altstack beforehand under
+// hashlock. The message is H_voucher(tree_id || src || claim) with tree_id
+// a constant of the script, so the check needs no copy of m
+// (tools/layertree_scripts.py voucher_auth).
+func fullVoucherAuth(treeID [32]byte, hashlock bool) []Token {
+	s := []Token{
+		Num(2), Op(ts.OP_PICK), Num(2), Op(ts.OP_PICK), Op(OP_CAT), // src claim vsig (src||claim)
+		Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // (tree_id||src||claim)
+	}
+	prefix := fullVoucherPrefix
+	if hashlock {
+		s = append(s, Op(ts.OP_FROMALTSTACK), Op(OP_CAT)) // (tree_id||src||claim||phash)
+		prefix = fullVoucherHPrefix
+	}
+	s = append(s, fullTagged(prefix)...) // src claim vsig msg
+	return append(s,
+		Num(3), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
+		Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // src claim
+	)
 }
 
 // fullCarveScript is the shared body of CLAIM, CLAIM^h and SPLIT: carve a new
 // leaf out of an existing one. auth selects the authorisation and nothing
 // else. exitConsent (CLAIM^x, CLAIM^hx) consumes one more witness element,
-// exit_sig, directly below root, before anything else: it is lifted over the
-// spare copy of m and checked against src_leaf.exit_key, so every stack depth
-// below is as in the plain form. Eight bytes over the plain script.
-func fullCarveScript(depth int, sparse bool, auth string,
+// exit_sig, directly below root, before anything else, checked against
+// src_leaf.exit_key, so every stack depth below is as in the plain form.
+// Seven bytes over the plain script, as UPDATE^x over UPDATE.
+func fullCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
 	exitConsent bool) []Token {
 
 	hashlock := auth == authHashlock
-	s := fullCat(
-		[]Token{
-			Num(SelCurrInput), Op(OP_TX), Op(ts.OP_0), Op(ts.OP_NUMEQUALVERIFY),
-			Op(ts.OP_2DUP),
-		},
-		fullTreeSPK(),
-		[]Token{
-			Num(SelInSpk), Op(OP_TX), Op(ts.OP_EQUALVERIFY),
-			Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), Op(ts.OP_SWAP),
-			Op(ts.OP_TOALTSTACK), // src claim vsig [pre] [xsig] m | m r
-		},
-	)
+	s := fullPrologue() // src claim sig [pre] [xsig] | m r
 	if exitConsent {
-		// src is 4 deep under xsig, 5 with the preimage in between.
-		srcDepth := int64(4)
+		// src is 3 deep under xsig, 4 with the preimage in between.
+		srcDepth := int64(3)
 		if hashlock {
-			srcDepth = 5
+			srcDepth = 4
 		}
 		s = fullCat(s, []Token{
-			Op(ts.OP_SWAP), Num(srcDepth), Op(ts.OP_PICK),
+			Num(srcDepth), Op(ts.OP_PICK),
 			Num(fullOffExitKey), Num(32), Op(OP_SUBSTR),
-			Op(ts.OP_CHECKSIGVERIFY), // src claim vsig [pre] m
+			Op(ts.OP_CHECKSIGVERIFY), // src claim sig [pre]
 		})
 	}
 	if auth == authOwner {
 		// SPLIT: the owner signs the transaction, so no message is rebuilt.
-		// Drop the spare copy of m, which only the voucher message needed,
-		// and check the signature against src.owner_key.
 		s = fullCat(s, []Token{
-			Op(ts.OP_DROP), // src claim sig
 			Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32),
 			Op(OP_SUBSTR),            // src claim sig owner_key
 			Op(ts.OP_CHECKSIGVERIFY), // src claim
@@ -598,30 +608,11 @@ func fullCarveScript(depth int, sparse bool, auth string,
 			// Park SHA256(preimage) on the altstack so that every stack depth
 			// below is exactly as in CLAIM.
 			s = fullCat(s, []Token{
-				Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
-				Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK), // src claim vsig m | m r phash
+				Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
+				Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK), // src claim vsig | m r phash
 			})
 		}
-		s = fullCat(s,
-			[]Token{
-				Num(3), Op(ts.OP_PICK), Num(3), Op(ts.OP_PICK), Op(OP_CAT), Op(OP_CAT),
-			},
-		)
-		if hashlock {
-			// msg = m || src || claim || phash
-			s = fullCat(s, []Token{Op(ts.OP_FROMALTSTACK), Op(OP_CAT)})
-		}
-		voucherPrefix := fullVoucherPrefix
-		if hashlock {
-			voucherPrefix = fullVoucherHPrefix
-		}
-		s = fullCat(s,
-			fullTagged(voucherPrefix), // src claim vsig msg
-			[]Token{
-				Num(3), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
-				Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // src claim
-			},
-		)
+		s = fullCat(s, fullVoucherAuth(treeID, hashlock)) // src claim
 	}
 	// Everything below is the shared carve body: both steps and FINAL.
 	// Stack on entry: src claim ; altstack: m r.
@@ -960,16 +951,17 @@ func FullRewriteScript(depth, height int, operatorKey [32]byte,
 
 // FullDetachedTaptreeRoot is m_h for DETACH_h (spec 7.10 rule 3): the tree
 // identifier of the reference script set of 6.2 compiled for depth h with
-// the same operator key, in the generator's order: EXIT_1, EXIT_2, JOIN_0,
-// JOINK_2, UPDATE, CLAIM.
-func FullDetachedTaptreeRoot(height int, operatorKey [32]byte) [32]byte {
+// the same operator key and the same tree_id, in the generator's order:
+// EXIT_1, EXIT_2, JOIN_0, JOINK_2, UPDATE, CLAIM. The detached tree inherits
+// tree_id, so vouchers against its leaves survive the detach.
+func FullDetachedTaptreeRoot(height int, operatorKey, treeID [32]byte) [32]byte {
 	scripts := [][]Token{
 		FullExitScript(height, 1, false),
 		FullExitScript(height, 2, false),
 		FullJoinScript(height, 0, operatorKey, false, 1),
 		FullJoinScript(height, 0, operatorKey, false, 2),
 		FullUpdateScript(height, operatorKey, false),
-		FullClaimScript(height, false),
+		FullClaimScript(height, treeID, false),
 	}
 	leaves := make([][32]byte, 0, len(scripts))
 	for _, toks := range scripts {
@@ -1014,9 +1006,10 @@ func FullDetachScript(depth, height int, operatorKey [32]byte,
 
 // FullAllScripts returns the FULL-tier taptree script set for a tree, keyed
 // exactly as tools/layertree_scripts.py's all_scripts: "EXIT_%d", "JOIN_%d",
-// "JOINK_%d", "UPDATE" and "CLAIM". In the sparse profile only height 0
-// joins exist, so joinHeights is ignored there.
-func FullAllScripts(depth int, operatorKey [32]byte, sparse bool,
+// "JOINK_%d", "UPDATE" and "CLAIM". treeID is the tree's voucher binding
+// (spec 6.2), which CLAIM carries as a constant. In the sparse profile only
+// height 0 joins exist, so joinHeights is ignored there.
+func FullAllScripts(depth int, operatorKey, treeID [32]byte, sparse bool,
 	joinHeights, exitKs, joinKs []int) map[string][]Token {
 
 	out := make(map[string][]Token)
@@ -1038,6 +1031,6 @@ func FullAllScripts(depth int, operatorKey [32]byte, sparse bool,
 		)
 	}
 	out["UPDATE"] = FullUpdateScript(depth, operatorKey, sparse)
-	out["CLAIM"] = FullClaimScript(depth, sparse)
+	out["CLAIM"] = FullClaimScript(depth, treeID, sparse)
 	return out
 }

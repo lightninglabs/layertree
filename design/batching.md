@@ -228,17 +228,17 @@ property of the deployment into a lever the operator can pull when a
 cohort's leaves become time-sensitive, for instance channel leaves whose
 HTLC deadlines are near (C.9.5).
 
-Two consequences need rules, and one that looked like a consequence is
-not. Vouchers bind `m`, and `CLAIM` re-derives `m` from the input it
-spends, so a voucher issued against a leaf in a detached subtree must be
-reissued under `m_h`; the issuer's obligation of 9.6 to rebuild vouchers
-after a source-leaf change extends to a detach. (A voucher bound to a
-tree identifier that a detach preserves would remove this, and is the
-same change the CCV tier needs to carry `CLAIM`.) And the detach spends
-nobody's balance, but it changes everyone's exit path, so it is the
-operator's decision, like `JOIN_h`; a per-cohort parameter chosen at
-graft time would be a format change for no gain, since a detach can only
-shorten a member's path.
+One consequence needs a rule, one that needed a rule no longer does,
+and one that looked like a consequence is not. Vouchers used to bind
+`m`, which `CLAIM` re-derives from the input it spends, so a voucher
+against a leaf in a detached subtree had to be reissued under `m_h`.
+Since spec 0.10.0 vouchers bind `tree_id` (6.2, 7.5), which the detached
+tree inherits and whose `CLAIM` carries as a constant, so a voucher
+issued in the parent redeems in the child as issued; the test suite
+checks exactly that. And the detach spends nobody's balance, but it
+changes everyone's exit path, so it is the operator's decision, like
+`JOIN_h`; a per-cohort parameter chosen at graft time would be a format
+change for no gain, since a detach can only shorten a member's path.
 
 Channel leaves need nothing. `chan_id` (C.2.2) binds `m`, but as a
 constant baked into the channel scripts of the leaf's `exit_key` at

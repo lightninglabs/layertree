@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	ts "github.com/btcsuite/btcd/txscript"
+
+	"github.com/roasbeef/layertree/tree"
 )
 
 // goldenScript is one entry of spec/golden.json's "scripts" map.
@@ -20,9 +22,14 @@ type goldenScript struct {
 
 // goldenFile is the subset of spec/golden.json this package checks.
 type goldenFile struct {
-	OperatorKey string                  `json:"operator_key"`
-	Scripts     map[string]goldenScript `json:"scripts"`
-	TaptreeD4   struct {
+	OperatorKey string `json:"operator_key"`
+	TreeID      struct {
+		Txid   string `json:"txid"`
+		Vout   uint32 `json:"vout"`
+		TreeID string `json:"tree_id"`
+	} `json:"tree_id"`
+	Scripts   map[string]goldenScript `json:"scripts"`
+	TaptreeD4 struct {
 		LeafHashes []string `json:"leaf_hashes"`
 		MerkleRoot string   `json:"merkle_root"`
 	} `json:"taptree_full_d4"`
@@ -47,10 +54,28 @@ func loadGolden(t *testing.T) (*goldenFile, [32]byte) {
 	return &g, key
 }
 
+// goldenTreeID is the tree_id every golden CLAIM was built over, checked
+// against the RECOMMENDED derivation (spec 6.2) from the vector's creation
+// outpoint.
+func goldenTreeID(t *testing.T, g *goldenFile) [32]byte {
+	t.Helper()
+	txb, err := hex.DecodeString(g.TreeID.Txid)
+	if err != nil || len(txb) != 32 {
+		t.Fatalf("bad tree_id txid %q", g.TreeID.Txid)
+	}
+	var txid [32]byte
+	copy(txid[:], txb)
+	id := tree.TreeID(txid, g.TreeID.Vout)
+	if hex.EncodeToString(id[:]) != g.TreeID.TreeID {
+		t.Fatalf("tree_id %x, want %s", id, g.TreeID.TreeID)
+	}
+	return id
+}
+
 // fullScriptFor builds the FULL-tier script named by a golden key's profile,
 // depth and name, e.g. ("D", 4, "JOINK_2").
 func fullScriptFor(profile string, depth int, name string,
-	key [32]byte) ([]Token, error) {
+	key, treeID [32]byte) ([]Token, error) {
 
 	sparse := profile == "S"
 	var n int
@@ -60,13 +85,13 @@ func fullScriptFor(profile string, depth int, name string,
 	case name == "UPDATE_X":
 		return FullUpdateXScript(depth, key, sparse), nil
 	case name == "CLAIM":
-		return FullClaimScript(depth, sparse), nil
+		return FullClaimScript(depth, treeID, sparse), nil
 	case name == "CLAIM_H":
-		return FullClaimHScript(depth, sparse), nil
+		return FullClaimHScript(depth, treeID, sparse), nil
 	case name == "CLAIM_X":
-		return FullClaimXScript(depth, sparse), nil
+		return FullClaimXScript(depth, treeID, sparse), nil
 	case name == "CLAIM_HX":
-		return FullClaimHXScript(depth, sparse), nil
+		return FullClaimHXScript(depth, treeID, sparse), nil
 	case name == "SPLIT":
 		return FullSplitScript(depth, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
@@ -103,7 +128,7 @@ func fullScriptFor(profile string, depth int, name string,
 		if _, err := fmt.Sscanf(name, "DETACH_%d", &n); err != nil {
 			return nil, err
 		}
-		return FullDetachScript(depth, n, key, FullDetachedTaptreeRoot(n, key)), nil
+		return FullDetachScript(depth, n, key, FullDetachedTaptreeRoot(n, key, treeID)), nil
 	}
 	return nil, fmt.Errorf("unknown script name %q", name)
 }
@@ -216,6 +241,7 @@ func reportMismatch(t *testing.T, key string, toks []Token, got, want []byte) {
 // compiled script bytes and the tapleaf hash (spec section 8).
 func TestFullScriptsMatchGolden(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
 	var checked int
 	for k, want := range g.Scripts {
@@ -228,7 +254,7 @@ func TestFullScriptsMatchGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			toks, err := fullScriptFor(profile, depth, name, key)
+			toks, err := fullScriptFor(profile, depth, name, key, treeID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -295,24 +321,25 @@ func fullCheckScript(t *testing.T, g *goldenFile, key string, toks []Token) {
 // taptree.
 func TestFullClaimH(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
-	fullCheckScript(t, g, "FULL/D/D4/CLAIM_H", FullClaimHScript(4, false))
-	fullCheckScript(t, g, "FULL/S/D8/CLAIM_H", FullClaimHScript(8, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_H", FullClaimHScript(4, treeID, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_H", FullClaimHScript(8, treeID, true))
 
-	// The two insertions and the tag swap cost exactly nine bytes.
+	// The two insertions and the tag swap cost exactly eight bytes.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		plain := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
-		hl := MustAssemble(FullClaimHScript(tc.depth, tc.sparse), ModeC2)
-		if len(hl)-len(plain) != 9 {
+		plain := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse), ModeC2)
+		hl := MustAssemble(FullClaimHScript(tc.depth, treeID, tc.sparse), ModeC2)
+		if len(hl)-len(plain) != 8 {
 			t.Errorf("depth %d sparse %v: CLAIM^h is %d bytes over CLAIM, "+
-				"want 9", tc.depth, tc.sparse, len(hl)-len(plain))
+				"want 8", tc.depth, tc.sparse, len(hl)-len(plain))
 		}
 	}
 
-	if _, ok := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2},
+	if _, ok := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2},
 		[]int{2})["CLAIM_H"]; ok {
 
 		t.Error("CLAIM_H must stay out of FullAllScripts")
@@ -324,33 +351,34 @@ func TestFullClaimH(t *testing.T) {
 // and stay out of FullAllScripts.
 func TestFullClaimX(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
-	fullCheckScript(t, g, "FULL/D/D4/CLAIM_X", FullClaimXScript(4, false))
-	fullCheckScript(t, g, "FULL/S/D8/CLAIM_X", FullClaimXScript(8, true))
-	fullCheckScript(t, g, "FULL/D/D4/CLAIM_HX", FullClaimHXScript(4, false))
-	fullCheckScript(t, g, "FULL/S/D8/CLAIM_HX", FullClaimHXScript(8, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_X", FullClaimXScript(4, treeID, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_X", FullClaimXScript(8, treeID, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_HX", FullClaimHXScript(4, treeID, false))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_HX", FullClaimHXScript(8, treeID, true))
 
-	// The exit-key check costs exactly eight bytes over the plain form in
-	// both the plain and the hash-locked carve.
+	// The exit-key check costs exactly seven bytes over the plain form in
+	// both the plain and the hash-locked carve, as UPDATE^x over UPDATE.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		plain := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
-		x := MustAssemble(FullClaimXScript(tc.depth, tc.sparse), ModeC2)
-		if len(x)-len(plain) != 8 {
+		plain := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse), ModeC2)
+		x := MustAssemble(FullClaimXScript(tc.depth, treeID, tc.sparse), ModeC2)
+		if len(x)-len(plain) != 7 {
 			t.Errorf("depth %d sparse %v: CLAIM^x is %d bytes over CLAIM, "+
-				"want 8", tc.depth, tc.sparse, len(x)-len(plain))
+				"want 7", tc.depth, tc.sparse, len(x)-len(plain))
 		}
-		h := MustAssemble(FullClaimHScript(tc.depth, tc.sparse), ModeC2)
-		hx := MustAssemble(FullClaimHXScript(tc.depth, tc.sparse), ModeC2)
-		if len(hx)-len(h) != 8 {
+		h := MustAssemble(FullClaimHScript(tc.depth, treeID, tc.sparse), ModeC2)
+		hx := MustAssemble(FullClaimHXScript(tc.depth, treeID, tc.sparse), ModeC2)
+		if len(hx)-len(h) != 7 {
 			t.Errorf("depth %d sparse %v: CLAIM^hx is %d bytes over CLAIM^h, "+
-				"want 8", tc.depth, tc.sparse, len(hx)-len(h))
+				"want 7", tc.depth, tc.sparse, len(hx)-len(h))
 		}
 	}
 
-	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2})
 	for _, name := range []string{"CLAIM_X", "CLAIM_HX"} {
 		if _, ok := set[name]; ok {
 			t.Errorf("%s must stay out of FullAllScripts", name)
@@ -363,25 +391,27 @@ func TestFullClaimX(t *testing.T) {
 // tree-creation parameter and stays out of FullAllScripts.
 func TestFullSplit(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
 	fullCheckScript(t, g, "FULL/D/D4/SPLIT", FullSplitScript(4, false))
 	fullCheckScript(t, g, "FULL/S/D8/SPLIT", FullSplitScript(8, true))
 
-	// Replacing the voucher message and OP_CHECKSIGFROMSTACK with an
-	// OP_CHECKSIGVERIFY over src.owner_key saves exactly 74 bytes.
+	// Replacing the voucher message, with its 33-byte tree_id push, and
+	// OP_CHECKSIGFROMSTACK with an OP_CHECKSIGVERIFY over src.owner_key
+	// saves exactly 109 bytes.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		claim := MustAssemble(FullClaimScript(tc.depth, tc.sparse), ModeC2)
+		claim := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse), ModeC2)
 		split := MustAssemble(FullSplitScript(tc.depth, tc.sparse), ModeC2)
-		if len(claim)-len(split) != 74 {
+		if len(claim)-len(split) != 109 {
 			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
-				"want 74", tc.depth, tc.sparse, len(claim)-len(split))
+				"want 109", tc.depth, tc.sparse, len(claim)-len(split))
 		}
 	}
 
-	if _, ok := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2},
+	if _, ok := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2},
 		[]int{2})["SPLIT"]; ok {
 
 		t.Error("SPLIT must stay out of FullAllScripts")
@@ -394,12 +424,13 @@ func TestFullSplit(t *testing.T) {
 // reference taptree root.
 func TestFullRewriteDetach(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
 	fullCheckScript(t, g, "FULL/D/D4/REWRITE_2",
 		FullRewriteScript(4, 2, key, false))
 	fullCheckScript(t, g, "FULL/D/D4/REWRITE_X_2",
 		FullRewriteScript(4, 2, key, true))
-	mH := FullDetachedTaptreeRoot(2, key)
+	mH := FullDetachedTaptreeRoot(2, key, treeID)
 	fullCheckScript(t, g, "FULL/D/D4/DETACH_2", FullDetachScript(4, 2, key, mH))
 
 	// m_h is a constant of the DETACH script: a different detached script
@@ -411,7 +442,7 @@ func TestFullRewriteDetach(t *testing.T) {
 		t.Error("DETACH_2 does not depend on m_h")
 	}
 
-	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2})
 	for _, name := range []string{"REWRITE_2", "REWRITE_X_2", "DETACH_2"} {
 		if _, ok := set[name]; ok {
 			t.Errorf("%s must stay out of FullAllScripts", name)
@@ -430,10 +461,11 @@ var fullD4Order = []string{
 // scripts and checks its leaf hashes and merkle root (spec 6.3).
 func TestFullTaptreeD4(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
 	leaves := make([][32]byte, 0, len(fullD4Order))
 	for i, name := range fullD4Order {
-		toks, err := fullScriptFor("D", 4, name, key)
+		toks, err := fullScriptFor("D", 4, name, key, treeID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -459,8 +491,9 @@ func TestFullTaptreeD4(t *testing.T) {
 // same scripts under the Python naming.
 func TestFullAllScripts(t *testing.T) {
 	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
 
-	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2})
 	for name, toks := range set {
 		want, ok := g.Scripts["FULL/D/D4/"+name]
 		if !ok {
@@ -474,7 +507,7 @@ func TestFullAllScripts(t *testing.T) {
 		t.Errorf("all_scripts returned %d entries, want 7", len(set))
 	}
 
-	sset := FullAllScripts(8, key, true, nil, []int{1}, []int{2})
+	sset := FullAllScripts(8, key, treeID, true, nil, []int{1}, []int{2})
 	for name, toks := range sset {
 		want, ok := g.Scripts["FULL/S/D8/"+name]
 		if !ok {

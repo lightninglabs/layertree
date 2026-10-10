@@ -20,8 +20,8 @@ OP_KEY = pubkey_x(lt.sha256(b"operator"))
 names = dict(ls.CONST_NAMES)
 names[OP_KEY] = "<OPERATOR_KEY>"
 names[LM.E0_SC] = "<E_0.sc>"
-import layertree_ccv as _CV  # noqa: E402
-names[_CV.tree_id(lt.sha256(b"creation-txid"), 0)] = "<TREE_ID>"
+TREE_ID = test_scripts.TREE_ID
+names[TREE_ID] = "<TREE_ID>"
 for h in range(0, 33):
     names[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
 
@@ -42,10 +42,10 @@ def listing(name, tokens):
 
 
 D = 4
-for name, toks in ls.all_scripts(D, OP_KEY, (0, 2), (1, 2), "D").items():
+for name, toks in ls.all_scripts(D, OP_KEY, (0, 2), (1, 2), "D", tree_id=TREE_ID).items():
     with open(os.path.join(OUT, f"{name}_D{D}.txt"), "w") as f:
         f.write(listing(f"{name} (dense, D={D})", toks))
-for name, toks in ls.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
+for name, toks in ls.all_scripts(8, OP_KEY, (0,), (1,), "S", tree_id=TREE_ID).items():
     with open(os.path.join(OUT, f"{name}_S8.txt"), "w") as f:
         f.write(listing(f"{name} (sparse, D=8)", toks))
 # Tree-creation variants (spec 7.4 rule 5, 7.5.1); not part of all_scripts().
@@ -54,13 +54,13 @@ with open(os.path.join(OUT, f"UPDATE_X_D{D}.txt"), "w") as f:
                     ls.update_script(D, OP_KEY, "D", exit_consent=True)))
 with open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w") as f:
     f.write(listing(f"CLAIM_H (hash-locked voucher, dense, D={D})",
-                    ls.claim_script(D, "D", hashlock=True)))
+                    ls.claim_script(D, TREE_ID, "D", hashlock=True)))
 with open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w") as f:
     f.write(listing(f"SPLIT (owner-authorised carve, dense, D={D})",
                     ls.split_script(D, "D")))
 with open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w") as f:
     f.write(listing(f"CLAIM_X (exit-key consent, dense, D={D})",
-                    ls.claim_script(D, "D", exit_consent=True)))
+                    ls.claim_script(D, TREE_ID, "D", exit_consent=True)))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:
     f.write(listing("LEVEL (dense): one merkle-sum level, both accumulators", ls.level_dense()))
     f.write("\n")
@@ -128,7 +128,7 @@ with open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w") as f:
     f.write(listing("REWRITE_2 (dense, D=8): cohort rewrite of a 4-position subtree", ls.rewrite_script(8, 2, OP_KEY)))
 with open(os.path.join(OUT, "DETACH_2_D8.txt"), "w") as f:
     f.write(listing("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
-                    ls.detach_script(8, 2, OP_KEY, ls.detached_taptree_root(2, OP_KEY))))
+                    ls.detach_script(8, 2, OP_KEY, ls.detached_taptree_root(2, OP_KEY, TREE_ID))))
 # ---- opcode tiers: MID (0xC0 + CAT + OP_TX + CSFS + TWEAKADD) and MIN (0xC0 + CAT + TWEAKADD)
 for d, sparse in ((16, False), (31, True)):
     costs, w = test_mid.test_mid(d, sparse, verbose=False)
@@ -158,7 +158,7 @@ rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit
 script, wit, it = test_min.test_split(16, verbose=False)
 rows.append(("MIN/D", 16, "SPLIT", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
-for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,)).items():
+for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,), tree_id=TREE_ID).items():
     with open(os.path.join(OUT, f"MID_{name}_D4.txt"), "w") as f:
         f.write(listing(f"{name} (MID tier, dense, D=4)", toks))
 with open(os.path.join(OUT, "MID_EVICT_SUBTREE_2_D4.txt"), "w") as f:
@@ -169,7 +169,7 @@ with open(os.path.join(OUT, "MID_UPDATE_X_D4.txt"), "w") as f:
                     LM.update_script(4, OP_KEY, False, exit_consent=True)))
 with open(os.path.join(OUT, "MID_CLAIM_H_D4.txt"), "w") as f:
     f.write(listing("CLAIM_H (MID tier, hash-locked voucher, dense, D=4)",
-                    LM.claim_script(4, False, hashlock=True)))
+                    LM.claim_script(4, TREE_ID, False, hashlock=True)))
 with open(os.path.join(OUT, "MID_SPLIT_D4.txt"), "w") as f:
     f.write(listing("SPLIT (MID tier, owner-authorised carve, dense, D=4)",
                     LM.split_script(4, False)))
@@ -214,11 +214,11 @@ for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31,
                      it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
 for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     with open(os.path.join(OUT, f"CCV_{nm}_D4.txt"), "w") as f:
-        f.write(listing(f"{nm} (CCV tier, tree_id voucher, dense, D=4)",
-                        CV.claim_script_ccv(4, test_ccv.TREE_ID, "D", hl)))
+        f.write(listing(f"{nm} (CCV tier, dense, D=4)",
+                        CV.claim_script_ccv(4, TREE_ID, "D", hl)))
     with open(os.path.join(OUT, f"CCV0_{nm}_D4.txt"), "w") as f:
-        f.write(listing(f"{nm} (CCV tier, 0xC0 numerics, tree_id voucher, dense, D=4)",
-                        CV._claim_script_ccv0(4, test_ccv.TREE_ID, False, hl)))
+        f.write(listing(f"{nm} (CCV tier, 0xC0 numerics, dense, D=4)",
+                        CV._claim_script_ccv0(4, TREE_ID, False, hl)))
 with open(os.path.join(OUT, "CCV0_SPLIT_D4.txt"), "w") as f:
     f.write(listing("SPLIT (CCV tier, 0xC0 numerics, owner-authorised carve, dense, D=4)",
                     CV._split_script_ccv0(4, False)))

@@ -1,4 +1,4 @@
-# CLAIM_H (CCV tier, 0xC0 numerics, tree_id voucher, dense, D=4): 2210 bytes
+# CLAIM_H (CCV tier, 0xC0 numerics, dense, D=4): 2210 bytes
 
 OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 OP_TOALTSTACK 27 OP_PICK 27 OP_PICK 27
 OP_PICK 27 OP_PICK 27 OP_PICK 27 OP_PICK 27 OP_PICK OP_CAT OP_CAT OP_CAT

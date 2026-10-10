@@ -252,9 +252,10 @@ def update_script(depth, operator_key, sparse=False, exit_consent=False):
     return s + check_old(sparse) + final(depth)
 
 
-def claim_script(depth, sparse=False, hashlock=False):
-    """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script."""
-    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher")
+def claim_script(depth, tree_id, sparse=False, hashlock=False):
+    """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script. tree_id is the
+    tree's 32-byte voucher binding (6.2), a constant of the script."""
+    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher", tree_id)
 
 
 def split_script(depth, sparse=False):
@@ -263,7 +264,28 @@ def split_script(depth, sparse=False):
     return _carve_script(depth, sparse, "owner")
 
 
-def _carve_script(depth, sparse=False, auth="voucher"):
+def voucher_auth(tree_id, hashlock=False):
+    """The voucher check of CLAIM and CLAIM^h under 0xC0 numerics (spec 7.5
+    rule 1, 7.5.1 rule 1), shared with the CCV tier's 0xC0 scripts:
+    [src(10) claim(10) extras(7) vsig] -> [src(10) claim(10) extras(7)],
+    with SHA256(preimage) parked on the altstack beforehand under hashlock.
+
+    The message H_voucher(tree_id || src || claim) is assembled from the
+    seven leaf fields of each leaf block by fourteen OP_PICKs; src's fields
+    sit 27 deep under vsig, claim's 18 once src_leaf is on the stack, and
+    src.ok (the third field) 26 deep once the message replaces the copies.
+    """
+    assert len(tree_id) == 32
+    s = [27, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig src_leaf
+    s += [18, "OP_PICK"] * 7 + ["OP_CAT"] * 6                       # ... vsig src_leaf claim_leaf
+    s += ["OP_CAT", tree_id, "OP_SWAP", "OP_CAT"]                   # ... vsig (tree_id||src||claim)
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                          # ... (tree_id||src||claim||phash)
+    s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)   # ... vsig msg
+    return s + [26, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # src(10) claim(10) extras(7)
+
+
+def _carve_script(depth, sparse=False, auth="voucher", tree_id=None):
     """witness (bottom..top):
        zf wf [claim levels] [sparse claim: ck cnonce cplo cphi]
        zi wi [src levels] [sparse src: sk snonce splo sphi]
@@ -277,32 +299,20 @@ def _carve_script(depth, sparse=False, auth="voucher"):
     place of the voucher)."""
     assert auth in ("voucher", "hashlock", "owner")
     hashlock = auth == "hashlock"
-    s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
-         "OP_2DUP"] + F.tree_spk_min() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]       # ... extras(7) vsig [pre] m | m r
+    s = prologue()                                                   # ... extras(7) vsig [pre] | m r
     if auth == "owner":
         # SPLIT (7.5.2): the owner signs the transaction, so no message is
-        # rebuilt. Drop the spare m; src.ok then sits 25 deep, since the
-        # witness holds src(10) claim(10) extras(7) below the signature and
-        # the owner key is the third field of the source leaf block.
-        s += ["OP_DROP",                                             # ... extras(7) osig
-              25, "OP_PICK",                                         # ... osig src.ok
+        # rebuilt. src.ok sits 25 deep, since the witness holds src(10)
+        # claim(10) extras(7) below the signature and the owner key is the
+        # third field of the source leaf block.
+        s += [25, "OP_PICK",                                         # ... osig src.ok
               "OP_CHECKSIGVERIFY"]                                   # src(10) claim(10) extras(7)
     else:
         if hashlock:
             # park SHA256(preimage) on the altstack: every pick depth below is as in CLAIM
-            s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
-                  "OP_TOALTSTACK"]                                    # ... vsig m | m r phash
-        # voucher message m || src_leaf || claim_leaf [|| phash]
-        s += [28, "OP_PICK"] * 7 + ["OP_CAT"] * 6                    # ... vsig m src_leaf
-        s += [19, "OP_PICK"] * 7 + ["OP_CAT"] * 6                    # ... vsig m src_leaf claim_leaf
-        s += [2, "OP_PICK", "OP_ROT", "OP_ROT", "OP_CAT", "OP_CAT"]  # ... vsig m (m||src||claim)
-        if hashlock:
-            s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (m||src||claim||phash)
-        s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)  # ... vsig m msg
-        s += ["OP_ROT", "OP_SWAP",                                   # ... m vsig msg
-              27, "OP_PICK",                                         # ... m vsig msg src.ok
-              "OP_CHECKSIGFROMSTACK", "OP_VERIFY", "OP_DROP"]        # src(10) claim(10) extras(7)
+            s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+                  "OP_TOALTSTACK"]                                    # ... vsig | m r phash
+        s += voucher_auth(tree_id, hashlock)                         # src(10) claim(10) extras(7)
     s += carve_source(depth, sparse) + check_old(sparse)            # T nh1 ns1        | m claim_leaf amt_c
     s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
     return s + carve_claim(depth, sparse) + final(depth)
@@ -500,14 +510,17 @@ def w_evict_subtree(tree, depth, height, idx):
     return items
 
 
-def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,)):
+def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,),
+                tree_id=None):
+    """The reference script set (spec 6.2) under MID; tree_id is the
+    tree's voucher binding, a constant of CLAIM."""
     out = {f"EXIT_{k}": exit_script(depth, k, sparse) for k in exit_ks}
     for h in (join_heights if not sparse else (0,)):
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key, sparse)
     for k in join_ks:
         out[f"JOINK_{k}"] = join_script(depth, 0, operator_key, sparse, k)
     out["UPDATE"] = update_script(depth, operator_key, sparse)
-    out["CLAIM"] = claim_script(depth, sparse)
+    out["CLAIM"] = claim_script(depth, tree_id, sparse)
     return out
 
 

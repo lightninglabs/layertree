@@ -41,6 +41,14 @@ func midLoadGolden(t *testing.T) (*midGolden, [32]byte) {
 	return &g, key
 }
 
+// midGoldenTreeID is the tree_id the golden CLAIM scripts were built over
+// (goldenTreeID, checked there against the vector's creation outpoint).
+func midGoldenTreeID(t *testing.T) [32]byte {
+	t.Helper()
+	g, _ := loadGolden(t)
+	return goldenTreeID(t, g)
+}
+
 // midTapleafHash is TaggedHash("TapLeaf", version || compactsize(len) || script).
 func midTapleafHash(script []byte, version byte) [32]byte {
 	var buf bytes.Buffer
@@ -94,7 +102,7 @@ func midCheckScript(t *testing.T, g *midGolden, key string, toks []Token) {
 
 func TestMidScriptsDenseD4(t *testing.T) {
 	g, key := midLoadGolden(t)
-	all := MidAllScripts(4, key, false, []int{0, 2}, []int{1}, []int{2})
+	all := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1}, []int{2})
 	for _, name := range []string{"EXIT_1", "JOIN_0", "JOIN_2", "JOINK_2",
 		"UPDATE", "CLAIM"} {
 
@@ -108,7 +116,7 @@ func TestMidScriptsDenseD4(t *testing.T) {
 
 func TestMidScriptsSparseD8(t *testing.T) {
 	g, key := midLoadGolden(t)
-	all := MidAllScripts(8, key, true, []int{0, 2}, []int{1}, []int{2})
+	all := MidAllScripts(8, key, midGoldenTreeID(t), true, []int{0, 2}, []int{1}, []int{2})
 	if _, ok := all["JOIN_2"]; ok {
 		t.Fatalf("sparse profile must only emit JOIN_0")
 	}
@@ -129,7 +137,7 @@ func TestMidDirectGenerators(t *testing.T) {
 	midCheckScript(t, g, "MID/D/D4/JOIN_2", MidJoinScript(4, 2, key, false, 1))
 	midCheckScript(t, g, "MID/D/D4/JOINK_2", MidJoinScript(4, 0, key, false, 2))
 	midCheckScript(t, g, "MID/D/D4/UPDATE", MidUpdateScript(4, key, false))
-	midCheckScript(t, g, "MID/D/D4/CLAIM", MidClaimScript(4, false))
+	midCheckScript(t, g, "MID/D/D4/CLAIM", MidClaimScript(4, midGoldenTreeID(t), false))
 	midCheckScript(t, g, "MID/S/D8/EXIT_1", MidExitScript(8, 1, true))
 	midCheckScript(t, g, "MID/S/D8/UPDATE", MidUpdateScript(8, key, true))
 }
@@ -148,23 +156,24 @@ func TestMidUpdateX(t *testing.T) {
 // created with either CLAIM or CLAIM^h, so it stays out of the taptree.
 func TestMidClaimH(t *testing.T) {
 	g, key := midLoadGolden(t)
-	midCheckScript(t, g, "MID/D/D4/CLAIM_H", MidClaimHScript(4, false))
-	midCheckScript(t, g, "MID/S/D8/CLAIM_H", MidClaimHScript(8, true))
+	treeID := midGoldenTreeID(t)
+	midCheckScript(t, g, "MID/D/D4/CLAIM_H", MidClaimHScript(4, treeID, false))
+	midCheckScript(t, g, "MID/S/D8/CLAIM_H", MidClaimHScript(8, treeID, true))
 
-	// The two insertions and the tag swap cost exactly nine bytes.
+	// The two insertions and the tag swap cost exactly eight bytes.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		plain := MustAssemble(MidClaimScript(tc.depth, tc.sparse), ModeC0)
-		hl := MustAssemble(MidClaimHScript(tc.depth, tc.sparse), ModeC0)
-		if len(hl)-len(plain) != 9 {
+		plain := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse), ModeC0)
+		hl := MustAssemble(MidClaimHScript(tc.depth, treeID, tc.sparse), ModeC0)
+		if len(hl)-len(plain) != 8 {
 			t.Errorf("depth %d sparse %v: CLAIM^h is %d bytes over CLAIM, "+
-				"want 9", tc.depth, tc.sparse, len(hl)-len(plain))
+				"want 8", tc.depth, tc.sparse, len(hl)-len(plain))
 		}
 	}
 
-	if _, ok := MidAllScripts(4, key, false, []int{0, 2}, []int{1},
+	if _, ok := MidAllScripts(4, key, treeID, false, []int{0, 2}, []int{1},
 		[]int{2})["CLAIM_H"]; ok {
 
 		t.Error("CLAIM_H must stay out of MidAllScripts")
@@ -179,21 +188,22 @@ func TestMidSplit(t *testing.T) {
 	midCheckScript(t, g, "MID/D/D4/SPLIT", MidSplitScript(4, false))
 	midCheckScript(t, g, "MID/S/D8/SPLIT", MidSplitScript(8, true))
 
-	// Dropping the voucher message reconstruction and the
-	// OP_CHECKSIGFROMSTACK saves exactly 131 bytes.
+	// Dropping the voucher message reconstruction, with its 33-byte
+	// tree_id push, and the OP_CHECKSIGFROMSTACK saves exactly 159 bytes.
+	treeID := midGoldenTreeID(t)
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		claim := MustAssemble(MidClaimScript(tc.depth, tc.sparse), ModeC0)
+		claim := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse), ModeC0)
 		split := MustAssemble(MidSplitScript(tc.depth, tc.sparse), ModeC0)
-		if len(claim)-len(split) != 131 {
+		if len(claim)-len(split) != 159 {
 			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
-				"want 131", tc.depth, tc.sparse, len(claim)-len(split))
+				"want 159", tc.depth, tc.sparse, len(claim)-len(split))
 		}
 	}
 
-	if _, ok := MidAllScripts(4, key, false, []int{0, 2}, []int{1},
+	if _, ok := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1},
 		[]int{2})["SPLIT"]; ok {
 
 		t.Error("SPLIT must stay out of MidAllScripts")
@@ -209,7 +219,7 @@ func TestMidEvictSubtree(t *testing.T) {
 	midCheckScript(t, g, "MID/D/D4/EVICT_SUBTREE_2",
 		MidEvictSubtreeScript(4, 2, key))
 
-	if _, ok := MidAllScripts(4, key, false, []int{0, 2}, []int{1},
+	if _, ok := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1},
 		[]int{2})["EVICT_SUBTREE_2"]; ok {
 
 		t.Error("EVICT_SUBTREE_2 must stay out of MidAllScripts")

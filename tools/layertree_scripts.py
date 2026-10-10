@@ -352,15 +352,18 @@ def update_script(depth, operator_key, profile="D", exit_consent=False):
     return s + check_old_root_from_alt(profile) + final_output(depth)
 
 
-def claim_script(depth, profile="D", hashlock=False, exit_consent=False):
+def claim_script(depth, tree_id, profile="D", hashlock=False, exit_consent=False):
     """CLAIM (spec 7.5), or CLAIM^h (7.5.1) with hashlock=True.
 
     Witness: [claim path] [source path] src_leaf claim_leaf voucher_sig
-    [preimage] [exit_sig] root m. With hashlock=True the witness carries a
-    32-byte preimage below root and the signed message gains SHA256(preimage)
-    as a fourth field under a separate tag. The script never compares the
-    payment hash to a witness copy: it computes it from the preimage and
-    feeds it to the message, so a wrong preimage fails as a bad signature.
+    [preimage] [exit_sig] root m. The voucher message binds `tree_id`, a
+    32-byte constant of the script fixed at tree creation (6.2), never a
+    witness element: H_voucher(tree_id || src || claim). With hashlock=True
+    the witness carries a 32-byte preimage below root and the signed
+    message gains SHA256(preimage) as a fourth field under a separate tag.
+    The script never compares the payment hash to a witness copy: it
+    computes it from the preimage and feeds it to the message, so a wrong
+    preimage fails as a bad signature.
 
     exit_consent=True is the CLAIM^x variant (spec 7.5.3): the element
     directly below root is one more signature, exit_sig, which MUST be valid
@@ -368,7 +371,7 @@ def claim_script(depth, profile="D", hashlock=False, exit_consent=False):
     5) adds exit-key consent to UPDATE. Both flags together give CLAIM^hx.
     """
     return _carve_script(depth, profile, "hashlock" if hashlock else "voucher",
-                         exit_consent)
+                         exit_consent, tree_id)
 
 
 def split_script(depth, profile="D"):
@@ -384,44 +387,52 @@ def split_script(depth, profile="D"):
     return _carve_script(depth, profile, "owner")
 
 
-def _carve_script(depth, profile, auth, exit_consent=False):
+def voucher_auth(tree_id, hashlock=False):
+    """The voucher check of CLAIM and CLAIM^h (spec 7.5 rule 1, 7.5.1 rule
+    1), shared with the CCV tier: [src claim vsig] -> [src claim], with
+    SHA256(preimage) parked on the altstack beforehand under hashlock.
+
+    The message is H_voucher(tree_id || src || claim), tree_id a constant
+    of the script, so the check needs no copy of m: the prologue parks m
+    and r as every other script does.
+    """
+    assert len(tree_id) == 32
+    s = [2, "OP_PICK", 2, "OP_PICK", "OP_CAT",                   # src claim vsig (src||claim)
+         tree_id, "OP_SWAP", "OP_CAT"]                           # src claim vsig (tree_id||src||claim)
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (tree_id||src||claim||phash)
+    s += tagged(VOUCHER_H_PREFIX if hashlock else VOUCHER_PREFIX)  # src claim vsig msg
+    return s + [3, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
+                "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]             # src claim
+
+
+def _carve_script(depth, profile, auth, exit_consent=False, tree_id=None):
     """Shared body of CLAIM, CLAIM^h and SPLIT: carve a new leaf out of an
     existing one. `auth` selects the authorisation and nothing else.
 
     exit_consent=True (CLAIM^x, CLAIM^hx; spec 7.5.3) consumes one more
-    witness element, exit_sig, directly below root, before anything else:
-    it is lifted over the spare copy of m and checked against
-    src_leaf.exit_key, so every stack depth below is as in the plain form.
-    Eight bytes over the plain script in either form: UPDATE^x's seven plus
-    the OP_SWAP that moves the signature above m.
+    witness element, exit_sig, directly below root, before anything else,
+    checked against src_leaf.exit_key, so every stack depth below is as in
+    the plain form. Seven bytes over the plain script in either form, as
+    UPDATE^x over UPDATE.
     """
     assert auth in ("voucher", "hashlock", "owner")
     hashlock = auth == "hashlock"
-    s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
-         "OP_2DUP"] + tree_spk() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]  # src claim sig [pre] [xsig] m | m r
+    s = prologue()                                               # src claim sig [pre] [xsig] | m r
     if exit_consent:
-        # src is 4 deep under xsig (5 with the preimage in between)
-        s += ["OP_SWAP", 5 if hashlock else 4, "OP_PICK",
-              OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]  # src claim sig [pre] m
+        # src is 3 deep under xsig (4 with the preimage in between)
+        s += [4 if hashlock else 3, "OP_PICK",
+              OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]  # src claim sig [pre]
     if auth == "owner":
-        # the owner signs the transaction, so no message is rebuilt; drop the
-        # spare copy of m and check the signature against src.owner_key
-        s += ["OP_DROP",                                         # src claim sig
-              2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",      # src claim sig owner_key
+        # the owner signs the transaction, so no message is rebuilt
+        s += [2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",      # src claim sig owner_key
               "OP_CHECKSIGVERIFY"]                               # src claim
         return s + _carve_body(depth, profile)
     if hashlock:
         # park SHA256(preimage) on the altstack so every depth below is as in CLAIM
-        s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
-              "OP_TOALTSTACK"]                                   # src claim vsig m | m r phash
-    s += [3, "OP_PICK", 3, "OP_PICK", "OP_CAT", "OP_CAT"]        # src claim vsig (m||src||claim)
-    if hashlock:
-        s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (m||src||claim||phash)
-    s += tagged(VOUCHER_H_PREFIX if hashlock else VOUCHER_PREFIX)  # src claim vsig msg
-    s += [3, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
-          "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]                   # src claim
-    return s + _carve_body(depth, profile)
+        s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+              "OP_TOALTSTACK"]                                   # src claim vsig | m r phash
+    return s + voucher_auth(tree_id, hashlock) + _carve_body(depth, profile)
 
 
 def _carve_body(depth, profile):
@@ -485,15 +496,18 @@ def htlc_timeout_script(cltv_expiry, claim_key):
             claim_key, "OP_CHECKSIG"]
 
 
-def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,), profile="D", join_ks=(2,)):
-    """Return ordered dict name -> token list for a tree's taptree."""
+def all_scripts(depth, operator_key, join_heights=(0,), exit_ks=(1,), profile="D", join_ks=(2,),
+                tree_id=None):
+    """Return ordered dict name -> token list for a tree's reference script
+    set (spec 6.2). tree_id is the tree's 32-byte voucher binding (6.2),
+    which CLAIM carries as a constant."""
     out = {f"EXIT_{k}": exit_script(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key, profile)
     for k in join_ks:
         out[f"JOINK_{k}"] = join_script(depth, 0, operator_key, profile, k)
     out["UPDATE"] = update_script(depth, operator_key, profile)
-    out["CLAIM"] = claim_script(depth, profile)
+    out["CLAIM"] = claim_script(depth, tree_id, profile)
     return out
 
 
@@ -783,12 +797,14 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
 # carrying the subtree root under m_h, the taptree root of the script set
 # compiled for depth h, which is a constant of the script.
 # ---------------------------------------------------------------------------
-def detached_taptree_root(height, operator_key):
+def detached_taptree_root(height, operator_key, tree_id):
     """m_h for DETACH_h (spec 7.10 rule 3): the tree identifier of the
     reference script set of 6.2 compiled for depth h with the same
-    OPERATOR_KEY: EXIT_1, EXIT_2, JOIN_0, JOINK_2, UPDATE, CLAIM."""
+    OPERATOR_KEY and the same tree_id: EXIT_1, EXIT_2, JOIN_0, JOINK_2,
+    UPDATE, CLAIM. The detached tree inherits tree_id, so vouchers against
+    its leaves survive the detach."""
     from script_sim import assemble
-    scripts = all_scripts(height, operator_key, (0,), (1, 2), "D", (2,))
+    scripts = all_scripts(height, operator_key, (0,), (1, 2), "D", (2,), tree_id)
     return lt.taptree_root([lt.tapleaf_hash(assemble(t)) for t in scripts.values()])
 
 

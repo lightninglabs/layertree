@@ -1132,12 +1132,12 @@ def test_split_ccv0(depth, profile):
 
 
 CSFS_OPS = {"OP_CHECKSIGFROMSTACK"}
-TREE_ID = C.tree_id(lt.sha256(b"creation-txid"), 0)
+TREE_ID = lt.tree_id(lt.sha256(b"creation-txid"), 0)
 
 
 def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
-    """CLAIM (7.5) and CLAIM^h (7.5.1) under CCV with the tree_id-bound
-    voucher message of 4.6 / 9.6, in either numerics. Mirrors the FULL
+    """CLAIM (7.5) and CLAIM^h (7.5.1) under CCV with the voucher message
+    over tree_id of 6.2 / 7.5, in either numerics. Mirrors the FULL
     suite's voucher negatives: replay of a redeemed voucher, a voucher
     reused for another claim leaf, over-claim, wrong signer, and for
     CLAIM^h a wrong, short or absent preimage and the cross-form
@@ -1203,7 +1203,9 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
                 M.w_leaf(source) + M.w_leaf(claim) + ex)
 
     def vsig(tid, source, claim, key="operator-owner", ph=phash):
-        return schnorr_sign(C.voucher_msg_ccv(tid, source, claim, ph), sk(key))
+        msg = (lt.voucher_msg(tid, source, claim) if ph is None
+               else lt.voucher_h_msg(tid, source, claim, ph))
+        return schnorr_sign(msg, sk(key))
 
     def tail(sig, pre=preimage):
         return [sig] + ([pre] if hashlock and pre is not None else [])
@@ -1245,7 +1247,7 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
     # wrong signer, other tree_id, FULL-style voucher over m
     expect_fail(lambda: w.run(name, h0 + tail(vsig(TREE_ID, src, frank, "alice-owner")), ctx),
                 f"{tag} wrong signer")
-    other_tid = C.tree_id(lt.sha256(b"creation-txid"), 1)
+    other_tid = lt.tree_id(lt.sha256(b"creation-txid"), 1)
     expect_fail(lambda: w.run(name, h0 + tail(vsig(other_tid, src, frank)), ctx),
                 f"{tag} voucher signed for another tree_id")
     expect_fail(lambda: w.run(name, h0 + tail(vsig(w.m, src, frank)), ctx),
@@ -1259,7 +1261,7 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
         expect_fail(lambda: w.run(name, h0 + tail(vsig(TREE_ID, src, frank, ph=None)), ctx),
                     f"{tag} plain voucher under the hash lock")
     else:
-        hsig = schnorr_sign(C.voucher_msg_ccv(TREE_ID, src, frank, lt.sha256(preimage)), sk("operator-owner"))
+        hsig = schnorr_sign(lt.voucher_h_msg(TREE_ID, src, frank, lt.sha256(preimage)), sk("operator-owner"))
         expect_fail(lambda: w.run(name, h0 + [hsig], ctx), f"{tag} hash-locked voucher under plain CLAIM")
     wit = h0 + tail(good)
     return it, len(w.compiled[name]), sum(len(x) for x in wit)

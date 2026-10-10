@@ -39,6 +39,8 @@ NAMES[N.G_X] = "<G_X>"
 NAMES[N.G_X + N.G_X] = "<G_X||G_X>"
 NAMES[M.ENC64_SUFFIX] = "<00000000_01>"
 NAMES[M.E0_SC] = "<E_0.sc>"
+TREE_ID = lt.tree_id(lt.sha256(b"creation-txid"), 0)   # the suites' tree_id (spec 6.2)
+NAMES[TREE_ID] = "<TREE_ID>"
 for h in range(0, 65):
     NAMES[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
 
@@ -326,17 +328,17 @@ with open(os.path.join(OUT, "MACROS_MIN.txt"), "w") as f:
     f.write(macro_file("MIN", MIN, {k: v for k, v in NOTES_MID.items() if k in dict(MIN) or k in ("TAGGED",)}))
 
 D = 4
-for name, toks in F.all_scripts(D, OP_KEY, (0, 2), (1, 2), "D").items():
+for name, toks in F.all_scripts(D, OP_KEY, (0, 2), (1, 2), "D", tree_id=TREE_ID).items():
     open(os.path.join(OUT, f"{name}_D{D}.txt"), "w").write(structured(f"{name} (dense, D={D})", toks, "c2", FULL))
 open(os.path.join(OUT, f"UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (exit-key consent, dense, D={D})", F.update_script(D, OP_KEY, "D", exit_consent=True), "c2", FULL))
 open(os.path.join(OUT, f"CLAIM_H_D{D}.txt"), "w").write(
-    structured(f"CLAIM_H (hash-locked voucher, dense, D={D})", F.claim_script(D, "D", hashlock=True), "c2", FULL))
+    structured(f"CLAIM_H (hash-locked voucher, dense, D={D})", F.claim_script(D, TREE_ID, "D", hashlock=True), "c2", FULL))
 open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (owner-authorised carve, dense, D={D})", F.split_script(D, "D"), "c2", FULL))
 open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w").write(
-    structured(f"CLAIM_X (exit-key consent, dense, D={D})", F.claim_script(D, "D", exit_consent=True), "c2", FULL))
-for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S").items():
+    structured(f"CLAIM_X (exit-key consent, dense, D={D})", F.claim_script(D, TREE_ID, "D", exit_consent=True), "c2", FULL))
+for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S", tree_id=TREE_ID).items():
     open(os.path.join(OUT, f"{name}_S8.txt"), "w").write(structured(f"{name} (sparse, D=8)", toks, "c2", FULL))
 open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w").write(
     structured("EVICT_SUBTREE_2 (dense, D=8): cohort sweep of a 4-position subtree",
@@ -346,15 +348,15 @@ open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w").write(
                F.rewrite_script(8, 2, OP_KEY), "c2", FULL))
 open(os.path.join(OUT, "DETACH_2_D8.txt"), "w").write(
     structured("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
-               F.detach_script(8, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY)), "c2", FULL))
+               F.detach_script(8, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2", FULL))
 open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w").write(
     structured("EXIT_1 (minimal inventory, dense, D=4)", F.exit_script_min(D), "c2", FULL))
-for name, toks in M.all_scripts(D, OP_KEY, False).items():
+for name, toks in M.all_scripts(D, OP_KEY, False, tree_id=TREE_ID).items():
     open(os.path.join(OUT, f"MID_{name}_D{D}.txt"), "w").write(structured(f"{name} (MID tier, dense, D={D})", toks, "c0", MID))
 open(os.path.join(OUT, f"MID_UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (MID tier, exit-key consent, dense, D={D})", M.update_script(D, OP_KEY, False, exit_consent=True), "c0", MID))
 open(os.path.join(OUT, f"MID_CLAIM_H_D{D}.txt"), "w").write(
-    structured(f"CLAIM_H (MID tier, hash-locked voucher, dense, D={D})", M.claim_script(D, False, hashlock=True), "c0", MID))
+    structured(f"CLAIM_H (MID tier, hash-locked voucher, dense, D={D})", M.claim_script(D, TREE_ID, False, hashlock=True), "c0", MID))
 open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (MID tier, owner-authorised carve, dense, D={D})", M.split_script(D, False), "c0", MID))
 open(os.path.join(OUT, f"MID_EVICT_SUBTREE_2_D{D}.txt"), "w").write(
@@ -370,15 +372,13 @@ open(os.path.join(OUT, f"CCV_UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (CCV tier, exit-key consent, dense, D={D})", CV.update_script_ccv(D, OP_KEY, "D", exit_consent=True), "c2", CCV))
 open(os.path.join(OUT, f"CCV_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV tier, owner-authorised carve, dense, D={D})", CV.split_script_ccv(D, "D"), "c2", CCV))
-CCV_TREE_ID = CV.tree_id(lt.sha256(b"creation-txid"), 0)
-NAMES[CCV_TREE_ID] = "<TREE_ID>"
 for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     open(os.path.join(OUT, f"CCV_{nm}_D{D}.txt"), "w").write(
-        structured(f"{nm} (CCV tier, tree_id voucher, dense, D={D})",
-                   CV.claim_script_ccv(D, CCV_TREE_ID, "D", hl), "c2", CCV))
+        structured(f"{nm} (CCV tier, dense, D={D})",
+                   CV.claim_script_ccv(D, TREE_ID, "D", hl), "c2", CCV))
     open(os.path.join(OUT, f"CCV0_{nm}_D{D}.txt"), "w").write(
-        structured(f"{nm} (CCV with 0xC0 numerics, in MID macros, tree_id voucher, dense, D={D})",
-                   CV._claim_script_ccv0(D, CCV_TREE_ID, False, hl), "c0", MID))
+        structured(f"{nm} (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+                   CV._claim_script_ccv0(D, TREE_ID, False, hl), "c0", MID))
 open(os.path.join(OUT, f"CCV0_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
                CV._split_script_ccv0(D, False), "c0", MID))

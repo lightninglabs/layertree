@@ -26,7 +26,24 @@ const (
 	// disjoint, or a redeemer could strip the hash lock off a plain
 	// voucher, or replay a hash-locked one without the preimage.
 	TagVoucherH = "LayerTree/voucher-hashlock"
+
+	// TagTreeID tags the RECOMMENDED tree_id derivation (spec 6.2).
+	TagTreeID = "LayerTree/tree-id"
 )
+
+// TreeID is the RECOMMENDED tree_id of a tree (spec 6.2):
+// H_tag("LayerTree/tree-id", txid || le32(vout)) over the creation outpoint,
+// txid in internal byte order (tools/layertree_ref.py tree_id). Any 32-byte
+// value unique to the tree's lineage works; a tree created by DETACH_h
+// inherits its parent's. Every tier's CLAIM scripts carry it as a constant
+// and its vouchers sign it, so a voucher binds one tree rather than the
+// rule set m names.
+func TreeID(txid [32]byte, vout uint32) [32]byte {
+	var buf [36]byte
+	copy(buf[:32], txid[:])
+	binary.LittleEndian.PutUint32(buf[32:], vout)
+	return TaggedHash(TagTreeID, buf[:])
+}
 
 // LeafLen is the serialized leaf size.
 const LeafLen = 116
@@ -182,19 +199,23 @@ func (l *Leaf) PosLoMinimal() bool {
 	return h[3]&0x80 == 0 && h[3] != 0
 }
 
-// VoucherMsg is H_voucher(m || source_leaf || claim_leaf) (spec 7.5).
-func VoucherMsg(merkleRoot [32]byte, source, claim *Leaf) [32]byte {
-	return TaggedHash(TagVoucher, merkleRoot[:], source.Serialize(), claim.Serialize())
+// VoucherMsg is H_voucher(tree_id || source_leaf || claim_leaf), the message
+// a CLAIM voucher signs (spec 7.5). It binds the tree's tree_id (6.2), not
+// its taptree root m: m names a rule set, which two trees can share, and a
+// detached cohort inherits tree_id, so a voucher survives a DETACH_h.
+func VoucherMsg(treeID [32]byte, source, claim *Leaf) [32]byte {
+	return TaggedHash(TagVoucher, treeID[:], source.Serialize(), claim.Serialize())
 }
 
-// VoucherHMsg is H_voucher_h(m || source_leaf || claim_leaf || payment_hash),
-// the message a CLAIM^h voucher signs (spec 7.5.1). The redeemer supplies the
-// preimage and the script recomputes the payment hash from it, so a wrong
-// preimage fails as an invalid signature rather than as a failed comparison.
-func VoucherHMsg(merkleRoot [32]byte, source, claim *Leaf,
+// VoucherHMsg is H_voucher_h(tree_id || source_leaf || claim_leaf ||
+// payment_hash), the message a CLAIM^h voucher signs (spec 7.5.1). The
+// redeemer supplies the preimage and the script recomputes the payment hash
+// from it, so a wrong preimage fails as an invalid signature rather than as
+// a failed comparison.
+func VoucherHMsg(treeID [32]byte, source, claim *Leaf,
 	paymentHash [32]byte) [32]byte {
 
-	return TaggedHash(TagVoucherH, merkleRoot[:], source.Serialize(),
+	return TaggedHash(TagVoucherH, treeID[:], source.Serialize(),
 		claim.Serialize(), paymentHash[:])
 }
 

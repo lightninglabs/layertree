@@ -8,7 +8,7 @@ import layertree_ref as lt  # noqa: E402
 import layertree_mid as M  # noqa: E402
 import layertree_scripts as F  # noqa: E402
 from script_sim import Interp, ScriptError, TxContext, assemble, pubkey_x, schnorr_sign  # noqa: E402
-from test_scripts import BIP342_OPS, sk, check, expect_fail, P2WPKH  # noqa: E402
+from test_scripts import BIP342_OPS, TREE_ID, sk, check, expect_fail, P2WPKH  # noqa: E402
 import test_scripts as TS  # noqa: E402
 
 MID_OPCODES = BIP342_OPS | M.EXTRA_OPCODES | {"OP_BOOLOR", "OP_GREATERTHANOREQUAL"}
@@ -25,10 +25,11 @@ def mk_leaf(label, amount, evictor=None, evict_after=0, nonce=None, seq=0, spars
 
 
 class MidWorld:
-    def __init__(self, depth, sparse):
+    def __init__(self, depth, sparse, tree_id=TREE_ID):
         self.depth, self.sparse = depth, sparse
         self.op_sk = sk("operator"); self.op_pk = pubkey_x(self.op_sk)
-        self.scripts = M.all_scripts(depth, self.op_pk, sparse)
+        self.tree_id = tree_id
+        self.scripts = M.all_scripts(depth, self.op_pk, sparse, tree_id=tree_id)
         for name, toks in self.scripts.items():
             bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
             check(not bad, f"MID {name}: opcodes outside the MID set: {sorted(bad)}")
@@ -200,7 +201,7 @@ def test_mid(depth, sparse, verbose=True):
     r1_ = lt.fold(src2.node(), spath)
     cpath = t5.path(s_f); r5 = t5.root()
     ctx = w.ctx([(r5[1], w.spk(r5))], (600, P2WPKH))
-    vsig = schnorr_sign(lt.voucher_msg(w.m, src, frank), sk("operator-owner"))
+    vsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, frank), sk("operator-owner"))
     extras = [M.scriptnum(src.seq)] + list(M.pad(src.seq)) + list(M.pad(src.seq + 1)) + list(M.pad(src.amount - frank.amount))
     wit = (list(M.pad(r5[1])) + M.w_levels(cpath, lt.EMPTY_NODE, frank.node(), S) + w.pos(frank) +
            w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
@@ -208,11 +209,19 @@ def test_mid(depth, sparse, verbose=True):
     it = w.run("CLAIM", wit, ctx)
     costs["CLAIM"] = (it, len(w.compiled["CLAIM"]), sum(len(x) for x in wit))
     greedy = mk_leaf("greedy", src.amount + 1, w.op_pk, 900_000, sparse=S)
-    gsig = schnorr_sign(lt.voucher_msg(w.m, src, greedy), sk("operator-owner"))
+    gsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, greedy), sk("operator-owner"))
     bad_extras = extras[:-2] + list(M.pad(0))
     expect_fail(lambda: w.run("CLAIM", list(M.pad(r5[1])) + M.w_levels(cpath, lt.EMPTY_NODE, greedy.node(), S) + w.pos(greedy) +
                 w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
                 M.w_leaf(src) + M.w_leaf(greedy) + bad_extras + [gsig, root[0], w.m], ctx), "mid: over-claim")
+    head = wit[:-3]
+    expect_fail(lambda: w.run("CLAIM", head + [schnorr_sign(lt.voucher_msg(w.tree_id, src, frank), sk("bob-owner")), root[0], w.m], ctx),
+                "mid: voucher wrong signer")
+    other_tid = lt.tree_id(lt.sha256(b"creation-txid"), 1)
+    expect_fail(lambda: w.run("CLAIM", head + [schnorr_sign(lt.voucher_msg(other_tid, src, frank), sk("operator-owner")), root[0], w.m], ctx),
+                "mid: voucher signed for another tree_id")
+    expect_fail(lambda: w.run("CLAIM", head + [schnorr_sign(lt.voucher_msg(w.m, src, frank), sk("operator-owner")), root[0], w.m], ctx),
+                "mid: voucher over m instead of tree_id")
     w.tree = t5
 
     # ---------------- SEQ_FINAL marker (spec 5.2 / 7.5; Appendix C.6.5) ----------------
@@ -229,7 +238,7 @@ def test_mid(depth, sparse, verbose=True):
         src2 = t.leaves[s_src]
         cpath = t.path(s_claim); r = t.root()
         ctx = w.ctx([(r[1], w.spk(r))], (600, P2WPKH))
-        vsig = schnorr_sign(lt.voucher_msg(w.m, src, claim), sk("chan-src-owner"))
+        vsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, claim), sk("chan-src-owner"))
         pad_of = lambda x: (bytes(4 - len(x)), bytes(len(x))) if len(x) <= 4 else (b"", bytes(4))
         extras = [src_seq_num] + list(pad_of(src_seq_num)) + list(pad_of(seq1_num)) + list(M.pad(src.amount - claim.amount))
         wit = (list(M.pad(r[1])) + M.w_levels(cpath, lt.EMPTY_NODE, claim.node(), S) + w.pos(claim) +
@@ -316,7 +325,7 @@ def test_claim_h(depth, sparse, verbose=True):
     """
     w = MidWorld(depth, sparse)
     S = sparse
-    toks = M.claim_script(depth, sparse, hashlock=True)
+    toks = M.claim_script(depth, w.tree_id, sparse, hashlock=True)
     bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
     check(not bad, f"MID CLAIM_H: opcodes outside the MID set: {sorted(bad)}")
     script = assemble(toks, mode="c0")
@@ -338,7 +347,7 @@ def test_claim_h(depth, sparse, verbose=True):
     src2 = t1.leaves[s_o]
     cpath = t1.path(s_h); r1 = t1.root()
     ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
-    hsig = schnorr_sign(lt.voucher_h_msg(w.m, src, hodl, payment_hash), sk("operator-owner"))
+    hsig = schnorr_sign(lt.voucher_h_msg(w.tree_id, src, hodl, payment_hash), sk("operator-owner"))
     extras = [M.scriptnum(src.seq)] + list(M.pad(src.seq)) + list(M.pad(src.seq + 1)) + list(M.pad(src.amount - hodl.amount))
     head = (list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, hodl.node(), S) + w.pos(hodl) +
             w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
@@ -351,16 +360,21 @@ def test_claim_h(depth, sparse, verbose=True):
                 "mid: CLAIM^h wrong preimage")
     expect_fail(lambda: w.run("CLAIM_H", head + [hsig, preimage[:31], root[0], w.m], ctx),
                 "mid: CLAIM^h preimage not 32 bytes")
-    plain_sig = schnorr_sign(lt.voucher_msg(w.m, src, hodl), sk("operator-owner"))
+    plain_sig = schnorr_sign(lt.voucher_msg(w.tree_id, src, hodl), sk("operator-owner"))
     expect_fail(lambda: w.run("CLAIM_H", head + [plain_sig, preimage, root[0], w.m], ctx),
                 "mid: CLAIM^h with a plain voucher signature")
     expect_fail(lambda: w.run("CLAIM", head + [hsig, root[0], w.m], ctx),
                 "mid: plain CLAIM with a hash-locked voucher signature")
-    bsig = schnorr_sign(lt.voucher_h_msg(w.m, src, hodl, payment_hash), sk("alice-owner"))
+    bsig = schnorr_sign(lt.voucher_h_msg(w.tree_id, src, hodl, payment_hash), sk("alice-owner"))
     expect_fail(lambda: w.run("CLAIM_H", head + [bsig, preimage, root[0], w.m], ctx),
                 "mid: CLAIM^h voucher wrong signer")
+    other_tid = lt.tree_id(lt.sha256(b"creation-txid"), 1)
+    expect_fail(lambda: w.run("CLAIM_H", head + [schnorr_sign(lt.voucher_h_msg(other_tid, src, hodl, payment_hash), sk("operator-owner")), preimage, root[0], w.m], ctx),
+                "mid: CLAIM^h voucher signed for another tree_id")
+    expect_fail(lambda: w.run("CLAIM_H", head + [schnorr_sign(lt.voucher_h_msg(w.m, src, hodl, payment_hash), sk("operator-owner")), preimage, root[0], w.m], ctx),
+                "mid: CLAIM^h voucher over m instead of tree_id")
     if verbose:
-        plain = len(assemble(M.claim_script(depth, sparse), mode="c0"))
+        plain = len(assemble(M.claim_script(depth, w.tree_id, sparse), mode="c0"))
         print(f"MID CLAIM^h {'S' if S else 'D'} D={depth}: script {len(script)} B "
               f"(CLAIM {plain} B), witness {sum(len(x) for x in wit)} B")
     return it, len(script), sum(len(x) for x in wit)
@@ -405,7 +419,7 @@ def test_split(depth, sparse, verbose=True):
                 "mid: SPLIT signed by the operator")
     expect_fail(lambda: w.run("SPLIT", head + [bytes(64), root[0], w.m], ctx),
                 "mid: SPLIT garbage signature")
-    vsig = schnorr_sign(lt.voucher_msg(w.m, alice, bob), sk("alice-owner"))
+    vsig = schnorr_sign(lt.voucher_msg(w.tree_id, alice, bob), sk("alice-owner"))
     expect_fail(lambda: w.run("SPLIT", head + [vsig, root[0], w.m], ctx),
                 "mid: SPLIT with a voucher signature")
     expect_fail(lambda: w.run("SPLIT", head + [asig, r1[0], w.m], ctx),
@@ -439,7 +453,7 @@ def test_split(depth, sparse, verbose=True):
     expect_fail(lambda: w.run("SPLIT", head_m + [asig, root[0], w.m], ctx_m),
                 "mid: SPLIT recipient swapped under the owner's signature")
     if verbose:
-        claim = len(assemble(M.claim_script(depth, sparse), mode="c0"))
+        claim = len(assemble(M.claim_script(depth, w.tree_id, sparse), mode="c0"))
         print(f"MID SPLIT {'S' if S else 'D'} D={depth}: script {len(script)} B "
               f"(CLAIM {claim} B, saves {claim - len(script)}), witness {sum(len(x) for x in wit)} B")
     return it, len(script), sum(len(x) for x in wit)

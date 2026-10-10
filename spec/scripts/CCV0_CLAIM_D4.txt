@@ -1,4 +1,4 @@
-# CLAIM (CCV tier, 0xC0 numerics, tree_id voucher, dense, D=4): 2202 bytes
+# CLAIM (CCV tier, 0xC0 numerics, dense, D=4): 2202 bytes
 
 27 OP_PICK 27 OP_PICK 27 OP_PICK 27 OP_PICK 27 OP_PICK 27 OP_PICK 27 OP_PICK
 OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT 18 OP_PICK 18 OP_PICK 18 OP_PICK 18

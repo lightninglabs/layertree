@@ -28,13 +28,18 @@ type vecLeaf struct {
 type vectors struct {
 	EmptyNodes  []vecNode `json:"empty_nodes"`
 	ExampleTree struct {
-		Depth        int                `json:"depth"`
-		Leaves       map[string]vecLeaf `json:"leaves"`
-		Root         vecNode            `json:"root"`
-		InternalKey  string             `json:"internal_key"`
-		MerkleRoot   string             `json:"merkle_root_placeholder"`
-		OutputKey    string             `json:"output_key"`
-		ScriptPubKey string             `json:"scriptPubKey"`
+		Depth       int                `json:"depth"`
+		Leaves      map[string]vecLeaf `json:"leaves"`
+		Root        vecNode            `json:"root"`
+		InternalKey string             `json:"internal_key"`
+		MerkleRoot  string             `json:"merkle_root_placeholder"`
+		Creation    struct {
+			Txid string `json:"txid"`
+			Vout uint32 `json:"vout"`
+		} `json:"creation_outpoint"`
+		TreeID       string `json:"tree_id"`
+		OutputKey    string `json:"output_key"`
+		ScriptPubKey string `json:"scriptPubKey"`
 		Paths        map[string][]struct {
 			Dir     int     `json:"dir"`
 			Sibling vecNode `json:"sibling"`
@@ -162,10 +167,16 @@ func TestLeafAndTreeVectors(t *testing.T) {
 	if hex.EncodeToString(spk) != ex.ScriptPubKey {
 		t.Fatalf("scriptPubKey mismatch: %x", spk)
 	}
+	// tree_id (spec 6.2): the RECOMMENDED derivation from the creation
+	// outpoint, which the voucher messages below bind in place of m.
+	treeID := TreeID(mustHex32(t, ex.Creation.Txid), ex.Creation.Vout)
+	if hex.EncodeToString(treeID[:]) != ex.TreeID {
+		t.Fatalf("tree_id mismatch: %x", treeID)
+	}
 	// voucher message
 	src := tr.Leaves[v.TransitionClaim.SourceSlot]
 	claim := leafFromVec(t, v.TransitionClaim.ClaimLeaf)
-	vm := VoucherMsg(mustHex32(t, ex.MerkleRoot), src, claim)
+	vm := VoucherMsg(treeID, src, claim)
 	if hex.EncodeToString(vm[:]) != v.TransitionClaim.VoucherMsg {
 		t.Fatalf("voucher msg mismatch")
 	}
@@ -177,7 +188,7 @@ func TestLeafAndTreeVectors(t *testing.T) {
 	if hex.EncodeToString(ph[:]) != v.TransitionClaim.PaymentHash {
 		t.Fatalf("payment hash is not SHA256(preimage)")
 	}
-	vmh := VoucherHMsg(mustHex32(t, ex.MerkleRoot), src, claim, ph)
+	vmh := VoucherHMsg(treeID, src, claim, ph)
 	if hex.EncodeToString(vmh[:]) != v.TransitionClaim.VoucherHMsg {
 		t.Fatalf("hash-locked voucher msg mismatch")
 	}

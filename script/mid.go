@@ -475,9 +475,10 @@ func midUpdateScript(depth int, operatorKey [32]byte, sparse,
 }
 
 // MidClaimScript is the MID-tier CLAIM script: a voucher redemption that
-// drains a source leaf into a new claim leaf.
-func MidClaimScript(depth int, sparse bool) []Token {
-	return midCarveScript(depth, sparse, authVoucher)
+// drains a source leaf into a new claim leaf. treeID is the tree's voucher
+// binding (spec 6.2), a constant of the script.
+func MidClaimScript(depth int, treeID [32]byte, sparse bool) []Token {
+	return midCarveScript(depth, treeID, sparse, authVoucher)
 }
 
 // MidClaimHScript is the MID-tier CLAIM^h script (spec 7.5.1): CLAIM with a
@@ -486,64 +487,66 @@ func MidClaimScript(depth int, sparse bool) []Token {
 // is hashed straight into the message, so a wrong one fails as a bad
 // signature. It is a tree-creation parameter: a tree uses either CLAIM or
 // CLAIM^h, never both.
-func MidClaimHScript(depth int, sparse bool) []Token {
-	return midCarveScript(depth, sparse, authHashlock)
+func MidClaimHScript(depth int, treeID [32]byte, sparse bool) []Token {
+	return midCarveScript(depth, treeID, sparse, authHashlock)
 }
 
 // MidSplitScript is the MID-tier SPLIT script (spec 7.5.2): CLAIM with the
 // owner's transaction signature in place of the voucher, so the witness
 // carries no preimage and no voucher message is rebuilt. It needs no
-// OP_CHECKSIGFROMSTACK. Like CLAIM^h it is a tree-creation parameter and
-// stays out of MidAllScripts.
+// OP_CHECKSIGFROMSTACK and no tree_id. Like CLAIM^h it is a tree-creation
+// parameter and stays out of MidAllScripts.
 func MidSplitScript(depth int, sparse bool) []Token {
-	return midCarveScript(depth, sparse, authOwner)
+	return midCarveScript(depth, [32]byte{}, sparse, authOwner)
+}
+
+// midVoucherAuth is the voucher check of CLAIM and CLAIM^h under 0xC0
+// numerics (spec 7.5 rule 1, 7.5.1 rule 1), shared with the CCV tier's 0xC0
+// scripts: [src(10) claim(10) extras(7) vsig] -> [src(10) claim(10)
+// extras(7)], with SHA256(preimage) parked on the altstack beforehand under
+// hashlock. The message H_voucher(tree_id || src || claim) is assembled from
+// the seven leaf fields of each block by fourteen OP_PICKs: src's fields sit
+// 27 deep under vsig, claim's 18 once src_leaf is on the stack, and src.ok
+// 26 deep once the message replaces the copies
+// (tools/layertree_mid.py voucher_auth).
+func midVoucherAuth(treeID [32]byte, hashlock bool) []Token {
+	s := midRepeat([]Token{Num(27), Op(txscript.OP_PICK)}, 7)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+	s = append(s, midRepeat([]Token{Num(18), Op(txscript.OP_PICK)}, 7)...)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+	s = append(s, Op(txscript.OP_CAT), Data(treeID[:]), Op(txscript.OP_SWAP),
+		Op(txscript.OP_CAT))
+	prefix := midVoucherPrefix
+	if hashlock {
+		s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_CAT))
+		prefix = midVoucherHPrefix
+	}
+	s = append(s, midTagged(prefix)...)
+	return append(s, Num(26), Op(txscript.OP_PICK), Op(OP_CHECKSIGFROMSTACK),
+		Op(txscript.OP_VERIFY))
 }
 
 // midCarveScript is the shared body of the MID CLAIM, CLAIM^h and SPLIT
 // scripts: auth selects the authorisation and nothing else.
-func midCarveScript(depth int, sparse bool, auth string) []Token {
+func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string) []Token {
 	hashlock := auth == authHashlock
-	s := []Token{
-		Num(SelCurrInput), Op(OP_TX), Op(txscript.OP_0),
-		Op(txscript.OP_NUMEQUALVERIFY), Op(txscript.OP_2DUP),
-	}
-	s = append(s, midTreeSpkMin()...)
-	s = append(s, Num(SelInSpk), Op(OP_TX), Op(txscript.OP_EQUALVERIFY),
-		Op(txscript.OP_DUP), Op(txscript.OP_TOALTSTACK),
-		Op(txscript.OP_SWAP), Op(txscript.OP_TOALTSTACK))
+	s := midPrologue() // ... extras(7) vsig [pre] | m r
 	if auth == authOwner {
 		// SPLIT (7.5.2): the owner signs the transaction, so no message is
-		// rebuilt. Drop the spare m; src.ok then sits 25 deep, since the
-		// witness holds src(10) claim(10) extras(7) below the signature and
-		// the owner key is the third field of the source leaf block.
-		s = append(s, Op(txscript.OP_DROP), // ... extras(7) osig
-			Num(25), Op(txscript.OP_PICK), // ... osig src.ok
+		// rebuilt. src.ok sits 25 deep, since the witness holds src(10)
+		// claim(10) extras(7) below the signature and the owner key is the
+		// third field of the source leaf block.
+		s = append(s, Num(25), Op(txscript.OP_PICK), // ... osig src.ok
 			Op(txscript.OP_CHECKSIGVERIFY)) // src(10) claim(10) extras(7)
 	} else {
 		if hashlock {
 			// Park SHA256(preimage) on the altstack: every pick depth below
 			// is exactly as in CLAIM.
-			s = append(s, Op(txscript.OP_SWAP), Op(txscript.OP_SIZE), Num(32),
+			s = append(s, Op(txscript.OP_SIZE), Num(32),
 				Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_SHA256),
 				Op(txscript.OP_TOALTSTACK))
 		}
-		// voucher message m || src_leaf || claim_leaf [|| phash]
-		s = append(s, midRepeat([]Token{Num(28), Op(txscript.OP_PICK)}, 7)...)
-		s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
-		s = append(s, midRepeat([]Token{Num(19), Op(txscript.OP_PICK)}, 7)...)
-		s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
-		s = append(s, Num(2), Op(txscript.OP_PICK), Op(txscript.OP_ROT),
-			Op(txscript.OP_ROT), Op(txscript.OP_CAT), Op(txscript.OP_CAT))
-		voucherPrefix := midVoucherPrefix
-		if hashlock {
-			s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_CAT))
-			voucherPrefix = midVoucherHPrefix
-		}
-		s = append(s, midTagged(voucherPrefix)...)
-		s = append(s, Op(txscript.OP_ROT), Op(txscript.OP_SWAP),
-			Num(27), Op(txscript.OP_PICK),
-			Op(OP_CHECKSIGFROMSTACK), Op(txscript.OP_VERIFY),
-			Op(txscript.OP_DROP))
+		s = append(s, midVoucherAuth(treeID, hashlock)...)
 	}
 	s = append(s, midCarveSource(depth, sparse)...)
 	s = append(s, midCheckOld(sparse)...)
@@ -760,8 +763,9 @@ func midEvictBody(height int, operatorKey [32]byte, pay []Token) []Token {
 }
 
 // MidAllScripts builds the MID-tier script set for one profile, keyed as
-// layertree_mid.all_scripts keys them.
-func MidAllScripts(depth int, operatorKey [32]byte, sparse bool,
+// layertree_mid.all_scripts keys them. treeID is the tree's voucher
+// binding (spec 6.2), which CLAIM carries as a constant.
+func MidAllScripts(depth int, operatorKey, treeID [32]byte, sparse bool,
 	joinHeights, exitKs, joinKs []int) map[string][]Token {
 
 	out := make(map[string][]Token)
@@ -779,7 +783,7 @@ func MidAllScripts(depth int, operatorKey [32]byte, sparse bool,
 		out[fmt.Sprintf("JOINK_%d", k)] = MidJoinScript(depth, 0, operatorKey, sparse, k)
 	}
 	out["UPDATE"] = MidUpdateScript(depth, operatorKey, sparse)
-	out["CLAIM"] = MidClaimScript(depth, sparse)
+	out["CLAIM"] = MidClaimScript(depth, treeID, sparse)
 	return out
 }
 

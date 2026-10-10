@@ -84,7 +84,13 @@ section 7 are right; the tests show the *scripts* implement the rules.
    contains only the entries you meant to change. **The
    `taptree_full_d4.merkle_root` vector must not change unless the
    reference script *set* changes**; tree-creation variants (`UPDATE_X`,
-   exact-payout `EXIT`) are excluded from it on purpose.
+   exact-payout `EXIT`) are excluded from it on purpose. It has moved
+   once, at spec 0.10.0, when the voucher message of `CLAIM` (a member
+   of the set) was rebound from `m` to `tree_id`: from
+   `4c41f0a6ee029f07e34656dd8030f5bcfdbff3533e508bc4e52406b64b4a9265` to
+   `d78e09ee6c947dfc9c66cb17c1f0528bfe0fe805b95d764c621a0481edabe59a`.
+   The `sighash_vector`, `tree_spk_vector` and `chan` entries derive
+   from it and move with it.
 4. Mirror the generator in Go (`script/full.go`, `script/mid.go`,
    `script/min.go`, `script/ccv.go`) and add the golden-key comparison test. Run `gofmt -l .`.
 5. Update the spec: the listing in section 8, the size table in 8.8 and
@@ -200,8 +206,8 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (852 checks)
-python3 tools/test_mid.py          # MID tier (198 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (868 checks)
+python3 tools/test_mid.py          # MID tier (208 checks)
 python3 tools/test_min.py          # MIN tier (31 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (798 checks)
 python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (149 checks)

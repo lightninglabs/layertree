@@ -267,7 +267,7 @@ the voucher message and require the preimage to redeem it, and a voucher
 becomes an HTLC. Now you can sell tree balance for Lightning sats, or buy a
 leaf with Lightning sats while holding no on-chain Bitcoin at all, with
 neither side able to take the other's money and walk. The script cost of
-the hash lock is nine bytes and no new opcode, because the preimage is
+the hash lock is eight bytes and no new opcode, because the preimage is
 hashed straight into the signed message rather than compared against a
 copy: a wrong preimage produces an invalid signature.
 

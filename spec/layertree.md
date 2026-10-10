@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.9.0
+Version:  0.10.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -365,7 +365,7 @@ are interchangeable, with one numeric cap noted below.
 | Sum limit per tree | none (< 2^51 by leaf rule) | every sum < 2^31 sat | every sum < 2^31 sat | as FULL (`0xC2`) or as MID (`0xC0`) |
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both | exact for both (4.6) |
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID | as FULL (`0xC2`) or as MID (`0xC0`, `D ≤ 31`) |
-| `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK`; the voucher binds `tree_id` in place of `m` (4.6, 9.6) |
+| `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK` |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | yes, both numerics, as `CLAIM` |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes, both numerics |
 | `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | not implemented | no (no `CLAIM`) | not implemented |
@@ -395,13 +395,13 @@ script / witness data:
 | `JOINK_2` | 3,545 / 1,525 | 5,749 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 17,985 / 1,433 | 9,388 / 542 |
 | `UPDATE` | 2,137 / 1,080 | 3,407 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,393 / 1,002 | 4,962 / 483 |
 | `UPDATE^x` | 2,144 / 1,144 | 3,411 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,397 / 1,032 | 4,969 / 547 |
-| `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | 3,447 / 1,626 | 9,896 / 688 | 18,241 / 1,543 | 9,541 / 419 |
-| `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | 3,455 / 1,658 | 9,905 / 515 | 18,250 / 1,438 | 9,549 / 451 |
-| `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 3,338 / 1,610 | 9,822 / 483 | 18,110 / 1,412 | 9,432 / 419 |
+| `CLAIM` | 3,834 / 1,690 | 6,316 / 1,832 | n/a | 3,447 / 1,626 | 9,928 / 688 | 18,266 / 1,543 | 9,541 / 419 |
+| `CLAIM^h` | 3,842 / 1,722 | 6,324 / 1,861 | n/a | 3,455 / 1,658 | 9,936 / 515 | 18,274 / 1,438 | 9,549 / 451 |
+| `SPLIT` | 3,725 / 1,674 | 6,157 / 1,813 | 6,441 / 2,010 | 3,338 / 1,610 | 9,819 / 483 | 18,107 / 1,412 | 9,432 / 419 |
 | `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,097 / 1,157 | — | 2,340 / 987 | — | — | — |
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | 15,968 / 6,391 | — | — | — |
-| `CLAIM^x` | 3,810 / 1,754 | — | n/a | — | 9,904 / 547 | — | — |
+| `CLAIM^x` | 3,841 / 1,754 | — | n/a | — | 9,935 / 547 | — | — |
 | `REWRITE_4` (16 positions, mixed) | 5,336 / 4,329 | — | — | — | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
@@ -419,10 +419,11 @@ drop out.
 
 At `D = 4` (dense) and `D = 8` (sparse) the `0xC2` `CLAIM` measures
 1,335 / 630 and 3,031 / 419, `CLAIM^h` 1,343 / 662 and 3,039 / 451. The
-`tree_id` voucher check costs 109 bytes of script over `SPLIT` in `0xC2`
-and 159 in `0xC0`, against 74 and 131 for the check over `m` in FULL
-and MID: the 33-byte `tree_id` push replaces the copy of `m` the other
-tiers take from the witness, and the CCV witness carries no `m`.
+voucher check costs 109 bytes of script over `SPLIT` under `0xC2`
+numerics and 159 under `0xC0`, in every tier: the 33-byte `tree_id` push
+is a constant of the script, and the check takes nothing but the two
+leaves and the signature from the witness, which is why the CCV tier,
+whose witness carries no `m`, runs the same check token for token.
 
 The MID `EVICT_SUBTREE_h` (8.7) carries each occupied position as
 fourteen witness elements (the ten of a MID leaf, the minimal
@@ -464,9 +465,8 @@ measured, and `UPDATE^x` follows `UPDATE`. A MIN tree as measured here is
 therefore created with its whole membership and only ever shrinks, by
 `EXIT_1` and `SPLIT`. CCV (section 4.6) is what BIP-443 adds on top of either numeric
 flavour: the same transitions at a smaller script than FULL (1,716 vs
-2,101 bytes for `EXIT_1` at `D = 16`) with no EC-ops dependency, `r` and
-`m` gone from every witness, and vouchers bound to a per-tree `tree_id`
-in place of `m`.
+2,101 bytes for `EXIT_1` at `D = 16`) with no EC-ops dependency and `r`
+and `m` gone from every witness.
 
 ### 4.6 The CCV tier
 
@@ -498,32 +498,17 @@ for the tier: a short payout would strand its difference in the residual
 and force output 0 above `ns`, breaking rule 5's equality. Fees are
 exogenous, as in MID and MIN.
 
-**Vouchers bind `tree_id`.** The voucher message of 7.5 binds `m`, which
-the CCV witness does not carry: BIP-443 exposes the current input's
-taptree only as an operand special value, not as a stack item, and a
-script cannot embed `m` as a constant, because `m` is a hash over the
-script itself. A CCV tree therefore fixes a 32-byte `tree_id` at creation.
-Its value MUST be unique to the tree; the RECOMMENDED value is
-`H_tag("LayerTree/tree-id", txid || le32(vout))` over the creation
-outpoint (txid in internal byte order), which is unique by construction and
-cannot equal any tree's `m`, a TapBranch or TapLeaf hash. `tree_id` is a
-creation parameter like `D` and `OPERATOR_KEY` (9.1). The tier's `CLAIM`
-and `CLAIM^h` scripts carry it as a constant and check the voucher
-`H_voucher(tree_id || src || claim)`, respectively `H_voucher_h(tree_id ||
-src || claim || payment_hash)`, with `OP_CHECKSIGFROMSTACK` against
-`src.owner_key` (9.6); the two carve steps are SPLIT's. A voucher for
-another tree names another `tree_id` and fails the signature check, so
-cross-tree replay is excluded as `m` excludes it in FULL and MID, and the
-in-tree replay rule is unchanged: the `seq` increment of 7.5 voids a
-redeemed voucher. Because the scripts embed `tree_id`, two CCV trees with
-otherwise identical parameters also have different taptrees. `CLAIM` and
-`CLAIM^h` are the only CCV scripts that use `OP_CHECKSIGFROMSTACK`; a CCV
-tree that omits them does not depend on it, which is why they are
-tree-creation parameters in this tier, like `SPLIT` and `UPDATE^x`, rather
-than members of the default script set. `SPLIT` (7.5.2) needs neither
-`tree_id` nor `OP_CHECKSIGFROMSTACK`: it is authorised by the source
-owner's transaction signature (`OP_CHECKSIGVERIFY`), which commits to the
-spent outputs and so to the tree's scriptPubKey. All three exist in both
+**Vouchers.** `CLAIM` and `CLAIM^h` check the voucher of 7.5 over the
+tree's `tree_id` (6.2) exactly as the other tiers do, token for token
+(8.6.2): the message never names `m`, so the CCV witness's lack of `m`
+costs the tier nothing. `CLAIM` and `CLAIM^h` are the only CCV scripts
+that use `OP_CHECKSIGFROMSTACK`; a CCV tree that omits them does not
+depend on it, which is why they are tree-creation parameters in this
+tier, like `SPLIT` and `UPDATE^x`, rather than members of the default
+script set. `SPLIT` (7.5.2) needs neither `tree_id` nor
+`OP_CHECKSIGFROMSTACK`: it is authorised by the source owner's
+transaction signature (`OP_CHECKSIGVERIFY`), which commits to the spent
+outputs and so to the tree's scriptPubKey. All three exist in both
 numerics (`claim_script_ccv`, `_claim_script_ccv0`, `split_script_ccv`).
 `UPDATE^x` (both numerics), terminal exits and every other transition are
 unchanged. The `0xC2` `SEQ_FINAL` is FULL's `0xFFFFFFFF` and the `0xC0`
@@ -582,6 +567,7 @@ scripts in this document.
 | `TAG_VOUCHER` | `"LayerTree/voucher"` |
 | `TAG_VOUCHER_H` | `"LayerTree/voucher-hashlock"` (hash-locked vouchers, 7.5.1) |
 | `TAG_POS` | `"LayerTree/pos"` (sparse profile positions) |
+| `TAG_TREE_ID` | `"LayerTree/tree-id"` (the RECOMMENDED `tree_id` derivation, 6.2) |
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
 | `EMPTY_LEAF_HASH` | 32 zero bytes |
 | `LEAF_LEN` | 116 |
@@ -758,8 +744,20 @@ parameters:
 * `D`, the depth;
 * `OPERATOR_KEY`, a 32-byte x-only key;
 * the set of supported `JOIN` heights (dense) and `EXIT_K` sizes;
-* in the CCV tier, `tree_id` (4.6), the per-tree constant its vouchers
-  bind in place of `m`.
+* `tree_id`, a 32-byte value that every voucher against the tree binds
+  (7.5) and that the `CLAIM` scripts carry as a constant (8.6), never as
+  a witness element. It MUST be unique per lineage: no two trees share it
+  unless one was created from the other by `DETACH_h` (7.10), and a tree
+  created by `DETACH_h` MUST inherit its parent's `tree_id`. The
+  RECOMMENDED value is `H_tag("LayerTree/tree-id", txid || le32(vout))`
+  over the outpoint spent by input 0 of the creation transaction (`txid`
+  in internal byte order), which is known before the transaction is built
+  and can be spent only once, so it is unique by construction and cannot
+  equal any `m`, TapBranch or TapLeaf hash. The tree output's own
+  outpoint cannot serve: `m` depends on `tree_id` and the output's
+  scriptPubKey on `m`. Inheritance across a detach is safe because a
+  detach moves each leaf into exactly one of the two outputs, so a
+  voucher's source leaf exists in one tree of the lineage only.
 
 A conforming taptree MUST contain `EXIT_1`. It SHOULD contain at least one
 `JOIN_h` (`JOIN_0` in the sparse profile), and MAY contain `UPDATE`, `CLAIM`
@@ -769,6 +767,10 @@ circular dependency.
 
 The Merkle root of the taptree, `m`, is the **tree identifier**. Two tree
 outputs with the same `m` follow identical rules and differ only in state.
+`m` names a rule set rather than a tree: two trees created with the same
+parameters share it. Because `tree_id` is a constant of `CLAIM`, two trees
+that carry a `CLAIM` script and differ in `tree_id` have different `m` as
+well, but what binds a voucher to one tree is `tree_id`, not `m` (10.3).
 
 ### 6.3 scriptPubKey
 
@@ -813,7 +815,10 @@ A tree is created by any transaction paying `TREE_SPK(r_0, m)` with amount
 equal to the sum of `r_0`. `r_0` MAY be the empty root `E_D` (amount 0 is
 not a valid output, so in practice the operator seeds the tree with at least
 one leaf of its own) or a root over an initial set of leaves whose owners
-have verified their inclusion before funding (section 9.2).
+have verified their inclusion before funding (section 9.2). The outpoint
+spent by the transaction's input 0 is what the RECOMMENDED `tree_id`
+(6.2) is derived from, so the creator fixes that input before compiling
+the scripts.
 
 ## 7. Transitions
 
@@ -968,8 +973,11 @@ Voucher: `voucher_sig` is a BIP-340 signature by `source_leaf.owner_key`
 over
 
 ```
-H_voucher( m || source_leaf || claim_leaf )
+H_voucher( tree_id || source_leaf || claim_leaf )
 ```
+
+where `tree_id` is the tree's creation parameter of 6.2, a constant of
+the script and not a witness element.
 
 Witness inputs: sibling path of the *claim* position (`D` levels), sibling
 path of the *source* position (`D` levels), `source_leaf`, `claim_leaf`,
@@ -978,7 +986,8 @@ path of the *source* position (`D` levels), `source_leaf`, `claim_leaf`,
 Rules:
 
 1. `voucher_sig` MUST verify (via `OP_CHECKSIGFROMSTACK`) under
-   `source_leaf.owner_key` over the message above.
+   `source_leaf.owner_key` over the message above, with the script's own
+   `tree_id`.
 2. **Step 1** (source): old node `(H_leaf(source_leaf), source_leaf.amount)`;
    new node is the leaf `source_leaf'` identical to `source_leaf` except
    `amount' = source_leaf.amount − claim_leaf.amount` (MUST NOT underflow)
@@ -1003,7 +1012,11 @@ value still differs from every previously signed voucher. Honouring a
 voucher by other means (for example a `JOIN` of the same `claim_leaf`
 elsewhere) does *not* invalidate it; issuers MUST track outstanding vouchers
 as liabilities until the source leaf's `seq` has advanced past them
-(section 9.6). The voucher binds the source leaf by content, not position,
+(section 9.6). The voucher binds `tree_id` rather than `m` because `m`
+names a rule set that two trees can share, so a voucher over `m` could be
+redeemed in both against identical source-leaf bytes (10.3); binding
+`tree_id` also lets a voucher survive a `DETACH_h`, which preserves it
+(7.10). The voucher binds the source leaf by content, not position,
 which is why section 5.2 forbids two leaves with the same
 `(owner_key, nonce)`: two identical leaves would let one voucher be redeemed
 against each. In the sparse profile this cannot occur.
@@ -1019,7 +1032,7 @@ Voucher: `voucher_sig` is a BIP-340 signature by `source_leaf.owner_key`
 over
 
 ```
-H_voucher_h( m || source_leaf || claim_leaf || payment_hash )
+H_voucher_h( tree_id || source_leaf || claim_leaf || payment_hash )
 ```
 
 where `payment_hash` is 32 bytes. The tag differs from `TAG_VOUCHER`, so a
@@ -1033,7 +1046,7 @@ Rules: as 7.5, with rule 1 replaced by
 
 1. `preimage` MUST be exactly 32 bytes, and `voucher_sig` MUST verify (via
    `OP_CHECKSIGFROMSTACK`) under `source_leaf.owner_key` over
-   `H_voucher_h( m || source_leaf || claim_leaf || SHA256(preimage) )`.
+   `H_voucher_h( tree_id || source_leaf || claim_leaf || SHA256(preimage) )`.
 
 Rules 2 to 4 of 7.5 are unchanged, so `CLAIM^h` conserves the total, is
 single-use, and empties a drained source position exactly as `CLAIM` does.
@@ -1140,10 +1153,9 @@ itself, because it does not hold the exit key. With `UPDATE^x` and
 `EXIT^=` in the same taptree and a `NUMS` evictor, the credit leaf's
 balance can only grow or be paid to its recipient, which removes the
 voiding race of 10.3 for that leaf. The reference generator exposes the
-variant as `claim_script(…, exit_consent=True)`. It costs 8 bytes over
-`CLAIM` or `CLAIM^h` in the FULL tier (`UPDATE^x`'s seven, plus one
-`OP_SWAP` that lifts the signature over the spare copy of `m` the voucher
-message needs) and 64 bytes of witness.
+variant as `claim_script(…, exit_consent=True)`. It costs 7 bytes over
+`CLAIM` or `CLAIM^h` in the FULL tier, as `UPDATE^x` over `UPDATE`, and
+64 bytes of witness.
 
 ### 7.6 Composition and variants
 
@@ -1311,11 +1323,12 @@ Rules:
    7.1, or unconstrained if `r' = E_D` (7.8).
 3. Output 1 MUST be `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is a
    constant of the script: the tree identifier (6.2) of a tree of depth
-   `h` with the same `OPERATOR_KEY`, fixed at tree creation and therefore
-   committed to by `m`. The reference `m_h` is the taptree root of the
-   reference script set compiled for depth `h` (`EXIT_1`, `EXIT_2`,
-   `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`); a creator MAY choose another
-   set and MUST publish it with the tree's parameters (9.1).
+   `h` with the same `OPERATOR_KEY` and the same `tree_id`, fixed at tree
+   creation and therefore committed to by `m`. The reference `m_h` is the
+   taptree root of the reference script set compiled for depth `h`
+   (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`); a creator
+   MAY choose another set and MUST publish it with the tree's parameters
+   (9.1).
 4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 
 A member's proof in the detached tree is its proof in the parent truncated
@@ -1323,10 +1336,10 @@ to the lower `h` levels; no member needs new data. The detached tree's
 leaves are byte for byte the parent's, so an `EXIT` from it pays the same
 `P2TR(exit_key)`, and channel leaves (Appendix C) are unaffected: `chan_id`
 binds the parent's `m` as a creation-time constant of the channel scripts,
-not as anything a tree script re-derives. Vouchers are different: they bind
-`m`, and `CLAIM` re-derives `m` from the input it spends, so a voucher
-against a source leaf in a detached subtree MUST be reissued under `m_h`
-(9.6).
+not as anything a tree script re-derives. Vouchers are unaffected as
+well: they bind `tree_id`, which the detached tree inherits (6.2) and
+whose `CLAIM` scripts carry the same constant, so a voucher issued against
+a leaf of the cohort redeems in the detached tree as issued (9.6).
 
 *(informative)* Value is conserved across two tree outputs,
 `S = (S − sum_h) + sum_h`; the Lean model states the second output
@@ -1621,14 +1634,16 @@ the old leaf directly.
 
 Witness: `claim_path(D)  source_path(D)  source_leaf  claim_leaf
 voucher_sig  r  m` (the claim path is deeper in the stack because it is
-consumed second). Sparse: `LEAF_POS SPARSE_SETUP` is applied to
-`source_leaf` before the first pass and to `claim_leaf` before the second.
+consumed second). `<TREE_ID>` is the tree's `tree_id` (6.2), a 33-byte
+push. Sparse: `LEAF_POS SPARSE_SETUP` is applied to `source_leaf` before
+the first pass and to `claim_leaf` before the second.
 
 ```
 <SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
 OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim vsig r m
-OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim vsig m       | m r
-OP_3 OP_PICK OP_3 OP_PICK OP_CAT OP_CAT             # src claim vsig (m||src||claim)
+OP_TOALTSTACK OP_TOALTSTACK                         # src claim vsig         | m r
+OP_2 OP_PICK OP_2 OP_PICK OP_CAT                    # src claim vsig (src||claim)
+<TREE_ID> OP_SWAP OP_CAT                            # src claim vsig (tree_id||src||claim)
 TAGGED(TAG_VOUCHER)                                 # src claim vsig msg
 OP_3 OP_PICK 40 32 OP_SUBSTR                        # src claim vsig msg src.owner_key
 OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
@@ -1664,11 +1679,11 @@ stack depth in the rest of the script is as in `CLAIM`:
 ```
 <SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
 OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim vsig pre r m
-OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim vsig pre m   | m r
-OP_SWAP OP_SIZE 32 OP_EQUALVERIFY OP_SHA256
-OP_TOALTSTACK                                       # src claim vsig m       | m r phash
-OP_3 OP_PICK OP_3 OP_PICK OP_CAT OP_CAT             # src claim vsig (m||src||claim)
-OP_FROMALTSTACK OP_CAT                              # src claim vsig (m||src||claim||phash)
+OP_TOALTSTACK OP_TOALTSTACK                         # src claim vsig pre     | m r
+OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 OP_TOALTSTACK   # src claim vsig         | m r phash
+OP_2 OP_PICK OP_2 OP_PICK OP_CAT                    # src claim vsig (src||claim)
+<TREE_ID> OP_SWAP OP_CAT                            # src claim vsig (tree_id||src||claim)
+OP_FROMALTSTACK OP_CAT                              # src claim vsig (tree_id||src||claim||phash)
 TAGGED(TAG_VOUCHER_H)                               # src claim vsig msg
 OP_3 OP_PICK 40 32 OP_SUBSTR                        # src claim vsig msg src.owner_key
 OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
@@ -1676,27 +1691,27 @@ OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
 ```
 
 The MID tier applies the same two insertions to 8.6's MID form. In both
-tiers the variant costs 9 bytes of script over `CLAIM` (section 8.8).
+tiers the variant costs 8 bytes of script over `CLAIM` (section 8.8).
 
 #### 8.6.2 SPLIT
 
 Witness: as 8.6 with `owner_sig` in place of `voucher_sig` and no preimage.
-The voucher message is not rebuilt, so the prologue drops the spare copy of
-`m` and checks the owner's transaction signature instead:
+No voucher message is rebuilt; the owner's transaction signature is checked
+in its place:
 
 ```
 <SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
 OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim osig r m
-OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim osig m       | m r
-OP_DROP                                             # src claim osig
+OP_TOALTSTACK OP_TOALTSTACK                         # src claim osig         | m r
 OP_2 OP_PICK 40 32 OP_SUBSTR                        # src claim osig src.owner_key
 OP_CHECKSIGVERIFY                                   # src claim
 ... as 8.6 from the OP_SIZE 116 check onwards, unchanged ...
 ```
 
 In the MID tier the same two lines replace the fourteen `OP_PICK`s, the
-concatenations and the tagged hash that rebuild the voucher message, so the
-saving is larger there: 74 bytes in FULL and 131 in MID (section 8.8).
+concatenations, the `tree_id` push and the tagged hash that rebuild the
+voucher message, so the saving is larger there: 109 bytes in FULL and 159
+in MID (section 8.8).
 
 The MIN tier runs the MID authorisation and both steps unchanged and
 replaces the four `OP_TX` reads (current input index, input scriptPubKey,
@@ -1711,25 +1726,14 @@ signs after the spender has ground the fee input's `nSequence`, since the
 signature covers it. Listing: `spec/scripts/MIN_SPLIT_D4.txt`.
 
 In the CCV tier (4.6) the witness of all three carves loses `r` and `m`,
-the first step's old root is bound by `CHECK_INPUT` and output 0 by the
-assign-mode `FINAL`. `SPLIT` keeps the two lines above minus the spare
-`m`. `CLAIM` rebuilds the voucher message over the tree's `tree_id`, a
-script constant:
-
-```
-OP_2 OP_PICK OP_2 OP_PICK OP_CAT                    # src claim vsig (src||claim)
-<TREE_ID> OP_SWAP OP_CAT                            # src claim vsig (tree_id||src||claim)
-TAGGED(TAG_VOUCHER)                                 # src claim vsig msg
-OP_3 OP_PICK 40 32 OP_SUBSTR
-OP_CHECKSIGFROMSTACK OP_VERIFY                      # src claim
-... as 8.6 from the OP_SIZE 116 check onwards, with the CCV bindings ...
-```
-
-and `CLAIM^h` adds 8.6.1's two insertions. Under `0xC0` the same message
-is assembled from the seven leaf elements by fourteen `OP_PICK`s as in
-MID, with `<TREE_ID>` in place of the copy of `m`. Listings:
-`spec/scripts/CCV_CLAIM_D4.txt`, `CCV_CLAIM_H_D4.txt`, `CCV0_CLAIM_D4.txt`,
-`CCV0_CLAIM_H_D4.txt`, `CCV0_SPLIT_D4.txt`.
+there is no prologue, the first step's old root is bound by `CHECK_INPUT`
+and output 0 by the assign-mode `FINAL`. `SPLIT` keeps the two
+authorisation lines above and `CLAIM` the voucher check of 8.6 from
+`OP_2 OP_PICK` to `OP_VERIFY`, token for token: neither names `m`. Under
+`0xC0` the message is assembled from the seven leaf elements by fourteen
+`OP_PICK`s as in MID. Listings: `spec/scripts/CCV_CLAIM_D4.txt`,
+`CCV_CLAIM_H_D4.txt`, `CCV0_CLAIM_D4.txt`, `CCV0_CLAIM_H_D4.txt`,
+`CCV0_SPLIT_D4.txt`.
 
 #### 8.6.3 CLAIM^x and CLAIM^hx
 
@@ -1741,15 +1745,16 @@ form:
 ```
 <SEL_CURR_INPUT> OP_TX OP_0 OP_NUMEQUALVERIFY
 OP_2DUP TREE_SPK <SEL_IN_SPK> OP_TX OP_EQUALVERIFY  # src claim vsig [pre] xsig r m
-OP_DUP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK          # src claim vsig [pre] xsig m   | m r
-OP_SWAP OP_4 OP_PICK OP_8 32 OP_SUBSTR              # src claim vsig m xsig src.exit_key
-OP_CHECKSIGVERIFY                                   # src claim vsig m
-... as 8.6 from OP_3 OP_PICK onwards (8.6.1 from OP_SWAP OP_SIZE 32 onwards), unchanged ...
+OP_TOALTSTACK OP_TOALTSTACK                         # src claim vsig [pre] xsig   | m r
+OP_3 OP_PICK OP_8 32 OP_SUBSTR                      # src claim vsig [pre] xsig src.exit_key
+OP_CHECKSIGVERIFY                                   # src claim vsig [pre]
+... as 8.6 from OP_2 OP_PICK onwards (8.6.1 from OP_SIZE 32 onwards), unchanged ...
 ```
 
-In `CLAIM^hx` the pick depth is `OP_5`, since the preimage sits between
-`voucher_sig` and `exit_sig`. Either form costs 8 bytes over its plain
-script (section 8.8). Listing: `spec/scripts/CLAIM_X_D4.txt`.
+In `CLAIM^hx` the pick depth is `OP_4`, since the preimage sits between
+`voucher_sig` and `exit_sig`. Either form costs 7 bytes over its plain
+script (section 8.8), as `UPDATE^x` over `UPDATE`. Listing:
+`spec/scripts/CLAIM_X_D4.txt`.
 
 ### 8.7 EVICT_SUBTREE_h
 
@@ -1940,7 +1945,7 @@ CHECK_OLD FINAL
 ```
 
 `m_h` is a 32-byte constant of the script (7.10 rule 3); the reference
-generator computes it as `detached_taptree_root(h, OPERATOR_KEY)`. The
+generator computes it as `detached_taptree_root(h, OPERATOR_KEY, tree_id)`. The
 script is `JOIN_h` plus 235 bytes, almost all of them the second
 `TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
 
@@ -1952,10 +1957,11 @@ transported by any authenticated channel; their encoding is out of scope.
 
 ### 9.1 Tree creation
 
-The operator chooses `D`, `OPERATOR_KEY` and the set of `JOIN` heights,
-builds the taptree (section 6.2) and publishes `(D, OPERATOR_KEY, heights,
-m)`. Participants MUST recompute `m` from the parameters before treating a
-tree output as a LayerTree.
+The operator chooses `D`, `OPERATOR_KEY`, `tree_id` and the set of `JOIN`
+heights, builds the taptree (section 6.2) and publishes `(D, OPERATOR_KEY,
+tree_id, heights, m)`. Participants MUST recompute `m` from the parameters
+before treating a tree output as a LayerTree; since `CLAIM` carries
+`tree_id`, a wrong `tree_id` fails that check.
 
 ### 9.2 Joining
 
@@ -2033,8 +2039,8 @@ enforces only that the tree output's amount tracks the change in the leaf.
 
 ### 9.6 Vouchers
 
-A voucher `(m, source_leaf, claim_leaf, voucher_sig)` MAY be issued by any
-leaf owner to any recipient. Issuers MUST NOT issue vouchers whose amounts
+A voucher `(tree_id, source_leaf, claim_leaf, voucher_sig)` MAY be issued
+by any leaf owner to any recipient. Issuers MUST NOT issue vouchers whose amounts
 sum to more than the source leaf's current amount, MUST track each issued
 voucher as an outstanding liability until the source leaf's `seq` exceeds
 the value at issuance, and MUST rebuild outstanding vouchers (with the new
@@ -2042,27 +2048,19 @@ the value at issuance, and MUST rebuild outstanding vouchers (with the new
 voids every outstanding voucher against its source exactly as a `CLAIM`
 does, and also lowers the balance they draw on, so the rebuilt set MUST
 fit the reduced amount. A `DETACH_h` (7.10) of the subtree holding the
-source leaf changes the `m` a `CLAIM` against it re-derives, so the issuer
-MUST reissue outstanding vouchers under `m_h` after one; the leaf itself
-is unchanged, so `seq` need not advance.
+source leaf changes nothing: the detached tree inherits `tree_id` and the
+leaf is unchanged, so outstanding vouchers redeem there as issued.
 
-A recipient MUST verify `voucher_sig`, MUST verify that `source_leaf` is
-currently in the tree at some position (by obtaining and checking a path),
+A recipient MUST verify `voucher_sig`, MUST check that `tree_id` is the
+value the tree's `CLAIM` scripts carry (it is one of the published
+creation parameters from which `m` is recomputed, 9.1), MUST verify that
+`source_leaf` is currently in the tree at some position (by obtaining and
+checking a path),
 and SHOULD treat the voucher as settled only after (a) redeeming it via
 `CLAIM`, or (b) the issuer has included `claim_leaf` via `JOIN`/`UPDATE`
 and the recipient has verified inclusion. Until then the recipient bears the
 risk that the issuer double-issues against the same balance; the covenant
 prevents *over*-redemption, not over-issuance (section 10.3).
-
-In a CCV-tier tree (4.6) the voucher binds the tree's `tree_id` in place
-of `m`: the signed message is `H_voucher(tree_id || source_leaf ||
-claim_leaf)`, and for a hash-locked voucher `H_voucher_h(tree_id ||
-source_leaf || claim_leaf || payment_hash)`, and a voucher is the tuple
-`(tree_id, source_leaf, claim_leaf, voucher_sig)`. A recipient MUST check
-that `tree_id` is the value the tree's `CLAIM` scripts carry (it is part
-of the published creation parameters from which `m` is recomputed, 9.1).
-Every other obligation of this section applies unchanged. The FULL and
-MID tiers keep the message over `m`.
 
 *(informative)* Vouchers are the LayerTree analogue of Ark's out-of-round
 payments and of the original sketch's signed vouchers: an operator that
@@ -2299,9 +2297,18 @@ omit it from the taptree. The recipient's remaining exposure is the
 issuer's liveness, that is, a provider that stops issuing.
 `design/receive.md` works through the wallet case this serves.
 
-A voucher commits to `m`, so it cannot be replayed in another tree; it
-commits to the full source leaf including `seq`, so it cannot be replayed
-after any change to the source leaf. It does not commit to the source
+A voucher commits to `tree_id` (6.2), so it cannot be replayed in another
+tree: `tree_id` is unique per lineage by rule, and because every `CLAIM`
+script carries it as a constant, a tree with another `tree_id` has no
+script that would accept the voucher. `m` alone would not do. It names a
+rule set, which two trees created with the same parameters share, so a
+voucher bound only to `m` would verify in both against identical
+source-leaf bytes, which an owner reusing a key and nonce across trees
+produces without noticing. Within a lineage a `DETACH_h` moves each leaf
+into exactly one of the two outputs, so a voucher's source leaf exists in
+one tree only (7.10). A voucher also commits to the full source leaf
+including `seq`, so it cannot be replayed after any change to the source
+leaf. It does not commit to the source
 *position*: if the same 116 bytes occurred at two positions, one voucher
 could be redeemed against both, doubling the issuer's loss. Section 5.2
 therefore requires unique `(owner_key, nonce)`; in the dense profile an
@@ -2465,7 +2472,7 @@ dependency. The `r` and `m` witness elements are gone entirely. Each CCV
 call charges one sigcheck-equivalent (500,000 varops, [A-6]); an
 `EXIT_1` makes two calls, within the same budget headroom as the FULL
 tier's two `TREE_SPK` recomputations. A CCV `CLAIM` at `D = 16` (dense)
-measures 3,447 / 1,626 bytes against FULL's 3,802 / 1,690; it is the one
+measures 3,447 / 1,626 bytes against FULL's 3,834 / 1,690; it is the one
 CCV script that needs `OP_CHECKSIGFROMSTACK` (4.6).
 
 The transaction weight column adds a fee input (P2WPKH), a change output
@@ -2727,10 +2734,10 @@ exits in a batch" as `EXIT_K` (section 13).
 ## 14. Test Vectors and Reference Code
 
 * `spec/test-vectors.json` — tag prefixes, `NUMS`, empty nodes `E_0 … E_32`,
-  a depth-4 example tree (leaves, root, internal key, output key,
-  scriptPubKey, all paths), and one worked vector for each transition type
-  including the voucher message. Regenerate with
-  `python3 tools/layertree_ref.py`.
+  a depth-4 example tree (leaves, root, internal key, creation outpoint
+  and `tree_id`, output key, scriptPubKey, all paths), and one worked
+  vector for each transition type including the voucher messages over
+  `tree_id`. Regenerate with `python3 tools/layertree_ref.py`.
 * `tools/layertree_ref.py` — data structures, transitions and taproot
   derivation.
 * `tools/layertree_scripts.py` — the scripts of section 8 as assembler
@@ -2742,9 +2749,11 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 198 and 31 checks respectively; the MID
+  operands during development), 208 and 31 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
-  *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
+  *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
+  binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
+  another `tree_id` and a voucher over `m` all fail), and the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
   7.5.2 in both profiles, the dense `JOIN_2` negatives (occupied slot,
   no operator signature), a stale `JOINK_2` second path, and the MID
@@ -2767,9 +2776,11 @@ exits in a batch" as `EXIT_K` (section 13).
   tree, including negative cases (forged leaf, stale
   root, attacker-chosen `m`, unconserved amount, underfunded join, join over
   an occupied position, early eviction, evictor shortchange, unsigned update,
-  voucher replay, over-claim, wrong voucher signer, stale second path in
-  `EXIT_2`, shortchanged second evictee, non-terminal exit taking the
-  terminal branch) and positive cases for a `CLAIM` that drains its source
+  voucher replay, over-claim, wrong voucher signer, a voucher signed for
+  another `tree_id`, a voucher over `m` in place of `tree_id`, stale
+  second path in `EXIT_2`, shortchanged second evictee, non-terminal exit
+  taking the terminal branch) and positive cases for a `CLAIM` that drains
+  its source
   and for the terminal exit; sparse-specific cases cover a wrongly
   compressed sibling, a join at an occupied derived position and an update
   that would move a leaf; the bitmap-compressed sparse variant and the
@@ -2789,7 +2800,8 @@ exits in a batch" as `EXIT_K` (section 13).
   and a wrong preimage, a preimage that is not 32 bytes, an absent preimage,
   a plain voucher signature under the hash lock, a hash-locked signature
   under plain `CLAIM`, a voucher reused for a different claim leaf, an
-  over-claim and a wrong signer all fail) and the swap of 9.6.2 (one 32-byte
+  over-claim, a wrong signer, a voucher for another `tree_id` and a
+  voucher over `m` all fail) and the swap of 9.6.2 (one 32-byte
   preimage settling both a `CLAIM^h` and an `HTLC_SUCCESS` output of
   Appendix C.4.1, with `HTLC_SUCCESS` rejecting a wrong preimage, a
   short preimage and the offerer's signature, and `HTLC_TIMEOUT` rejecting
@@ -2827,10 +2839,11 @@ exits in a batch" as `EXIT_K` (section 13).
   succeeds and conserves the total across the two tree outputs, a
   member's old path truncated to its lower eight levels is the detached
   tree's own path for that leaf, an `EXIT_1` from the detached tree with
-  it succeeds, and output 1 under the wrong `m_h`, output 1 shortchanged,
-  a missing operator signature, output 0 keeping the subtree and an
-  inflated subtree sum all fail), 852 checks in
-  total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  it succeeds, a voucher issued while the source leaf sat in the parent
+  redeems in the detached tree, which inherits `tree_id`, and output 1
+  under the wrong `m_h`, output 1 shortchanged, a missing operator
+  signature, output 0 keeping the subtree and an inflated subtree sum all
+  fail), 868 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
@@ -2860,7 +2873,7 @@ exits in a batch" as `EXIT_K` (section 13).
   over-splitting, into an occupied position, with output 0 below `ns`, or
   against a stale root, all fail, and in `0xC0` a recipient swapped
   under the owner's signature as well); `CLAIM` and `CLAIM^h` with the
-  `tree_id` voucher of 4.6 in `0xC2` at dense `D = 4`/`16` and sparse
+  voucher of 7.5 over `tree_id` in `0xC2` at dense `D = 4`/`16` and sparse
   `D = 8`/`32` and in `0xC0` at dense `D = 4`/`16` and sparse `D = 31`
   (redemption succeeds; a redeemed voucher replayed against the advanced
   source, a voucher reused for another claim leaf, an over-claim, a wrong
@@ -2877,16 +2890,18 @@ exits in a batch" as `EXIT_K` (section 13).
   named macros of section 8 (one call per line, with `MACROS_*.txt`
   defining each macro per tier), produced by `tools/gen_structured.py`
   and verified to expand to the same bytes.
-* `spec/golden.json` — compiled scripts for every tier, the taptree root of
-  the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
-  vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
+* `spec/golden.json` — compiled scripts for every tier, the `tree_id`
+  vector they are built over, the taptree root of the FULL `D = 4` set, a
+  BIP-341 sighash vector and the tree scriptPubKey vector, produced by
+  `tools/gen_golden.py` and consumed by the Go tests.
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
   `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`,
   `EVICT_SUBTREE_1` and `EVICT_SUBTREE_2` under `MID/D/D4`, the CCV
   tier's `0xC0` scripts under `CCV0/D/D4` (`EVICT_SUBTREE_1/2`, `SPLIT`)
   and `CCV0/S/D8` (`SPLIT`), `CLAIM` and `CLAIM_H` under `CCV/D/D4`,
-  `CCV/S/D8`, `CCV0/D/D4` and `CCV0/S/D8` (built over the `ccv_tree_id`
-  vector, which fixes the RECOMMENDED `tree_id` derivation),
+  `CCV/S/D8`, `CCV0/D/D4` and `CCV0/S/D8` (every tier's `CLAIM` scripts
+  are built over the `tree_id` vector, which fixes the RECOMMENDED
+  derivation),
   `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4` and `FULL/S/D8`,
   `REWRITE_2`, `REWRITE_X_2` and `DETACH_2` under `FULL/D/D4`, and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
