@@ -94,6 +94,16 @@ func fullScriptFor(profile string, depth int, name string,
 		return FullClaimHXScript(depth, treeID, sparse), nil
 	case name == "SPLIT":
 		return FullSplitScript(depth, sparse), nil
+	case name == "DETACH_2_HOST":
+		// A channel-hosting parent (exact payouts, CLAIM^h, DETACH_2):
+		// its DETACH_2 embeds that option set compiled at depth 2.
+		return FullDetachScript(depth, 2, key,
+			FullDetachedTaptreeRoot(2, fullHostOptions(key, treeID))), nil
+	case strings.HasSuffix(name, "_EXACT"):
+		if _, err := fmt.Sscanf(name, "EXIT_%d_EXACT", &n); err != nil {
+			return nil, err
+		}
+		return FullExitExactScript(depth, n, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err
@@ -128,9 +138,19 @@ func fullScriptFor(profile string, depth int, name string,
 		if _, err := fmt.Sscanf(name, "DETACH_%d", &n); err != nil {
 			return nil, err
 		}
-		return FullDetachScript(depth, n, key, FullDetachedTaptreeRoot(n, key, treeID)), nil
+		return FullDetachScript(depth, n, key,
+			FullDetachedTaptreeRoot(n, FullReferenceOptions(key, treeID))), nil
 	}
 	return nil, fmt.Errorf("unknown script name %q", name)
+}
+
+// fullHostOptions is the option set of a tree that hosts channel leaves
+// (Appendix C.6.1, 9.6.2): the reference set with exact payouts, CLAIM^h
+// and DETACH_2, as the Python suite's test_detach_options builds it.
+func fullHostOptions(key, treeID [32]byte) FullTreeOptions {
+	o := FullReferenceOptions(key, treeID)
+	o.Exact, o.ClaimH, o.DetachHeights = true, true, []int{2}
+	return o
 }
 
 // parseGoldenKey splits "FULL/D/D4/EXIT_1" into its parts.
@@ -430,7 +450,7 @@ func TestFullRewriteDetach(t *testing.T) {
 		FullRewriteScript(4, 2, key, false))
 	fullCheckScript(t, g, "FULL/D/D4/REWRITE_X_2",
 		FullRewriteScript(4, 2, key, true))
-	mH := FullDetachedTaptreeRoot(2, key, treeID)
+	mH := FullDetachedTaptreeRoot(2, FullReferenceOptions(key, treeID))
 	fullCheckScript(t, g, "FULL/D/D4/DETACH_2", FullDetachScript(4, 2, key, mH))
 
 	// m_h is a constant of the DETACH script: a different detached script
@@ -484,6 +504,53 @@ func TestFullTaptreeD4(t *testing.T) {
 	root := TapTreeRoot(leaves)
 	if got := hex.EncodeToString(root[:]); got != g.TaptreeD4.MerkleRoot {
 		t.Fatalf("merkle root %s, want %s", got, g.TaptreeD4.MerkleRoot)
+	}
+}
+
+// TestFullTreeOptions checks the option set of spec 6.2 as DETACH_h uses
+// it (7.10 rule 3): the reference options at depth 4 are the FULL/D/D4
+// golden set in its order, EXIT_K^= matches its golden vector, the
+// channel-hosting parent's DETACH_2 (exact payouts, CLAIM^h) embeds a
+// different m_h from the reference one and matches the Python generator's,
+// and the child set at depth 2 keeps the parent's options.
+func TestFullTreeOptions(t *testing.T) {
+	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
+
+	ref := FullReferenceOptions(key, treeID)
+	ref.JoinHeights = []int{0, 2}
+	for i, s := range ref.Scripts(4) {
+		if want := fullD4Order[i]; s.Name != want {
+			t.Fatalf("reference set leaf %d is %s, want %s", i, s.Name, want)
+		}
+		fullCheckScript(t, g, "FULL/D/D4/"+s.Name, s.Tokens)
+	}
+	fullCheckScript(t, g, "FULL/D/D4/EXIT_1_EXACT", FullExitExactScript(4, 1, false))
+	fullCheckScript(t, g, "FULL/D/D4/DETACH_2_HOST",
+		FullDetachScript(4, 2, key, FullDetachedTaptreeRoot(2, fullHostOptions(key, treeID))))
+
+	host := fullHostOptions(key, treeID)
+	if host.TapTreeRoot(2) == FullReferenceOptions(key, treeID).TapTreeRoot(2) {
+		t.Fatal("the host options compile to the reference m_h at depth 2")
+	}
+	var names []string
+	for _, s := range host.Scripts(2) {
+		names = append(names, s.Name)
+	}
+	want := "EXIT_1 EXIT_2 JOIN_0 JOINK_2 UPDATE CLAIM CLAIM_H"
+	if got := strings.Join(names, " "); got != want {
+		t.Fatalf("host child set at depth 2 is %q, want %q", got, want)
+	}
+	// The child's EXIT_1 is the exact-payout form, as the parent's.
+	child := host.Scripts(2)[0].Tokens
+	if string(MustAssemble(child, ModeC2)) != string(MustAssemble(FullExitExactScript(2, 1, false), ModeC2)) {
+		t.Fatal("the child's EXIT_1 is not the exact-payout variant")
+	}
+	// A deeper parent keeps DETACH_2 itself, built over the same m_h.
+	for _, s := range host.Scripts(4) {
+		if s.Name == "DETACH_2" {
+			fullCheckScript(t, g, "FULL/D/D4/DETACH_2_HOST", s.Tokens)
+		}
 	}
 }
 

@@ -202,8 +202,11 @@ carries the path above the subtree and the subtree's root node. Rules:
 1. The old node `(R_h, sum_h)` MUST fold with the path to `(r, S)`.
 2. The new node is `E_h`. Output 0 is `(S − sum_h, TREE_SPK(r', m))`.
 3. Output 1 is `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is the taptree
-   root of the same script set compiled for depth `h`, fixed at tree
-   creation as part of `m`.
+   root of the parent's option set compiled for depth `h` (every variant
+   the parent carries, less the heights that do not fit), fixed at tree
+   creation as part of `m`; since spec 0.10.0 this is a rule, not a
+   convention, so a cohort of channel leaves keeps its exact-payout exit
+   when detached.
 4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 
 After a detach the cohort is a LayerTree of depth `h` whose root is the

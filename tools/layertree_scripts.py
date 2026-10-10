@@ -813,19 +813,94 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
 # carrying the subtree root under m_h, the taptree root of the script set
 # compiled for depth h, which is a constant of the script.
 # ---------------------------------------------------------------------------
-def detached_taptree_root(height, operator_key, tree_id):
+class TreeOptions:
+    """A tree's creation parameters other than its depth (spec 6.2): the
+    profile, OPERATOR_KEY, tree_id, the JOIN heights, EXIT_K sizes and
+    JOINK sizes, and the variants a taptree may carry (7.6): exact payouts
+    (7.2 rule 6, in place of EXIT_K), UPDATE^x (7.4 rule 5, in place of
+    UPDATE), the four CLAIM forms (7.5, 7.5.1, 7.5.3), SPLIT (7.5.2),
+    EVICT_SUBTREE_h (7.7), REWRITE_h and REWRITE_h^x (7.9) and DETACH_h
+    (7.10). at_depth(D) compiles the set for a tree of depth D, which is
+    what the parent's taptree is built from and what a DETACH_h child
+    MUST be built from at depth h (7.10 rule 3): a cohort keeps its rules
+    when it is detached. Heights that do not fit the depth are dropped.
+
+    The defaults are the reference set of 6.2 at the heights and sizes
+    detached_taptree_root used before 0.10.0: EXIT_1, EXIT_2, JOIN_0,
+    JOINK_2, UPDATE, CLAIM."""
+
+    def __init__(self, operator_key, tree_id, profile="D", join_heights=(0,), exit_ks=(1, 2),
+                 join_ks=(2,), exact=False, update_x=False, claim=True, claim_h=False,
+                 claim_x=False, claim_hx=False, split=False, evict_heights=(),
+                 rewrite_heights=(), rewrite_x=False, detach_heights=()):
+        self.operator_key, self.tree_id, self.profile = operator_key, tree_id, profile
+        self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
+        self.exact, self.update_x = exact, update_x
+        self.claim, self.claim_h, self.claim_x, self.claim_hx = claim, claim_h, claim_x, claim_hx
+        self.split = split
+        self.evict_heights, self.rewrite_heights = tuple(evict_heights), tuple(rewrite_heights)
+        self.rewrite_x, self.detach_heights = rewrite_x, tuple(detach_heights)
+
+    def at_depth(self, depth):
+        """Ordered dict name -> token list: the set compiled for depth `depth`.
+        The reference members come first in all_scripts' order, then the
+        variants in a fixed order, so the taptree root is a function of the
+        options and the depth alone."""
+        op, prof = self.operator_key, self.profile
+        out = {f"EXIT_{k}": exit_script(depth, k, prof, exact=self.exact) for k in self.exit_ks}
+        for h in (self.join_heights if prof == "D" else (0,)):
+            if h <= depth:
+                out[f"JOIN_{h}"] = join_script(depth, h, op, prof)
+        for k in self.join_ks:
+            out[f"JOINK_{k}"] = join_script(depth, 0, op, prof, k)
+        out["UPDATE_X" if self.update_x else "UPDATE"] = update_script(depth, op, prof, exit_consent=self.update_x)
+        for name, hl, xc, on in (("CLAIM", False, False, self.claim), ("CLAIM_H", True, False, self.claim_h),
+                                 ("CLAIM_X", False, True, self.claim_x), ("CLAIM_HX", True, True, self.claim_hx)):
+            if on:
+                out[name] = claim_script(depth, self.tree_id, prof, hashlock=hl, exit_consent=xc)
+        if self.split:
+            out["SPLIT"] = split_script(depth, prof)
+        if prof == "D":
+            for h in self.evict_heights:
+                if h <= depth:
+                    out[f"EVICT_SUBTREE_{h}"] = evict_subtree_script(depth, h, op)
+            for h in self.rewrite_heights:
+                if h <= depth:
+                    out[f"REWRITE_{h}"] = rewrite_script(depth, h, op)
+                    if self.rewrite_x:
+                        out[f"REWRITE_X_{h}"] = rewrite_script(depth, h, op, exit_consent=True)
+            for h in self.detach_heights:
+                if h < depth:
+                    out[f"DETACH_{h}"] = detach_script(depth, h, op, self.taptree_root(h))
+        return out
+
+    def taptree_root(self, depth):
+        """The tree identifier m of a tree of depth `depth` created with
+        these options (6.2); for a DETACH_h child this is m_h."""
+        from script_sim import assemble
+        return lt.taptree_root([lt.tapleaf_hash(assemble(t)) for t in self.at_depth(depth).values()])
+
+
+def detached_taptree_root(height, operator_key, tree_id, options=None):
     """m_h for DETACH_h (spec 7.10 rule 3): the tree identifier of the
-    reference script set of 6.2 compiled for depth h with the same
-    OPERATOR_KEY and the same tree_id: EXIT_1, EXIT_2, JOIN_0, JOINK_2,
-    UPDATE, CLAIM. The detached tree inherits tree_id, so vouchers against
-    its leaves survive the detach."""
-    from script_sim import assemble
-    scripts = all_scripts(height, operator_key, (0,), (1, 2), "D", (2,), tree_id)
-    return lt.taptree_root([lt.tapleaf_hash(assemble(t)) for t in scripts.values()])
+    parent's option set compiled for depth h, with the same OPERATOR_KEY
+    and the same tree_id. With no options this is the reference set of
+    6.2 (EXIT_1, EXIT_2, JOIN_0, JOINK_2, UPDATE, CLAIM); a parent created
+    with exact payouts, UPDATE^x, further CLAIM forms, SPLIT, sweeps,
+    rewrites or detaches passes its TreeOptions, and the child keeps every
+    one that fits depth h. The detached tree inherits tree_id, so vouchers
+    against its leaves survive the detach."""
+    if options is None:
+        options = TreeOptions(operator_key, tree_id)
+    assert options.operator_key == operator_key and options.tree_id == tree_id
+    return options.taptree_root(height)
 
 
 def detach_script(depth, height, operator_key, m_h):
-    """witness (bottom..top) = [dir sc]*(D-h)  R_h  sum_h8  sig  r  m"""
+    """witness (bottom..top) = [dir sc]*(D-h)  R_h  sum_h8  sig  r  m
+
+    m_h is the parent's option set compiled at depth h (7.10 rule 3),
+    from detached_taptree_root or TreeOptions.taptree_root."""
     assert len(m_h) == 32
     e_h = lt.empty_node(height)[0]
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # R_h sum8          | m r

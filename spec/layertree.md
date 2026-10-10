@@ -763,9 +763,12 @@ parameters:
 
 A conforming taptree MUST contain `EXIT_1`. It SHOULD contain at least one
 `JOIN_h` (`JOIN_0` in the sparse profile), and MAY contain `UPDATE`, `CLAIM`
-and further variants (section 7.6). Scripts MUST NOT reference the taptree's own Merkle root; the scripts
-receive it from the witness and verify it (section 6.4), which avoids the
-circular dependency.
+and further variants (section 7.6). The parameters and the chosen variants
+together are the tree's **option set**; it is fixed at creation and, through
+`DETACH_h` (7.10 rule 3), it is the option set of every tree in the
+lineage, compiled at each tree's depth. Scripts MUST NOT reference the
+taptree's own Merkle root; the scripts receive it from the witness and
+verify it (section 6.4), which avoids the circular dependency.
 
 The Merkle root of the taptree, `m`, is the **tree identifier**. Two tree
 outputs with the same `m` follow identical rules and differ only in state.
@@ -1341,13 +1344,19 @@ Rules:
 2. The new node is `E_h`. Output 0 is `(S − sum_h, TREE_SPK(r', m))` per
    7.1, or unconstrained if `r' = E_D` (7.8).
 3. Output 1 MUST be `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is a
-   constant of the script: the tree identifier (6.2) of a tree of depth
-   `h` with the same `OPERATOR_KEY` and the same `tree_id`, fixed at tree
-   creation and therefore committed to by `m`. The reference `m_h` is the
-   taptree root of the reference script set compiled for depth `h`
-   (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`); a creator
-   MAY choose another set and MUST publish it with the tree's parameters
-   (9.1).
+   constant of the script: the tree identifier (6.2) of the tree of depth
+   `h` created with the parent's option set, that is the same profile,
+   `OPERATOR_KEY`, `tree_id`, `JOIN` heights, `EXIT_K` sizes and variants
+   (exact payouts, `UPDATE^x`, the `CLAIM` forms, `SPLIT`, sweeps,
+   rewrites and detaches), compiled at depth `h`; a height that does not
+   fit depth `h` is dropped and nothing else is. `m_h` is fixed at tree
+   creation and therefore committed to by `m`. A creator MUST NOT
+   compile `m_h` from a smaller set: a cohort keeps its rules when it is
+   detached, which is what lets channel leaves (Appendix C.6.1) and the
+   other option-dependent guarantees survive one. The reference
+   generator computes it as `detached_taptree_root(h, OPERATOR_KEY,
+   tree_id, options)`, where the default options are the reference set
+   of 6.2 (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`).
 4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 
 A member's proof in the detached tree is its proof in the parent truncated
@@ -1364,9 +1373,12 @@ a leaf of the cohort redeems in the detached tree as issued (9.6).
 `S = (S − sum_h) + sum_h`; the Lean model states the second output
 directly (`detach_sound`, `formal/LayerTree/Cohort.lean`) and proves that
 a member's path truncated to its lower `h` levels is a valid exit proof
-in the detached tree (`detach_member_payable`). The detached tree is a depth-`h` tree in
-every respect, including its own `DETACH_h'` scripts if `m_h`'s set
-carries them.
+in the detached tree (`detach_member_payable`). The detached tree is a
+depth-`h` tree in every respect, including its own `DETACH_h'` scripts
+for every `h' < h` the parent carries. Rule 3 is what makes a detach
+invisible to a member: the operator can move a cohort to its own output,
+and it cannot change the cohort's rules, keys or balances by doing so
+(10.1).
 
 ## 8. Reference Scripts
 
@@ -1980,7 +1992,9 @@ CHECK_OLD FINAL
 ```
 
 `m_h` is a 32-byte constant of the script (7.10 rule 3); the reference
-generator computes it as `detached_taptree_root(h, OPERATOR_KEY, tree_id)`. The
+generator computes it as `detached_taptree_root(h, OPERATOR_KEY, tree_id,
+options)`, `TreeOptions.at_depth(h)` being the parent's option set at
+depth `h`. The
 script is `JOIN_h` plus 235 bytes, almost all of them the second
 `TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
 
@@ -2263,6 +2277,7 @@ construction. The "virtual network" of the design notes is this hub.
 | Operator | refuse to co-sign `JOIN`/`UPDATE`; graft new leaves into empty positions (`JOIN_h`), including leaves it funds itself; evict a leaf after its `evict_after` (paying it in full), and with it everything carved out of that leaf (7.5 rule 5); issue vouchers against its own leaves | move, reduce or delay any other leaf; freeze any value other than what it grafts and funds itself (9.2); prevent an owner's `EXIT`; change the taptree; change `evict_after` unilaterally |
 | Owner | `EXIT` at any time; co-sign `UPDATE`; issue vouchers against their leaf; carve their leaf by `SPLIT` or a voucher | affect any other leaf; withdraw more than their leaf's amount; carve out a leaf with another evictor or a later lease than their own (7.5 rule 5) |
 | Anyone | redeem a valid voucher (`CLAIM`); relay transitions | trigger an owner's exit; create leaves; alter amounts |
+| Operator, `DETACH_h` (7.10) | move an aligned cohort into a tree output of its own, which shortens every member's path | change the cohort's rules, keys or balances by doing so: the child is the parent's option set at depth `h` (rule 3), its leaves are the parent's bytes, and its `tree_id` is inherited, so vouchers and channel states survive |
 
 Custody is never with the operator: the tree output's key path is
 unspendable (section 6.1) and every script path requires either a proof
@@ -2902,7 +2917,13 @@ exits in a batch" as `EXIT_K` (section 13).
   redeems in the detached tree, which inherits `tree_id`, and output 1
   under the wrong `m_h`, output 1 shortchanged, a missing operator
   signature, output 0 keeping the subtree and an inflated subtree sum all
-  fail), 906 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  fail), `DETACH_2` at `D = 8` and `DETACH_8` at `D = 16` under a parent
+  created with options (exact payouts, `CLAIM^h`, `DETACH_h`; 7.10 rule
+  3: the detach succeeds with output 1 under the parent's option set
+  compiled at depth `h`, fails with output 1 under the reference set's
+  `m_h`, and in the detached tree, whose identifier is that option set at
+  depth `h`, a channel leaf's `EXIT_1^=` pays its capacity exactly and
+  rejects a shortfall), 956 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
@@ -2967,7 +2988,10 @@ exits in a batch" as `EXIT_K` (section 13).
   are built over the `tree_id` vector, which fixes the RECOMMENDED
   derivation),
   `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4` and `FULL/S/D8`,
-  `REWRITE_2`, `REWRITE_X_2` and `DETACH_2` under `FULL/D/D4`, and
+  `REWRITE_2`, `REWRITE_X_2`, `DETACH_2`, `EXIT_1_EXACT` (7.2 rule 6)
+  and `DETACH_2_HOST` (the `DETACH_2` of a parent created with exact
+  payouts, `CLAIM^h` and `DETACH_2`, whose `m_h` is that option set at
+  depth 2) under `FULL/D/D4`, and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

@@ -10,7 +10,7 @@ Last updated 2026-10-09 (spec 0.9.0, Appendix C 0.3.0, paper v0.1).
 | Cohort transitions (0.9.0) | `CLAIM^x` and `CLAIM^hx` (7.5.3, the dedicated credit leaf of `design/receive.md`), `REWRITE_h` with its `^x` form (7.9, `design/batching.md` Shape 2 with the exit rule) and `DETACH_h` (7.10, Shape 3) are built in the FULL tier only: generator, tests, golden vectors, Go mirror, listings. Measured at `D = 16`: `REWRITE_6` 16,444 B of script, about 145 vB per changed leaf; `DETACH_8` 1,548 / 497 B, exits at 765 vB afterwards. MID and CCV: not implemented; MIN: no. Lean: `rewrite_sound`, `rewrite_exit_conservation`, `detach_sound` and `detach_member_payable` in `Cohort.lean`. |
 | Appendix C channel leaves | Complete, 0.3.0: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. Executable (C.12): `tools/layertree_chan.py` generates `UPD_F` / `REBIND_n` / `SETTLE_n`, and `tools/test_chan.py` (149 checks) runs the state machine on a chain model with BIP-65 / BIP-68, from a tree exit through contest, settlement and HTLC sweeps, in both tapleaf versions, plus the C.4.4 / 9.6.2 deadlines as block sequences. Go mirror `script/chan.go` byte-exact against the golden `chan` section; TLV messages in `msg/chan.go`. Measured: `SETTLE_n` is 79 B under 0xC2 (80 under 0xC0), HTLC sweeps 155 / 138 vB (the old table missed the 65-byte control block), the C.4.4 bound has two blocks of margin, and a MID channel carries at most seven HTLC outputs per state (520-byte collation). |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 906 + 228 + 35 + 864 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
+| Python reference and simulator | 956 + 228 + 35 + 864 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
 | Go implementation | `tree`, `script`, `txn`, `msg`; all 77 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 42 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
 | Lean model | `formal/`: sections 5 (including sparse positions), 7 (including `EVICT_SUBTREE_h` and the terminal branch), 10.2, the encodings, and the cohort shapes `REWRITE_h` and `DETACH_h` of `design/batching.md` (`Cohort.lean`); axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
@@ -114,6 +114,16 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     Lean `Claim` relation (`claim_evictable`), a builder check in Go. The
     residual, a leaf admitted as non-evictable carving dust of the same
     terms, is stated in 10.8 and tested, not hidden.
+20. **A detached cohort keeps its rules** (2026-10-10, spec 0.10.0, 7.10
+    rule 3; `paper/reviews/crypto.md` finding 7, `design/review.md` F21).
+    `m_h` was the reference set compiled at depth `h`, which dropped
+    `EXIT_K^=` and every other creation option, so detaching a cohort of
+    channel leaves silently broke C.6.1. Now `m_h` MUST be the parent's
+    option set (`TreeOptions`, `FullTreeOptions`) compiled at depth `h`,
+    the same `tree_id` and `OPERATOR_KEY` included; the 10.1 trust table
+    says what a detach can and cannot do. Go gained the exact-payout
+    `EXIT_K^=` generator it needed for this, which closes that part of
+    open item 4.
 
 ## Assumptions that could change the design
 
@@ -145,10 +155,10 @@ ones most likely to move:
    custom signet).
 4. **Go: what the FULL builders still lack.** `txn/` has one builder per
    FULL transition and a shared signer (`txn/transitions.go`,
-   `txn/spend.go`). Still open: `EXIT_K^=` has no Go generator
-   (`script/full.go` lacks the `exact` flag of `exit_script`): `BuildExit`
-   with zero fees produces its transaction, but the script it reveals
-   cannot be generated, so it has no end-to-end case; the MID, MIN
+   `txn/spend.go`). Still open: `EXIT_K^=` has a Go generator
+   (`script.FullExitExactScript`) but no end-to-end case, since the
+   builders pick scripts by name and `BuildExit` does not know which
+   form the taptree carries; the MID, MIN
    and CCV tiers have no builders (their witness layouts differ from
    FULL's, with leaf fields passed separately and `PADZ` pads under the
    `0xC0` numerics); and Go cannot execute the covenant.

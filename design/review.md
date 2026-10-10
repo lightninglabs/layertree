@@ -458,6 +458,25 @@ than a hope. A dedicated credit leaf with a `NUMS` evictor (10.3,
 `design/receive.md`) is unaffected: its carves inherit the `NUMS`
 evictor, which is what the recipient wants.
 
+### F21. A detached cohort keeps its rules
+
+`DETACH_h` compiled `m_h` from the reference set at depth `h`, which has
+no `EXIT_K^=`, no `UPDATE^x`, no `CLAIM^h` and no sweeps, so a cohort of
+channel leaves lost its exact-payout exit the moment it was detached and
+Appendix C.6.1 stopped holding, contrary to 7.10's "channel leaves are
+unaffected" (`paper/reviews/crypto.md`, finding 7). The option set a tree
+is created with is now explicit (`TreeOptions` in
+`tools/layertree_scripts.py`, `FullTreeOptions` in `script/full.go`), and
+7.10 rule 3 says `m_h` MUST be that set compiled at depth `h`, the same
+`tree_id` and `OPERATOR_KEY` included, dropping only the heights that do
+not fit. The test builds a channel-hosting parent, detaches a cohort of
+channel leaves, checks that the child's identifier is the parent's set at
+depth `h`, that an `EXIT_1^=` from the child pays exactly and rejects a
+shortfall, and that the parent's `DETACH_h` rejects output 1 under the
+reference set's `m_h`. The 10.1 trust table gained the line the review
+asked for: the operator can move a cohort to its own output and cannot
+change its rules, keys or balances by doing so.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):

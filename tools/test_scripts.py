@@ -62,12 +62,15 @@ def sc_bytes(node):
 
 
 class World:
-    def __init__(self, depth, profile, join_heights=(0, 2), exit_ks=(1, 2), tree_id=TREE_ID):
+    def __init__(self, depth, profile, join_heights=(0, 2), exit_ks=(1, 2), tree_id=TREE_ID, scripts=None):
+        """A tree of the reference set, or of the script set `scripts`
+        (a TreeOptions.at_depth result) when one is given."""
         self.depth, self.profile = depth, profile
         self.op_sk = sk("operator")
         self.op_pk = pubkey_x(self.op_sk)
         self.tree_id = tree_id
-        self.scripts = ls.all_scripts(depth, self.op_pk, join_heights, exit_ks, profile, tree_id=tree_id)
+        self.scripts = scripts if scripts is not None else ls.all_scripts(
+            depth, self.op_pk, join_heights, exit_ks, profile, tree_id=tree_id)
         for name, toks in self.scripts.items():
             bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
             check(not bad, f"{name}: opcodes outside the candidate set: {sorted(bad)}")
@@ -921,7 +924,7 @@ def test_detach(depth, height, verbose=True):
     # the detached tree: the detached tree inherits tree_id (7.10 rule 3),
     # and the voucher never bound m, so no reissue after a detach (9.6)
     check(w2.tree_id == w.tree_id, "the detached tree inherits the parent's tree_id")
-    issuer = base + 4
+    issuer = max(cohort)
     src = cohort[issuer]
     vsig = schnorr_sign(lt.voucher_msg(w.tree_id, src, mk_leaf("holder", 3_000, w.op_pk, 800_000)),
                         sk(f"c{issuer - base}-owner"))
@@ -936,6 +939,75 @@ def test_detach(depth, height, verbose=True):
         print(f"{name} D={depth}: script {len(script)} B, witness {sum(len(x) for x in wit)} B, varops {it.cost}; "
               f"EXIT_1 from the detached tree: script {len(w2.compiled['EXIT_1'])} B, varops {it2.cost}")
     return it, len(script), sum(len(x) for x in wit)
+
+
+def test_detach_options(depth, height, verbose=True):
+    """DETACH_h under a parent created with options (spec 7.10 rule 3): the
+    child is the parent's option set compiled at depth h, so a cohort keeps
+    its rules when it is detached.
+
+    The parent hosts channel leaves (Appendix C): EXIT_1^= (C.6.1), CLAIM^h
+    (9.6.2) and DETACH_h. The detach succeeds with output 1 under m_h
+    compiled from those options, fails with output 1 under the reference
+    set's m_h (which drops the options), and in the detached tree a channel
+    leaf's EXIT_1^= pays its capacity exactly and rejects a shortfall.
+    """
+    op_pk = pubkey_x(sk("operator"))
+    host = ls.TreeOptions(op_pk, TREE_ID, exact=True, claim_h=True, detach_heights=(height,))
+    w = World(depth, "D", scripts=host.at_depth(depth))
+    name = f"DETACH_{height}"
+    check(name in w.compiled and "CLAIM_H" in w.compiled, "the parent's option set carries DETACH_h and CLAIM^h")
+    m_h = host.taptree_root(height)
+    ref_m_h = ls.detached_taptree_root(height, op_pk, TREE_ID)
+    check(m_h != ref_m_h, "m_h from the parent's options differs from the reference set's m_h")
+    check(ls.detached_taptree_root(height, op_pk, TREE_ID, host) == m_h,
+          "detached_taptree_root with the parent's options is the parent's set at depth h")
+    n, base = 1 << height, 1 << height
+    # channel leaves: evictable by the operator at any time, non-claimable (9.8)
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 0, seq=0xFFFFFFFF) for i in range(n) if i % 5 != 3}
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    node = w.tree.subtree(height, 1)
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for p in cohort:
+        del t1.leaves[p]
+    r1 = t1.root()
+    spk1 = lt.tree_spk(node[0], m_h)
+    ctx = w.ctx([(r1[1], w.spk(r1)), (node[1], spk1), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    head = w.path_witness(path, height) + [node[0], lt.le64(node[1])]
+    w.run(name, head + [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m], ctx)
+    check(True, f"{name} under the parent's options (exact payouts, CLAIM^h)")
+    # the parent's DETACH_h rejects a child under an m_h that drops its options
+    ctx_r = w.ctx([(r1[1], w.spk(r1)), (node[1], lt.tree_spk(node[0], ref_m_h)), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, head + [schnorr_sign(ctx_r.sighash(), w.op_sk), root[0], w.m], ctx_r),
+                f"{name} with output 1 under an m_h that drops the parent's options")
+
+    # the detached tree: the same options at depth h
+    w2 = World(height, "D", scripts=host.at_depth(height))
+    check(w2.m == m_h, "the detached tree's identifier is the parent's options compiled at depth h")
+    check(list(w2.compiled) == ["EXIT_1", "EXIT_2", "JOIN_0", "JOINK_2", "UPDATE", "CLAIM", "CLAIM_H"],
+          "the detached tree carries the parent's set less the heights that do not fit")
+    w2.tree.leaves = {p - base: lf for p, lf in cohort.items()}
+    check(w2.tree.root() == node, "the detached tree's root is the detached node")
+    victim = base + 1
+    lf = cohort[victim]
+    short = w.tree.path(victim)[:height]
+    t2 = w2.clone(); del t2.leaves[victim - base]; r2 = t2.root()
+    ctx2 = TxContext([(node[1], spk1), (5_000, P2WPKH)],
+                     [(r2[1], w2.spk(r2)), (lf.amount, lt.p2tr_spk(lf.exit_key))])
+    sig2 = schnorr_sign(ctx2.sighash(), sk(f"c{victim - base}-owner"))
+    w2.run("EXIT_1", w2.path_witness(short) + [lf.serialize(), sig2, b"", node[0], m_h], ctx2)
+    check(True, "a channel leaf's EXIT_1^= from the detached tree pays its capacity exactly")
+    ctx3 = TxContext([(node[1], spk1), (5_000, P2WPKH)],
+                     [(r2[1], w2.spk(r2)), (lf.amount - 300, lt.p2tr_spk(lf.exit_key))])
+    sig3 = schnorr_sign(ctx3.sighash(), sk(f"c{victim - base}-owner"))
+    expect_fail(lambda: w2.run("EXIT_1", w2.path_witness(short) + [lf.serialize(), sig3, b"", node[0], m_h], ctx3),
+                "EXIT_1^= in the detached tree rejects an owner shortfall, as the parent's did")
+    if verbose:
+        print(f"{name} D={depth} under options: child set {list(w2.compiled)}, m_h differs from the reference set's")
 
 
 def test_update_x(depth, profile, verbose=True):
@@ -1494,6 +1566,8 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_rewrite(d, h)
     test_rewrite(16, 4, exit_consent=True)
     test_detach(16, 8)
+    test_detach_options(8, 2)
+    test_detach_options(16, 8)
     for d in (4, 16):
         test_minimal(d)
         test_channel_rules(d)

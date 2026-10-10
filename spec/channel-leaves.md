@@ -766,6 +766,13 @@ and on tree selection:
 C.5.5 already requires both parties to hold an on-chain fee reserve, so
 requiring exogenous fees for the exit imposes no new burden.
 
+Detaching preserves this. A `DETACH_h` (7.10) moves a cohort into a tree
+of depth `h` whose script set is the parent's option set compiled at that
+depth (7.10 rule 3), so a channel leaf in a detached cohort sits under the
+same `EXIT_K^=` and the same `SEQ_FINAL` rule (C.6.5) as before, with the
+same leaf bytes and `chan_id`; the counterparty's checks of C.9.7 hold in
+the child because they held in the parent.
+
 *(informative)* An in-band fix was considered and rejected: committing
 `OUTPUT_SCRIPT` over all outputs but `OUTPUT_AMOUNT` over only a
 `TXSELECT_OUTPUTSELECT_RANGE` prefix, letting the owner's own settlement

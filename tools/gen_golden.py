@@ -74,7 +74,7 @@ add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent
 # None is part of the reference taptree, so all are added after the sets
 # above and excluded from taptree_full_d4 below.
 VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT", "CLAIM_X", "CLAIM_HX",
-            "REWRITE_2", "REWRITE_X_2", "DETACH_2")
+            "REWRITE_2", "REWRITE_X_2", "DETACH_2", "EXIT_1_EXACT", "DETACH_2_HOST")
 add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
@@ -97,6 +97,12 @@ add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, TREE_ID, "S", hashlock=True, e
 add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
 add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2")
+# EXIT_1^= (7.2 rule 6) and the DETACH_2 of a channel-hosting parent (exact
+# payouts, CLAIM^h, DETACH_2): its m_h is that option set compiled at depth
+# 2 (7.10 rule 3), which the Go FullTreeOptions must reproduce.
+add("FULL", "D", 4, "EXIT_1_EXACT", F.exit_script(4, 1, "D", exact=True), "c2")
+HOST = F.TreeOptions(OP_KEY, TREE_ID, exact=True, claim_h=True, detach_heights=(2,))
+add("FULL", "D", 4, "DETACH_2_HOST", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID, HOST)), "c2")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()
