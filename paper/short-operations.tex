@@ -25,9 +25,9 @@ operator key alone; no existing member signs or is affected.
 \emph{Proves} that the slot held the empty node $\Emp_h$, and adds the new
 subtree's root and sum. \emph{On chain} the tree output grows by the
 subtree's sum, which other inputs must supply. The covenant sees a hash
-and a sum, not the leaves, which is why a graft costs the same for 4
-members as for 256: $937\vB$ for one leaf, $872\vB$ for four ($218$ each),
-$679\vB$ for 256 ($2.7$ each). A taptree carries one \tr{JOIN}$_h$
+and a sum, not the leaves, and walks only the $D - h$ levels above the
+slot, so a larger cohort is a smaller transaction: $937\vB$ for one
+leaf, $872\vB$ for four ($218$ each), $679\vB$ for 256 ($2.7$ each). A taptree carries one \tr{JOIN}$_h$
 leaf per height it supports.
 
 Because the covenant cannot look inside the graft, each joiner checks
