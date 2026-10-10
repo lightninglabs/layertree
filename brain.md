@@ -87,6 +87,19 @@ batching figure's detach point labelled 765 versus 762 in the text;
 tree-comparison.md's "bitmap saves 28 witness bytes" versus sizes.md's
 330 against 326 (G left the claim out of the paper).
 
+E (Appendix C) landed at 7b06456: `tools/test_chan.py` 149 checks on a
+block-height chain model (open, uncontested close, contest, deadlines
+of C.4.4 and the 9.6.2 swap played block by block), `script/chan.go`
+byte-exact under the `chan` golden key, TLV channel messages in
+`msg/chan.go`, Appendix C 0.3.0 with C.12 and four measured corrections
+(SETTLE_n 79 bytes under 0xC2; HTLC sweeps 155 and 138 vB, not 146 and
+130, because the HTLC output has two leaves; the C.4.4 bound has two
+blocks of margin; MID channels carry at most seven HTLCs per state
+because of the 520-byte element limit). For the reconciliation commit:
+spec 9.6.2's closing paragraph still says the deadline reasoning has no
+end-to-end test; point it at `tools/test_chan.py`. The paper's C.5.4
+numbers (146/130) need the corrected sweep sizes too.
+
 Integration order when they report: C (no overlap), D (no overlap), E,
 A, B (A and B both touch 4.5, 14, golden.json), then a numbers
 reconciliation commit, then G, then the reviewer pass on the paper.
