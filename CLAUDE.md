@@ -183,6 +183,14 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   empty footer; the preamble patches `\ps@headings` and re-issues
   `\pagestyle{headings}` (the class runs it at load time, so a patch
   alone does nothing).
+* **Post-order machines** (`EVICT_SUBTREE_h`, `REWRITE_h`): the generator
+  tracks `d`, the number of machine elements above `T`. Only the depth
+  at which `T` (and, in `REWRITE_h`, the hoisted `L`/`Z` constants and
+  the next witness element) is picked or rolled varies with `d`; a group
+  of nodes that sits on top is addressed by constants (`HASH_STEP2` rolls
+  7 and 5 whatever `d` is). Parametrising a constant by `d` passes at
+  `d = 8` and fails one level up, so test a new shape at `h = 2`, not
+  `h = 1`.
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.
@@ -191,7 +199,7 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (425 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (852 checks)
 python3 tools/test_mid.py          # MID tier (125 checks)
 python3 tools/test_min.py          # MIN tier (31 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (309 checks)

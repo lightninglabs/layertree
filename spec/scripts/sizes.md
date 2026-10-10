@@ -91,6 +91,7 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | D/subtree | 16 | REWRITE_4 (16 positions, mixed) | 5336 | 4329 | 129 | 9794 | 7524681 | 10 |
 | D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 16444 | 15139 | 129 | 31712 | 22931152 | 37 |
 | D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 5634 | 4905 | 129 | 10668 | 12034293 | 19 |
+| D/subtree | 16 | DETACH_8 | 1548 | 497 | 129 | 2174 | 3152083 | 1 |
 | MID/D | 16 | EXIT_1 (owner) | 3299 | 978 | 129 | 4406 | n/a (0xC0) | 1 |
 | MID/D | 16 | EXIT_1 (evict) | 3299 | 979 | 129 | 4407 | n/a (0xC0) | 1 |
 | MID/D | 16 | JOIN_2 | 2824 | 794 | 129 | 3747 | n/a (0xC0) | 1 |

@@ -99,6 +99,11 @@ func fullScriptFor(profile string, depth int, name string,
 			return nil, err
 		}
 		return FullRewriteScript(depth, n, key, false), nil
+	case strings.HasPrefix(name, "DETACH_"):
+		if _, err := fmt.Sscanf(name, "DETACH_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullDetachScript(depth, n, key, FullDetachedTaptreeRoot(n, key)), nil
 	}
 	return nil, fmt.Errorf("unknown script name %q", name)
 }
@@ -383,19 +388,31 @@ func TestFullSplit(t *testing.T) {
 	}
 }
 
-// TestFullRewrite checks the cohort rewrite REWRITE_h and its ^x form (spec
-// 7.9) against their golden vectors. Both are tree-creation variants: they
-// stay out of FullAllScripts and out of the reference taptree root.
-func TestFullRewrite(t *testing.T) {
+// TestFullRewriteDetach checks the cohort rewrite REWRITE_h, its ^x form and
+// DETACH_h (spec 7.9, 7.10) against their golden vectors. All three are
+// tree-creation variants: they stay out of FullAllScripts and out of the
+// reference taptree root.
+func TestFullRewriteDetach(t *testing.T) {
 	g, key := loadGolden(t)
 
 	fullCheckScript(t, g, "FULL/D/D4/REWRITE_2",
 		FullRewriteScript(4, 2, key, false))
 	fullCheckScript(t, g, "FULL/D/D4/REWRITE_X_2",
 		FullRewriteScript(4, 2, key, true))
+	mH := FullDetachedTaptreeRoot(2, key)
+	fullCheckScript(t, g, "FULL/D/D4/DETACH_2", FullDetachScript(4, 2, key, mH))
+
+	// m_h is a constant of the DETACH script: a different detached script
+	// set gives different bytes, so the parent's m commits to it.
+	other := FullDetachScript(4, 2, key, [32]byte{1})
+	if string(MustAssemble(other, ModeC2)) ==
+		string(MustAssemble(FullDetachScript(4, 2, key, mH), ModeC2)) {
+
+		t.Error("DETACH_2 does not depend on m_h")
+	}
 
 	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
-	for _, name := range []string{"REWRITE_2", "REWRITE_X_2"} {
+	for _, name := range []string{"REWRITE_2", "REWRITE_X_2", "DETACH_2"} {
 		if _, ok := set[name]; ok {
 			t.Errorf("%s must stay out of FullAllScripts", name)
 		}

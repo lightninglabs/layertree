@@ -774,3 +774,36 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
           6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]  # T oh os nh ns       (drop Z, L)
     s += levels("D", depth, height)
     return s + check_old_root_from_alt("D") + final_output(depth)
+
+
+# ---------------------------------------------------------------------------
+# DETACH_h (dense profile, spec 7.10, 8.10): move an aligned subtree into a
+# tree output of its own. The old node is the subtree root supplied by the
+# witness, the new node is E_h, and output 1 is a tree output of depth h
+# carrying the subtree root under m_h, the taptree root of the script set
+# compiled for depth h, which is a constant of the script.
+# ---------------------------------------------------------------------------
+def detached_taptree_root(height, operator_key):
+    """m_h for DETACH_h (spec 7.10 rule 3): the tree identifier of the
+    reference script set of 6.2 compiled for depth h with the same
+    OPERATOR_KEY: EXIT_1, EXIT_2, JOIN_0, JOINK_2, UPDATE, CLAIM."""
+    from script_sim import assemble
+    scripts = all_scripts(height, operator_key, (0,), (1, 2), "D", (2,))
+    return lt.taptree_root([lt.tapleaf_hash(assemble(t)) for t in scripts.values()])
+
+
+def detach_script(depth, height, operator_key, m_h):
+    """witness (bottom..top) = [dir sc]*(D-h)  R_h  sum_h8  sig  r  m"""
+    assert len(m_h) == 32
+    e_h = lt.empty_node(height)[0]
+    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # R_h sum8          | m r
+    s += ["OP_SIZE", 8, "OP_EQUALVERIFY",
+          "OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",   # R_h sum8
+          "OP_OVER", m_h] + tree_spk() + [                   # R_h sum8 spk1     (TREE_SPK(R_h, m_h))
+          "OP_1", SEL_OUT_SINGLE, "OP_TX",                   # R_h sum8 spk1 amt1 spk1'
+          "OP_ROT", "OP_EQUALVERIFY",                        # R_h sum8 amt1
+          "OP_OVER", "OP_NUMEQUALVERIFY",                    # R_h sum8          (output 1 pays sum_h exactly)
+          NODE_PREFIX, "OP_ROT", "OP_ROT",                   # T R_h sum8
+          e_h, "OP_0"]                                       # T R_h sum8 E_h 0
+    s += levels("D", depth, height)
+    return s + check_old_root_from_alt("D") + final_output(depth)

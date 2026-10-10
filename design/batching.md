@@ -1,13 +1,12 @@
 # Batching: sharing the path
 
 *A design note on how LayerTree amortises the cost of a transition across
-many leaves, what the spec already provides, and three shapes that would
-provide more. `REWRITE_h` is now built (spec 7.9, 8.9) and its figures
-below are measured by `tools/test_scripts.py --rewrite`; the earlier
+many leaves, what the spec already provides, and three shapes that
+provide more. Two of the three, `REWRITE_h` and `DETACH_h`, are now built
+(spec 7.9, 7.10, 8.9, 8.10) and the figures for them below are measured
+by `tools/test_scripts.py --rewrite` and `test_detach`; the earlier
 estimates they replace are kept in brackets where they were wrong.
-Figures come from `tools/gen_cost_figures.py`; the remaining estimates
-are built from the measured sizes in `spec/scripts/sizes.md` and are
-labelled as estimates.*
+Figures come from `tools/gen_cost_figures.py` and `spec/scripts/sizes.md`.*
 
 Every transition proves one or more leaves against the committed root
 and folds their replacements up to a new root. The proof is a path of
@@ -212,9 +211,14 @@ subtree root the members already hold proofs against: their existing
 paths, truncated to the lower `h` levels, are their proofs in the new
 tree. Every later exit from the cohort pays `h` levels instead of `D`,
 and the `D − h` upper levels were proven exactly once, by the detach.
-At `D = 16` and `h = 8` the detach costs about 815 vbytes and each
-subsequent exit costs 762 instead of 1,020, so it pays for itself at the
-third exit; a cohort of 256 that all leave alone saves about a quarter.
+Measured at `D = 16` and `h = 8` (spec 7.10, 8.10, 11): the detach is
+1,548 bytes of script and 497 of witness, about 780 vbytes [estimated
+815], and each subsequent exit costs the depth-8 figure of 765 vbytes
+instead of 1,020 [estimated 762], so it pays for itself at the fourth
+exit [estimated the third]; a cohort of 256 that all leave alone saves
+about a quarter. The test suite shows a member's old path truncated to
+its lower eight levels is the detached tree's own path and that an
+`EXIT_1` from the detached tree succeeds with it.
 
 The second effect is larger than the first. The detached cohort spends
 its own output, so its exits form their own unconfirmed chain and the
@@ -265,22 +269,24 @@ detached node. Both are small.
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
 | `EXIT_SUBTREE_h` | each exiting owner | 159 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
 | `REWRITE_h` | each changed owner, operator | 145 per changed leaf at 64 leaves (update); 117 per unchanged position | measured; spec 7.9 |
-| `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 815 once | proposed, being built |
+| `DETACH_h` then exits at depth `h` | operator, then each owner | 765 per exit after about 780 once | measured; spec 7.10 |
 
-What the three new shapes have in common is that they are variants of
-one generator, the post-order fold of `EVICT_SUBTREE_h`, with a
-different per-position rule and a different new node. Building them is
-mostly a matter of running the existing change checklist three times:
-generator and stack comments, positive and negative cases, golden
-vectors, Go mirror, spec sections 7 and 8, the tier matrix, and the Lean
-step forms above. The one genuinely new mechanism is the second tree
-output of `DETACH_h`, and it is the one with the largest payoff, because
-it is the only change here that raises the exit throughput of a
-deployment rather than lowering the bytes of an exit.
+What the two new shapes have in common is that they reuse the existing
+machinery: `REWRITE_h` is the post-order fold of `EVICT_SUBTREE_h` run
+over two subtrees with a different per-position rule, and `DETACH_h` is
+`JOIN_h` with the old and new node exchanged and one output check added.
+Building them was the existing change checklist twice: generator and
+stack comments, positive and negative cases, golden vectors, Go mirror,
+spec sections 7 and 8, the tier matrix. The Lean step forms above are
+still open: the rewrite is one `Step` the model already covers in shape,
+the detach needs a two-output step. The one genuinely new mechanism is
+the second tree output of `DETACH_h`, and it is the one with the largest
+payoff, because it is the only change here that raises the exit
+throughput of a deployment rather than lowering the bytes of an exit.
 
 What they do not change is the per-leaf floor. A leaf that leaves costs
 its bytes, its signature and its output, about 100 vbytes, in every
-shape, and a leaf that stays in a rewritten subtree costs about 57. The
+shape, and a leaf that stays in a rewritten subtree costs about 117. The
 remaining lever is the leaf itself: a leaf hash structured so that an
 exit reveals only the exit key and amount plus a hash of the other
 fields would cut the published bytes from 116 to about 72, which is

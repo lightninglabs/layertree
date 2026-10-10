@@ -113,14 +113,19 @@ for d, h in ((16, 2), (16, 4), (16, 6), (20, 8)):
                  "-", 129, "-", "-", n))
 with open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w") as f:
     f.write(listing("EVICT_SUBTREE_2 (dense, D=8): cohort sweep of a 4-position subtree", ls.evict_subtree_script(8, 2, OP_KEY)))
-# ---- cohort rewrite (spec 7.9): a tree-creation variant, measured at D = 16
+# ---- cohort rewrite and detach (spec 7.9, 7.10): tree-creation variants, measured at D = 16
 for h in (2, 4, 6):
     it, sl, wl = test_scripts.test_rewrite(16, h, verbose=False)
     rows.append(("D/subtree", 16, f"REWRITE_{h} ({1 << h} positions, mixed)", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 it, sl, wl = test_scripts.test_rewrite(16, 4, exit_consent=True, verbose=False)
 rows.append(("D/subtree", 16, "REWRITE_X_4 (16 positions, mixed)", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+it, sl, wl = test_scripts.test_detach(16, 8, verbose=False)
+rows.append(("D/subtree", 16, "DETACH_8", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 with open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w") as f:
     f.write(listing("REWRITE_2 (dense, D=8): cohort rewrite of a 4-position subtree", ls.rewrite_script(8, 2, OP_KEY)))
+with open(os.path.join(OUT, "DETACH_2_D8.txt"), "w") as f:
+    f.write(listing("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
+                    ls.detach_script(8, 2, OP_KEY, ls.detached_taptree_root(2, OP_KEY))))
 # ---- opcode tiers: MID (0xC0 + CAT + OP_TX + CSFS + TWEAKADD) and MIN (0xC0 + CAT + TWEAKADD)
 for d, sparse in ((16, False), (31, True)):
     costs, w = test_mid.test_mid(d, sparse, verbose=False)

@@ -372,6 +372,7 @@ are interchangeable, with one numeric cap noted below.
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | not implemented | no | `0xC2` only (`0xC0` needs an element-based leaf step, 4.6) |
 | `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | not implemented | no | not implemented |
+| `DETACH_h` (subtree detach, 7.10) | yes | not implemented | no | not implemented |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | n/a (no `CLAIM`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output | yes |
@@ -399,6 +400,7 @@ script / witness data:
 | `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 3,338 / 1,610 | 9,822 / 483 | 18,110 / 1,412 | 9,432 / 419 |
 | `CLAIM^x` | 3,810 / 1,754 | — | n/a | n/a (4.6) | 9,904 / 547 | — | n/a (4.6) |
 | `REWRITE_4` (16 positions, mixed) | 5,336 / 4,329 | — | — | — | n/a | n/a | n/a |
+| `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`): dense `D = 16` — `EXIT_1`
@@ -1164,8 +1166,8 @@ If the post-transition root `r'` equals `E_D` (every position is empty),
 rules 7.1.2 and 7.1.5 do not apply: output 0 is unconstrained, and the
 transaction MUST still contain an output 0 for the payouts to be numbered
 from 1. This lets the last participant leave without creating a zero-value
-tree output. `EXIT`, `EVICT_SUBTREE_h` and `REWRITE_h` can produce
-`E_D`; no other transition can. Scripts MUST take this branch
+tree output. `EXIT`, `EVICT_SUBTREE_h`, `REWRITE_h` and `DETACH_h` can
+produce `E_D`; no other transition can. Scripts MUST take this branch
 only when `r' = E_D` exactly; the reference `FINAL` macro compares against
 the constant `E_D` of the tree's depth.
 
@@ -1238,6 +1240,50 @@ The old and new subtrees are both published, so a cohort join by
 the joiners to have checked. Spec 13.4's owner multiproof
 (`EXIT_SUBTREE_h`) is the special case in which every new element is
 either its old element or `E_0`, and is not a separate script.
+
+### 7.10 DETACH_h (subtree detach)
+
+`DETACH_h` moves one aligned subtree of height `h` into a tree output of
+its own. After it the cohort is a LayerTree of depth `h` whose root is the
+node the members already hold proofs against, so every later transition
+on the cohort pays `h` levels instead of `D`, and the cohort's output
+spends independently of the parent's (10.5). It is a tree-creation
+parameter and the operator's decision, like `JOIN_h`: it spends nobody's
+balance and only shortens every member's path.
+
+Witness inputs: sibling path of the subtree root (`D − h` levels),
+`R_h` (32 bytes), `sum_h` (8 bytes `le64`), `sig`, `r`, `m`.
+
+Rules:
+
+1. The old node is `(R_h, sum_h)`; it MUST `fold` with the path to
+   `(r, S)` with `S` equal to input 0's amount.
+2. The new node is `E_h`. Output 0 is `(S − sum_h, TREE_SPK(r', m))` per
+   7.1, or unconstrained if `r' = E_D` (7.8).
+3. Output 1 MUST be `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is a
+   constant of the script: the tree identifier (6.2) of a tree of depth
+   `h` with the same `OPERATOR_KEY`, fixed at tree creation and therefore
+   committed to by `m`. The reference `m_h` is the taptree root of the
+   reference script set compiled for depth `h` (`EXIT_1`, `EXIT_2`,
+   `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`); a creator MAY choose another
+   set and MUST publish it with the tree's parameters (9.1).
+4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
+
+A member's proof in the detached tree is its proof in the parent truncated
+to the lower `h` levels; no member needs new data. The detached tree's
+leaves are byte for byte the parent's, so an `EXIT` from it pays the same
+`P2TR(exit_key)`, and channel leaves (Appendix C) are unaffected: `chan_id`
+binds the parent's `m` as a creation-time constant of the channel scripts,
+not as anything a tree script re-derives. Vouchers are different: they bind
+`m`, and `CLAIM` re-derives `m` from the input it spends, so a voucher
+against a source leaf in a detached subtree MUST be reissued under `m_h`
+(9.6).
+
+*(informative)* Value is conserved across two tree outputs,
+`S = (S − sum_h) + sum_h`; the Lean model of section 7 has one tree output
+and does not yet cover this step. The detached tree is a depth-`h` tree in
+every respect, including its own `DETACH_h'` scripts if `m_h`'s set
+carries them.
 
 ## 8. Reference Scripts
 
@@ -1770,6 +1816,31 @@ amount-only increase or a join, and a witness that supplies one anyway
 fails: the stray element is consumed as the next position's old element.
 Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes are in 11.
 
+### 8.10 DETACH_h
+
+Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  R_h  sum_h8  sig  r  m`. The
+script is `JOIN_h` with the roles of the old and new node exchanged and one
+output check added:
+
+```
+PROLOGUE <OPERATOR_KEY> OP_CHECKSIGVERIFY          # R_h sum8           | m r
+OP_SIZE OP_8 OP_EQUALVERIFY
+OP_OVER OP_SIZE 32 OP_EQUALVERIFY OP_DROP          # R_h sum8
+OP_OVER <m_h> TREE_SPK                             # R_h sum8 TREE_SPK(R_h, m_h)
+OP_1 <SEL_OUT_SINGLE> OP_TX                        # R_h sum8 spk1 amt1 spk1'
+OP_ROT OP_EQUALVERIFY                              # R_h sum8 amt1
+OP_OVER OP_NUMEQUALVERIFY                          # R_h sum8           (output 1 pays sum_h)
+<TAG_NODE> OP_ROT OP_ROT                           # T R_h sum8
+<E_h.hash> OP_0                                    # T R_h sum8 E_h.hash 0
+LEVEL × (D − h)
+CHECK_OLD FINAL
+```
+
+`m_h` is a 32-byte constant of the script (7.10 rule 3); the reference
+generator computes it as `detached_taptree_root(h, OPERATOR_KEY)`. The
+script is `JOIN_h` plus 235 bytes, almost all of them the second
+`TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
+
 ## 9. Off-Chain Protocol
 
 This section specifies the behaviour of operators and participants around
@@ -1867,7 +1938,10 @@ the value at issuance, and MUST rebuild outstanding vouchers (with the new
 `seq`) after any `UPDATE`, `CLAIM` or `SPLIT` on the source leaf. A `SPLIT`
 voids every outstanding voucher against its source exactly as a `CLAIM`
 does, and also lowers the balance they draw on, so the rebuilt set MUST
-fit the reduced amount.
+fit the reduced amount. A `DETACH_h` (7.10) of the subtree holding the
+source leaf changes the `m` a `CLAIM` against it re-derives, so the issuer
+MUST reissue outstanding vouchers under `m_h` after one; the leaf itself
+is unchanged, so `seq` need not advance.
 
 A recipient MUST verify `voucher_sig`, MUST verify that `source_leaf` is
 currently in the tree at some position (by obtaining and checking a path),
@@ -2157,6 +2231,14 @@ shard a deployment into several trees when the time to drain one at 25
 leaves per block would exceed the time-sensitive commitments its leaves
 carry (for channel leaves, Appendix C.9.5 gives the bound).
 
+`DETACH_h` (7.10) is sharding on demand. A detached cohort spends its own
+output, so its transitions form their own unconfirmed chain and the
+descendant bound applies to it separately: an operator that detaches `k`
+cohorts raises the deployment's exit throughput to about `25·(k + 1)` leaves
+per block. Operators SHOULD detach a cohort when its leaves become
+time-sensitive, for instance channel leaves whose HTLC deadlines are near,
+rather than size every tree for the worst case in advance.
+
 ### 10.6 Integer encodings and truncation
 
 * Amounts and sums are unsigned. `OP_SUB` underflow fails the script, which
@@ -2359,6 +2441,18 @@ cohort that rewrites every balance pays about 145 vB per leaf against
 1,073 vB for an `UPDATE` each. `REWRITE_h^x` adds the 65-byte exit-key
 signature, 16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,634 /
 4,905 bytes).
+
+`DETACH_h` (section 7.10) caches the shared path across transactions. At
+`D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness, about
+780 vB, and every later `EXIT_1` from the detached tree costs the depth-8
+figure of the table above, 765 vB instead of 1,020, so it pays for itself
+at the fourth exit; a cohort of 256 that all leave alone saves about a
+quarter. Its larger effect is on throughput (10.5), not bytes.
+
+Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
+`D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
+falling with depth because the BIP-440 budget is `10,000 × weight`; the EC operations (82 sigops units per `TREE_SPK`) and the
+signature dominate at small depths, hashing at large ones.
 
 ### 11.1 Script-set size and the control block
 
@@ -2595,7 +2689,13 @@ exits in a batch" as `EXIT_K` (section 13).
   shortchanged exit payout, an exit paid to the wrong key, a missing
   operator signature, output 0 off by one in either direction, a stale
   path, a forged old leaf and, under `^x`, a missing or wrongly keyed
-  exit signature all fail), 827 checks in
+  exit signature all fail) and `DETACH_8` at `D = 16` (7.10: the detach
+  succeeds and conserves the total across the two tree outputs, a
+  member's old path truncated to its lower eight levels is the detached
+  tree's own path for that leaf, an `EXIT_1` from the detached tree with
+  it succeeds, and output 1 under the wrong `m_h`, output 1 shortchanged,
+  a missing operator signature, output 0 keeping the subtree and an
+  inflated subtree sum all fail), 852 checks in
   total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
@@ -2622,7 +2722,7 @@ exits in a batch" as `EXIT_K` (section 13).
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, the cohort scripts at `D = 8`
-  (`EVICT_SUBTREE_2`, `REWRITE_2`), and the size table
+  (`EVICT_SUBTREE_2`, `REWRITE_2`, `DETACH_2`), and the size table
   covering both profiles, both compression encodings and all tiers.
   `spec/scripts/structured/` holds the same scripts collapsed into the
   named macros of section 8 (one call per line, with `MACROS_*.txt`
@@ -2634,7 +2734,7 @@ exits in a batch" as `EXIT_K` (section 13).
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
   `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`,
   `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4` and `FULL/S/D8`,
-  `REWRITE_2` and `REWRITE_X_2` under `FULL/D/D4`, and
+  `REWRITE_2`, `REWRITE_X_2` and `DETACH_2` under `FULL/D/D4`, and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

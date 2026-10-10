@@ -958,6 +958,60 @@ func FullRewriteScript(depth, height int, operatorKey [32]byte,
 	)
 }
 
+// FullDetachedTaptreeRoot is m_h for DETACH_h (spec 7.10 rule 3): the tree
+// identifier of the reference script set of 6.2 compiled for depth h with
+// the same operator key, in the generator's order: EXIT_1, EXIT_2, JOIN_0,
+// JOINK_2, UPDATE, CLAIM.
+func FullDetachedTaptreeRoot(height int, operatorKey [32]byte) [32]byte {
+	scripts := [][]Token{
+		FullExitScript(height, 1, false),
+		FullExitScript(height, 2, false),
+		FullJoinScript(height, 0, operatorKey, false, 1),
+		FullJoinScript(height, 0, operatorKey, false, 2),
+		FullUpdateScript(height, operatorKey, false),
+		FullClaimScript(height, false),
+	}
+	leaves := make([][32]byte, 0, len(scripts))
+	for _, toks := range scripts {
+		leaves = append(leaves, TapLeafHash(MustAssemble(toks, ModeC2), 0xc2))
+	}
+	return TapTreeRoot(leaves)
+}
+
+// FullDetachScript is DETACH_h (spec 7.10, dense profile): move an aligned
+// subtree of height h into a tree output of its own. The old node is the
+// subtree root supplied by the witness, the new node is E_h, and output 1 is
+// a tree output of depth h carrying the subtree root under mH, the taptree
+// root of the script set compiled for depth h, a constant of the script.
+//
+// witness (bottom..top) = [dir sc]*(D-h) R_h sum_h8 sig r m.
+func FullDetachScript(depth, height int, operatorKey [32]byte,
+	mH [32]byte) []Token {
+
+	eH := tree.EmptyNode(height).Hash
+	return fullCat(
+		fullPrologue(),
+		[]Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)}, // R_h sum8 | m r
+		[]Token{
+			Op(ts.OP_SIZE), Num(8), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_OVER), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_DROP),              // R_h sum8
+			Op(ts.OP_OVER), Data(mH[:]), // R_h sum8 R_h m_h
+		},
+		fullTreeSPK(), // R_h sum8 spk1
+		[]Token{
+			Op(ts.OP_1), Num(SelOutSingle), Op(OP_TX), // R_h sum8 spk1 amt1 spk1'
+			Op(ts.OP_ROT), Op(ts.OP_EQUALVERIFY), // R_h sum8 amt1
+			Op(ts.OP_OVER), Op(ts.OP_NUMEQUALVERIFY), // R_h sum8
+			Data(fullNodePrefix), Op(ts.OP_ROT), Op(ts.OP_ROT), // T R_h sum8
+			Data(eH[:]), Op(ts.OP_0), // T R_h sum8 E_h 0
+		},
+		fullLevels(false, depth, height),
+		fullCheckOldRootFromAlt(false),
+		fullFinalOutput(depth),
+	)
+}
+
 // FullAllScripts returns the FULL-tier taptree script set for a tree, keyed
 // exactly as tools/layertree_scripts.py's all_scripts: "EXIT_%d", "JOIN_%d",
 // "JOINK_%d", "UPDATE" and "CLAIM". In the sparse profile only height 0

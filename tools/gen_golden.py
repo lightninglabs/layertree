@@ -51,11 +51,11 @@ add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
 # CLAIM^h the hash-locked voucher (7.5.1), SPLIT the owner-authorised
 # carve (7.5.2), CLAIM^x / CLAIM^hx the exit-consent carves (7.5.3), the
-# cohort rewrite REWRITE_h and its ^x form (7.9).
+# cohort rewrite REWRITE_h and its ^x form (7.9) and DETACH_h (7.10).
 # None is part of the reference taptree, so all are added after the sets
 # above and excluded from taptree_full_d4 below.
 VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT", "CLAIM_X", "CLAIM_HX",
-            "REWRITE_2", "REWRITE_X_2")
+            "REWRITE_2", "REWRITE_X_2", "DETACH_2")
 add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
@@ -77,6 +77,7 @@ add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, "D", hashlock=True, exit_conse
 add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, "S", hashlock=True, exit_consent=True), "c2")
 add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
+add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY)), "c2")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

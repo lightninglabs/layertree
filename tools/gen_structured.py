@@ -336,6 +336,9 @@ open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w").write(
 open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w").write(
     structured("REWRITE_2 (dense, D=8): cohort rewrite of a 4-position subtree",
                F.rewrite_script(8, 2, OP_KEY), "c2", FULL))
+open(os.path.join(OUT, "DETACH_2_D8.txt"), "w").write(
+    structured("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
+               F.detach_script(8, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY)), "c2", FULL))
 open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w").write(
     structured("EXIT_1 (minimal inventory, dense, D=4)", F.exit_script_min(D), "c2", FULL))
 for name, toks in M.all_scripts(D, OP_KEY, False).items():

@@ -814,6 +814,85 @@ def rewrite_sizes(depth, height):
     return out
 
 
+def test_detach(depth, height, verbose=True):
+    """DETACH_h (spec 7.10): move an aligned subtree into a tree output of its own.
+
+    The detached cohort is a LayerTree of depth h under m_h; a member's old
+    path truncated to its lower h levels is its proof there, and an EXIT_1
+    from the detached tree succeeds with it.
+    """
+    w = World(depth, "D")
+    m_h = ls.detached_taptree_root(height, w.op_pk)
+    toks = ls.detach_script(depth, height, w.op_pk, m_h)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    name = f"DETACH_{height}"
+    check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    n = 1 << height
+    base = 1 << height
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000) for i in range(n) if i % 5 != 3}
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    node = w.tree.subtree(height, 1)                      # (R_h, sum_h)
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for p in cohort:
+        del t1.leaves[p]
+    r1 = t1.root()
+    spk1 = lt.tree_spk(node[0], m_h)
+    outputs = [(r1[1], w.spk(r1)), (node[1], spk1), (400, P2WPKH)]
+    ctx = w.ctx(outputs, extra_in=(5_000, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), w.op_sk)
+    wit = w.path_witness(path, height) + [node[0], lt.le64(node[1]), sig, root[0], w.m]
+    it = w.run(name, wit, ctx)
+    check(r1[1] + node[1] == root[1], f"{name} conserves the total across two tree outputs")
+
+    # negatives
+    bad_m = lt.tree_spk(node[0], w.m)                      # output 1 under the parent's taptree, not m_h
+    ctx_m = w.ctx([(r1[1], w.spk(r1)), (node[1], bad_m), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx_m.sighash(), w.op_sk), root[0], w.m], ctx_m),
+                f"{name} output 1 under the wrong m_h")
+    ctx_s = w.ctx([(r1[1], w.spk(r1)), (node[1] - 1, spk1), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx_s.sighash(), w.op_sk), root[0], w.m], ctx_s),
+                f"{name} output 1 shortchanged")
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx.sighash(), sk("alice-owner")), root[0], w.m], ctx),
+                f"{name} without the operator signature")
+    ctx_n = w.ctx([(root[1], w.spk(root)), (node[1], spk1), (400, P2WPKH)], extra_in=(node[1] + 5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, wit[:-3] + [schnorr_sign(ctx_n.sighash(), w.op_sk), root[0], w.m], ctx_n),
+                f"{name} subtree not emptied in output 0 (new node not E_h)")
+    fake = (node[0], node[1] + 1)
+    ctx_f = w.ctx([(r1[1], w.spk(r1)), (fake[1], spk1), (400, P2WPKH)], extra_in=(5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, w.path_witness(path, height) + [fake[0], lt.le64(fake[1]),
+                              schnorr_sign(ctx_f.sighash(), w.op_sk), root[0], w.m], ctx_f),
+                f"{name} inflated subtree sum")
+
+    # the detached tree: a member's old path truncated to its lower h levels is its proof
+    w2 = World(height, "D", join_heights=(0,), exit_ks=(1, 2))
+    check(w2.m == m_h, "m_h is the tree identifier of the reference set at depth h")
+    w2.tree.leaves = {p - base: lf for p, lf in cohort.items()}
+    check(w2.tree.root() == node, "the detached tree's root is the detached node")
+    victim = base + 2
+    full_path = w.tree.path(victim)
+    short = full_path[:height]
+    check(lt.fold(cohort[victim].node(), short) == node, "old path truncated to h levels verifies in the detached tree")
+    check(short == w2.tree.path(victim - base), "the truncated path is the detached tree's own path")
+    t2 = w2.clone(); del t2.leaves[victim - base]; r2 = t2.root()
+    lf = cohort[victim]
+    ctx2 = TxContext([(node[1], spk1), (5_000, P2WPKH)],
+                     [(r2[1], w2.spk(r2)), (lf.amount - 300, lt.p2tr_spk(lf.exit_key))])
+    sig2 = schnorr_sign(ctx2.sighash(), sk(f"c{victim - base}-owner"))
+    it2 = w2.run("EXIT_1", w2.path_witness(short) + [lf.serialize(), sig2, b"", node[0], m_h], ctx2)
+    check(True, f"EXIT_1 from the detached depth-{height} tree with the truncated path")
+    if verbose:
+        print(f"{name} D={depth}: script {len(script)} B, witness {sum(len(x) for x in wit)} B, varops {it.cost}; "
+              f"EXIT_1 from the detached tree: script {len(w2.compiled['EXIT_1'])} B, varops {it2.cost}")
+    return it, len(script), sum(len(x) for x in wit)
+
+
 def test_update_x(depth, profile, verbose=True):
     """UPDATE^x (spec 7.4 rule 5): UPDATE plus a signature by old_leaf.exit_key.
 
@@ -1245,6 +1324,7 @@ if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
         test_rewrite(d, h)
+    test_detach(16, 8)
     print(f"\n{CHECKS} checks, {FAILS} failures")
 
 
@@ -1269,6 +1349,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_evict_subtree(d, h)
         test_rewrite(d, h)
     test_rewrite(16, 4, exit_consent=True)
+    test_detach(16, 8)
     for d in (4, 16):
         test_minimal(d)
         test_channel_rules(d)

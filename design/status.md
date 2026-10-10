@@ -1,16 +1,17 @@
 # Status and hand-off
 
-Last updated 2026-10-09 (spec 0.8.5, Appendix C 0.2.0, paper v0.1).
+Last updated 2026-10-09 (spec 0.9.0, Appendix C 0.2.0, paper v0.1).
 
 ## Where things stand
 
 | Area | State |
 |---|---|
-| Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / EVICT_SUBTREE_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
+| Base spec `spec/layertree.md` | Complete for the design as scoped: tree format, two profiles (dense, sparse), taproot binding, transitions EXIT_K / EXIT_K^= / JOIN_h / JOINK_K / UPDATE / UPDATE^x / CLAIM / CLAIM^h / CLAIM^x / SPLIT / EVICT_SUBTREE_h / REWRITE_h / DETACH_h / terminal, three opcode tiers, reference scripts, off-chain protocol, security, cost, comparison, extensions, test vectors. |
+| Cohort transitions (0.9.0) | `CLAIM^x` and `CLAIM^hx` (7.5.3, the dedicated credit leaf of `design/receive.md`), `REWRITE_h` with its `^x` form (7.9, `design/batching.md` Shape 2 with the exit rule) and `DETACH_h` (7.10, Shape 3) are built in the FULL tier only: generator, tests, golden vectors, Go mirror, listings. Measured at `D = 16`: `REWRITE_6` 16,444 B of script, about 145 vB per changed leaf; `DETACH_8` 1,548 / 497 B, exits at 765 vB afterwards. MID and CCV: not implemented; MIN: no. Lean: `REWRITE_h` fits the existing `Step` shape, `DETACH_h` needs a two-output step; neither is modelled yet. |
 | Appendix C channel leaves | Complete: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security. All C.10 recommendations adopted by the base spec. |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 425 + 125 + 31 + 309 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 56 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
+| Python reference and simulator | 852 + 125 + 31 + 309 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. The FULL suite carries the sibling-sum binding regression test (taproot-assets-private issue 112). |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 63 golden scripts byte-exact; BIP-341 sighash equality with the simulator; end-to-end EXIT_1 build/sign/verify. |
 | Lean model | `formal/`: sections 5, 7, 10.2 and the encodings; axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, tiers, UC theorem with inline Lean signatures, channel composition), 15 body pages, six appendices, PDF stamped with its git revision (issue #4). The CCV tier of issue #3 is measured in the paper's tier table and section 5; the hypothetical native Merkle-sum opcode of issue #3 part 2 has one clearly labelled paragraph in the discussion. |
@@ -137,6 +138,15 @@ ones most likely to move:
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
    swaps, tracked here only so the note in `notes.md` has a home.
+8. **Cohort transitions beyond FULL.** `REWRITE_h`, `DETACH_h` and
+   `CLAIM^x` exist in the FULL tier only (4.5). MID needs an element-based
+   `REWRITE_STEP` (the leaf arrives as seven elements there) and CCV needs
+   a second `CHECK_OUTPUT` for `DETACH_h`'s output 1; `CLAIM^x` under CCV
+   waits on the voucher-message redefinition `CLAIM` itself needs. The
+   Lean model needs a two-output step for `DETACH_h` (7.10) and should
+   state `REWRITE_h` as one `Step` over a published subtree pair; neither
+   is written. A one-byte "unchanged" marker for `REWRITE_h` would save
+   about 29 vB per unchanged position (`design/batching.md`).
 
 ## How to resume
 
