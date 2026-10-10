@@ -406,6 +406,115 @@ def fig_lifetime(png_dir):
     f.save("lifetime.svg", png_dir)
 
 
+# ---------------------------------------------------------------------------
+# Figure 5: EXIT_1 bytes by profile and depth.
+# ---------------------------------------------------------------------------
+
+# Raw bytes (not vbytes) of one EXIT_1 leaf script and its witness, FULL
+# tier, from spec/scripts/sizes.md. Each tuple is (label, script, witness);
+# the dense rows are drawn first, then a gap, then the sparse rows.
+PROFILE_DENSE = [
+    ("dense D=8", 1397, 574),
+    ("dense D=12", 1749, 738),
+    ("dense D=16, 65k slots", 2101, 902),
+    ("dense D=20", 2453, 1066),
+]
+PROFILE_SPARSE = [
+    ("sparse D=32", 5147, 326),
+    ("sparse D=32, bitmap proofs", 5423, 330),
+    ("sparse D=64", 9499, 326),
+    ("sparse D=64, bitmap proofs", 10063, 334),
+]
+
+
+def fig_exit_profiles(png_dir):
+    bt, pitch, ggap = 20, 28, 18
+    nd, ns = len(PROFILE_DENSE), len(PROFILE_SPARSE)
+    top = 100
+    plot_h = (nd + ns) * pitch + ggap
+    bottom = top + plot_h
+    f = Fig(bottom + 62, "Dense proofs are small scripts; sparse proofs "
+            "are small witnesses", "EXIT_1 bytes by profile and depth, "
+            "FULL tier (spec/scripts/sizes.md)")
+    ax = f.axes(200, top, 560, bottom)
+    ax.set_xlim(0, 11000)
+    ax.set_ylim(plot_h, 0)  # Pixel units, top to bottom.
+    ax.set_xticks(range(0, 11001, 2000))
+    ax.set_xticklabels([fmt(t) for t in range(0, 11001, 2000)])
+    ax.spines["bottom"].set_visible(False)
+    vgrid(ax)
+    gap = 2.0 * 11000 / 360.0
+    ys, names = [], []
+    for k, (name, scr, wit) in enumerate(PROFILE_DENSE + PROFILE_SPARSE):
+        yc = k * pitch + pitch / 2.0 + (ggap if k >= nd else 0)
+        ys.append(yc)
+        names.append(name)
+        ax.barh(yc, scr - gap, height=bt, color=RAMP[3], linewidth=0)
+        ax.barh(yc, wit, left=scr, height=bt, color=RAMP[2], linewidth=0)
+        label(ax, scr + wit, yc, "%s (witness %s)" % (fmt(scr + wit),
+                                                     fmt(wit)), 4, 0,
+              size=11)
+    ax.set_yticks(ys)
+    ax.set_yticklabels(names, fontsize=12 * PX, color=INK)
+    sep = nd * pitch + ggap / 2.0
+    ax.axhline(sep, color=BASE, lw=1 * PX, zorder=1)
+    f.legend([Patch(color=RAMP[3]), Patch(color=RAMP[2])],
+             ["script", "witness data"], 68, ncol=2)
+    f.text(560, bottom + 34, "bytes", 11, INK3, ha="right")
+    f.text(24, bottom + 52, "sparse D=256: 35,611 script and 285 "
+           "witness, off scale", 11, INK2)
+    f.save("exit-profiles.svg", png_dir)
+
+
+# ---------------------------------------------------------------------------
+# Figure 6: cost of one level.
+# ---------------------------------------------------------------------------
+
+# Bytes per level of the unrolled path as (label, script, witness), from
+# spec/scripts/sizes.md.
+LEVEL_COSTS = [
+    ("dense LEVEL", 88, 41),
+    ("sparse LEVEL_S,\nempty sibling", 135, 1),
+    ("sparse LEVEL_S,\noccupied sibling", 135, 41),
+    ("MID dense LEVEL", 156, 46),
+    ("minimal-inventory\nLEVEL_MIN", 105, 41),
+]
+
+
+def fig_level_cost(png_dir):
+    top, bottom, left, right = 118, 340, 64, 720
+    f = Fig(bottom + 76, "What one level costs", "bytes per level of the "
+            "unrolled path; the script is paid at every level, the "
+            "witness only for the siblings supplied")
+    ax = f.axes(left, top, right, bottom)
+    pw = right - left
+    ax.set_xlim(0, pw)
+    ax.set_ylim(0, 170)
+    ax.set_yticks(range(0, 161, 20))
+    ax.set_yticklabels([fmt(t) for t in range(0, 161, 20)])
+    ax.spines["left"].set_visible(False)
+    hgrid(ax)
+    cw = 22
+    gw = pw / float(len(LEVEL_COSTS))
+    cx = []
+    for g, (name, scr, wit) in enumerate(LEVEL_COSTS):
+        c = gw * (g + 0.5)
+        cx.append(c)
+        for off, v, col in ((-cw / 2.0 - 1, scr, RAMP[3]),
+                            (cw / 2.0 + 1, wit, RAMP[2])):
+            ax.bar(c + off, v, width=cw, color=col, linewidth=0)
+            ax.annotate(fmt(v), (c + off, v), xytext=(0, 4),
+                        textcoords="offset points", ha="center",
+                        va="bottom", fontsize=12 * PX, color=INK)
+    ax.set_xticks(cx)
+    ax.set_xticklabels([r[0] for r in LEVEL_COSTS], fontsize=11 * PX,
+                       color=INK2, linespacing=1.3)
+    f.legend([Patch(color=RAMP[3]), Patch(color=RAMP[2])],
+             ["script", "witness"], 68, ncol=2)
+    f.text(left, top - 10, "bytes per level", 11, INK3)
+    f.save("level-cost.svg", png_dir)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--png-dir", help="also write 2x PNG twins here")
@@ -416,6 +525,8 @@ def main():
     fig_exit_amortisation(args.png_dir)
     fig_join_amortisation(args.png_dir)
     fig_lifetime(args.png_dir)
+    fig_exit_profiles(args.png_dir)
+    fig_level_cost(args.png_dir)
 
 
 if __name__ == "__main__":
