@@ -2835,7 +2835,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 228 and 35 checks respectively; the MID
+  operands during development), 250 and 47 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -2852,12 +2852,21 @@ exits in a batch" as `EXIT_K` (section 13).
   leaf) plus an occupied position presented as empty, a malformed node
   pad, a missing operator signature and a wrong `m`, a full 32-leaf
   `EVICT_SUBTREE_5`, and a full 64-leaf `EVICT_SUBTREE_6` rejected by the
-  stack limit (4.5). The MIN checks cover `EXIT_1` and the dense `SPLIT` at
+  stack limit (4.5), and the sign rules of `NONNEG` (4.5, 10.6): a
+  `JOIN_2` whose `new_sum`, a `JOIN_0` whose leaf amount and a `SPLIT`
+  whose claim leaf amount is `2^31 + 2^24` (the negative `CScriptNum`
+  `-2^24`), an `EXIT_1` whose sibling sum is, each with output 0 at the
+  total the signed fold would reach, and an eviction of a leaf whose
+  `evict_after` is `2^31 + 2^24` at lock time 0 (BIP-65 rejects a
+  negative operand) all fail; these are the cases the byte-level audit
+  of `design/audit/script.md` found accepted. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
   `D = 4` and `16`: a split and a full drain succeed, and one signed by the
   operator or the recipient, an over-split, an occupied destination, a
   stale root, a recipient swapped under the owner's signature, a leaf with
   another evictor key or a later `evict_after` than the source (7.5 rule
-  5), an underfunded tree output and a wrong `e31` all fail.
+  5), an underfunded tree output, a wrong `e31`, each of the nine raw
+  introspection pieces substituted and a claim leaf of amount
+  `2^31 + 2^24` (`NONNEG`) all fail.
 * `tools/layertree_ccv.py` — the CCV-tier generators (section 4.6) for
   both profiles; `tools/test_ccv.py` executes them end to end (see its
   bullet below).
@@ -2947,12 +2956,23 @@ exits in a batch" as `EXIT_K` (section 13).
   compiled at depth `h`, fails with output 1 under the reference set's
   `m_h`, and in the detached tree, whose identifier is that option set at
   depth `h`, a channel leaf's `EXIT_1^=` pays its capacity exactly and
-  rejects a shortfall), 956 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  rejects a shortfall), and the negatives the byte-level audit of
+  `design/audit/script.md` added (`test_audit_negatives` at `D = 8`: a
+  non-minimal `is_evict` or `dir`, a leaf or sibling of the wrong length,
+  a sibling whose `enc64` suffix is not `0x01`, a payout at the wrong
+  output index, `EXIT_2` naming one position twice, an `EXIT_1^=` payout
+  one sat over the leaf, `new_hash` and `new_sum` of the wrong length,
+  and for `REWRITE_2` an `exit_key` change, an amount decrease or an
+  amount increase with a nonce change without the owner's signature, a
+  spurious signature, swapped old and new elements and a 1-byte element,
+  and for `EVICT_SUBTREE_2` an occupied position presented as empty,
+  swapped positions, payouts out of order and an empty position supplied
+  as 116 zero bytes, all rejected), 1,017 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `D ≤ 31` limit applies, 4.5), 864 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 886 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -2988,8 +3008,12 @@ exits in a batch" as `EXIT_K` (section 13).
   (the FULL message), output 0 below `ns`, a claim leaf with another
   evictor key or a later `evict_after` than the source (7.5 rule 5), and
   the cross-form, wrong, short or absent preimage cases of the FULL suite
-  all fail); and one direct opcode test for each
-  BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
+  all fail); the negatives of the byte-level audit
+  (`test_audit_negatives_ccv` at `D = 8`: in `0xC2` output 0 over-funded
+  by one sat, the tree output and the payout swapped and a payout to the
+  exit key under a taptree, and in `0xC0` a `JOIN_2` whose `new_sum` is
+  `2^31 + 2^24`, the `NONNEG` case of 4.5); and one direct opcode test
+  for each BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
   (sparse), the MID and MIN tiers, the cohort scripts at `D = 8`

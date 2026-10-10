@@ -704,6 +704,8 @@ class Interp:
                 a = top()
                 self.charge(wordspan(len(a)) * 2)
                 v = scriptnum_decode(a, 5) if self.mode == "c0" else num_decode(a)
+                if v < 0:
+                    raise ScriptError("CLTV operand negative")
                 if v >= 1 << 32:
                     raise ScriptError("CLTV operand too large")
                 if self.ctx.sequences[self.ctx.input_index] == 0xffffffff:
