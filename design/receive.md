@@ -22,24 +22,46 @@ it.
 The question is whether LayerTree can take the same payment with less
 trust and fewer bytes. It can, and the instrument is already in the spec.
 
-## The instrument: a cumulative hash-locked voucher
+## The instrument: a cumulative voucher
 
-A hash-locked voucher (`CLAIM^h`, spec 7.5.1) is the operator's signature
-over a message that names a source leaf the operator owns, a claim leaf
-for the recipient, and a payment hash. Anyone holding the voucher and the
-32-byte preimage can redeem it on-chain without the operator, and the
-covenant moves the amount from the source leaf to the new claim leaf. The
-preimage discipline is the one Lightning uses, so one secret settles both
-a Lightning HTLC and the voucher.
+A voucher (`CLAIM`, spec 7.5) is the operator's signature over a message
+that names a source leaf the operator owns and a claim leaf for the
+recipient. Anyone holding the voucher can redeem it on-chain without the
+operator, and the covenant moves the amount from the source leaf to the
+new claim leaf. Against a dedicated credit leaf the voucher is redeemed
+under `CLAIM^x` (spec 7.5.3, below), which also takes the recipient's
+exit-key signature; the voucher itself is the same plain message.
 
-A single receive therefore runs as follows, with the roles that 9.6.2
-requires. The recipient generates the preimage and issues the invoice,
-because the recipient is the party the payment ultimately pays. The
-payer's HTLC arrives at the operator's Lightning node. The operator issues
-the recipient a voucher for the amount under that hash. The recipient
-hands the preimage to the operator, which settles the HTLC toward the
-payer. Nothing reaches the chain. The recipient now holds a redeemable claim
-on the tree, and the operator has been paid.
+A single receive runs as follows. The invoice names a payment hash whose
+preimage the operator holds when the payer's HTLC arrives: either the
+operator draws the preimage and issues the invoice on the recipient's
+behalf, or the recipient draws it and hands it to the operator. The
+payer's HTLC arrives at the operator's Lightning node, which is the last
+hop, so the HTLC pays the operator. The operator MUST hold the preimage
+and settle that inbound HTLC before it issues or reissues the voucher.
+Once it has been paid, it issues the recipient a plain voucher for the
+new running total. Nothing reaches the chain. The recipient now holds a
+redeemable claim on the tree, and the operator has been paid.
+
+The order is the point, and an earlier draft of this page had it
+backwards. That draft had the recipient keep the preimage and the
+operator issue a hash-locked voucher (`CLAIM^h`, 7.5.1) under it before
+the HTLC settled. The preimage then came from the party the voucher
+pays, which is the ordering 9.6.2 rule 1 forbids, and on a credit leaf
+it gave the recipient a free option: withhold the preimage, let the
+inbound HTLC expire and be failed back to the payer, and redeem the
+voucher later anyway. The issuer of a hash-locked voucher retires it by
+advancing the source leaf's `seq` (9.6.1), and the credit-leaf
+configuration below removes every way for the operator to do that, so
+each failed receive would have been a voucher the operator could never
+void (`design/audit/channels.md`, B2). Settling first means the operator
+only ever vouches for money it already holds. The recipient's exposure
+is the one payment between the operator settling and the operator
+issuing, against the operator's honesty: a provider that takes the
+payment and stops issuing, which is the exposure this page accepts
+below. The hash-locked form keeps its place where 9.6.2 puts it, with
+the issuer drawing the preimage and the HTLC paying the issuer, as when
+a member buys a leaf with off-chain funds (9.6.1).
 
 Repeated receives do not accumulate as separate vouchers, because every
 redemption advances the source leaf's `seq` and voids the others (7.5 and
@@ -70,7 +92,7 @@ per credit leaf (1,073 vbytes at `D = 16`), or about 133 vbytes per
 recipient (149 under `^x`) when the cohort rewrite `REWRITE_h` of spec
 7.9 advances a whole subtree of credit leaves in one transaction. Until a
 voucher is retired the operator, not the recipient, carries the risk of
-paying twice (`design/graft.md`). The on-chain `CLAIM^h` is what the recipient
+paying twice (`design/graft.md`). The on-chain `CLAIM^x` is what the recipient
 does if the operator stops cooperating, and the fact that it exists is
 what makes the off-chain settlement safe to accept.
 
@@ -82,12 +104,12 @@ what makes the off-chain settlement safe to accept.
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none beyond dust at redemption; sub-floor amounts accumulate in the voucher |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
-| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^h`, 1,652 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
+| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,660 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
 
-The redemption cost is the economic floor. At 10 sat/vB a `CLAIM^h`
-costs about 16,500 sat, so a recipient would not redeem a small balance
+The redemption cost is the economic floor. At 10 sat/vB a `CLAIM^x`
+costs about 16,600 sat, so a recipient would not redeem a small balance
 alone; they would let it accumulate, have the operator graft it as a leaf
 in a cohort, or redeem it straight into a channel leaf whose exit key is a
 2-of-2 and pay onward over Lightning from there.
@@ -118,10 +140,12 @@ trust model, the funding modes and their costs.
 
 ## Making redemption cheaper
 
-The 1,652 vbytes is the FULL tier at `D = 16` with no help, and it is
-large for a structural reason: a `CLAIM^h` proves two positions, the
-source leaf and the claim slot, so it carries two full paths of sixteen
-unrolled levels each, two leaves, the voucher signature and the preimage.
+The roughly 1,660 vbytes is the FULL tier at `D = 16` with no help, and
+it is large for a structural reason: a `CLAIM^x` proves two positions,
+the source leaf and the claim slot, so it carries two full paths of
+sixteen unrolled levels each, two leaves, the voucher signature and the
+exit-key signature. A hash-locked `CLAIM^h` carries the preimage in place
+of the exit-key signature and measures 1,652 vbytes.
 The CCV tier reduces it a little: with `r` and `m` gone from the
 witness it carries `CLAIM^h` at 3,455 bytes of script and 1,658 of
 witness at `D = 16`, about 1,550 vbytes against the FULL tier's 1,652.
@@ -265,7 +289,7 @@ Appendix C with its `csv_delay`. A cumulative voucher avoids the window
 only because value flows one way.
 
 So the wallet case has two instruments, and they compose. For receiving,
-a credit leaf with cumulative hash-locked vouchers: zero bytes per
+a credit leaf with cumulative vouchers issued after each payment settles: zero bytes per
 payment, no floor, no expiry, no liveness, and with `CLAIM^x` no trust in
 the operator beyond its continuing to issue. For spending and for two-way
 traffic, a channel leaf: ordinary HTLC forwards through the operator, a
@@ -276,11 +300,12 @@ which is one transaction and the only one that ever reaches the chain.
 
 ## What is settled and what is not
 
-The voucher leg, the HTLC leg and their shared preimage are specified and
-tested (7.5.1, 9.6.1, 9.6.2, `test_swap` on PR #8). The ordering rules of
-9.6.2 apply unchanged: the recipient generates the preimage, the voucher
-resolves second, and the operator must not advance `seq` while an HTLC on
-the hash is in flight. The dedicated credit leaf is a deployment choice
+The receive flow needs no hash lock: the operator settles the inbound
+HTLC first and then issues a plain voucher, so the Lightning leg and the
+voucher are never open at the same time on the same hash. The hash-locked
+swap of 9.6.2 (7.5.1, 9.6.1, `test_swap` on PR #8) is a different flow,
+in which the issuer draws the preimage and is the party the HTLC pays;
+its ordering rules do not describe a receive. The dedicated credit leaf is a deployment choice
 within the current rules, and `CLAIM^x`, the one addition this page
 proposed, is now spec 7.5.3 in the FULL tier. A credit line in a tree
 whose taptree carries it, with `UPDATE^x` and `EXIT^=`, without `SPLIT`

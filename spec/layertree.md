@@ -2512,6 +2512,23 @@ and take the rest as the free decrease of 7.9 rule 6. A recipient MUST
 therefore verify from `m` that the taptree carries no plain `REWRITE_h`
 before treating a credit leaf as covered by the preceding paragraph.
 
+A credit leaf that receives over Lightning sits behind an inbound HTLC
+that pays the issuer, with a voucher that pays the recipient. The issuer
+MUST obtain the preimage and settle the inbound HTLC before it issues or
+reissues the cumulative voucher for the new running total, which is then
+a plain voucher, redeemed under `CLAIM^x`. The reverse order, a
+hash-locked voucher issued before the HTLC settles with the preimage held
+by the recipient, breaks 9.6.2 rule 1, and on a credit leaf it cannot be
+repaired afterwards: if the HTLC fails, 9.6.1 has the issuer retire the
+voucher by advancing `seq`, and every transition that could advance a
+credit leaf's `seq` needs the recipient's exit key, so the voucher stays
+redeemable for a payment that never arrived (`design/audit/channels.md`,
+B2). Settling first leaves the recipient exposed to the issuer for one
+in-flight payment, the one it has settled and not yet vouched for, which
+is the provider that stops issuing of the preceding paragraphs. The
+hash-locked form keeps the ordering of 9.6.2, with the preimage drawn by
+the issuer as the party the HTLC pays.
+
 A credit leaf SHOULD carry a finite lease long enough for its purpose,
 with the operator as evictor, rather than a `NUMS` evictor. A voucher
 binds the claim leaf's bytes and not its position, so the holder of any
