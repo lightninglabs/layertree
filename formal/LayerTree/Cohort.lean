@@ -40,30 +40,10 @@ namespace LayerTree
 
 variable {H : Type} [M : HashModel Leaf H]
 
-/-! ## Payouts -/
+/-! ## Payouts
 
-/-- A payout output: the exit key it pays (`P2TR(exit_key)`) and its
-amount. The scriptPubKey itself is an authorisation-side fact; the
-theorems use the amount. -/
-structure Payout where
-  key : Nat
-  amount : Nat
-  deriving DecidableEq, Repr
-
-/-- The payout a leaf is owed when it is removed: `leaf.amount` to
-`P2TR(leaf.exit_key)` (7.7 rule 2, `REWRITE_h` rule 5). -/
-def Leaf.payout (l : Leaf) : Payout := ⟨l.exitKey, l.amount⟩
-
-def payoutTotal : List Payout → Nat
-  | [] => 0
-  | p :: rest => p.amount + payoutTotal rest
-
-omit M in
-theorem payoutTotal_append (a b : List Payout) :
-    payoutTotal (a ++ b) = payoutTotal a + payoutTotal b := by
-  induction a with
-  | nil => simp [payoutTotal]
-  | cons p rest ih => simp [payoutTotal, ih]; omega
+`Payout`, `Leaf.payout` and `payoutTotal` are defined in
+`LayerTree.Transitions`, where the single-leaf `EXIT` uses them. -/
 
 namespace Tree
 

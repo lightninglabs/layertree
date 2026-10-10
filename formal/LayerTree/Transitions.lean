@@ -194,25 +194,56 @@ theorem leafStep_sound {d : Nat} (t : Tree d) (path : List (Bool × Node H))
   cases t.getSub p with
   | tip q => intro hold; exact (leafNode_inj hold).symm
 
+/-! ### Payouts -/
+
+/-- A payout output as the script reads it with `OP_TX`: the x-only key
+its scriptPubKey pays (`P2TR(key)`) and its amount. The key is what
+7.2 rule 2, 7.7 rule 2 and 7.9 rule 5 compare with the leaf's
+`exit_key`; the model carries it so that every payout theorem names the
+key the output pays. -/
+structure Payout where
+  key : Nat
+  amount : Nat
+  deriving DecidableEq, Repr
+
+/-- The payout a leaf is owed when it is removed: `leaf.amount` to
+`P2TR(leaf.exit_key)` (7.2 rule 2 with rule 4, 7.7 rule 2, 7.9 rule 5). -/
+def Leaf.payout (l : Leaf) : Payout := ⟨l.exitKey, l.amount⟩
+
+def payoutTotal : List Payout → Nat
+  | [] => 0
+  | p :: rest => p.amount + payoutTotal rest
+
+omit M in
+theorem payoutTotal_append (a b : List Payout) :
+    payoutTotal (a ++ b) = payoutTotal a + payoutTotal b := by
+  induction a with
+  | nil => simp [payoutTotal]
+  | cons p rest ih => simp [payoutTotal, ih]; omega
+
 /-! ### EXIT (section 7.2) -/
 
-/-- One `EXIT` block: the leaf, its path, the payout it receives, and the
-authorisation (owner signature, or evictor signature plus lock time). -/
+/-- One `EXIT` block: the leaf, its path, the payout output it receives
+(key and amount, as the script reads output `i`), and the authorisation
+(owner signature, or evictor signature plus lock time). -/
 structure ExitBlock (H : Type) where
   leaf : Leaf
   path : List (Bool × Node H)
-  payout : Nat
+  payout : Payout
   isEvict : Bool
   authorised : Prop
 
 /-- The step an exit block performs: the leaf becomes `E_0`. -/
 def ExitBlock.step (b : ExitBlock H) : Step H := leafStep b.path (some b.leaf) none
 
-/-- The payout rule of section 7.2 rules 3 and 4, and rule 6 for the exact
-variant: an owner exit pays at most the leaf amount (exactly, in
-`EXIT_K^=` and in the MID and MIN tiers), an eviction pays exactly it. -/
+/-- The payout rule of section 7.2: the output pays `P2TR(leaf.exit_key)`
+(rule 2), and its amount is at most the leaf amount for an owner exit
+(rule 3), exactly the leaf amount for an eviction (rule 4) and for every
+exit in the exact variant `EXIT_K^=` (rule 6, always in MID and MIN). -/
 def ExitBlock.payoutOk (exact : Bool) (b : ExitBlock H) : Prop :=
-  if b.isEvict || exact then b.payout = b.leaf.amount else b.payout ≤ b.leaf.amount
+  b.payout.key = b.leaf.exitKey ∧
+    if b.isEvict || exact then b.payout.amount = b.leaf.amount
+    else b.payout.amount ≤ b.leaf.amount
 
 /-- What the `EXIT_K` script accepts (sections 7.2 and 7.6): the blocks
 chain from the current root to `r'`, output 0 carries `r'.sum` (rule 7.1),
@@ -226,7 +257,7 @@ structure ExitK (exact : Bool) (r : Node H) (blocks : List (ExitBlock H)) (r' : 
 
 def payoutSum : List (ExitBlock H) → Nat
   | [] => 0
-  | b :: rest => b.payout + payoutSum rest
+  | b :: rest => b.payout.amount + payoutSum rest
 
 def amountSum : List (ExitBlock H) → Nat
   | [] => 0
@@ -254,7 +285,14 @@ theorem payoutSum_le (exact : Bool) (blocks : List (ExitBlock H))
     have hr := ih (fun b hb => h b (by simp [hb]))
     simp only [payoutSum, amountSum]
     unfold ExitBlock.payoutOk at hb
+    obtain ⟨_, hb⟩ := hb
     split at hb <;> omega
+
+omit M in
+/-- **Every exit pays the leaf's exit key** (7.2 rule 2): whatever the
+amount rule, the payout output's key is the leaf's `exit_key`. -/
+theorem ExitBlock.payoutOk_key {exact : Bool} {b : ExitBlock H} (h : b.payoutOk exact) :
+    b.payout.key = b.leaf.exitKey := h.1
 
 /-- **No inflation on exit**: output 0 plus every payout is at most the
 input amount. The difference is what section 7.2 rule 3 leaves "available
@@ -278,6 +316,15 @@ theorem payoutSum_eq (blocks : List (ExitBlock H))
     simp [ExitBlock.payoutOk] at hb
     simp only [payoutSum, amountSum]
     omega
+
+/-- **The exits of an `EXIT_K` pay their leaves' exit keys**: output `i`
+pays `P2TR(leaf_i.exit_key)` for every block. With `no_inflation` and
+`single_sound` this is the full payout statement of 7.2: the right key,
+and at most (owner) or exactly (eviction, exact variant) the amount. -/
+theorem ExitK.pays_exit_key {exact : Bool} {r r' : Node H} {blocks : List (ExitBlock H)}
+    {out0 : Nat} (h : ExitK exact r blocks r' out0) :
+    ∀ b ∈ blocks, b.payout.key = b.leaf.exitKey :=
+  fun b hb => (h.payouts b hb).1
 
 /-- **Exact conservation in `EXIT_K^=`**: with exact payouts nothing is left
 over, so every satoshi of the input is accounted for by output 0 and the
@@ -334,6 +381,29 @@ theorem payable {d : Nat} (t : Tree d) (p : Pos d 0) (l : Leaf) (hl : t.get p = 
     omega
   · intro q hq
     exact Tree.get_set_ne t p q none (Ne.symm hq)
+
+/-- **The honest `EXIT_1` is accepted and pays the exit key.** `payable`
+stated as an `ExitK`: for any tree, any position holding a leaf, either
+payout rule and any authorisation the owner can supply (its signature),
+the block made of the leaf, its honest path and the payout
+`(leaf.exit_key, leaf.amount)` is an accepted single exit from the current
+root to the root of the tree without the leaf, with output 0 carrying the
+remaining sum. This is the form of 10.2's claim that names the key the
+payout goes to. -/
+theorem exit_available {d : Nat} (exact : Bool) (t : Tree d) (p : Pos d 0) (l : Leaf)
+    (hl : t.get p = some l) (auth : Prop) (ha : auth) :
+    ExitK exact t.root [⟨l, t.path p, l.payout, false, auth⟩]
+      (t.set p none).root (t.set p none).root.sum := by
+  have hv := (payable t p l hl).1
+  refine ⟨Steps.cons hv (Steps.nil _), rfl, ?_, ?_⟩
+  · intro b hb
+    simp at hb; subst hb
+    refine ⟨rfl, ?_⟩
+    simp only [Leaf.payout, Bool.false_or]
+    cases exact <;> simp
+  · intro b hb
+    simp at hb; subst hb
+    exact ha
 
 /-! ### JOIN (section 7.3) -/
 
