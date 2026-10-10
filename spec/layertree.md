@@ -2099,6 +2099,13 @@ members funding their own leaves on-chain. An operator-funded graft has
 no round: the operator fronts the value and is paid off-chain, as the
 next two paragraphs describe.
 
+Because every funder signs with `SIGHASH_DEFAULT` or `SIGHASH_ALL`, a
+graft with more than one funder cannot be fee-bumped by replacement
+without every funder signing again. Such a graft SHOULD carry an
+operator change output or a P2A anchor (4.7), so that the operator can
+bump it by CPFP without a new signing round, and funders SHOULD expect
+fee bumping by CPFP rather than by replacement.
+
 The operator MAY use `JOIN_0` for a single member and MAY fund leaves
 itself (for example when providing liquidity to a channel leaf, or when
 selling a leaf to a member who pays off-chain).

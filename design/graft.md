@@ -143,7 +143,11 @@ for a P2TR key-path spend, plus 43 for a change output if the member needs
 one. The transaction cannot be broadcast until every member has signed,
 so one absent member stalls the cohort and the operator rebuilds it
 without them. This is a liveness cost, not a safety one: an unsigned or
-unbroadcast graft leaves each member's input theirs.
+unbroadcast graft leaves each member's input theirs. The same signatures
+fix the fee: raising it by replacement needs every member to sign again,
+so spec 9.2 has a member-funded graft carry an operator change output or
+a P2A anchor, which the operator can spend in a child to bump the fee
+without a new round (`design/audit/protocol.md`, A8).
 
 A **mixed** graft has the operator fund some leaves and members fund
 others. By 10.2 this changes nothing for anyone: each member's safety
