@@ -601,6 +601,61 @@ def test_state_machine(mode, verbose=True):
     return ch
 
 
+def dust_threshold(spk):
+    """Bitcoin Core's dust threshold at the default dust relay fee of 3
+    sat/vB: 330 sat for a P2TR output and 240 sat for a P2A anchor, the two
+    output kinds a settlement carries."""
+    return {lc.P2A_SPK: lc.DUST_P2A}.get(spk, lc.DUST_CHAN)
+
+
+def count_dust(outs):
+    return sum(1 for amt, spk in outs if amt < dust_threshold(spk))
+
+
+def test_dust_floor():
+    """C.3.4: a settlement is zero-fee with an ephemeral anchor, so relay
+    policy admits at most one dust output and it must be the anchor. Every
+    balance or HTLC below DUST_CHAN is omitted and its value goes to the
+    anchor, never to fees."""
+    p_chan = pubkey_x(sk("P_chan"))
+    uk, vk = pubkey_x(sk("U-payout")), pubkey_x(sk("V-payout"))
+    C = 1_000_000
+    ch = lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, C, 0, 144)
+    htlc = lc.htlc_output(pubkey_x(sk("agg")), lt.sha256(b"x"), 900_000, uk, vk)
+    cases = (("b_V = 0", C, 0, []),
+             ("b_V = 329", C - 329, 329, []),
+             ("200-sat HTLC", C - 200, 0, [(200, htlc)]),
+             ("329-sat HTLC beside a 329-sat balance", C - 658, 329, [(329, htlc)]))
+    for label, bu, bv, htlcs in cases:
+        outs = ch.settle_outputs(bu, bv, uk, vk, htlcs)
+        trimmed = sum(a for a in (bu, bv) + tuple(a for a, _ in htlcs) if a < lc.DUST_CHAN)
+        check(sum(a for a, _ in outs) == C, f"{label}: the trimmed settlement still pays C")
+        check(outs[-1] == (trimmed, lc.P2A_SPK), f"{label}: the anchor carries the trimmed value")
+        check(all(a >= lc.DUST_CHAN for a, _ in outs[:-1]),
+              f"{label}: every non-anchor output is at least DUST_CHAN")
+        check(count_dust(outs) <= 1, f"{label}: at most one dust output, the anchor")
+        # What the audit measured: the same split with nothing trimmed has
+        # two dust outputs and no default node relays it.
+        untrimmed = [(bu, lt.p2tr_spk(uk)), (bv, lt.p2tr_spk(vk))] + \
+            [(a, h.spk) for a, h in htlcs] + [(0, lc.P2A_SPK)]
+        check(count_dust(untrimmed) >= 2, f"{label}: untrimmed, the settlement has two dust outputs")
+    full = ch.settle_outputs(600_000, 340_000, uk, vk, [(60_000, htlc)])
+    check(len(full) == 4 and full[-1] == (0, lc.P2A_SPK),
+          "nothing trimmed: the anchor is the 0-value ephemeral output")
+    # A channel parameter, not part of chan_id, and never below the P2TR
+    # threshold.
+    ch2 = lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, C, 0, 144, dust_chan=546)
+    check(ch2.chan_id == ch.chan_id, "dust_chan is not committed by chan_id")
+    check(ch2.settle_outputs(C - 500, 500, uk, vk)[-1] == (500, lc.P2A_SPK),
+          "a higher dust_chan trims a 500-sat balance into the anchor")
+    try:
+        lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, C, 0, 144, dust_chan=329)
+        check(False, "dust_chan below the P2TR threshold refused")
+    except AssertionError:
+        check(True, "dust_chan below the P2TR threshold refused")
+    print("settlement dust floor: sub-dust balances and HTLCs trimmed into the anchor")
+
+
 def test_mid_collation_limit():
     """C.7, measured: under tapleaf 0xC0 every stack element, including the
     OP_TX collation and ctx || collation after OP_CAT, is limited to 520
@@ -692,7 +747,7 @@ def test_deadlines(verbose=True):
         stx = party.settle(chain, 1, (utx.txid(), 0))
         chain.mine(stx)
         log["settle"] = chain.height
-        h_op = (stx.txid(), 2)
+        h_op = next(op for op, v in chain.utxos.items() if v[1] == htlc.spk)
         chain.advance(g_sweep - 1)
         tmo = htlc_sweep(chain, h_op, htlc, False, u_claim, pubkey_x(u_claim), locktime=E)
         succ = htlc_sweep(chain, h_op, htlc, True, v_claim, pubkey_x(v_claim), preimage)
@@ -790,6 +845,7 @@ if __name__ == "__main__":
     check(sz[("c2", "update_n (funding)")] == 153, "update_n bound to funding is 153 vB (C.5.4)")
     check(sz[("c2", "update_n (rebind)")] == 161, "update_n bound to U_j is 161 vB (C.5.4)")
     check(sz[("c2", "settle_n (2 HTLCs)")] == 204 + 43 * 2, "settle_n with 2 HTLCs is 204 + 43h vB (C.5.4)")
+    test_dust_floor()
     test_mid_collation_limit()
     test_deadlines()
     report_sizes()

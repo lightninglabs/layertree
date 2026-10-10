@@ -50,6 +50,15 @@ CHAN_TX_VERSION = 3                 # TRUC (BIP-431)
 UPDATE_SEQUENCE = 0xFFFFFFFD
 P2A_SPK = bytes([0x51, 0x02, 0x4E, 0x73])   # OP_1 <0x4e73>, the P2A anchor
 
+# C.3.4: the settlement dust floor. A settlement is zero-fee with a 0-value
+# ephemeral anchor, so it may carry no other dust output; a balance or HTLC
+# output below DUST_CHAN is omitted and its value goes to the anchor. The
+# RECOMMENDED value is the P2TR dust threshold under Bitcoin Core's default
+# dust relay fee. DUST_P2A is the anchor's own threshold under the same
+# policy: an anchor carrying less than it is the one dust output.
+DUST_CHAN = 330
+DUST_P2A = 240
+
 
 # ------------------------------------------------------- channel context --
 def chan_id(m, owner_key, nonce, p_chan, capacity, epoch, csv_delay):
@@ -204,10 +213,15 @@ class Channel:
     one x-only key both parties must cooperate to sign under).
     """
 
-    def __init__(self, m, owner_key, nonce, p_chan, capacity, epoch, csv_delay, mode="c2"):
+    def __init__(self, m, owner_key, nonce, p_chan, capacity, epoch, csv_delay, mode="c2",
+                 dust_chan=DUST_CHAN):
         self.m, self.owner_key, self.nonce = m, owner_key, nonce
         self.p_chan, self.capacity, self.epoch = p_chan, capacity, epoch
         self.csv_delay, self.mode = csv_delay, mode
+        # dust_chan is a channel parameter like evict_after: agreed at
+        # opening and not part of chan_id (C.3.4).
+        assert dust_chan >= DUST_CHAN
+        self.dust_chan = dust_chan
         self.chan_id = chan_id(m, owner_key, nonce, p_chan, capacity, epoch, csv_delay)
         self.ctx_upd = ctx_upd(self.chan_id)
         self.ctx_set = ctx_set(self.chan_id)
@@ -236,11 +250,20 @@ class Channel:
     def settle_outputs(self, b_u, b_v, u_payout, v_payout, htlcs=()):
         """C.3.4 outputs: to_owner, to_cp, one per HTLC, then the P2A anchor.
 
-        htlcs: iterable of (amount, TapOutput).
+        htlcs: iterable of (amount, TapOutput). A balance or HTLC below
+        dust_chan is omitted and its value added to the anchor (C.3.4): the
+        transaction stays zero-fee, and the anchor is its one dust output
+        while it stays below the anchor's own threshold.
         """
-        outs = [(b_u, lt.p2tr_spk(u_payout)), (b_v, lt.p2tr_spk(v_payout))]
-        outs += [(amt, out.spk) for amt, out in htlcs]
-        outs.append((0, P2A_SPK))
+        wanted = [(b_u, lt.p2tr_spk(u_payout)), (b_v, lt.p2tr_spk(v_payout))]
+        wanted += [(amt, out.spk) for amt, out in htlcs]
+        outs, anchor = [], 0
+        for amt, spk in wanted:
+            if amt < self.dust_chan:
+                anchor += amt
+            else:
+                outs.append((amt, spk))
+        outs.append((anchor, P2A_SPK))
         assert sum(a for a, _ in outs) == self.capacity, "settlement must be zero-fee (C.3.4)"
         return outs
 

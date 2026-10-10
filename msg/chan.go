@@ -33,6 +33,7 @@ const (
 	TypeChanOpenEvictAfter tlv.Type = 7
 	TypeChanOpenBalanceU   tlv.Type = 8
 	TypeChanOpenBalanceV   tlv.Type = 9
+	TypeChanOpenDustChan   tlv.Type = 10
 )
 
 // TLV types for the per-channel messages. Type 0 is always chan_id.
@@ -74,6 +75,23 @@ const (
 
 // htlcLen is the size of one encoded Htlc inside a StateProposal.
 const htlcLen = 8 + 1 + 8 + 32 + 4
+
+// Settlement policy constants (C.3.4, C.7).
+const (
+	// DustP2TR is the dust threshold of a P2TR output under Bitcoin
+	// Core's default dust relay fee, and the RECOMMENDED DUST_CHAN.
+	DustP2TR = 330
+
+	// SettleCollationBase and SettleCollationPerHtlc give the size of a
+	// settlement's SEL_CHAN_SET collation, 156 + 43h bytes for two P2TR
+	// payouts, h P2TR HTLC outputs and the anchor (C.7).
+	SettleCollationBase    = 156
+	SettleCollationPerHtlc = 43
+
+	// MaxSettleCollationC0 is the largest collation a MID (0xC0)
+	// SETTLE_n can verify: 520 bytes less the 32-byte context (C.7).
+	MaxSettleCollationC0 = 488
+)
 
 // encodeStream and decodeStream wrap a record list in a TLV stream.
 func encodeStream(w io.Writer, recs []tlv.Record) error {
@@ -126,6 +144,12 @@ type ChanOpen struct {
 	// BalanceU and BalanceV are the opening balances; they sum to
 	// Capacity.
 	BalanceU, BalanceV uint64
+
+	// DustChan is the settlement dust floor of C.3.4: a balance or HTLC
+	// output below it is omitted from settle_n and its value goes to
+	// the anchor. Like EvictAfter it is a channel parameter outside
+	// chan_id. It is never below DustP2TR.
+	DustChan uint64
 }
 
 // Params returns the chan_id inputs.
@@ -155,6 +179,10 @@ func (c *ChanOpen) Validate() error {
 	if c.EvictAfter >= script.ChanStateBase {
 		return errors.New("msg: evict_after must be a height")
 	}
+	if c.DustChan < DustP2TR {
+		return fmt.Errorf("msg: dust_chan %d is below the P2TR dust "+
+			"threshold %d (C.3.4)", c.DustChan, DustP2TR)
+	}
 	return nil
 }
 
@@ -170,6 +198,7 @@ func (c *ChanOpen) records() []tlv.Record {
 		tlv.MakePrimitiveRecord(TypeChanOpenEvictAfter, &c.EvictAfter),
 		tlv.MakePrimitiveRecord(TypeChanOpenBalanceU, &c.BalanceU),
 		tlv.MakePrimitiveRecord(TypeChanOpenBalanceV, &c.BalanceV),
+		tlv.MakePrimitiveRecord(TypeChanOpenDustChan, &c.DustChan),
 	}
 }
 
@@ -235,7 +264,10 @@ func decodeHtlcs(b []byte) ([]Htlc, error) {
 
 // StateProposal proposes state n: the balances and in-flight HTLCs that
 // settle_n will pay out (C.3.4). Both parties then run the signing rounds
-// of C.3.6 over it.
+// of C.3.6 over it. The balances are settlement outputs, so a zero
+// balance is an omitted output and a nonzero one is never below the
+// channel's DustChan; whatever the outputs leave of the capacity is the
+// anchor's value, which carries the trimmed amounts (C.3.4).
 type StateProposal struct {
 	ChanID   [32]byte
 	StateNum uint32
@@ -244,22 +276,59 @@ type StateProposal struct {
 	Htlcs    []Htlc
 }
 
-// Validate checks that the state pays out exactly the capacity (C.3.4) and
-// that the state number fits the lock-time range (C.3.5).
-func (s *StateProposal) Validate(capacity uint64) error {
-	if s.StateNum == 0 || s.StateNum > script.ChanMaxState {
-		return errors.New("msg: state number out of range")
-	}
+// Anchor is the value settle_n's anchor output carries: the capacity less
+// every balance and HTLC output. It is 0 when nothing was trimmed.
+func (s *StateProposal) Anchor(capacity uint64) (uint64, error) {
 	total := s.BalanceU
 	for _, v := range append([]uint64{s.BalanceV}, htlcAmounts(s.Htlcs)...) {
 		if total+v < total {
-			return errors.New("msg: state amounts overflow")
+			return 0, errors.New("msg: state amounts overflow")
 		}
 		total += v
 	}
-	if total != capacity {
-		return fmt.Errorf("msg: state pays %d, capacity is %d", total,
+	if total > capacity {
+		return 0, fmt.Errorf("msg: state pays %d, capacity is %d", total,
 			capacity)
+	}
+	return capacity - total, nil
+}
+
+// SettleCollationLen is the size of the settlement collation the state's
+// outputs produce (C.7).
+func (s *StateProposal) SettleCollationLen() int {
+	return SettleCollationBase + SettleCollationPerHtlc*len(s.Htlcs)
+}
+
+// Validate checks the proposal against the channel's parameters and the
+// tapleaf version of its scripts: the state number fits the lock-time
+// range (C.3.5), the outputs do not exceed the capacity (C.3.4), no
+// balance or HTLC output is below the dust floor (C.3.4), and under 0xC0
+// the settlement collation fits SETTLE_n's 520-byte element limit (C.7).
+func (s *StateProposal) Validate(open *ChanOpen, mode script.Mode) error {
+	if s.StateNum == 0 || s.StateNum > script.ChanMaxState {
+		return errors.New("msg: state number out of range")
+	}
+	if _, err := s.Anchor(open.Capacity); err != nil {
+		return err
+	}
+	for _, b := range []uint64{s.BalanceU, s.BalanceV} {
+		if b != 0 && b < open.DustChan {
+			return fmt.Errorf("msg: balance output %d is below "+
+				"dust_chan %d (C.3.4)", b, open.DustChan)
+		}
+	}
+	for _, h := range s.Htlcs {
+		if h.Amount < open.DustChan {
+			return fmt.Errorf("msg: HTLC output %d is below dust_chan "+
+				"%d (C.3.4)", h.Amount, open.DustChan)
+		}
+	}
+	if n := s.SettleCollationLen(); mode == script.ModeC0 &&
+		n > MaxSettleCollationC0 {
+
+		return fmt.Errorf("msg: settlement collation of %d bytes "+
+			"exceeds %d under tapleaf 0xC0 (C.7)", n,
+			MaxSettleCollationC0)
 	}
 	return nil
 }
@@ -458,13 +527,19 @@ func (h *HtlcAdd) Decode(r io.Reader) error {
 	return nil
 }
 
-// CheckDeadline enforces C.4.4: the HTLC's cltv_expiry leaves at least
-// budget blocks above the current height.
-func (h *HtlcAdd) CheckDeadline(height, budget uint32) error {
-	if uint64(h.Htlc.CltvExpiry) < uint64(height)+uint64(budget) {
+// CheckDeadline enforces C.4.4 and C.6.4: the HTLC's cltv_expiry leaves
+// at least budget blocks above the current height, and above the leaf's
+// evict_after when that is later, since the counterparty's force-close
+// clock cannot start before the lease has passed.
+func (h *HtlcAdd) CheckDeadline(height, evictAfter, budget uint32) error {
+	start := height
+	if evictAfter > start {
+		start = evictAfter
+	}
+	if uint64(h.Htlc.CltvExpiry) < uint64(start)+uint64(budget) {
 		return fmt.Errorf("msg: cltv_expiry %d leaves less than %d "+
-			"blocks above height %d (C.4.4)", h.Htlc.CltvExpiry,
-			budget, height)
+			"blocks above %d (C.4.4, C.6.4)", h.Htlc.CltvExpiry, budget,
+			start)
 	}
 	return nil
 }

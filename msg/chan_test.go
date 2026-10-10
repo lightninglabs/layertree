@@ -35,6 +35,7 @@ func testOpen() *ChanOpen {
 		BalanceU:   600_000,
 		BalanceV:   400_000,
 		EvictAfter: 0,
+		DustChan:   DustP2TR,
 	}
 }
 
@@ -121,30 +122,88 @@ func TestChanMessageValidation(t *testing.T) {
 	if bad.Validate() == nil {
 		t.Error("open with a timestamp evict_after accepted")
 	}
+	bad = *open
+	bad.DustChan = DustP2TR - 1
+	if bad.Validate() == nil {
+		t.Error("open with dust_chan below the P2TR threshold accepted")
+	}
 
 	// chan_id matches the script package and changes with the epoch.
 	if open.ChanID() != open.Params().ChanID() {
 		t.Error("ChanOpen.ChanID differs from script.ChanParams")
 	}
 
-	// A state pays out exactly the capacity (C.3.4).
+	// A state pays out at most the capacity, the remainder being the
+	// anchor's value (C.3.4).
 	st := &StateProposal{StateNum: 1, BalanceU: 500_000, BalanceV: 400_000,
 		Htlcs: []Htlc{{Amount: 100_000}}}
-	if err := st.Validate(open.Capacity); err != nil {
+	if err := st.Validate(open, script.ModeC2); err != nil {
 		t.Errorf("valid state rejected: %v", err)
 	}
+	if a, _ := st.Anchor(open.Capacity); a != 0 {
+		t.Errorf("anchor of an untrimmed state is %d, want 0", a)
+	}
 	st.Htlcs[0].Amount++
-	if st.Validate(open.Capacity) == nil {
+	if st.Validate(open, script.ModeC2) == nil {
 		t.Error("state paying more than capacity accepted")
 	}
 	st.Htlcs[0].Amount = ^uint64(0)
-	if st.Validate(open.Capacity) == nil {
+	if st.Validate(open, script.ModeC2) == nil {
 		t.Error("overflowing state accepted")
 	}
 	if (&StateProposal{StateNum: 0, BalanceU: open.Capacity}).Validate(
-		open.Capacity) == nil {
+		open, script.ModeC2) == nil {
 
 		t.Error("state 0 accepted")
+	}
+
+	// C.3.4: a sub-dust balance or HTLC output is not a settlement output.
+	// It is omitted, which is a zero balance, and its value is the
+	// anchor's.
+	dust := &StateProposal{StateNum: 1, BalanceU: open.Capacity - 329,
+		BalanceV: 329}
+	if dust.Validate(open, script.ModeC2) == nil {
+		t.Error("state with a 329-sat balance output accepted")
+	}
+	dust.BalanceV = 0
+	if err := dust.Validate(open, script.ModeC2); err != nil {
+		t.Errorf("state with the 329 sat trimmed into the anchor "+
+			"rejected: %v", err)
+	}
+	if a, _ := dust.Anchor(open.Capacity); a != 329 {
+		t.Errorf("anchor carries %d, want the trimmed 329", a)
+	}
+	dust.Htlcs = []Htlc{{Amount: 200}}
+	dust.BalanceU -= 200
+	if dust.Validate(open, script.ModeC2) == nil {
+		t.Error("state with a 200-sat HTLC output accepted")
+	}
+	single := &StateProposal{StateNum: 1, BalanceU: open.Capacity}
+	if err := single.Validate(open, script.ModeC2); err != nil {
+		t.Errorf("single-funded state 1 rejected: %v", err)
+	}
+
+	// C.7: under 0xC0 a settlement collation must fit 488 bytes, so at
+	// most seven HTLC outputs; FULL has no such limit.
+	wide := &StateProposal{StateNum: 1, BalanceU: open.Capacity - 8_000}
+	for i := 0; i < 8; i++ {
+		wide.Htlcs = append(wide.Htlcs, Htlc{Amount: 1_000})
+	}
+	if n := wide.SettleCollationLen(); n != 156+43*8 {
+		t.Errorf("collation of 8 HTLCs is %d bytes, want %d", n, 156+43*8)
+	}
+	if wide.Validate(open, script.ModeC0) == nil {
+		t.Error("state with eight HTLC outputs accepted under 0xC0")
+	}
+	if err := wide.Validate(open, script.ModeC2); err != nil {
+		t.Errorf("state with eight HTLC outputs rejected under 0xC2: %v",
+			err)
+	}
+	wide.Htlcs = wide.Htlcs[:7]
+	wide.BalanceU += 1_000
+	if err := wide.Validate(open, script.ModeC0); err != nil {
+		t.Errorf("state with seven HTLC outputs rejected under 0xC0: %v",
+			err)
 	}
 
 	// Fulfil checks the preimage against the payment hash.
@@ -153,13 +212,23 @@ func TestChanMessageValidation(t *testing.T) {
 		t.Error("HtlcFulfill.Verify")
 	}
 
-	// C.4.4: the cltv_expiry budget.
+	// C.4.4: the cltv_expiry budget, measured from the tip or from the
+	// lease, whichever is later (C.6.4).
 	add := &HtlcAdd{Htlc: Htlc{CltvExpiry: 800_221}}
-	if add.CheckDeadline(800_000, 221) != nil {
+	if add.CheckDeadline(800_000, 0, 221) != nil {
 		t.Error("HTLC at exactly the budget rejected")
 	}
-	if add.CheckDeadline(800_001, 221) == nil {
+	if add.CheckDeadline(800_001, 0, 221) == nil {
 		t.Error("HTLC below the budget accepted")
+	}
+	if add.CheckDeadline(800_000, 799_000, 221) != nil {
+		t.Error("HTLC under a lease already passed rejected")
+	}
+	if add.CheckDeadline(800_000, 800_001, 221) == nil {
+		t.Error("HTLC expiring before evict_after plus the budget accepted")
+	}
+	if add.CheckDeadline(100, 800_000, 221) != nil {
+		t.Error("HTLC expiring at evict_after plus the budget rejected")
 	}
 
 	// C.5.2: a splice advances the epoch and yields a new chan_id.
