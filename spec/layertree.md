@@ -2403,12 +2403,19 @@ keeps the replay argument below intact, since no sequence of `SPLIT`s and
 Both risks disappear for a **dedicated credit leaf**: a source leaf the
 issuer owns, whose `exit_key` is one recipient's, in a tree whose taptree
 carries `CLAIM^x` (7.5.3), `UPDATE^x` (7.4 rule 5) and `EXIT^=` (7.2 rule
-6) and whose evictor is `NUMS`. Over-issuance against such a leaf has no
-second victim, since every voucher pays the same recipient, who can watch
-the leaf's amount in the tree. Voiding needs the leaf to change, and every
-transition that could change it now requires the exit key: `CLAIM^x` and
-`UPDATE^x` by rule, and `EXIT^=` because leaving pays the whole balance to
-that key. Only `SPLIT` remains, and a tree hosting credit leaves SHOULD
+6), carries `REWRITE_h^x` (7.9 rule 7) in place of `REWRITE_h` or no
+`REWRITE_h` at all, and whose evictor is `NUMS`. Over-issuance against
+such a leaf has no second victim, since every voucher pays the same
+recipient, who can watch the leaf's amount in the tree. Voiding needs the leaf to change, and every
+transition that could change it now requires the exit key: `CLAIM^x`,
+`UPDATE^x` and `REWRITE_h^x` by rule, and `EXIT^=` because leaving pays
+the whole balance to that key. A plain `REWRITE_h` beside them reopens
+the voiding path: it asks only for the owner's and the operator's
+signatures, which the issuer holds, so the issuer could rewrite the leaf
+down to 1 sat and take the rest as the free decrease of 7.9 rule 6. A
+recipient MUST therefore verify from `m` that the taptree carries no
+plain `REWRITE_h` before treating a credit leaf as covered by this
+paragraph. Only `SPLIT` remains, and a tree hosting credit leaves SHOULD
 omit it from the taptree. The recipient's remaining exposure is the
 issuer's liveness, that is, a provider that stops issuing.
 `design/receive.md` works through the wallet case this serves.

@@ -895,6 +895,13 @@ user's key. Two consequences:
   above stands and the counterparty MUST decide whether the operator's
   promise is acceptable.
 
+  The cohort rewrite `REWRITE_h` (7.9) is an update transition too: rule 3
+  asks only for the owner's and the operator's signatures, so a plain
+  `REWRITE_h` beside `UPDATE^x` splices the leaf down exactly as plain
+  `UPDATE` would. The counterparty MUST therefore also verify from `m`
+  that the taptree carries no plain `REWRITE_h`, only `REWRITE_h^x`
+  (7.9 rule 7) or no rewrite at all.
+
 ### C.6.7 Cohorts and lease renewal
 
 Because `chan_id` (C.2.2) excludes `evict_after`, an `UPDATE` that renews the
@@ -1081,9 +1088,11 @@ taptree (C.6.5), `evictor_key` correctly set (C.6.3), and — for user-to-user
 leaves only — protection against a hostile `UPDATE` (C.6.6). The first two
 are verifiable from `m` and the leaf; the third from the leaf; the fourth is
 now verifiable from `m` as well, since it is the presence of the `UPDATE^x`
-script of 7.4 rule 5 in the taptree. A tree that uses plain `UPDATE` instead
-leaves the fourth property resting on the operator's promise, which is not
-verifiable at all.
+script of 7.4 rule 5 in the taptree together with the absence of a plain
+`REWRITE_h` (C.6.6; `REWRITE_h^x` of 7.9 rule 7 is fine). A tree that uses
+plain `UPDATE`, or plain `REWRITE_h` beside `UPDATE^x`, leaves the fourth
+property resting on the operator's promise, which is not verifiable at
+all.
 
 ## C.10 Changes made to `spec/layertree.md` for this appendix
 

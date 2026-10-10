@@ -178,8 +178,10 @@ whose redemption requires a signature over the transaction by the source
 leaf's exit key, alongside the voucher. The recipient is that key, so the
 recipient's own redemptions carry it for free, and the operator cannot
 redeem against the leaf at all. With `UPDATE^x`, `EXIT^=` and `CLAIM^x`
-in the taptree, a credit leaf's balance can only grow or be paid to its
-recipient, and the recipient's exposure is the operator's liveness:
+in the taptree, and with `REWRITE_h^x` in place of the cohort rewrite
+`REWRITE_h` or no rewrite at all, a credit leaf's balance can only grow
+or be paid to its recipient, and the recipient's exposure is the
+operator's liveness:
 nothing worse than a provider that stops issuing. The variant is now spec
 7.5.3, with `CLAIM^hx` as the same addition to the hash-locked form; it
 measures 7 bytes over `CLAIM` in the FULL tier, as `UPDATE^x` over
@@ -187,6 +189,15 @@ measures 7 bytes over `CLAIM` in the FULL tier, as `UPDATE^x` over
 exercises the credit-leaf scenario directly: the operator's own voucher
 plus its own transaction signature fails. The Lean model is unaffected,
 since `Claim` takes an opaque authorisation.
+
+The rewrite matters because plain `REWRITE_h` (spec 7.9) asks for the
+owner's and the operator's signatures and nothing else, and the operator
+is both for a credit leaf: it could rewrite the leaf down to 1 sat and
+keep the rest, which voids the recipient's voucher as surely as a
+`CLAIM` would. `REWRITE_h^x` (7.9 rule 7) adds the exit-key signature,
+as `UPDATE^x` does. A recipient MUST check from `m` that the taptree
+carries no plain `REWRITE_h` before it treats a credit leaf as
+trust-free (spec 10.3; `design/audit/protocol.md`, A3).
 
 ## A bond against equivocation
 
@@ -262,8 +273,9 @@ resolves second, and the operator must not advance `seq` while an HTLC on
 the hash is in flight. The dedicated credit leaf is a deployment choice
 within the current rules, and `CLAIM^x`, the one addition this page
 proposed, is now spec 7.5.3 in the FULL tier. A credit line in a tree
-whose taptree carries it, with `UPDATE^x` and `EXIT^=` and without
-`SPLIT`, no longer carries the voiding race of 10.3; one in a tree
+whose taptree carries it, with `UPDATE^x` and `EXIT^=`, without `SPLIT`
+and without a plain `REWRITE_h`, no longer carries the voiding race of
+10.3; one in a tree
 without it carries the same trust an Ark out-of-round payment carries
 until its next round, but with a consensus-enforced claim behind it
 rather than a ledger entry.
