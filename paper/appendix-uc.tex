@@ -124,8 +124,8 @@ an opaque slot because $\Pi$ verifies its own path before funding.
 \paragraph{Liveness.} $\Ftree$ permits $\Sim$ to delay an honest
 $\mathsf{EXIT}$ or $\mathsf{EVICT}$ by up to $\Delta(N)$. In the real
 world an honest exit competes for the tree output with at most $N - 1$
-other transitions, of which at most $\kappa$ (the package limit, 24
-descendants) can be pending per confirmed output; an adversary who front-runs
+other transitions, of which at most $\kappa$ (the ancestor limit, 25 transactions
+per unconfirmed chain) can be pending per confirmed output; an adversary who front-runs
 maximally therefore delays the honest transaction by at most
 $\lceil N / \kappa \rceil$ confirmations of the tree output, each within
 $\Delta_L$, giving $\Delta(N) = \Delta_L \cdot (\lceil N/\kappa \rceil + 1)$.
