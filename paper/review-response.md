@@ -258,16 +258,15 @@ revision narrows the claim to what the model supports:
    introduction now say the opcodes are proposed ones, some assumed in a
    leaf version their proposal does not define, and section 5 says which
    tier needs what: MIN is the tier closest to the proposals as written
-   (BIP-347's `OP_CAT` plus `OP_TWEAKADD`; we could not confirm BIP-449's
-   leaf version and do not claim it), MID and CCV in 0xC0 need `OP_TX`
+   (BIP-347's `OP_CAT` plus BIP-449's `OP_TWEAKADD`, both defined for
+   tapleaf 0xC0, confirmed in a later pass), MID and CCV in 0xC0 need `OP_TX`
    where its draft does not define it, CCV in 0xC2 needs BIP-443 there,
    and FULL needs two drafts whose opcode numbers collide. The
    EC-ops draft's authorship is disclosed in section 1 (omitted under
    `\anontrue`). [A-1]'s dependency (FULL compares 8-byte `OP_TX`
    amounts numerically, which BIP-441's numerics must accept) is in the
-   table. `optx` is cited as a draft on a personal fork, which it is; we
-   could not pin a more specific URL for BIP-449 and left the repository
-   root.
+   table. `optx` is cited as a draft on a personal fork, which it is;
+   BIP-449 is cited at `bip-0449.md` in the bips repository.
 4. **Prior art; false novelty claim.** Fixed. Related work cites
    `OP_TAPLEAF_UPDATE_VERIFY` (Towns, bitcoin-dev, 2021), CoinPool's
    `OP_MERKLESUB` withdrawal, `OP_EVICT` (ZmnSCPxj, bitcoin-dev, 2022),
