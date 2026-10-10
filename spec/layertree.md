@@ -2471,7 +2471,15 @@ its own outstanding vouchers. It adds no capability: an owner could already
 do the same alone by redeeming a voucher issued to itself. A recipient's
 position is unchanged, and the `seq` increment `SPLIT` shares with `CLAIM`
 keeps the replay argument below intact, since no sequence of `SPLIT`s and
-`CLAIM`s returns a leaf to a byte string it held before.
+`CLAIM`s returns a leaf to a byte string it held before. That argument
+rests on two rules the covenant does not enforce: `UPDATE` (7.4) and
+`REWRITE_h` (7.9) write `seq` as the owner and operator agree, so an owner
+who lowers its own `seq` with the operator's help can revive a voucher it
+issued (9.6 has the issuer never lower `seq`, and the loss is the
+issuer's own), and 5.2's rule that no two leaves share `(owner_key,
+nonce)` is what makes a redeemed source leaf unique. The formal model
+states both as hypotheses of its non-replay theorem (`voucher_no_replay`,
+formal/README.md).
 
 Both risks disappear for a **dedicated credit leaf**: a source leaf the
 issuer owns, whose `exit_key` is one recipient's, in a tree whose taptree
