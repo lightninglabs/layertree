@@ -91,8 +91,8 @@ is cheapest. A dense graft (`JOIN_h`) admits a whole cohort for the cost
 of the levels above its subtree, about 657 vbytes for 1,024 slots at
 `D = 16`, and the covenant requires only that the slot was empty and the
 new sum is funded. When the operator funds the graft from one of its own
-inputs, the whole cohort costs that one input, about 58 vbytes, on top of
-the graft, and the members need no on-chain funds at all: each buys their
+inputs, the whole cohort costs that one input, which the fee model already
+counts as the fee input, and the members need no on-chain funds at all: each buys their
 balance off-chain, paying a Lightning invoice whose preimage unlocks a
 hash-locked voucher for their leaf, or simply receiving into the credit
 leaf described above. A user who has never held a UTXO is in the tree for
@@ -101,20 +101,14 @@ own leaf, every member adds an input to the graft transaction, and the
 saving against an on-chain batch shrinks to the output side.
 
 Is a graft safe when only the operator signs it? Yes, for everyone who
-holds a leaf already, because a graft can only fill an empty slot; it
-cannot touch, move or shrink an existing leaf, and the Lean theorem
-`join_sound` says exactly that. The party at risk is a funder, because
-the covenant does not read the grafted subtree: an operator could graft
-a node with no tree behind it, or one in which a member's leaf is absent
-or wrong. The protection is that nobody funds before verifying. A member
-who contributes an input signs the graft transaction and can check that
-output 0 commits to a root containing their leaf before signing, so their
-signature is the sign-off. A member who buys in off-chain verifies the
-inclusion path the operator gives them against the confirmed root before
-paying, or pays through a hash-locked voucher whose redemption the
-covenant enforces. An operator funding its own leaves into the same
-cohort changes nothing for the others: the worst it can do with a bad
-graft is freeze its own money (spec 9.2 and the design review's F18).
+holds a leaf already, because a graft can only fill an empty slot; the
+Lean theorem `join_sound` says exactly that. The party at risk is a
+funder, because the covenant does not read the grafted subtree, and the
+protection is that nobody funds before verifying their own path: a member
+who contributes an input checks the transaction before signing it, and a
+member who buys in off-chain checks the confirmed root before paying or
+pays through a hash-locked voucher. `design/graft.md` gives the full
+trust model, the funding modes and their costs.
 
 ## Making redemption cheaper
 

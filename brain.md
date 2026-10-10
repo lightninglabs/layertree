@@ -34,7 +34,7 @@ with numbers.
 | Go | 34 golden scripts byte-exact; EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
 | Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
 | Paper | 15 body pages, six appendices, PDF stamped 8d8ccc0 and stale against today's source edits. The 15-page FC limit is being lifted into a two-version build (see below). |
-| Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
+| Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
 | PR stack | #8 and #10 merged on 2026-10-09. #6 (CCV tier) and #7 (hypothetical native opcode) remain, with an Opus worker merging main into them and adding the Lean binding instance, the CCV capability column and the measured UPDATE^x and SPLIT under CCV. |
 
