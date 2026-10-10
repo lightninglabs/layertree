@@ -1,0 +1,73 @@
+/* LayerTree identity: schematic. Replace this file to swap identities. */
+:root {
+  --surface:   #F6F3EA;  /* drafting paper */
+  --surface-2: #ECE8DA;  /* title blocks, strips, card heads */
+  --ink:       #1B242C;
+  --ink-2:     #46525C;
+  --ink-3:     #66717B;
+  --accent:    #D1481A;  /* the one signal color: vermilion */
+  --accent-ink:#FFFFFF;  /* text on accent */
+  --node:      #2767AE;  /* tree node outline */
+  --node-sum:  #1E4E85;  /* sum labels on nodes */
+  --path:      #D1481A;  /* highlighted proof path */
+  --leaf:      #1D8A6A;  /* leaf */
+  --leaf-exit: #B07A00;  /* the leaf that is leaving */
+  --chain:     #6B4E9B;  /* the on-chain output */
+  --ok:        #2E7D32;
+  --warn:      #9A5B00;
+
+  --grid-minor: rgba(27, 36, 44, 0.06);
+  --grid-major: rgba(27, 36, 44, 0.12);
+
+  --font-body:    "IBM Plex Sans", "Source Sans 3", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono:    "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --size-1: 0.75rem;
+  --size-2: 0.875rem;
+  --size-3: 1rem;
+  --size-4: 1.25rem;
+  --size-5: 1.75rem;
+  --size-6: 2.5rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2.5rem;
+  --space-6: 4rem;
+
+  --radius: 2px;
+
+  --dur-fast: 120ms;
+  --dur:      220ms;
+  --dur-slow: 480ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface:   #15191D;
+    --surface-2: #1D2328;
+    --ink:       #E9E5D8;
+    --ink-2:     #B3B8B6;
+    --ink-3:     #8A9298;
+    --accent:    #EC6236;
+    --accent-ink:#15191D;
+    --node:      #5A8FD0;
+    --node-sum:  #9DBFEA;
+    --path:      #EC6236;
+    --leaf:      #38A586;
+    --leaf-exit: #B98418;
+    --chain:     #9B82D4;
+    --ok:        #5BB56A;
+    --warn:      #D9A441;
+
+    --grid-minor: rgba(233, 229, 216, 0.05);
+    --grid-major: rgba(233, 229, 216, 0.10);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur: 0ms; --dur-slow: 0ms; }
+}

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>LayerTree, schematic identity sample</title>
+<style>
+@import url("tokens.css");
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px, 16px 16px, 16px 16px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--size-3);
+  line-height: 1.55;
+}
+.wrap { max-width: 60rem; margin: 0 auto; padding: 0 var(--space-3); }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Header: a title block */
+header { border-bottom: 1px solid var(--ink); background: var(--surface); }
+header .wrap { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.brand { display: flex; align-items: center; gap: var(--space-2); text-decoration: none; color: var(--ink); }
+.brand svg { width: 2rem; height: 2rem; flex: none; }
+.brand span { font-family: var(--font-display); font-size: var(--size-4); letter-spacing: -0.02em; font-weight: 400; }
+.brand b { font-weight: 700; }
+.sheet { font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); text-align: right; line-height: 1.3; }
+
+/* Hero */
+.hero { padding: var(--space-6) 0 var(--space-5); }
+.eyebrow { font-family: var(--font-mono); font-size: var(--size-1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 var(--space-3); }
+.eyebrow::before { content: ""; display: inline-block; width: 1.5rem; height: 2px; background: var(--accent); vertical-align: middle; margin-right: var(--space-2); }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(var(--size-5), 6vw, var(--size-6)); line-height: 1.1; letter-spacing: -0.03em; margin: 0 0 var(--space-4); max-width: 22ch; }
+.lede { font-size: var(--size-4); color: var(--ink-2); max-width: 40rem; margin: 0; }
+.lede code { font-family: var(--font-mono); font-size: 0.85em; background: var(--surface-2); padding: 0 var(--space-1); border-radius: var(--radius); color: var(--ink); }
+
+/* Figure: a datasheet plate */
+figure.plate { margin: 0 0 var(--space-5); border: 1px solid var(--ink); background: var(--surface); }
+.plate .cap { display: flex; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--ink); background: var(--surface-2); padding: var(--space-2) var(--space-3); font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-2); }
+.plate .scroll { overflow-x: auto; padding: var(--space-3); }
+.plate svg.tree { display: block; width: 100%; min-width: 600px; height: auto; font-family: var(--font-mono); }
+.plate .legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); border-top: 1px solid var(--ink); padding: var(--space-2) var(--space-3); font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-2); margin: 0; list-style: none; }
+.legend i { display: inline-block; width: 1.25rem; height: 0.75rem; border: 2px solid; margin-right: var(--space-2); vertical-align: -1px; background: var(--surface); }
+.legend .l-node { border-color: var(--node); }
+.legend .l-path { border-color: var(--path); }
+.legend .l-sib { border-color: var(--path); border-style: dashed; }
+.legend .l-exit { border-color: var(--leaf-exit); }
+.legend .l-chain { border-color: var(--chain); background: var(--chain); }
+
+/* Tree drawing */
+.tree .e { fill: none; stroke: var(--ink-3); stroke-width: 1.25; }
+.tree .e-path { fill: none; stroke: var(--path); stroke-width: 2.75; stroke-linejoin: round; }
+.tree .n rect { fill: var(--surface); stroke: var(--node); stroke-width: 1.5; }
+.tree .n.leaf rect { stroke: var(--leaf); }
+.tree .n.on rect { stroke: var(--path); stroke-width: 2.5; }
+.tree .n.sib rect { stroke: var(--path); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.tree .n.exit rect { stroke: var(--leaf-exit); stroke-width: 2.5; }
+.tree .n text { text-anchor: middle; }
+.tree .n .h { font-size: 10px; fill: var(--ink-3); }
+.tree .n .s { font-size: 14px; font-weight: 700; fill: var(--node-sum); }
+.tree .n.leaf .s { fill: var(--ink); }
+.tree .rail { fill: none; stroke: var(--chain); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.tree .exitarrow path { fill: none; stroke: var(--leaf-exit); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.tree .note { font-size: 11px; fill: var(--ink-3); letter-spacing: 0.02em; }
+.tree .note.ex { fill: var(--ink-2); }
+.tree .strip { fill: var(--surface-2); stroke: var(--chain); stroke-width: 2; }
+.tree .tag { fill: var(--chain); }
+.tree .tagt { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; fill: var(--surface); text-anchor: middle; }
+.tree .st { font-size: 13px; fill: var(--ink); }
+
+/* Draw-on, once. Layout never moves; only strokes are drawn. */
+@media (prefers-reduced-motion: no-preference) {
+  .tree .e-path { stroke-dasharray: 1; stroke-dashoffset: 0; animation: draw var(--dur-slow) var(--ease) 240ms both; }
+  .tree .n.on rect, .tree .n.sib rect { animation: fade var(--dur) var(--ease) both; }
+  @keyframes draw { from { stroke-dashoffset: 1; } }
+  @keyframes fade { from { opacity: 0.35; } }
+}
+
+/* Components */
+h2 { font-family: var(--font-display); font-size: var(--size-4); font-weight: 700; letter-spacing: -0.02em; margin: 0 0 var(--space-3); display: flex; align-items: baseline; gap: var(--space-3); }
+h2 small { font-family: var(--font-mono); font-size: var(--size-1); font-weight: 400; color: var(--ink-3); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-3); padding: 0; margin: 0 0 var(--space-6); list-style: none; }
+.card { border: 1px solid var(--ink); background: var(--surface); transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.card:hover, .card:focus-within { border-color: var(--accent); box-shadow: 3px 3px 0 var(--accent); }
+.card a { display: block; text-decoration: none; padding: 0; height: 100%; }
+.card .ref { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--ink); padding: var(--space-1) var(--space-3); }
+.card h3 { font-family: var(--font-display); font-size: var(--size-4); margin: var(--space-3) var(--space-3) var(--space-1); letter-spacing: -0.02em; }
+.card p { margin: 0 var(--space-3) var(--space-3); color: var(--ink-2); font-size: var(--size-2); }
+
+footer { border-top: 1px solid var(--ink); background: var(--surface); padding: var(--space-4) 0; font-family: var(--font-mono); font-size: var(--size-1); color: var(--ink-3); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2) var(--space-4); }
+
+@media (max-width: 30rem) {
+  .hero { padding: var(--space-5) 0 var(--space-4); }
+  .sheet { display: none; }
+  .plate .cap { flex-direction: column; gap: 0; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 32 32">
+    <circle cx="16" cy="5.5" r="3" fill="currentColor"/>
+    <path d="M16 8.5V13M5 13H22M5 13V22M13.5 13V22M22 13V22H28.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M25.8 19.4L28.9 22L25.8 24.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="2.5" y="22" width="5" height="5.5" fill="currentColor"/>
+    <rect x="11" y="22" width="5" height="5.5" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="LayerTree home">
+      <svg aria-hidden="true"><use href="#mark"/></svg>
+      <span>layer<b>tree</b></span>
+    </a>
+    <div class="sheet">SHEET 1 OF 1<br>REV 0.1</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <p class="eyebrow">One output, many owners</p>
+    <h1>Everyone shares one coin. Anyone can leave in one transaction.</h1>
+    <p class="lede">Balances live in an off-chain tree of sums, and one on-chain output commits to its <code>root</code>. To leave, you show your leaf and its proof to the output itself. The script checks it against the root and pays you, with no timelock and no one else's signature.</p>
+  </section>
+
+  <figure class="plate">
+    <div class="cap"><span>FIG. 1  MERKLE-SUM TREE, DEPTH 3</span><span>PROOF PATH: LEAF 2 &rarr; ROOT</span></div>
+    <div class="scroll"><svg class="tree" viewBox="0 0 724 372" role="img" aria-labelledby="t-title t-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="t-title">Depth-3 Merkle-sum tree with one proof path</title>
+<desc id="t-desc">Eight leaves with balances 4, 9, 3, 7, 5, 2, 8, 6 sum to 44 at the root. The path from the third leaf (balance 3) to the root is highlighted, with its three sibling nodes dashed. The root is committed by a single on-chain output of 44 sats, and the third leaf exits to it.</desc>
+<g class="edges"><path class="e" pathLength="1" d="M362 55V72H538V89"/><path class="e" pathLength="1" d="M186 127V144H98V161"/><path class="e" pathLength="1" d="M538 127V144H450V161"/><path class="e" pathLength="1" d="M538 127V144H626V161"/><path class="e" pathLength="1" d="M98 199V219H54V239"/><path class="e" pathLength="1" d="M98 199V219H142V239"/><path class="e" pathLength="1" d="M274 199V219H318V239"/><path class="e" pathLength="1" d="M450 199V219H406V239"/><path class="e" pathLength="1" d="M450 199V219H494V239"/><path class="e" pathLength="1" d="M626 199V219H582V239"/><path class="e" pathLength="1" d="M626 199V219H670V239"/></g>
+<g class="edges on"><path class="e-path" pathLength="1" d="M362 55V72H186V89"/><path class="e-path" pathLength="1" d="M186 127V144H274V161"/><path class="e-path" pathLength="1" d="M274 199V219H230V239"/></g>
+<g class="n on"><rect x="324" y="17" width="76" height="38" rx="2"/><text class="h" x="362" y="33">7e2b</text><text class="s" x="362" y="48">&#931; 44</text></g><g class="n on"><rect x="148" y="89" width="76" height="38" rx="2"/><text class="h" x="186" y="105">4c91</text><text class="s" x="186" y="120">&#931; 23</text></g><g class="n sib"><rect x="500" y="89" width="76" height="38" rx="2"/><text class="h" x="538" y="105">d05a</text><text class="s" x="538" y="120">&#931; 21</text></g><g class="n sib"><rect x="60" y="161" width="76" height="38" rx="2"/><text class="h" x="98" y="177">19ae</text><text class="s" x="98" y="192">&#931; 13</text></g><g class="n on"><rect x="236" y="161" width="76" height="38" rx="2"/><text class="h" x="274" y="177">b3f7</text><text class="s" x="274" y="192">&#931; 10</text></g><g class="n"><rect x="412" y="161" width="76" height="38" rx="2"/><text class="h" x="450" y="177">62d0</text><text class="s" x="450" y="192">&#931; 7</text></g><g class="n"><rect x="588" y="161" width="76" height="38" rx="2"/><text class="h" x="626" y="177">f48c</text><text class="s" x="626" y="192">&#931; 14</text></g><g class="n leaf"><rect x="16" y="239" width="76" height="38" rx="2"/><text class="h" x="54" y="255">a3f1</text><text class="s" x="54" y="270">4</text></g><g class="n leaf"><rect x="104" y="239" width="76" height="38" rx="2"/><text class="h" x="142" y="255">07c9</text><text class="s" x="142" y="270">9</text></g><g class="n leaf on exit"><rect x="192" y="239" width="76" height="38" rx="2"/><text class="h" x="230" y="255">e4b2</text><text class="s" x="230" y="270">3</text></g><g class="n leaf sib"><rect x="280" y="239" width="76" height="38" rx="2"/><text class="h" x="318" y="255">5d18</text><text class="s" x="318" y="270">7</text></g><g class="n leaf"><rect x="368" y="239" width="76" height="38" rx="2"/><text class="h" x="406" y="255">9a60</text><text class="s" x="406" y="270">5</text></g><g class="n leaf"><rect x="456" y="239" width="76" height="38" rx="2"/><text class="h" x="494" y="255">b72e</text><text class="s" x="494" y="270">2</text></g><g class="n leaf"><rect x="544" y="239" width="76" height="38" rx="2"/><text class="h" x="582" y="255">13fd</text><text class="s" x="582" y="270">8</text></g><g class="n leaf"><rect x="632" y="239" width="76" height="38" rx="2"/><text class="h" x="670" y="255">c8a4</text><text class="s" x="670" y="270">6</text></g>
+<path class="rail" d="M400 36H716V318"/>
+<text class="note" x="410" y="30">root commits P = lift_x(NUMS + H(root)&#183;G)</text>
+<g class="exitarrow"><path d="M230 277V314"/><path d="M225 308L230 315L235 308"/></g>
+<text class="note ex" x="240" y="301">exit: 3 sats, one transaction</text>
+<g class="chain"><rect class="strip" x="12" y="318" width="704" height="40" rx="2"/>
+<rect class="tag" x="12" y="318" width="96" height="40" rx="2"/>
+<text class="tagt" x="60" y="343">ON-CHAIN</text>
+<text class="st" x="124" y="343">1 output &#183; 44 sats &#183; address encodes root 7e2b</text></g>
+<text class="note" x="12" y="16">OFF-CHAIN TREE</text>
+</svg></div>
+    <ul class="legend">
+      <li><i class="l-node"></i>node: hash, sum</li>
+      <li><i class="l-path"></i>proof path</li>
+      <li><i class="l-sib"></i>sibling in proof</li>
+      <li><i class="l-exit"></i>leaf leaving</li>
+      <li><i class="l-chain"></i>on-chain output</li>
+    </ul>
+  </figure>
+
+  <section aria-labelledby="comp">
+    <h2 id="comp">Components <small>6 ITEMS</small></h2>
+    <ul class="grid">
+      <li class="card"><a href="#join"><div class="ref"><span>C-01</span><span>TREE</span></div><h3>Join</h3><p>Add a leaf under the committed root and recommit the new one.</p></a></li>
+      <li class="card"><a href="#exit"><div class="ref"><span>C-02</span><span>1 TX</span></div><h3>Exit</h3><p>Present a leaf and its proof to the output. It pays you and keeps the rest.</p></a></li>
+      <li class="card"><a href="#pay"><div class="ref"><span>C-03</span><span>TREE</span></div><h3>Pay</h3><p>Move balance from one leaf to another. The sums stay consistent.</p></a></li>
+      <li class="card"><a href="#swap"><div class="ref"><span>C-04</span><span>TREE</span></div><h3>Swap</h3><p>Exchange one leaf's balance for another's in a single update.</p></a></li>
+      <li class="card"><a href="#evict"><div class="ref"><span>C-05</span><span>1 TX</span></div><h3>Evict</h3><p>The operator removes an unresponsive leaf and pays it out on-chain.</p></a></li>
+      <li class="card"><a href="#batch"><div class="ref"><span>C-06</span><span>TREE</span></div><h3>Batch</h3><p>Fold many updates into one new root.</p></a></li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap"><span>LAYERTREE / SCHEMATIC IDENTITY</span><span>design and reference implementation; the opcodes are proposals</span></div>
+</footer>
+</body>
+</html>
