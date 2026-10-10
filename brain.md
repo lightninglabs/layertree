@@ -29,14 +29,14 @@ with numbers.
 
 | Area | State |
 |---|---|
-| Spec | 0.8.3 on main after #8 and #10 merged (swap rules in 9.6.2; SPLIT in FULL, MID and MIN; 11.1 script-set cost). 0.8.4 after #6 (CCV tier) lands, 0.8.5 after the sparse demotion. Editorial fixes landed today: check counts, channel tag strings, 5.5 sibling element is 41 bytes, 13.2 radix note replaced by the measured result. |
-| Python simulator | 425 / 120 / 31 checks on main (FULL / MID / MIN); plus 139 CCV and 47 MSU on the remaining PRs. |
+| Spec | 0.8.4 on main after #8, #10 and #6 merged (swap rules in 9.6.2; SPLIT in all four tiers; 11.1 script-set cost; the CCV tier in 4.6). 0.8.5 after the sparse demotion. Editorial fixes landed today: check counts, channel tag strings, 5.5 sibling element is 41 bytes, 13.2 radix note replaced by the measured result. |
+| Python simulator | 425 / 120 / 31 / 309 checks on main (FULL / MID / MIN / CCV); 47 MSU on #7. |
 | Go | 34 golden scripts byte-exact; EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
 | Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
 | Paper | 15 body pages, six appendices, PDF stamped 8d8ccc0 and stale against today's source edits. The 15-page FC limit is being lifted into a two-version build (see below). |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
-| PR stack | #8 and #10 merged on 2026-10-09. #6 (CCV tier) and #7 (hypothetical native opcode) remain, with an Opus worker merging main into them and adding the Lean binding instance, the CCV capability column and the measured UPDATE^x and SPLIT under CCV. |
+| PR stack | #8, #10 and #6 merged. #7 (hypothetical native opcode) is being landed from the stalled worker's worktree. |
 
 ## In flight right now
 
@@ -46,21 +46,14 @@ with numbers.
   5.2), the MIN tier SPLIT measured (6,441 script / 2,010 witness at
   D=16), new negatives in every tier, spec 0.8.3.
 - Opus writer on `design/graft.md`: grafting and its trust model.
-- Resume note (2026-10-09 evening): main is at the CONCEPTS update
-  (411fd23 or later). #8 and #10 are merged. The #6/#7 worker's worktree
-  (`.claude/worktrees/agent-ae0ecacb4cf73f727`, branch `ccv-work`) holds
-  three new CCV commits (Lean `BindingModel` instance 1747c17; SPLIT and
-  measured UPDATE^x under CCV plus BIP-443 pins and two-tree-input tests
-  310ca4b; 4.5 capability column and four-tier wording cc11c89) and was
-  mid-merge of origin/main when the laptop closed. If the worker does not
-  resume: finish that merge by hand (spec version 0.8.4, keep main's MIN
-  SPLIT cell and 425/120/31 counts, add the CCV column and rows), run the
-  matrix, push `ccv-work` to `ccv-tier`, merge #6, then merge
-  `ccv-tier` into `msu-hypothetical`, run test_msu, push, merge #7.
-- Opus worker on #6 and #7: add the CCV `BindingModel` instance in Lean,
-  add the CCV column to the 4.5 capability table, measure UPDATE^x under
-  CCV, implement SPLIT under CCV if bounded, update the four-tier wording,
-  quarantine checks for the hypothetical opcode.
+- Resume note (2026-10-10): #6 merged at f23f193 (spec 0.8.4; CCV suite
+  309 checks; Lean `CCVTweak` binding instance; SPLIT and UPDATE^x under
+  CCV measured; [A-6] pinned; four-tier wording). #7 is the last PR: the
+  worker stalled with its work in `.claude/worktrees/agent-ae0ecacb4cf73f727`
+  on branch `msu-work` (f3d1a16 canonical leaf-first proofs, quarantine
+  test, links and counts; a2ccc0b merge of main). The orchestrator is
+  running the full matrix there; on green: push `msu-work` to
+  `msu-hypothetical`, merge #7, then the post-merge editorial pass.
 - TeX: works on this machine as of today. TeX Live 2020 basic at
   /Library/TeX/texbin plus a user tree under ~/Library/texmf with
   multirow, cm-super (tlmgr --usermode from the 2020 historic repo),
