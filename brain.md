@@ -66,6 +66,15 @@ matrix, resolves the shared count lines in 4.5, 14, CLAUDE.md, status):
   full version. Owns `paper/`, `tools/gen_cost_figures.py`. Reviewer
   profiles run after the builds land.
 
+Landed so far: C (Lean, 1ce6521) and D (Go end-to-end, 42 cases plus 15
+refusals; the sighash vectors were pinned from a scratch replay of the
+simulator and `LAYERTREE_TXN_DUMP` writes the cases as JSON). Follow-ups
+from D for the reconciliation commit: `script/full.go` lacks the
+exact-payout `EXIT_1^=` variant, so Go cannot build it end to end; spec
+7.8 says only `EXIT` can produce `E_D` but a sweep with `h = D` does too
+(7.7 rule 4 allows it); a committed replay script under `tools/` would
+make the pinned sighashes reproducible.
+
 Integration order when they report: C (no overlap), D (no overlap), E,
 A, B (A and B both touch 4.5, 14, golden.json), then a numbers
 reconciliation commit, then G, then the reviewer pass on the paper.
