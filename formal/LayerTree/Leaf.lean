@@ -62,6 +62,15 @@ def seqFinalMid : Nat := 2 ^ 31 - 1
 
 end Leaf
 
+/-- The tree-creation parameters the carve and update scripts carry as
+constants: the tier's `SEQ_FINAL` (5.1; `Leaf.seqFinalFull` or
+`Leaf.seqFinalMid`) and `DUST_MIN`, the floor below which no non-empty
+leaf may be written (7.5 rule 6), so that every leaf's exit output is a
+standard transaction. -/
+structure Params where
+  seqFinal : Nat
+  dustMin : Nat
+
 /-- A Merkle-sum node: a digest and the sum of all leaf amounts below it
 (section 5.3). On the wire it is the 41-byte `sc = hash || enc64 sum`. -/
 structure Node (H : Type) where

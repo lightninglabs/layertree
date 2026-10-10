@@ -72,14 +72,17 @@ inductive Trans (d : Nat) : Type
   /-- `DETACH_h` of the subtree at `p`; this is the parent's side, output 0 (7.10). -/
   | detach {h : Nat} (p : Pos d h)
 
-/-- The carve rules of 7.5 (2 and 5) between a source and a claim leaf:
-the amount fits, the source `seq` can advance, and the claim leaf keeps
-the evictor and a lease no later than the source's. -/
-structure CarveOk (seqFinal : Nat) (src claim : Leaf) : Prop where
+/-- The carve rules of 7.5 (2, 5 and 6) between a source and a claim
+leaf: the amount fits, the source `seq` can advance, the claim leaf keeps
+the evictor and a lease no later than the source's, and both the claim
+leaf and a non-empty residual are at least `DUST_MIN`. -/
+structure CarveOk (π : Params) (src claim : Leaf) : Prop where
   amount_le : claim.amount ≤ src.amount
-  seq_lt : src.seq < seqFinal
+  seq_lt : src.seq < π.seqFinal
   evictorKey_eq : claim.evictorKey = src.evictorKey
   evictAfter_le : claim.evictAfter ≤ src.evictAfter
+  claim_dust : π.dustMin ≤ claim.amount
+  residual_dust : claim.amount = src.amount ∨ π.dustMin ≤ src.amount - claim.amount
 
 /-- The tree after a carve: the source rewritten, then the claim leaf
 placed. -/
@@ -88,10 +91,10 @@ def carveTree {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src claim : Leaf) : 
 
 /-- What a carve needs of the tree: the source leaf at `p₁`, the carve
 rules, and the claim position empty after the source step (`claim_sound`). -/
-structure CarvePre (seqFinal : Nat) {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src claim : Leaf) :
+structure CarvePre (π : Params) {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src claim : Leaf) :
     Prop where
   src_at : t.get p₁ = some src
-  ok : CarveOk seqFinal src claim
+  ok : CarveOk π src claim
   claim_empty : (t.set p₁ (claimedSource src claim.amount)).get p₂ = none
 
 namespace Trans
@@ -114,12 +117,12 @@ lock times are not among them (they are opaque in the model); these are
 the Merkle-sum facts `claim_sound`, `join_sound` and the other soundness
 theorems deliver. A sweep, rewrite or detach has none: the published
 subtree is the subtree at `p` by `root_inj`. -/
-def Pre (seqFinal : Nat) : {d : Nat} → Trans d → Tree d → Prop
+def Pre (π : Params) : {d : Nat} → Trans d → Tree d → Prop
   | _, .exit p l, t => t.get p = some l
   | _, .join p _, t => t.getSub p = Tree.empty _
-  | _, .update p old _, t => t.get p = some old
-  | _, .claim p₁ p₂ src c, t => CarvePre seqFinal t p₁ p₂ src c
-  | _, .split p₁ p₂ src c, t => CarvePre seqFinal t p₁ p₂ src c
+  | _, .update p old new, t => t.get p = some old ∧ π.dustMin ≤ new.amount
+  | _, .claim p₁ p₂ src c, t => CarvePre π t p₁ p₂ src c
+  | _, .split p₁ p₂ src c, t => CarvePre π t p₁ p₂ src c
   | _, .evictSubtree _, _ => True
   | _, .rewrite _ _, _ => True
   | _, .detach _, _ => True
@@ -170,16 +173,16 @@ def Tree.All (P : Leaf → Prop) {d : Nat} (t : Tree d) : Prop :=
 
 /-! ## Reachability -/
 
-/-- `Reachable seqFinal t xs t'`: the records `xs` apply in order from `t`
+/-- `Reachable π t xs t'`: the records `xs` apply in order from `t`
 to `t'`, each accepted by the script on the tree it meets. -/
-inductive Reachable (seqFinal : Nat) {d : Nat} : Tree d → List (Trans d) → Tree d → Prop
-  | nil (t : Tree d) : Reachable seqFinal t [] t
+inductive Reachable (π : Params) {d : Nat} : Tree d → List (Trans d) → Tree d → Prop
+  | nil (t : Tree d) : Reachable π t [] t
   | cons {t t' : Tree d} {x : Trans d} {xs : List (Trans d)} :
-      x.Pre seqFinal t → Reachable seqFinal (x.apply t) xs t' → Reachable seqFinal t (x :: xs) t'
+      x.Pre π t → Reachable π (x.apply t) xs t' → Reachable π t (x :: xs) t'
 
-theorem Reachable.append {seqFinal : Nat} {d : Nat} {t t₁ t₂ : Tree d}
-    {xs ys : List (Trans d)} (h₁ : Reachable seqFinal t xs t₁) (h₂ : Reachable seqFinal t₁ ys t₂) :
-    Reachable seqFinal t (xs ++ ys) t₂ := by
+theorem Reachable.append {π : Params} {d : Nat} {t t₁ t₂ : Tree d}
+    {xs ys : List (Trans d)} (h₁ : Reachable π t xs t₁) (h₂ : Reachable π t₁ ys t₂) :
+    Reachable π t (xs ++ ys) t₂ := by
   induction h₁ with
   | nil => simpa using h₂
   | cons hpre _ ih => exact Reachable.cons hpre (ih h₂)
@@ -253,8 +256,8 @@ namespace Trans
 
 /-- **One step of the ledger**: the total after a record is the total
 before, less what it removed, plus what it added. -/
-theorem apply_total {seqFinal : Nat} {d : Nat} (x : Trans d) (t : Tree d)
-    (hpre : x.Pre seqFinal t) :
+theorem apply_total {π : Params} {d : Nat} (x : Trans d) (t : Tree d)
+    (hpre : x.Pre π t) :
     (x.apply t).total + x.removed t = t.total + x.added t := by
   cases x with
   | exit p l =>
@@ -271,7 +274,7 @@ theorem apply_total {seqFinal : Nat} {d : Nat} (x : Trans d) (t : Tree d)
     omega
   | update p old new =>
     have h := Tree.total_set t p (some new)
-    have h' := Tree.total_getSub_of_get t p (some old) hpre
+    have h' := Tree.total_getSub_of_get t p (some old) hpre.1
     simp only [apply, removed, added, Tree.total] at *
     omega
   | claim p₁ p₂ src c =>
@@ -323,8 +326,8 @@ only through the amounts the records remove (exits, evictions, the
 decrease of an update, a detached cohort) and enters only through what
 they add (joins, the increase of an update, the new elements of a
 rewrite); carves move nothing in or out. -/
-theorem Reachable.ledger {seqFinal : Nat} {d : Nat} {t t' : Tree d} {xs : List (Trans d)}
-    (h : Reachable seqFinal t xs t') : t'.total + removedSum xs t = t.total + addedSum xs t := by
+theorem Reachable.ledger {π : Params} {d : Nat} {t t' : Tree d} {xs : List (Trans d)}
+    (h : Reachable π t xs t') : t'.total + removedSum xs t = t.total + addedSum xs t := by
   induction h with
   | nil => simp [removedSum, addedSum]
   | cons hpre _ ih =>
@@ -338,10 +341,10 @@ theorem Reachable.ledger {seqFinal : Nat} {d : Nat} {t t' : Tree d} {xs : List (
 of `t`, of every leaf the record admits, of its carve leaf, and survives
 the source rewrite of a carve (amount reduced, `seq` advanced), then `P`
 holds of every leaf of the tree the record produces. -/
-theorem Trans.apply_all (P : Leaf → Prop) {seqFinal : Nat} {d : Nat} (x : Trans d) (t : Tree d)
-    (hpre : x.Pre seqFinal t) (ht : t.All P) (hadm : x.Admits P) (hcarve : x.CarveLeaf P)
-    (hsrc : ∀ (src : Leaf) (v : Nat), v ≤ src.amount → src.seq < seqFinal → P src →
-      ∀ l, claimedSource src v = some l → P l) :
+theorem Trans.apply_all (P : Leaf → Prop) {π : Params} {d : Nat} (x : Trans d) (t : Tree d)
+    (hpre : x.Pre π t) (ht : t.All P) (hadm : x.Admits P) (hcarve : x.CarveLeaf P)
+    (hsrc : ∀ src c : Leaf, CarveOk π src c → P src →
+      ∀ l, claimedSource src c.amount = some l → P l) :
     (x.apply t).All P := by
   intro q l hq
   cases x with
@@ -367,7 +370,7 @@ theorem Trans.apply_all (P : Leaf → Prop) {seqFinal : Nat} {d : Nat} (x : Tran
     · rw [Tree.get_set_ne _ p₂ q _ (Ne.symm hq₂)] at hq
       by_cases hq₁ : q = p₁
       · subst hq₁; rw [Tree.get_set] at hq
-        exact hsrc src c.amount hpre.ok.amount_le hpre.ok.seq_lt (ht q src hpre.src_at) l hq
+        exact hsrc src c hpre.ok (ht q src hpre.src_at) l hq
       · rw [Tree.get_set_ne t p₁ q _ (Ne.symm hq₁)] at hq; exact ht q l hq
   | split p₁ p₂ src c =>
     simp only [Trans.apply, carveTree] at hq
@@ -376,7 +379,7 @@ theorem Trans.apply_all (P : Leaf → Prop) {seqFinal : Nat} {d : Nat} (x : Tran
     · rw [Tree.get_set_ne _ p₂ q _ (Ne.symm hq₂)] at hq
       by_cases hq₁ : q = p₁
       · subst hq₁; rw [Tree.get_set] at hq
-        exact hsrc src c.amount hpre.ok.amount_le hpre.ok.seq_lt (ht q src hpre.src_at) l hq
+        exact hsrc src c hpre.ok (ht q src hpre.src_at) l hq
       · rw [Tree.get_set_ne t p₁ q _ (Ne.symm hq₁)] at hq; exact ht q l hq
   | @evictSubtree k p =>
     simp only [Trans.apply] at hq
@@ -394,21 +397,22 @@ theorem Trans.apply_all (P : Leaf → Prop) {seqFinal : Nat} {d : Nat} (x : Tran
     · rw [hg, Tree.get_empty] at hq; cases hq
     · rw [hg] at hq; exact ht q l hq
 
-/-- **A leaf predicate holds along a trace.** The carve-leaf hypothesis is
-given the tree the record meets, so that an instance may derive it from
-the carve rule and the source leaf (`Reachable.evictable`) rather than
-assume it. -/
-theorem Reachable.all (P : Leaf → Prop) {seqFinal : Nat} {d : Nat} {t t' : Tree d}
-    {xs : List (Trans d)} (h : Reachable seqFinal t xs t') (ht : t.All P)
-    (hadm : ∀ x ∈ xs, x.Admits P)
-    (hcarve : ∀ x ∈ xs, ∀ u : Tree d, x.Pre seqFinal u → u.All P → x.CarveLeaf P)
-    (hsrc : ∀ (src : Leaf) (v : Nat), v ≤ src.amount → src.seq < seqFinal → P src →
-      ∀ l, claimedSource src v = some l → P l) :
+/-- **A leaf predicate holds along a trace.** The admitted-leaf and
+carve-leaf hypotheses are given the tree the record meets, so that an
+instance may derive them from the script's own checks (`Reachable.dust`
+from the floor on `UPDATE`, `Reachable.evictable` from the carve rule and
+the source leaf) rather than assume them. -/
+theorem Reachable.all (P : Leaf → Prop) {π : Params} {d : Nat} {t t' : Tree d}
+    {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All P)
+    (hadm : ∀ x ∈ xs, ∀ u : Tree d, x.Pre π u → u.All P → x.Admits P)
+    (hcarve : ∀ x ∈ xs, ∀ u : Tree d, x.Pre π u → u.All P → x.CarveLeaf P)
+    (hsrc : ∀ src c : Leaf, CarveOk π src c → P src →
+      ∀ l, claimedSource src c.amount = some l → P l) :
     t'.All P := by
   induction h with
   | nil => exact ht
   | cons hpre _ ih =>
-    exact ih (Trans.apply_all P _ _ hpre ht (hadm _ (by simp))
+    exact ih (Trans.apply_all P _ _ hpre ht (hadm _ (by simp) _ hpre ht)
         (hcarve _ (by simp) _ hpre ht) hsrc)
       (fun x hx => hadm x (by simp [hx])) (fun x hx => hcarve x (by simp [hx]))
 
@@ -417,12 +421,15 @@ every carve leaf is well formed and the tier's `SEQ_FINAL` is below
 `2^32`. The source rewrite of a carve keeps the bounds by itself: the
 amount falls but stays positive (a drained source is `E_0`, not a leaf),
 and `seq + 1` fits because `seq < SEQ_FINAL`. -/
-theorem Reachable.wf {seqFinal : Nat} (hsf : seqFinal < 2 ^ 32) {d : Nat} {t t' : Tree d}
-    {xs : List (Trans d)} (h : Reachable seqFinal t xs t') (ht : t.All Leaf.WF)
+theorem Reachable.wf {π : Params} (hsf : π.seqFinal < 2 ^ 32) {d : Nat} {t t' : Tree d}
+    {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All Leaf.WF)
     (hadm : ∀ x ∈ xs, x.Admits Leaf.WF) (hcarve : ∀ x ∈ xs, x.CarveLeaf Leaf.WF) :
     t'.All Leaf.WF := by
-  refine Reachable.all Leaf.WF h ht hadm (fun x hx _ _ _ => hcarve x hx) ?_
-  intro src v hv hseq hwf l hl
+  refine Reachable.all Leaf.WF h ht (fun x hx _ _ _ => hadm x hx)
+    (fun x hx _ _ _ => hcarve x hx) ?_
+  intro src c hok hwf l hl
+  have hv := hok.amount_le
+  have hseq := hok.seq_lt
   unfold claimedSource at hl
   split at hl
   · cases hl
@@ -431,6 +438,40 @@ theorem Reachable.wf {seqFinal : Nat} (hsf : seqFinal < 2 ^ 32) {d : Nat} {t t' 
             exitKey_lt := hwf.exitKey_lt, ownerKey_lt := hwf.ownerKey_lt,
             evictorKey_lt := hwf.evictorKey_lt, evictAfter_lt := hwf.evictAfter_lt,
             nonce_lt := hwf.nonce_lt, seq_lt := by simp; omega }
+
+/-- **No leaf falls below `DUST_MIN`** (7.5 rule 6 at the tree level).
+If every leaf of `t` is at least `DUST_MIN` and the operator admits only
+such leaves (joins and rewrites), then every leaf of every reachable tree
+is, so every removal pays a standard output. The script enforces the
+rest: an `UPDATE` writes a leaf at or above the floor, a carve places a
+claim leaf at or above it and leaves a residual that is empty or at or
+above it. No hypothesis is needed about updates or carves. -/
+theorem Reachable.dust {π : Params} {d : Nat} {t t' : Tree d} {xs : List (Trans d)}
+    (h : Reachable π t xs t') (ht : t.All (fun l => π.dustMin ≤ l.amount))
+    (hadm : ∀ x ∈ xs, ∀ (k : Nat) (p : Pos d k) (u : Tree k),
+      (x = .join p u ∨ x = .rewrite p u) → u.All (fun l => π.dustMin ≤ l.amount)) :
+    t'.All (fun l => π.dustMin ≤ l.amount) := by
+  refine Reachable.all (fun l => π.dustMin ≤ l.amount) h ht ?_ ?_ ?_
+  · intro x hx u hpre _
+    cases x with
+    | join p u' => exact hadm _ hx _ p u' (Or.inl rfl)
+    | rewrite p u' => exact hadm _ hx _ p u' (Or.inr rfl)
+    | update p old new => exact hpre.2
+    | _ => trivial
+  · intro x _ u hpre _
+    cases x with
+    | claim p₁ p₂ src c => exact hpre.ok.claim_dust
+    | split p₁ p₂ src c => exact hpre.ok.claim_dust
+    | _ => trivial
+  · intro src c hok _ l hl
+    unfold claimedSource at hl
+    split at hl
+    · cases hl
+    · rw [← Option.some.inj hl]
+      simp only
+      rcases hok.residual_dust with heq | hge
+      · exact absurd heq.symm ‹_›
+      · exact hge
 
 /-- A leaf is evictable by key `K` from height `T` on: its evictor is `K`
 and its lease ends by `T`. These are the two facts the eviction branch
@@ -446,11 +487,11 @@ every leaf of every reachable tree is: carves cannot escape, because the
 carve rule ties the claim leaf's evictor and lease to the source's, and
 the source rewrite changes neither. No hypothesis is needed about carve
 leaves. -/
-theorem Reachable.evictable (K T : Nat) {seqFinal : Nat} {d : Nat} {t t' : Tree d}
-    {xs : List (Trans d)} (h : Reachable seqFinal t xs t') (ht : t.All (Leaf.EvictableBy K T))
+theorem Reachable.evictable (K T : Nat) {π : Params} {d : Nat} {t t' : Tree d}
+    {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All (Leaf.EvictableBy K T))
     (hadm : ∀ x ∈ xs, x.Admits (Leaf.EvictableBy K T)) :
     t'.All (Leaf.EvictableBy K T) := by
-  refine Reachable.all (Leaf.EvictableBy K T) h ht hadm ?_ ?_
+  refine Reachable.all (Leaf.EvictableBy K T) h ht (fun x hx _ _ _ => hadm x hx) ?_ ?_
   · intro x _ u hpre hu
     cases x with
     | claim p₁ p₂ src c =>
@@ -460,7 +501,7 @@ theorem Reachable.evictable (K T : Nat) {seqFinal : Nat} {d : Nat} {t t' : Tree 
       have hs := hu p₁ src hpre.src_at
       exact ⟨hpre.ok.evictorKey_eq.trans hs.1, Nat.le_trans hpre.ok.evictAfter_le hs.2⟩
     | _ => trivial
-  · intro src v _ _ hs l hl
+  · intro src c _ hs l hl
     unfold claimedSource at hl
     split at hl
     · cases hl
@@ -473,14 +514,14 @@ def Leaf.SeqAbove (k n s : Nat) (l : Leaf) : Prop := l.ownerKey = k → l.nonce 
 /-- **A `seq` lower bound on one identity is preserved.** Carves raise the
 source's `seq`, exits and evictions remove leaves, and the hypotheses say
 nothing admitted or carved reintroduces the identity at or below `s`. -/
-theorem Reachable.seqAbove (k n s : Nat) {seqFinal : Nat} {d : Nat} {t t' : Tree d}
-    {xs : List (Trans d)} (h : Reachable seqFinal t xs t') (ht : t.All (Leaf.SeqAbove k n s))
+theorem Reachable.seqAbove (k n s : Nat) {π : Params} {d : Nat} {t t' : Tree d}
+    {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All (Leaf.SeqAbove k n s))
     (hadm : ∀ x ∈ xs, x.Admits (Leaf.SeqAbove k n s))
     (hcarve : ∀ x ∈ xs, x.CarveLeaf (Leaf.SeqAbove k n s)) :
     t'.All (Leaf.SeqAbove k n s) := by
-  refine Reachable.all (Leaf.SeqAbove k n s) h ht hadm
+  refine Reachable.all (Leaf.SeqAbove k n s) h ht (fun x hx _ _ _ => hadm x hx)
     (fun x hx _ _ _ => hcarve x hx) ?_
-  intro src v _ _ hs l hl
+  intro src c _ hs l hl
   unfold claimedSource at hl
   split at hl
   · cases hl
@@ -500,37 +541,37 @@ A `JOIN_h` additionally needs the grafted node to have a preimage
 joiners' obligation and not the covenant's. The terminal branch (7.8) is
 included: `r' = E_D` is the root of the empty tree, and the trace simply
 has no later step. -/
-inductive Accepts (seqFinal d : Nat) : Node H → Node H → Prop
+inductive Accepts (π : Params) (d : Nat) : Node H → Node H → Prop
   | exit {exact : Bool} {r r' : Node H} {blocks : List (ExitBlock H)} {out0 : Nat}
       {terminal : Bool} (h : ExitKT exact d r blocks r' out0 terminal)
-      (hwf : ∀ b ∈ blocks, b.step.WF d) : Accepts seqFinal d r r'
+      (hwf : ∀ b ∈ blocks, b.step.WF d) : Accepts π d r r'
   | join {auth : Prop} {h : Nat} {r r' new : Node H} {path : List (Bool × Node H)} {out0 : Nat}
       (hj : Join auth h r path new r' out0) (hwf : path.length + h = d)
-      (hg : ∃ u : Tree h, u.root = new) : Accepts seqFinal d r r'
+      (hg : ∃ u : Tree h, u.root = new) : Accepts π d r r'
   | update {auth : Prop} {r r' : Node H} {path : List (Bool × Node H)} {old new : Leaf}
-      {out0 : Nat} (hu : Update auth r path old new r' out0) (hwf : path.length = d) :
-      Accepts seqFinal d r r'
+      {out0 : Nat} (hu : Update auth π r path old new r' out0) (hwf : path.length = d) :
+      Accepts π d r r'
   | claim {auth : Prop} {r r' : Node H} {srcPath claimPath : List (Bool × Node H)}
-      {src c : Leaf} {out0 : Nat} (hc : Claim auth seqFinal r srcPath claimPath src c r' out0)
-      (hwf₁ : srcPath.length = d) (hwf₂ : claimPath.length = d) : Accepts seqFinal d r r'
+      {src c : Leaf} {out0 : Nat} (hc : Claim auth π r srcPath claimPath src c r' out0)
+      (hwf₁ : srcPath.length = d) (hwf₂ : claimPath.length = d) : Accepts π d r r'
   | evictSubtree {auth : Prop} {h : Nat} {r r' : Node H} {path : List (Bool × Node H)}
       {u : Tree h} {out0 : Nat} {payouts : List Payout} {terminal : Bool}
       (he : EvictSubtree auth d h r path u r' out0 payouts terminal)
-      (hwf : path.length + h = d) : Accepts seqFinal d r r'
+      (hwf : path.length + h = d) : Accepts π d r r'
   | rewrite {h : Nat} {auth : Pos h 0 → Prop} {r r' : Node H} {path : List (Bool × Node H)}
       {old new : Tree h} {out0 : Nat} {payouts : List Payout}
-      (hr : Rewrite h auth r path old new r' out0 payouts) (hwf : path.length + h = d) :
-      Accepts seqFinal d r r'
+      (hr : Rewrite h π auth r path old new r' out0 payouts) (hwf : path.length + h = d) :
+      Accepts π d r r'
   | detach {auth : Prop} {h : Nat} {r r' sub : Node H} {path : List (Bool × Node H)}
       {out0 : Nat} {r₁ : H} {out1 : Nat} (hd : Detach auth h r path sub r' out0 r₁ out1)
-      (hwf : path.length + h = d) : Accepts seqFinal d r r'
+      (hwf : path.length + h = d) : Accepts π d r r'
 
 /-- A sequence of exit blocks from the root of `t` is a trace of `exit`
 records. -/
-theorem exit_blocks_reachable {seqFinal d : Nat} (t : Tree d) :
+theorem exit_blocks_reachable {π : Params} {d : Nat} (t : Tree d) :
     ∀ (blocks : List (ExitBlock H)) (r' : Node H),
       Steps t.root (blocks.map ExitBlock.step) r' → (∀ b ∈ blocks, b.step.WF d) →
-      ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable seqFinal t xs t'
+      ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable π t xs t'
   | [], r', h, _ => by
     cases h; exact ⟨[], t, rfl, Reachable.nil t⟩
   | b :: rest, r', h, hwf => by
@@ -545,9 +586,9 @@ theorem exit_blocks_reachable {seqFinal d : Nat} (t : Tree d) :
 /-- **The bridge, one spend.** Whatever the scripts accept from the root
 of a real tree commits to the root of a tree reachable from it at the
 tree level. -/
-theorem Accepts.sound {seqFinal d : Nat} (t : Tree d) {r' : Node H}
-    (h : Accepts seqFinal d t.root r') :
-    ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable seqFinal t xs t' := by
+theorem Accepts.sound {π : Params} {d : Nat} (t : Tree d) {r' : Node H}
+    (h : Accepts π d t.root r') :
+    ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable π t xs t' := by
   cases h with
   | exit h hwf => exact exit_blocks_reachable t _ _ h.steps hwf
   | join hj hwf hg =>
@@ -556,11 +597,12 @@ theorem Accepts.sound {seqFinal d : Nat} (t : Tree d) {r' : Node H}
     exact ⟨[.join p u], _, hnew u hu, Reachable.cons hempty (Reachable.nil _)⟩
   | update hu hwf =>
     obtain ⟨p, hget, hr', _⟩ := update_sound t _ _ _ _ _ hwf hu
-    exact ⟨[.update p _ _], _, hr', Reachable.cons hget (Reachable.nil _)⟩
+    exact ⟨[.update p _ _], _, hr', Reachable.cons ⟨hget, hu.new_dust⟩ (Reachable.nil _)⟩
   | claim hc hwf₁ hwf₂ =>
     obtain ⟨_, p₁, p₂, hsrc, hempty, hr'⟩ := claim_sound t _ _ _ _ _ _ hwf₁ hwf₂ hc
     refine ⟨[.claim p₁ p₂ _ _], _, hr', Reachable.cons ?_ (Reachable.nil _)⟩
-    exact ⟨hsrc, ⟨hc.amount_le, hc.seq_lt, hc.evictorKey_eq, hc.evictAfter_le⟩, hempty⟩
+    exact ⟨hsrc, ⟨hc.amount_le, hc.seq_lt, hc.evictorKey_eq, hc.evictAfter_le, hc.claim_dust,
+      hc.residual_dust⟩, hempty⟩
   | evictSubtree he hwf =>
     obtain ⟨p, _, _, hr', _⟩ := evictSubtree_sound t _ _ _ _ _ _ hwf he
     exact ⟨[.evictSubtree p], _, hr', Reachable.cons trivial (Reachable.nil _)⟩
@@ -572,18 +614,18 @@ theorem Accepts.sound {seqFinal d : Nat} (t : Tree d) {r' : Node H}
     exact ⟨[.detach p], _, hr', Reachable.cons trivial (Reachable.nil _)⟩
 
 /-- A history of the tree output: zero or more accepted spends. -/
-inductive Chain (seqFinal d : Nat) : Node H → Node H → Prop
-  | nil (r : Node H) : Chain seqFinal d r r
-  | cons {r r₁ r' : Node H} : Accepts seqFinal d r r₁ → Chain seqFinal d r₁ r' →
-      Chain seqFinal d r r'
+inductive Chain (π : Params) (d : Nat) : Node H → Node H → Prop
+  | nil (r : Node H) : Chain π d r r
+  | cons {r r₁ r' : Node H} : Accepts π d r r₁ → Chain π d r₁ r' →
+      Chain π d r r'
 
 /-- **The bridge, a whole history.** Every root the chain reaches from
 the root of a real tree is the root of a tree reachable from it. This is
 the induction invariant of 10.2 for the actual transition set, with
 `Steps.sound` as the single-spend case. -/
-theorem Chain.sound {seqFinal d : Nat} (t : Tree d) {r' : Node H}
-    (h : Chain seqFinal d t.root r') :
-    ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable seqFinal t xs t' := by
+theorem Chain.sound {π : Params} {d : Nat} (t : Tree d) {r' : Node H}
+    (h : Chain π d t.root r') :
+    ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable π t xs t' := by
   generalize hr : t.root = r at h
   induction h generalizing t with
   | nil => exact ⟨[], t, hr.symm, Reachable.nil t⟩
@@ -598,9 +640,9 @@ For any history from the root of a tree, the current root is the root of
 a reachable tree, its committed sum is that tree's total (the invariant of
 5.6), and every leaf in it has an accepted `EXIT_1` paying its amount to
 its exit key, with either payout rule, given the owner's signature. -/
-theorem chain_state {seqFinal d : Nat} (t : Tree d) {r' : Node H}
-    (h : Chain seqFinal d t.root r') :
-    ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable seqFinal t xs t' ∧
+theorem chain_state {π : Params} {d : Nat} (t : Tree d) {r' : Node H}
+    (h : Chain π d t.root r') :
+    ∃ (xs : List (Trans d)) (t' : Tree d), r' = t'.root ∧ Reachable π t xs t' ∧
       r'.sum = t'.total ∧
       ∀ (p : Pos d 0) (l : Leaf), t'.get p = some l → ∀ (exact : Bool) (auth : Prop), auth →
         ExitK exact r' [⟨l, t'.path p, l.payout, false, auth⟩]

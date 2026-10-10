@@ -82,6 +82,28 @@ theorem rewritePayouts_le : {h : Nat} → (old new : Tree h) →
     have := rewritePayouts_le r₁ r₂
     omega
 
+/-- The old amounts at the positions that still hold a leaf after the
+rewrite (kept, resized, replaced or paid between members). With
+`rewritePayouts` these partition the old subtree's leaves: a position
+either exits and is paid, or keeps a leaf and is not. -/
+def keptTotal : {h : Nat} → Tree h → Tree h → Nat
+  | _, tip (some l), tip (some _) => l.amount
+  | _, tip _, tip _ => 0
+  | _, bin l₁ r₁, bin l₂ r₂ => keptTotal l₁ l₂ + keptTotal r₁ r₂
+
+/-- The payouts of a rewrite and its kept amounts account for every old
+leaf exactly once. -/
+theorem rewritePayouts_add_kept : {h : Nat} → (old new : Tree h) →
+    payoutTotal (old.rewritePayouts new) + old.keptTotal new = old.total
+  | _, tip (some l), tip none => by simp [rewritePayouts, keptTotal, payoutTotal, Leaf.payout, total]
+  | _, tip (some _), tip (some _) => by simp [rewritePayouts, keptTotal, payoutTotal, total]
+  | _, tip none, tip _ => by simp [rewritePayouts, keptTotal, payoutTotal, total]
+  | _, bin l₁ r₁, bin l₂ r₂ => by
+    simp only [rewritePayouts, keptTotal, payoutTotal_append, total]
+    have := rewritePayouts_add_kept l₁ l₂
+    have := rewritePayouts_add_kept r₁ r₂
+    omega
+
 /-- When the new subtree is empty the rewrite is a sweep: every old leaf
 is paid, so the payouts equal the old subtree's sum. -/
 theorem rewritePayouts_empty : {h : Nat} → (old : Tree h) →
@@ -145,21 +167,59 @@ theorem evictSubtree_sound {auth : Prop} {d h : Nat} (t : Tree d) (path : List (
 
 /-! ## REWRITE_h (`design/batching.md`, Shape 2) -/
 
+/-- The exemption of `REWRITE_h` rule 3: a position needs no owner
+signature when its new element is a leaf identical to the old one in
+every field but `amount`, with the amount not decreasing, *and* the old
+leaf is not at `SEQ_FINAL`. A final leaf's amount is not its owner's
+alone (5.2: channel leaves), so growing it is a change its owner must
+authorise like any other. -/
+def Leaf.AmountOnlyIncrease (π : Params) (old : Leaf) (o : Option Leaf) : Prop :=
+  ∃ new, o = some new ∧ new = { old with amount := new.amount } ∧ old.amount ≤ new.amount ∧
+    old.seq ≠ π.seqFinal
+
 /-- What `REWRITE_h` accepts. The witness carries the shared path above an
 aligned subtree of height `h` and, for each position, an old and a new
 element; `old` and `new` are the two published subtrees. Rules: (1) the
 old subtree root folds with the path to the committed root and (2) the
 new root is the fold of the new subtree root, together the one `Step`;
-(3) every position whose element changes is authorised, with `auth` a
-predicate on positions (the old leaf's owner signs); (5) the payouts are
+(3) every position whose old element is a leaf and whose element changes
+is authorised, with `auth` a predicate on positions (the old leaf's owner
+signs), except under `Leaf.AmountOnlyIncrease`; (5) the payouts are
 `rewritePayouts`; (6) output 0 carries the new sum, which `Steps.sum`
 turns into `S − Σ old + Σ new`. -/
-structure Rewrite (h : Nat) (auth : Pos h 0 → Prop) (r : Node H) (path : List (Bool × Node H))
-    (old new : Tree h) (r' : Node H) (out0 : Nat) (payouts : List Payout) : Prop where
+structure Rewrite (h : Nat) (π : Params) (auth : Pos h 0 → Prop) (r : Node H)
+    (path : List (Bool × Node H)) (old new : Tree h) (r' : Node H) (out0 : Nat)
+    (payouts : List Payout) : Prop where
   steps : Steps r [Step.mk h path old.root new.root] r'
   out0_eq : out0 = r'.sum
-  authorised : ∀ q : Pos h 0, old.get q ≠ new.get q → auth q
+  authorised : ∀ (q : Pos h 0) (l : Leaf), old.get q = some l → new.get q ≠ some l →
+    ¬ l.AmountOnlyIncrease π (new.get q) → auth q
   payouts_eq : payouts = old.rewritePayouts new
+
+/-- **A final leaf is never rewritten without its owner** (rule 3 at
+`SEQ_FINAL`): a position whose old leaf has `seq = SEQ_FINAL` and whose
+element changes in any way, including a pure amount increase, is
+authorised. -/
+theorem rewrite_final_authorised {h : Nat} {π : Params} {auth : Pos h 0 → Prop} {r r' : Node H}
+    {path : List (Bool × Node H)} {old new : Tree h} {out0 : Nat} {payouts : List Payout}
+    (hr : Rewrite h π auth r path old new r' out0 payouts) (q : Pos h 0) (l : Leaf)
+    (hl : old.get q = some l) (hfinal : l.seq = π.seqFinal) (hne : new.get q ≠ some l) : auth q :=
+  hr.authorised q l hl hne (fun ⟨_, _, _, _, hs⟩ => hs hfinal)
+
+/-- **An unsigned change is an amount increase on a non-final leaf.**
+Any position whose old leaf changes without its owner's authorisation
+keeps every other field, does not lose amount, and was not at
+`SEQ_FINAL`: nobody can use the exemption to rotate a key, shorten a
+lease, or touch a channel leaf. -/
+theorem rewrite_unsigned_change {h : Nat} {π : Params} {auth : Pos h 0 → Prop} {r r' : Node H}
+    {path : List (Bool × Node H)} {old new : Tree h} {out0 : Nat} {payouts : List Payout}
+    (hr : Rewrite h π auth r path old new r' out0 payouts) (q : Pos h 0) (l : Leaf)
+    (hl : old.get q = some l) (hne : new.get q ≠ some l) (hna : ¬ auth q) :
+    ∃ new', new.get q = some new' ∧ new' = { l with amount := new'.amount } ∧
+      l.amount ≤ new'.amount ∧ l.seq ≠ π.seqFinal := by
+  by_cases he : l.AmountOnlyIncrease π (new.get q)
+  · exact he
+  · exact absurd (hr.authorised q l hl hne he) hna
 
 /-- **A rewrite replaces exactly the published subtree.** The committed
 tree held the old elements at the published positions, output 0 commits to
@@ -167,10 +227,10 @@ the tree with the new elements there, positions inside the subtree whose
 element did not change keep it, every subtree of height `h` elsewhere is
 untouched, the output amount moves by `Σ new − Σ old` (rule 6, stated
 additively), and the payouts never exceed what left the tree. -/
-theorem rewrite_sound {d h : Nat} {auth : Pos h 0 → Prop} (t : Tree d)
+theorem rewrite_sound {d h : Nat} {π : Params} {auth : Pos h 0 → Prop} (t : Tree d)
     (path : List (Bool × Node H)) (old new : Tree h) (r' : Node H) (out0 : Nat)
     (payouts : List Payout) (hwf : path.length + h = d)
-    (hr : Rewrite h auth t.root path old new r' out0 payouts) :
+    (hr : Rewrite h π auth t.root path old new r' out0 payouts) :
     ∃ p : Pos d h, t.getSub p = old ∧
       r' = (t.setSub p new).root ∧
       (∀ q : Pos h 0, t.get (p.append q) = old.get q ∧
@@ -194,14 +254,31 @@ theorem rewrite_sound {d h : Nat} {auth : Pos h 0 → Prop} (t : Tree d)
     · rw [hr.out0_eq, Tree.root_sum t]; omega
     · rw [hr.out0_eq, Tree.root_sum t]; omega
 
+/-- **Conservation of a rewrite with several exits.** Whatever mix of
+exits, joins, resizes and unchanged positions a rewrite carries, output 0
+plus the payouts (one per position that exits, `rewritePayouts`) plus the
+old amounts of the positions that keep a leaf equals the input amount
+plus the new subtree's total. With no kept positions this is
+`rewrite_exit_conservation`; with no exits the payouts vanish and it is
+rule 6. -/
+theorem rewrite_payout_conservation {h : Nat} {π : Params} {auth : Pos h 0 → Prop}
+    {r r' : Node H} {path : List (Bool × Node H)} {old new : Tree h} {out0 : Nat}
+    {payouts : List Payout} (hr : Rewrite h π auth r path old new r' out0 payouts) :
+    out0 + payoutTotal payouts + old.keptTotal new = r.sum + new.total := by
+  have hs := hr.steps.sum
+  simp only [oldSum, newSum, Tree.root_sum] at hs
+  have hp := Tree.rewritePayouts_add_kept old new
+  rw [← hr.payouts_eq] at hp
+  rw [hr.out0_eq]; omega
+
 /-- **Exit-only rewrites conserve exactly.** When no new element is a leaf
 (the new subtree is empty) every old leaf is paid and output 0 plus the
 payouts equals the input amount: the same statement as
 `ExitK.exact_conservation`, for a whole cohort at once. Needs no tree:
 `Steps.sum` holds for any step list. -/
-theorem rewrite_exit_conservation {h : Nat} {auth : Pos h 0 → Prop} {r r' : Node H}
+theorem rewrite_exit_conservation {h : Nat} {π : Params} {auth : Pos h 0 → Prop} {r r' : Node H}
     {path : List (Bool × Node H)} {old : Tree h} {out0 : Nat} {payouts : List Payout}
-    (hr : Rewrite h auth r path old (Tree.empty h) r' out0 payouts) :
+    (hr : Rewrite h π auth r path old (Tree.empty h) r' out0 payouts) :
     out0 + payoutTotal payouts = r.sum := by
   have hs := hr.steps.sum
   simp only [oldSum, newSum, Tree.root_sum] at hs

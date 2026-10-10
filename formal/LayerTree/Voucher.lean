@@ -65,16 +65,16 @@ source at `p`, signatures aside: the script's `tree_id` is the voucher's,
 the source leaf is at `p` byte for byte, and the carve rules hold. The
 claim position is the redeemer's choice (any position empty after the
 source step, `claim_sound`) and is not part of the voucher. -/
-def Voucher.Redeemable (seqFinal : Nat) (v : Voucher) {d : Nat} (T : TreeOutput d) (p : Pos d 0) :
+def Voucher.Redeemable (π : Params) (v : Voucher) {d : Nat} (T : TreeOutput d) (p : Pos d 0) :
     Prop :=
-  v.treeId = T.treeId ∧ T.tree.get p = some v.src ∧ CarveOk seqFinal v.src v.claim
+  v.treeId = T.treeId ∧ T.tree.get p = some v.src ∧ CarveOk π v.src v.claim
 
 /-- A redeemable voucher with an empty claim position is an accepted
 `claim` record. -/
-theorem Voucher.redeem_pre {seqFinal d : Nat} (v : Voucher) (T : TreeOutput d) (p₁ p₂ : Pos d 0)
-    (hr : v.Redeemable seqFinal T p₁)
+theorem Voucher.redeem_pre {π : Params} {d : Nat} (v : Voucher) (T : TreeOutput d) (p₁ p₂ : Pos d 0)
+    (hr : v.Redeemable π T p₁)
     (hempty : (T.tree.set p₁ (claimedSource v.src v.claim.amount)).get p₂ = none) :
-    (Trans.claim p₁ p₂ v.src v.claim).Pre seqFinal T.tree :=
+    (Trans.claim p₁ p₂ v.src v.claim).Pre π T.tree :=
   ⟨hr.2.1, hr.2.2, hempty⟩
 
 /-! ## Non-replay -/
@@ -88,13 +88,13 @@ reachable tree holds `src` at any position: the leaf with that identity,
 if present, has `seq` above `src.seq`, because the redemption advanced it
 and every later carve advances it further. The voucher's message
 therefore never verifies against the tree again. -/
-theorem voucher_no_replay {seqFinal d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src c : Leaf)
-    (hpre : (Trans.claim p₁ p₂ src c).Pre seqFinal t)
+theorem voucher_no_replay {π : Params} {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src c : Leaf)
+    (hpre : (Trans.claim p₁ p₂ src c).Pre π t)
     (huniq : ∀ (q : Pos d 0) (l : Leaf), t.get q = some l →
       l.ownerKey = src.ownerKey → l.nonce = src.nonce → q = p₁)
     (hc : c.SeqAbove src.ownerKey src.nonce src.seq)
     {xs : List (Trans d)} {t' : Tree d}
-    (h : Reachable seqFinal ((Trans.claim p₁ p₂ src c).apply t) xs t')
+    (h : Reachable π ((Trans.claim p₁ p₂ src c).apply t) xs t')
     (hadm : ∀ x ∈ xs, x.Admits (Leaf.SeqAbove src.ownerKey src.nonce src.seq))
     (hcarve : ∀ x ∈ xs, x.CarveLeaf (Leaf.SeqAbove src.ownerKey src.nonce src.seq)) :
     ∀ q : Pos d 0, t'.get q ≠ some src := by
@@ -163,8 +163,8 @@ redeemable again. No value moves. This is the one case in which the
 source leaf recurs at the source position after a redemption, and the
 reason `voucher_no_replay` requires the claim leaf not to carry the
 source's identity at or below the source's `seq`. -/
-theorem self_voucher_fixed {seqFinal d : Nat} (t : Tree d) (p : Pos d 0) (src : Leaf)
-    (hpre : (Trans.claim p p src src).Pre seqFinal t) :
+theorem self_voucher_fixed {π : Params} {d : Nat} (t : Tree d) (p : Pos d 0) (src : Leaf)
+    (hpre : (Trans.claim p p src src).Pre π t) :
     (Trans.claim p p src src).apply t = t := by
   simp only [Trans.apply, carveTree, claimedSource_full, Tree.set, Tree.setSub_setSub]
   exact Tree.set_get t p src hpre.src_at
@@ -173,9 +173,9 @@ theorem self_voucher_fixed {seqFinal d : Nat} (t : Tree d) (p : Pos d 0) (src : 
 `SEQ_FINAL` fails the `seq + 1` check of every `CLAIM`, `CLAIM^h` and
 `SPLIT`, so a leaf created with `seq = SEQ_FINAL` (a channel leaf,
 Appendix C.6.5) can be exited or updated but never split into. -/
-theorem final_never_carved {seqFinal d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src c : Leaf)
-    (hfinal : src.seq = seqFinal) :
-    ¬ (Trans.claim p₁ p₂ src c).Pre seqFinal t ∧ ¬ (Trans.split p₁ p₂ src c).Pre seqFinal t :=
+theorem final_never_carved {π : Params} {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src c : Leaf)
+    (hfinal : src.seq = π.seqFinal) :
+    ¬ (Trans.claim p₁ p₂ src c).Pre π t ∧ ¬ (Trans.split p₁ p₂ src c).Pre π t :=
   ⟨fun h => absurd hfinal (Nat.ne_of_lt h.ok.seq_lt),
    fun h => absurd hfinal (Nat.ne_of_lt h.ok.seq_lt)⟩
 
@@ -219,10 +219,10 @@ in the child, with the same message (`tree_id` is inherited, the leaf
 bytes are the parent's), and is no longer redeemable at that position in
 the parent, whose cohort is empty. The source leaf exists in one tree of
 the lineage only, which is what 6.2 and 10.3 require of inheritance. -/
-theorem voucher_survives_detach {seqFinal d h : Nat} (v : Voucher) (T : TreeOutput d)
-    (p : Pos d h) (q : Pos h 0) (hr : v.Redeemable seqFinal T (p.append q)) :
-    v.Redeemable seqFinal (T.detachChild p) q ∧
-      ¬ v.Redeemable seqFinal (T.detachParent p) (p.append q) := by
+theorem voucher_survives_detach {π : Params} {d h : Nat} (v : Voucher) (T : TreeOutput d)
+    (p : Pos d h) (q : Pos h 0) (hr : v.Redeemable π T (p.append q)) :
+    v.Redeemable π (T.detachChild p) q ∧
+      ¬ v.Redeemable π (T.detachParent p) (p.append q) := by
   obtain ⟨hid, hget, hok⟩ := hr
   refine ⟨⟨hid, ?_, hok⟩, fun h' => ?_⟩
   · show (T.tree.getSub p).get q = some v.src
