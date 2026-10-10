@@ -1,0 +1,34 @@
+% Shared by both versions: the dedicated credit leaf. Source: spec
+% 7.5.3 and 10.3 (0.11.0). The heading and label are the includer's:
+% a run-in paragraph of the voucher section (short) or of the receive
+% section (full-receive.tex), so the text starts without a blank line.
+A dedicated credit leaf is a source leaf that the issuer owns and whose
+exit key is one recipient's, in a tree whose taptree carries
+\tr{CLAIM}$^{x}$, \tr{UPDATE}$^{x}$ and the exact-payout exit, carries
+\tr{REWRITE}$_h^{x}$ in place of \tr{REWRITE}$_h$ (or no rewrite at all),
+and omits \tr{SPLIT}. \tr{CLAIM}$^{x}$ is \tr{CLAIM} with one further
+signature over the transaction, by the source leaf's exit key: 7 bytes
+of script and 64 of witness in FULL, the only tier that builds it. The
+recipient's own redemptions carry that signature at no cost, and the
+issuer cannot carve the leaf at all, not even with a voucher it signs to
+itself. Over-issuance then has no second victim, since every voucher
+pays the same recipient, who can watch the leaf's amount. Voiding needs
+the leaf to change, and every transition that could change it needs the
+exit key: \tr{CLAIM}$^{x}$, \tr{UPDATE}$^{x}$ and \tr{REWRITE}$_h^{x}$
+by rule, while the exact exit and an eviction pay the whole balance to
+that key and so void nothing the recipient is owed. The balance can only grow or pay its recipient, whose remaining
+exposure is the issuer's liveness: a provider that stops issuing.
+
+Three details keep it that way. The recipient checks from the taptree
+root $m$ that no plain \tr{REWRITE}$_h$ is present, since it needs only
+the owner's and the operator's signatures, both the issuer's. The issuer
+funds the leaf only with credit it has issued or is about to, since any
+excess is the recipient's on every path the issuer can take alone, and
+tops it up by an amount-only increase under \tr{REWRITE}$_h^{x}$, which
+needs only the operator's signature. And the leaf has a finite lease
+with the operator as evictor, not a $\NUMS$ evictor, which every carve
+would inherit, blocking the sweep of whatever cohort the claim leaf lands
+in. The credit is one-way: if the recipient could also spend from it, an
+older, larger voucher would be a stale state needing a window to
+supersede, as in a bidirectional channel. To spend, the recipient
+redeems into a channel leaf (\S\ref{sec:channels}).
