@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LayerTree explained</title>
+<meta name="description" content="An interactive explainer for LayerTree: one shared Bitcoin output, an off-chain Merkle-sum tree, and covenants that let any member leave in one transaction.">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="index.html" aria-current="page">Overview</a></li>
+        <li><a href="components/state-machine.html">State machine</a></li>
+        <li><a href="components/join.html">Join</a></li>
+        <li><a href="components/exit.html">Exit</a></li>
+        <li><a href="components/payment.html">Payments</a></li>
+        <li><a href="components/swap.html">Swaps</a></li>
+        <li><a href="components/evict.html">Eviction</a></li>
+        <li><a href="components/batching.html">Batching</a></li>
+        <li><a href="components/tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">A Bitcoin scaling design</p>
+  <h1>LayerTree</h1>
+
+  <p class="takeaway">LayerTree lets many people share one Bitcoin output. Who owns
+  what is recorded off-chain in a tree: each member's balance is a leaf, and every
+  node above the leaves holds a hash of its two children and the sum of their
+  amounts, up to a single root. The shared output commits to that root. Each spend
+  of the output must satisfy a covenant, a script that checks a proof against the
+  committed root, applies one rule, and requires the transaction to recreate the
+  output under the new root. So any member can leave in one transaction, at any
+  time, with no timelock, no transactions signed in advance and no expiry date.
+  The operator who runs the tree cannot take anyone's money or stop anyone
+  leaving, and members can join or be removed in bulk for a small cost each.</p>
+
+  <h2 id="life">The life of a tree</h2>
+  <p>The figure follows one tree through seven steps. The tree has eight slots,
+  the boxes along the bottom, and the amounts are small numbers chosen for
+  reading. The strip at the bottom shows what is on the blockchain after each
+  step. Use Next and Prev, or focus the figure and press the arrow keys.</p>
+
+  <div class="tree-anim" data-scenario="life-of-a-tree">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The text on this page and on each component page describes the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="life-of-a-tree">
+  {
+    "label": "The life of a tree",
+    "depth": 3,
+    "leaves": [],
+    "steps": [
+      {
+        "title": "Create the tree",
+        "caption": "The operator, the party that runs the tree, puts in a leaf of its own worth 4 and pays 4 into a new output. The output's address commits to the tree's root, the single hash at the top. The other seven slots are empty.",
+        "ops": [
+          {"op": "leaf", "pos": 0, "leaf": {"label": "Op", "amount": 4, "note": "operator"}},
+          {"op": "fold", "pos": 0},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "A cohort joins",
+        "caption": "Four members join in one transaction. The operator builds their four leaves into a subtree off-chain and grafts it into four empty slots. The covenant checks that the slots were empty and that the output grows by 16, the amount a funding input brings in. Each member checked their own leaf inside the subtree before paying.",
+        "ops": [
+          {"op": "leaves", "from": 4, "leaves": [
+            {"label": "A", "amount": 5, "note": "lease 900"},
+            {"label": "B", "amount": 3, "note": "lease 900"},
+            {"label": "C", "amount": 6, "note": "lease 900"},
+            {"label": "D", "amount": 2, "note": "lease 900"}
+          ]},
+          {"op": "region", "h": 2, "i": 1, "label": "cohort"},
+          {"op": "fold", "pos": 1, "h": 2},
+          {"op": "chip", "id": "fund", "kind": "input", "label": "Funding input", "amount": 16},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "A pays B, off-chain",
+        "caption": "A's and B's leaves each hold a Lightning channel with the operator. A pays B 1 by updating both channels, with the payment passing through the operator. A leaf's amount is its channel's capacity, which does not change, so the tree and the chain stay as they were.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "link", "from": 4, "to": 5, "text": "A pays B 1 off-chain"}
+        ]
+      },
+      {
+        "title": "C proves its leaf",
+        "caption": "C wants to leave. C's transaction spends the tree output and carries a proof: C's leaf plus the sibling at each level on the way up (dashed outlines). The script hashes and adds its way to the top, and the result must equal the root the output commits to. C's signature authorises the spend.",
+        "ops": [
+          {"op": "path", "pos": 6},
+          {"op": "badge", "pos": 6, "text": "C signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "The new root is committed",
+        "caption": "The script puts an empty slot where C's leaf was and folds the same path again, which gives a new root and a total 6 lower. The transaction must recreate the tree output under that root holding 14, and pay 6 to C. That is the whole exit: one transaction, no timelock, nobody else's signature.",
+        "ops": [
+          {"op": "leaf", "pos": 6, "leaf": null},
+          {"op": "fold", "pos": 6},
+          {"op": "chip", "id": "payC", "kind": "payout", "label": "Payout to C", "amount": 6},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "The cohort's lease runs out",
+        "caption": "Each leaf in the cohort carries a lease: a block height after which the operator may remove the leaf, paying it in full. The chain has passed height 900. The operator publishes every slot of the subtree once, so the script can check each lease and recompute the subtree's node.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "region", "h": 2, "i": 1, "label": "lease expired"},
+          {"op": "path", "pos": 1, "h": 2},
+          {"op": "badge", "node": [2, 1], "text": "operator signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "The operator sweeps the cohort",
+        "caption": "The script replaces the subtree with an empty one, folds the path once, and pays each remaining member exactly their amount. The tree output now holds the operator's 4. The sweep shares one path among all the cohort's leaves, so each leaf costs a fraction of a separate exit.",
+        "ops": [
+          {"op": "leaves", "from": 4, "leaves": [null, null, null, null]},
+          {"op": "fold", "pos": 1, "h": 2},
+          {"op": "chip", "id": "payA", "kind": "payout", "label": "Payout to A", "amount": 5},
+          {"op": "chip", "id": "payB", "kind": "payout", "label": "Payout to B", "amount": 3},
+          {"op": "chip", "id": "payD", "kind": "payout", "label": "Payout to D", "amount": 2},
+          {"op": "commit"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="parts">The parts</h2>
+  <p>Each page below takes one piece of the design, steps through it on the same
+  kind of tree, and links to the sections of the specification that define it.
+  Start with the state machine: every other page is an instance of it.</p>
+
+  <ul class="card-grid">
+    <li><a class="card card--primary" href="components/state-machine.html">
+      <span class="card__title">The state machine</span>
+      <span class="card__body">The chain stores only a root. Every spend proves the old state, applies a rule, and commits to the new root.</span></a></li>
+    <li><a class="card" href="components/join.html">
+      <span class="card__title">Joining</span>
+      <span class="card__body">One member or a whole cohort grafted into empty slots, who pays for it, and what a joiner checks before paying.</span></a></li>
+    <li><a class="card" href="components/exit.html">
+      <span class="card__title">Exiting</span>
+      <span class="card__body">The proof, the fold, the new root and the payout, and why exiting in pairs saves only part of the cost.</span></a></li>
+    <li><a class="card" href="components/payment.html">
+      <span class="card__title">Paying each other</span>
+      <span class="card__body">Vouchers, splits, channel leaves and a credit leaf for receiving over Lightning.</span></a></li>
+    <li><a class="card" href="components/swap.html">
+      <span class="card__title">Swaps</span>
+      <span class="card__body">A hash-locked voucher and an HTLC that share one secret, and the order in which they must settle.</span></a></li>
+    <li><a class="card" href="components/evict.html">
+      <span class="card__title">Eviction</span>
+      <span class="card__body">Leases, removing one expired leaf, and sweeping a whole cohort for a falling cost per leaf.</span></a></li>
+    <li><a class="card" href="components/batching.html">
+      <span class="card__title">Batching</span>
+      <span class="card__body">Rewriting a cohort in one transaction, detaching it into its own output, and the cost no batch removes.</span></a></li>
+    <li><a class="card" href="components/tiers.html">
+      <span class="card__title">Opcode tiers</span>
+      <span class="card__body">The same transitions built four times, against four sets of proposed opcodes, with what each needs and costs.</span></a></li>
+  </ul>
+
+  <h2 id="cost">What it costs</h2>
+  <p>Bitcoin charges fees by transaction size, measured in virtual bytes (vB).
+  A spend of an ordinary single-owner output with one input and one output is
+  about 111 vB. The figures below are for a tree of depth 16, which has 65,536
+  slots.</p>
+  <ul>
+    <li>Leaving alone costs about 1,020 vB, roughly nine times a bare spend. The
+    price is the proof, and it does not grow with the number of members. Leaving
+    a tree of transactions of the same size, as in Ark-style designs, costs about
+    2,511 vB.</li>
+    <li>Joining in a cohort costs under 1 vB per member once the cohort has about
+    a thousand members, when the operator funds the graft and members pay for
+    their balances off-chain.</li>
+    <li>Sweeping an expired cohort costs about 158 vB per leaf for 51 leaves.</li>
+    <li>Moving value between members costs nothing on-chain, because it happens
+    in channels inside leaves or by signed vouchers.</li>
+  </ul>
+  <p>The design moves the cost of sharing out of everyday use and into the exit.
+  A member who never leaves alone pays almost nothing; a member who does pays
+  for the proof.</p>
+
+  <h2 id="limits">What it does not promise</h2>
+  <dl class="terms">
+    <dt>Nobody has to let you in.</dt>
+    <dd>Joining needs the operator's signature. A person who is never admitted
+    has lost nothing, but nothing guarantees admission.</dd>
+    <dt>A grafted subtree can be empty of meaning.</dt>
+    <dd>When the operator grafts a cohort, the covenant sees only the subtree's
+    hash and its claimed sum. If no real tree stands behind that hash, nobody can
+    ever prove a leaf under it, and the value is frozen. The sums still balance,
+    so no value is created, and existing members are unaffected. The protection
+    is a rule for joiners: check your own path inside the subtree before you
+    fund it.</dd>
+    <dt>Everything passes through one output.</dt>
+    <dd>Every transition spends and recreates the same output, so unconfirmed
+    transitions form a chain. Bitcoin's default relay policy allows about 25
+    unconfirmed descendants, which caps how fast strangers can leave one at a
+    time. A batch counts once against that cap. One cheap transaction early in
+    the chain can also hold back the fee rate of everything behind it. Splitting
+    a deployment into several trees is the structural answer, with each tree
+    sized by how fast its members may need to leave.</dd>
+    <dt>Cheap eviction is also cheap griefing.</dt>
+    <dd>At about 160 vB per leaf, the operator can clear expired members cheaply.
+    Members who want a firm guarantee choose a lease far in the future, or no
+    lease at all.</dd>
+    <dt>None of it runs on Bitcoin today.</dt>
+    <dd>The scripts use opcodes that have been proposed but not activated. The
+    <a href="components/tiers.html">tiers page</a> lists which ones.</dd>
+  </dl>
+
+  <h2 id="numbers">Where the numbers come from</h2>
+  <p>Every size on this site is measured, not estimated. The repository's
+  tapscript simulator executes each reference script and records its size in
+  <a href="../spec/scripts/sizes.md"><code>spec/scripts/sizes.md</code></a>.
+  Section 11 of the <a href="../spec/layertree.md">specification</a> turns those
+  sizes into whole transactions by adding a fee input, a change output and the
+  transaction's fixed overhead, and
+  <a href="../spec/fee-analysis.md"><code>spec/fee-analysis.md</code></a> converts
+  them into fees. Comparisons with bare outputs, Lightning and Ark come from
+  <a href="../design/cost-comparison.md"><code>design/cost-comparison.md</code></a>,
+  and the batching, grafting and receiving figures from the design pages linked
+  at the foot of each component page. Unless a page says otherwise, figures are
+  for the FULL tier, the dense tree profile and depth 16. The amounts inside the
+  animations are illustrative, and the short root hashes they show are labels
+  that change when the tree changes, not real hashes.</p>
+
+  <h2 id="words">Words used on this site</h2>
+  <dl class="terms">
+    <dt>Leaf</dt><dd>One member's record in the tree: an amount, the keys that may
+    spend it, a lease height and a counter.</dd>
+    <dt>Root</dt><dd>The single hash at the top of the tree. Each node's hash
+    covers its two children's hashes and sums, so the root changes when any leaf
+    changes.</dd>
+    <dt>Proof</dt><dd>A leaf together with the sibling node at each level between
+    it and the root. Hashing up from the leaf with those siblings must reproduce
+    the root.</dd>
+    <dt>Fold</dt><dd>Hashing up a path to compute a root, once with the old node
+    to check the proof and once with the new node to get the next root.</dd>
+    <dt>Covenant</dt><dd>A script that restricts the transaction allowed to spend
+    an output, here by requiring it to recreate the tree output under a correctly
+    computed new root.</dd>
+    <dt>Operator</dt><dd>The party that runs the tree. It admits members, can
+    remove members whose lease has run out, and co-signs some changes. It holds
+    no key over anyone's balance.</dd>
+    <dt>Cohort</dt><dd>A group of members grafted together into one aligned
+    subtree, usually sharing a lease.</dd>
+    <dt>Lease</dt><dd>A block height written into a leaf. After it, the operator
+    may evict the leaf by paying out its full amount.</dd>
+    <dt>Voucher</dt><dd>A message signed by a leaf's owner that lets its holder
+    carve a new leaf out of the owner's balance later, without the owner.</dd>
+  </dl>
+  <p>For the explanation in prose, read
+  <a href="../CONCEPTS.md"><code>CONCEPTS.md</code></a>; for the normative rules,
+  <a href="../spec/layertree.md"><code>spec/layertree.md</code></a>.</p>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>LayerTree is a design with a reference implementation; the opcodes it uses are proposals, not consensus rules.</p>
+    <p>Sizes are measured by the repository's simulator; see <a href="#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="js/tree-anim.js"></script>
+</body>
+</html>

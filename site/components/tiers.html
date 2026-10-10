@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Opcode tiers</title>
+<meta name="description" content="LayerTree's transitions built against four sets of proposed Bitcoin opcodes, FULL, MID, MIN and CCV: what each needs, what it supports and what an exit costs.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html" aria-current="page">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Opcode tiers</h1>
+
+  <p class="takeaway">None of LayerTree runs on Bitcoin today: the covenant needs
+  opcodes that have been proposed but not activated, and LayerTree proposes none
+  of its own. To measure how much of the proposed menu it needs, the same
+  transitions are built four times, against four sets of opcodes, on one tree
+  format.</p>
+
+  <div class="tree-anim" data-scenario="tier-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="tier-steps">
+  {
+    "label": "One exit under four opcode sets",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "A", "amount": 5}, {"label": "B", "amount": 3},
+      {"label": "C", "amount": 6}, {"label": "D", "amount": 2},
+      null, null, null, null
+    ],
+    "steps": [
+      {
+        "title": "One exit, four ways",
+        "caption": "C leaves. The tree, the leaf and the proof are the same in every tier. What differs is how a script can derive an output key from a root, read the transaction it is in, and pull fields out of a leaf.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "badge", "pos": 2, "text": "C signs", "kind": "sig"},
+          {"op": "checks", "items": [
+            {"text": "The input commits to the old root.", "state": "pending"},
+            {"text": "The rule holds.", "state": "pending"},
+            {"text": "The output commits to the new root.", "state": "pending"}
+          ]}
+        ]
+      },
+      {
+        "title": "FULL: about 1,020 vB",
+        "caption": "FULL uses a new tapleaf version that restores the string and arithmetic opcodes disabled in 2010, plus OP_TX to read the transaction and elliptic-curve opcodes. It is the cheapest of the first three and supports every transition.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "checks", "items": [
+            {"text": "Old root: elliptic-curve opcodes compute the output key from the root; OP_TX reads the spent output's key.", "state": "ok"},
+            {"text": "Rule: OP_SUBSTR cuts the owner key out of the leaf; OP_CHECKSIG verifies C's signature.", "state": "ok"},
+            {"text": "New root: the same key computation for the new root, compared with output 0 read by OP_TX.", "state": "ok"}
+          ]}
+        ]
+      },
+      {
+        "title": "MID: about 1,338 vB",
+        "caption": "MID keeps today's tapscript rules and adds OP_CAT, OP_TX, OP_CHECKSIGFROMSTACK and OP_TWEAKADD. Numbers are limited to four bytes, so a leaf arrives as seven separate fields that the script joins back together, and sums carry padding. It supports everything except the cohort rewrite and the detach.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "checks", "items": [
+            {"text": "Old root: OP_TWEAKADD computes the output key from the root; OP_TX reads the spent output's key.", "state": "ok"},
+            {"text": "Rule: the owner key arrives as its own field; OP_CHECKSIG verifies C's signature.", "state": "ok"},
+            {"text": "New root: OP_TWEAKADD again, compared with output 0 read by OP_TX.", "state": "ok"}
+          ]}
+        ]
+      },
+      {
+        "title": "MIN: about 1,456 vB",
+        "caption": "MIN adds only OP_CAT and OP_TWEAKADD. With no opcode to read the transaction, the script assembles the transaction's signature message itself and checks a signature over it, so the real transaction must match what the script assembled. It has only the exit and SPLIT.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "checks", "items": [
+            {"text": "Old root: OP_TWEAKADD computes the output key, placed into the assembled message.", "state": "ok"},
+            {"text": "Rule: OP_CHECKSIG verifies C's signature.", "state": "ok"},
+            {"text": "New root: the new output key goes into the assembled message too; OP_CHECKSIG passes only if the real transaction matches.", "state": "ok"}
+          ]}
+        ]
+      },
+      {
+        "title": "CCV: about 908 vB",
+        "caption": "CCV uses OP_CHECKCONTRACTVERIFY, which checks directly that an input or an output commits to a given piece of data, here the root. OP_TX remains for amounts. It needs no elliptic-curve opcodes and has the smallest exit.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "checks", "items": [
+            {"text": "Old root: OP_CHECKCONTRACTVERIFY confirms the input commits to the root.", "state": "ok"},
+            {"text": "Rule: OP_CHECKSIG verifies C's signature.", "state": "ok"},
+            {"text": "New root: OP_CHECKCONTRACTVERIFY confirms output 0 commits to the new root; OP_TX checks its amount.", "state": "ok"}
+          ]}
+        ]
+      },
+      {
+        "title": "The same result in every tier",
+        "caption": "Whichever tier the tree was created for, the exit ends the same way: C's slot is empty, the tree output holds 10 under the new root, and C is paid 6. A tree is created for one tier and stays in it.",
+        "ops": [
+          {"op": "leaf", "pos": 2, "leaf": null},
+          {"op": "fold", "pos": 2},
+          {"op": "chip", "id": "payC", "kind": "payout", "label": "Payout to C", "amount": 6},
+          {"op": "commit"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="table">The four tiers</h2>
+  <div class="table-wrap">
+    <table>
+      <caption>Exit size at depth 16, dense profile (spec 4.5 and 11, <code>design/cost-comparison.md</code>)</caption>
+      <thead>
+        <tr><th>Tier</th><th>Opcodes beyond today's tapscript</th><th>What it supports</th><th class="num">Exit script / witness, bytes</th><th class="num">Exit, vB</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>FULL</td><td>new tapleaf version restoring the disabled opcodes (BIP-441), <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code> (BIP-348), elliptic-curve opcodes</td><td>every transition</td><td class="num">2,101 / 902</td><td class="num">1,020</td></tr>
+        <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code>; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree)</td><td class="num">3,299 / 978</td><td class="num">1,338</td></tr>
+        <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,572 / 1,175</td><td class="num">1,456</td></tr>
+        <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code></td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The tree format is the same in every tier, so proofs, roots and off-chain data
+  are interchangeable; a tree is created for one tier, and its scripts follow from
+  that choice. The repository's tests fail if a script uses any opcode outside its
+  tier's set.</p>
+
+  <h2 id="full">FULL</h2>
+  <p>FULL is what the Great Script Restoration proposal makes possible together with
+  the introspection, signature-over-data and elliptic-curve proposals. Arbitrary
+  length arithmetic lets a 116-byte leaf sit on the stack as one element whose
+  fields are cut out as needed, and the elliptic-curve opcodes compute the output
+  key from the root directly. It is the recommended target.</p>
+
+  <h2 id="mid">MID</h2>
+  <p>MID keeps today's tapscript numbers, which are at most four bytes. A leaf
+  therefore arrives as seven field elements that the script joins with
+  <code>OP_CAT</code> after checking their sizes, and every 8-byte sum carries a
+  padding element so that it can be both added and hashed. The padding and the
+  size checks are most of MID's extra 31% per exit. Sums must stay under 2<sup>31</sup> satoshis per tree.
+  The Liquid sidechain already has most of these opcodes.</p>
+
+  <h2 id="min">MIN</h2>
+  <p>MIN asks how little the covenant itself needs: <code>OP_CAT</code> and one
+  key-tweaking opcode, with no way to read the transaction. Its way out is that
+  <code>OP_CHECKSIG</code> does read the transaction. The script assembles the
+  signature message from the values it wants to constrain, including the new tree
+  output, and checks a signature over it under the generator point as the key with
+  the generator as the nonce. For that key and nonce the signature is a value the
+  script can compute itself, so it authorises nothing, but it binds: the check
+  passes only if the message the script built equals the real transaction's. The
+  spender varies a free field of the transaction until the computed signature has
+  the right form, about 256 tries. MIN as built has only the exit and
+  <code>SPLIT</code>, so a MIN tree is created with its whole membership and only
+  shrinks. It is an existence proof, not a recommendation: the covenant needs only
+  <code>OP_CAT</code> and one tweak opcode.</p>
+
+  <h2 id="ccv">CCV</h2>
+  <p>CCV replaces the key arithmetic with <code>OP_CHECKCONTRACTVERIFY</code>,
+  which checks that an input or output key commits to a piece of data, here the
+  root, under a given script set. The root and the script set leave the witness,
+  and the script needs no elliptic-curve opcodes. It works with either FULL's
+  numbers or MID's, and its exit is the smallest of the four. Its vouchers bind a
+  per-tree identifier instead of the script-set root.</p>
+
+  <p>A further opcode built for Merkle-sum trees would bring the exit to about
+  388 vB, which the repository measures in its simulator. It is a measurement
+  only, kept out of every tier, because LayerTree composes existing proposals and
+  invents none.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#43-opcode-inventory">Spec 4.3</a> to <a href="../../spec/layertree.md#46-the-ccv-tier">4.6</a>: the opcode inventory, the minimal set, the tier matrix and the CCV tier.</li>
+      <li><a href="../../spec/layertree.md#11-cost-analysis">Spec 11</a> and <a href="../../spec/scripts/sizes.md"><code>spec/scripts/sizes.md</code></a>: every measured size by tier.</li>
+      <li><a href="../../design/cost-comparison.md"><code>design/cost-comparison.md</code></a>: what one exit costs, by variant.</li>
+      <li><a href="../../design/native-opcodes.md"><code>design/native-opcodes.md</code></a>: the CCV tier and the hypothetical native opcode.</li>
+      <li><a href="../../README.md"><code>README.md</code></a>: links to each opcode proposal.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>

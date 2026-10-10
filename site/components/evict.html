@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leases and eviction</title>
+<meta name="description" content="How LayerTree leases work, how the operator evicts one expired leaf, and how a whole expired cohort is swept for a falling cost per leaf.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html" aria-current="page">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Leases and eviction</h1>
+
+  <p class="takeaway">A lease is a block height after which the operator may
+  remove a leaf, and only by paying its full amount to the owner. Removing a whole
+  expired cohort in one transaction shares one proof among all its leaves, so the
+  cost per leaf falls as the cohort grows.</p>
+
+  <div class="tree-anim" data-scenario="evict-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="evict-steps">
+  {
+    "label": "Evicting one leaf, then sweeping a cohort",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "Op", "amount": 4, "note": "operator"},
+      {"label": "X", "amount": 3, "note": "no lease"},
+      {"label": "Y", "amount": 2, "note": "lease 500"},
+      null,
+      {"label": "A", "amount": 5, "note": "lease 900"},
+      {"label": "B", "amount": 3, "note": "lease 900"},
+      {"label": "C", "amount": 6, "note": "lease 900"},
+      {"label": "D", "amount": 2, "note": "lease 900"}
+    ],
+    "steps": [
+      {
+        "title": "Every leaf names an evictor and a lease",
+        "caption": "Each leaf carries an evictor key and a lease height. The cohort on the right shares the operator as evictor and a lease of 900. X's evictor key is a point nobody can sign for, so X can never be evicted. Y's lease is 500, and the chain has passed it.",
+        "ops": [
+          {"op": "region", "h": 2, "i": 1, "label": "cohort, lease 900"}
+        ]
+      },
+      {
+        "title": "Evicting one expired leaf",
+        "caption": "An eviction is an exit signed by the evictor key instead of the owner key. The proof is the same. The transaction's lock time must be at least Y's lease height, so it cannot be mined before the lease runs out.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "badge", "pos": 2, "text": "operator signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "Y is paid in full",
+        "caption": "The payout to Y's exit key must equal Y's amount exactly; the evictor pays the fee from its own coins. The operator can remove Y, but it cannot take any of Y's money. A single eviction costs what an exit costs, about 1,020 vB at depth 16.",
+        "ops": [
+          {"op": "leaf", "pos": 2, "leaf": null},
+          {"op": "fold", "pos": 2},
+          {"op": "chip", "id": "payY", "kind": "payout", "label": "Payout to Y", "amount": 2},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "The cohort's lease runs out",
+        "caption": "The chain passes height 900. The operator's sweep publishes every slot of the cohort's subtree and the path above it, once. The script rebuilds the subtree's node from the published leaves, checking each leaf's evictor key and lease on the way.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "region", "h": 2, "i": 1, "label": "lease expired"},
+          {"op": "path", "pos": 1, "h": 2},
+          {"op": "badge", "node": [2, 1], "text": "operator signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "One leaf on other terms blocks the sweep",
+        "caption": "Had C renewed to a lease of 2,000, or named a different evictor, the script would reject the whole sweep: it removes every leaf of the subtree or none. That is why the operator puts members with the same lease terms in the same cohort.",
+        "ops": [
+          {"op": "region", "h": 2, "i": 1, "label": "lease expired"},
+          {"op": "badge", "pos": 6, "text": "if lease 2,000", "kind": "bad"},
+          {"op": "mark", "kind": "bad", "nodes": [[0, 6]]},
+          {"op": "checks", "items": [
+            {"text": "Every leaf's evictor key is the operator's.", "state": "ok"},
+            {"text": "Every leaf's lease is at or below the lock time: C's is not.", "state": "fail"}
+          ]}
+        ]
+      },
+      {
+        "title": "The sweep",
+        "caption": "With every lease expired, the script replaces the subtree with an empty one, folds the path once, and pays each leaf exactly, in slot order, from output 1. At depth 16 a sweep costs about 203 vB per leaf for 13 leaves and 158 for 51.",
+        "ops": [
+          {"op": "leaves", "from": 4, "leaves": [null, null, null, null]},
+          {"op": "fold", "pos": 1, "h": 2},
+          {"op": "chip", "id": "payA", "kind": "payout", "label": "Payout to A", "amount": 5},
+          {"op": "chip", "id": "payB", "kind": "payout", "label": "Payout to B", "amount": 3},
+          {"op": "chip", "id": "payC", "kind": "payout", "label": "Payout to C", "amount": 6},
+          {"op": "chip", "id": "payD", "kind": "payout", "label": "Payout to D", "amount": 2},
+          {"op": "commit"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="leases">Leases</h2>
+  <p>Every leaf names an evictor key and a lease height. After the lease height,
+  the holder of the evictor key may remove the leaf, and the covenant requires the
+  removal to pay the leaf's full amount to the leaf's exit key. The lease is a
+  delay on the evictor's right, not a promise that eviction will happen. A member
+  who never wants to be evicted sets the evictor key to a point nobody can sign
+  for, and a member who wants a firm guarantee chooses a lease far in the future.
+  Operators are expected to warn members before evicting, and to offer to renew
+  the lease instead, which is an <code>UPDATE</code> both sides sign.</p>
+  <p>Leases exist so that the operator can reclaim slots and close down a tree
+  that members have abandoned, without anyone's cooperation and without taking
+  anything. For a channel leaf, eviction is the counterparty's way to force the
+  channel closed, and a channel leaf that forwards payments sets its lease to 0
+  so that the counterparty can do so at any time.</p>
+
+  <h2 id="one">Evicting one leaf</h2>
+  <p>An eviction uses the exit script with a flag set. Three things change from an
+  owner's exit: the signature must come from the evictor key; the transaction's
+  lock time must be at least the lease height; and the payout must equal the
+  leaf's amount exactly, with the evictor paying the fee. It costs the same as an
+  exit, about 1,020 vB at depth 16.</p>
+
+  <h2 id="sweep">Sweeping a cohort</h2>
+  <p>A cohort grafted into one aligned subtree with a shared lease can be removed
+  in a single transaction, <code>EVICT_SUBTREE_h</code>. The witness carries the
+  path above the subtree once and then every slot of the subtree, as a leaf or as
+  an empty marker. The script rebuilds the subtree's node from those slots, which
+  both proves them and lets it check each leaf as it goes: the evictor key must be
+  the operator's, the lease must have passed, and the next output must pay that
+  leaf's amount to its exit key. The subtree becomes the empty node, and the path
+  above it is folded once for all of them.</p>
+  <p>Hashing the subtree's interior once instead of once per leaf is why the cost
+  per leaf falls with the cohort's size:</p>
+  <div class="table-wrap">
+    <table>
+      <caption>Cost per leaf removed at depth 16 (from <code>design/cost-comparison.md</code>)</caption>
+      <thead><tr><th>Removal</th><th class="num">vB per leaf</th></tr></thead>
+      <tbody>
+        <tr><td>One eviction alone</td><td class="num">1,020</td></tr>
+        <tr><td>Sweep of a 16-slot subtree, 13 leaves present</td><td class="num">203</td></tr>
+        <tr><td>Sweep of a 64-slot subtree, 51 leaves present</td><td class="num">158</td></tr>
+        <tr><td>Sweep of a 256-slot subtree, about 200 leaves present</td><td class="num">about 147</td></tr>
+        <tr><td>Bare spend of a single-owner output, for comparison</td><td class="num">111</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The sweep removes every leaf in its subtree or fails, so one leaf with a
+  later lease or a different evictor blocks it; the operator then removes that
+  leaf by other means or waits. Members with the same lease terms belong in the
+  same cohort. In the MID tier the sweep is also bounded by Bitcoin's limit of
+  1,000 stack elements, which caps a 64-slot sweep at 54 occupied slots.</p>
+
+  <h2 id="griefing">Cheap eviction cuts the other way too</h2>
+  <p>At about 160 vB per leaf, an operator can clear expired members cheaply.
+  That keeps small balances removable at high fee rates, and it also makes removing
+  members a cheap way to harass them. Removal always pays in full, so the harm is
+  the member's lost place in the tree, not their money. Members who care choose
+  long leases.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#72-exit">Spec 7.2</a> rule 4: eviction through the exit script.</li>
+      <li><a href="../../spec/layertree.md#77-evict_subtree_h-cohort-sweep">Spec 7.7</a>: <code>EVICT_SUBTREE_h</code>; <a href="../../spec/layertree.md#94-eviction">9.4</a>: the eviction protocol and cohorts.</li>
+      <li><a href="../../spec/layertree.md#108-eviction">Spec 10.8</a>: eviction's security considerations.</li>
+      <li><a href="../../spec/layertree.md#11-cost-analysis">Spec 11</a>: sweep sizes, and why a cohort shares an aligned subtree and a lease.</li>
+      <li><a href="../../design/cost-comparison.md"><code>design/cost-comparison.md</code></a>: removal cost against batch size.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>

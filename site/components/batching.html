@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Batching a cohort</title>
+<meta name="description" content="How LayerTree shares one proof among many leaves: the cohort rewrite REWRITE_h, detaching a cohort with DETACH_h, and the cost per leaf that no batch removes.">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html">LayerTree</a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html" aria-current="page">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Component</p>
+  <h1>Batching</h1>
+
+  <p class="takeaway">Leaves in one aligned subtree can share a proof: a cohort
+  rewrite publishes the subtree before and after, and in one transaction its
+  members can leave, join, rotate keys and pay each other. A detach moves the
+  cohort into an output of its own so that later exits prove a shorter path, but
+  no batch removes the cost of publishing, authorising and paying each leaf that
+  changes.</p>
+
+  <div class="tree-anim" data-scenario="batch-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The sections below describe the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="batch-steps">
+  {
+    "label": "A cohort rewrite, then a detach",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "Op", "amount": 4, "note": "operator"}, {"label": "Q", "amount": 3},
+      null, null,
+      {"label": "A", "amount": 5}, {"label": "B", "amount": 3},
+      {"label": "C", "amount": 6}, null
+    ],
+    "steps": [
+      {
+        "title": "A cohort shares a path",
+        "caption": "A, B and C were grafted together into one aligned subtree of four slots. Above the subtree's node they share one path to the root, so a transaction that touches several of them needs that path only once.",
+        "ops": [
+          {"op": "region", "h": 2, "i": 1, "label": "cohort"},
+          {"op": "path", "pos": 1, "h": 2}
+        ]
+      },
+      {
+        "title": "The rewrite publishes old and new slots",
+        "caption": "In one rewrite, A leaves, B pays C 1, and a new member N joins the empty slot. The witness carries every slot twice, as it was and as it will be. A and B sign, because their leaves change. C does not: its leaf only gains. N's slot was empty, so N signs nothing, and the operator signs once.",
+        "ops": [
+          {"op": "region", "h": 2, "i": 1, "label": "rewritten"},
+          {"op": "leaves", "from": 4, "leaves": [
+            null, {"label": "B", "amount": 2}, {"label": "C", "amount": 7}, {"label": "N", "amount": 4}
+          ]},
+          {"op": "badge", "pos": 4, "text": "A signs", "kind": "sig"},
+          {"op": "badge", "pos": 5, "text": "B signs", "kind": "sig"},
+          {"op": "badge", "node": [2, 1], "text": "operator signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "One fold, one transaction",
+        "caption": "The script rebuilds the old subtree from the old slots and checks it against the committed root, then rebuilds the new subtree and folds it up the same path. A is paid exactly 5, N's 4 comes from a funding input, and the tree output holds 20. With 64 slots at depth 16, a rewrite in which everyone changes costs about 145 vB per leaf.",
+        "ops": [
+          {"op": "fold", "pos": 1, "h": 2},
+          {"op": "chip", "id": "payA", "kind": "payout", "label": "Payout to A", "amount": 5},
+          {"op": "chip", "id": "fundN", "kind": "input", "label": "N's funding input", "amount": 4},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Detach: the cohort gets its own output",
+        "caption": "The operator moves the cohort into a tree output of its own. The witness proves the cohort's node against the root, as a graft does in reverse. The cohort's node becomes the root of a new tree of depth 2.",
+        "ops": [
+          {"op": "clearChips"},
+          {"op": "region", "h": 2, "i": 1, "label": "detaching"},
+          {"op": "path", "pos": 1, "h": 2},
+          {"op": "badge", "node": [2, 1], "text": "operator signs", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "Two tree outputs",
+        "caption": "Output 0 recreates the parent tree with an empty subtree, holding 7. Output 1 is the cohort's own tree, holding 13. Each member's proof in the new tree is the lower part of their old one, so nobody needs new data, later exits prove a shorter path, and the cohort's transitions no longer queue behind the parent's.",
+        "ops": [
+          {"op": "chip", "id": "cohort", "kind": "tree2", "label": "Cohort tree output", "node": [2, 1]},
+          {"op": "leaves", "from": 4, "leaves": [null, null, null, null]},
+          {"op": "fold", "pos": 1, "h": 2},
+          {"op": "commit"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <h2 id="cost">What a batch costs</h2>
+  <p>Every transition proves some leaves against the committed root and folds their
+  replacements up to a new one. Its cost has three parts, and they behave
+  differently as more leaves share a transaction.</p>
+  <div class="table-wrap">
+    <table>
+      <caption>Parts of a transition at depth 16, FULL tier (from <code>design/batching.md</code>)</caption>
+      <thead><tr><th>Part</th><th>What it is</th><th class="num">vB</th></tr></thead>
+      <tbody>
+        <tr><td>Fixed</td><td>the transaction skeleton, the state checks at both ends, the script's reveal</td><td class="num">about 470</td></tr>
+        <tr><td>Per shared level</td><td>one level of the fold and one sibling</td><td class="num">32</td></tr>
+        <tr><td>Per leaf</td><td>the 116-byte leaf, its signature, its payout and the script that hashes it</td><td class="num">about 100 to 120</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The fixed part is paid once per transaction. A shared level is paid once per
+  path, so only leaves under a common subtree share it; two random slots share
+  only the few levels near the root. That is why chaining two exits saves so
+  little, and why the operator grafts members into
+  <a href="join.html#graft">aligned cohorts</a>: the cohort's position is what makes
+  batching possible later.</p>
+
+  <h2 id="rewrite">The cohort rewrite</h2>
+  <p><code>REWRITE_h</code> replaces the contents of one aligned subtree of
+  height h. The witness carries the path above the subtree and, for each of its
+  2<sup>h</sup> slots, an old element and a new element, each a leaf or an empty
+  marker. The script rebuilds the old subtree and checks it against the committed
+  root, rebuilds the new subtree, and folds it up the same path. Within one
+  transaction a slot can go from a leaf to empty (an exit, paid in full), from
+  empty to a leaf (a join, funded by another input), or from one leaf to another
+  (a resize, renewal, key rotation or payment).</p>
+  <p>Authorisation is per leaf. Every owner whose leaf changes signs, except an
+  owner whose leaf changes only by gaining amount: that exception lets a payment
+  need only the payer's signature, and it cannot be used to change a key or a
+  lease. The operator signs once. A leaf nobody signs for passes through
+  unchanged, so a cohort settles with only its changing members online. An Ark
+  round, by contrast, settles new balances in one transaction only if every member
+  is online to sign, and its tree expires. Because the new slots are published, a
+  join through a rewrite is checked by the script itself, where a graft relies on
+  each joiner's own check.</p>
+  <div class="table-wrap">
+    <table>
+      <caption>Measured at depth 16 (spec 11)</caption>
+      <thead><tr><th>Shape</th><th class="num">vB per leaf</th></tr></thead>
+      <tbody>
+        <tr><td>Two separate exits chained in one transaction</td><td class="num">842</td></tr>
+        <tr><td>Rewrite of 4 slots, every leaf leaves</td><td class="num">about 370</td></tr>
+        <tr><td>Rewrite of 16 slots, every leaf leaves</td><td class="num">about 198</td></tr>
+        <tr><td>Rewrite of 64 slots, every leaf leaves</td><td class="num">about 159</td></tr>
+        <tr><td>Rewrite of 64 slots, every key rotated</td><td class="num">about 145</td></tr>
+        <tr><td>One <code>UPDATE</code> per leaf instead</td><td class="num">1,073</td></tr>
+        <tr><td>Operator's sweep of 51 expired leaves, for comparison</td><td class="num">158</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Sixty-four owners who leave together pay what the operator pays to sweep
+  them. A slot that does not change still costs about 117 vB, because it is
+  published twice, so the rewrite suits cohorts that settle together; with only a
+  few changes it beats separate <code>UPDATE</code>s from about three leaves
+  up.</p>
+
+  <h2 id="detach">Detaching a cohort</h2>
+  <p>Nothing in a script can refer to an earlier transaction's witness, so the
+  only way to reuse a proof across transactions is to give the cohort an output of
+  its own. <code>DETACH_h</code>, authorised by the operator, proves the cohort's
+  node against the root, empties its slot in the parent, and creates a second tree
+  output whose root is the cohort's node. The new tree uses the same script set
+  compiled for depth h, fixed when the parent was created. At depth 16 with a
+  cohort of 256 slots, the detach costs about 780 vB, and each later exit from
+  the cohort costs 765 vB instead of 1,020, so the detach pays for itself at the
+  fourth exit.</p>
+  <p>The larger effect is on throughput. Every transition of a tree spends the
+  same output, so they queue one behind another, and relay policy caps the queue
+  at about 25 unconfirmed transactions. A detached cohort has its own output and
+  its own queue. Detaching is a way to split a deployment when a cohort's members
+  may need to leave quickly, for example channel leaves with HTLCs near their
+  deadlines. Leaf bytes do not change, so channel leaves are unaffected; vouchers
+  that name the parent tree must be reissued for the cohort's tree.</p>
+
+  <h2 id="floor">The floor no batch removes</h2>
+  <p>A leaf that leaves must be published, must authorise its exit, and must be
+  paid: about 100 vB in every shape. A leaf that stays in a rewritten subtree costs
+  about 117. Batching moves the fixed and shared costs out of the way; it leaves
+  this one. The remaining lever is the leaf itself: a leaf format in which an exit
+  reveals only the exit key and amount plus a hash of the other fields would
+  publish about 72 bytes instead of 116, saving about 11 vB per leaf in every
+  shape. That would be a change to the tree format.</p>
+  <p><code>REWRITE_h</code> and <code>DETACH_h</code> are built in the FULL tier
+  only so far.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../spec/layertree.md#79-rewrite_h-cohort-rewrite">Spec 7.9</a>: <code>REWRITE_h</code> and its seven rules; <a href="../../spec/layertree.md#710-detach_h-subtree-detach">7.10</a>: <code>DETACH_h</code>.</li>
+      <li><a href="../../spec/layertree.md#76-composition-and-variants">Spec 7.6</a>: composition and shape-specialised multiproofs.</li>
+      <li><a href="../../spec/layertree.md#105-concurrency-and-pinning">Spec 10.5</a>: why every transition queues behind the last.</li>
+      <li><a href="../../spec/layertree.md#11-cost-analysis">Spec 11</a>: the measured rewrite and detach sizes.</li>
+      <li><a href="../../design/batching.md"><code>design/batching.md</code></a>: the three parts of a transition's cost, and the shapes measured against each other.</li>
+      <li><a href="../../formal/README.md"><code>formal/README.md</code></a>: <code>rewrite_sound</code>, <code>detach_sound</code> and <code>detach_member_payable</code>.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Sizes are FULL tier, dense profile, depth 16, measured by the repository's simulator; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+<script src="../js/tree-anim.js"></script>
+</body>
+</html>
