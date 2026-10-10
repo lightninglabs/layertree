@@ -225,9 +225,9 @@ ones most likely to move:
    outputs and the deadlines of C.4.4 and 9.6.2 are now exercised
    (C.12). Not modelled: the P2A fee children and TRUC package relay
    ([C-A2]), PTLCs, and pre-signed second-stage HTLC transactions
-   (C.2.5). Spec 9.6.2 still says the deadline reasoning has no
-   end-to-end test; its closing paragraph should point at
-   `tools/test_chan.py`.
+   (C.2.5). 9.6.2's closing paragraph points at `tools/test_chan.py`,
+   which also runs the stale-update, lease, evictor and epoch cases of
+   Appendix C 0.4.0 (C.12).
 7. **Aggregate node keys** (13.5) deliberately left out; would reintroduce
    interactive signing. MuSig2 adaptor signatures (`notes.md`) are likewise
    out of the base protocol: an off-chain concern for channel leaves and
