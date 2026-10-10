@@ -577,6 +577,102 @@ A8). Cost and liveness only. Fixed in text: 9.2 says such a graft
 SHOULD carry an operator change output or a P2A anchor so it can be
 bumped by CPFP, and `design/graft.md` notes the same.
 
+### F30. A settlement with a sub-dust output is not relayable
+
+`settle_n` is zero-fee with a zero-value P2A anchor, so any further
+output below 330 sat gives it two dust outputs, which no default node
+relays, and the reference signs exactly that at state 1 of every
+single-funded channel (`b_V = 0`); either party can leave the channel
+in such a state by paying the other below dust or offering a sub-dust
+HTLC, and the capacity is then locked at `U_n` at the relay layer
+(`design/audit/channels.md`, B1). Reachable by the counterparty at no
+cost, and by default at opening. The fix is a rule in C.3.4: every
+non-anchor settlement output MUST be at least the dust threshold, and
+trimmed value goes to the anchor; `settle_outputs` and
+`StateProposal.Validate` enforce it. Status: fix in flight (rule,
+Appendix C 0.4.0 / spec 0.11.0).
+
+### F31. The receive flow inverted 9.6.2 rule 1
+
+`design/receive.md`, 10.3 and the site's payment page had the recipient
+hold the preimage and the operator issue a hash-locked voucher before
+the inbound HTLC settled, which is the ordering 9.6.2 rule 1 forbids; on
+the recommended credit leaf the operator cannot advance `seq`, so a
+voucher whose HTLC failed stays redeemable for good
+(`design/audit/channels.md`, B2). Reachable by any wallet user with a
+credit leaf, at no cost, once per failed receive. Fixed in text: 10.3
+now has the issuer obtain the preimage and settle the inbound HTLC
+before it issues or reissues the cumulative voucher, which is a plain
+voucher under `CLAIM^x`, and keeps the hash-locked form for the 9.6.2
+ordering; `design/receive.md` (the instrument, the cost table and the
+closing section) and `site/components/payment.html` (the credit-leaf
+caption and prose) follow, and `site/components/swap.html` no longer
+says receiving uses the hash lock.
+
+### F32. A credit leaf's unissued capacity belongs to the recipient
+
+`EXIT^=` and eviction pay a credit leaf's whole amount to the
+recipient's exit key and `UPDATE^x` needs that key, so capital the
+operator has not vouched for is recoverable only with the recipient's
+consent; `design/receive.md` told the operator to fund a credit leaf
+like an inbound channel (`design/audit/channels.md`, B3). Reachable by
+the recipient doing nothing. Fixed in text: 10.3 says the issuer SHOULD
+fund a credit leaf only with what it has vouched for or is about to,
+and SHOULD top it up by an amount-only `REWRITE_h^x` or an `UPDATE^x`
+the recipient signs; `design/receive.md` replaces the inbound-channel
+analogy and adds the top-up to its cost table; the payment page says
+the same.
+
+### F33. Stale updates delay a channel's settlement past the C.4.4 budget
+
+An `update_m` binds to `U_j` for any `j < m`, so a counterparty holding
+old states can confirm them one per block ahead of the honest update,
+and C.4.4's two blocks of margin absorb two; at the spec bound a third
+lets the offerer's timeout sweep become final before the payee's claim
+(`design/audit/channels.md`, B4). Reachable by the HTLC offerer at about
+313 vB per block of delay, against an honest party who can outbid in
+the mempool. The fix adds a `beta_chan` term to the C.4.4 budget and a
+fee-reserve and replacement rule to C.4.4, C.5.5 and C.9.6. Status: fix
+in flight (rule, Appendix C 0.4.0 / spec 0.11.0).
+
+### F34. F22's fix had reached the Lean model only
+
+The spec header already read 0.11.0 and `formal/LayerTree/Cohort.lean`
+excludes `seq = SEQ_FINAL` from `REWRITE_h`'s amount-only exemption, but
+7.9 rule 3 and `_rewrite_step` were unchanged, so the operator could
+still raise a channel leaf's amount alone at 1 sat per leaf; the probe
+was accepted with no owner signature (`design/audit/channels.md`, B5).
+Reachable as F22. The fix is F22's script rule in 7.9 rule 3, the
+generators, the Go mirror and the golden vectors, with the probe as a
+`test_rewrite` negative, and F22's status naming which layers carry it.
+Status: fix in flight (rule, Appendix C 0.4.0 / spec 0.11.0).
+
+### F35. `chan_id` binds `m`, which is not unique to a tree
+
+C.2.2 says binding `m` stops a state signed for one tree from being
+replayed in another, but 6.2 has two trees with the same parameters
+share `m`, and a `DETACH_h` moves the leaf under `m_h`, so the
+identifier in the channel scripts stops matching its tree
+(`design/audit/channels.md`, B6). No attacker was found: a replay needs
+someone to fund a duplicate leaf, and C.9.1 and 5.2 carry the binding in
+practice. The audit recommends binding `tree_id`, as 7.5 does for
+vouchers, at no script cost. Status: owner decision pending: `chan_id`
+binds `m` by decision 13 of 2026-10-09; the audit recommends `tree_id`.
+
+### F36. Two Appendix C sentences a counterparty relies on were wrong
+
+C.6.2 said a compromised `owner_key` costs only a force-close, but in a
+lenient tree 7.2 rule 3 accepts a zero payout and the key takes the
+whole capacity; C.7's CCV row said a CCV tree has no `CLAIM`, though
+`CLAIM` and `CLAIM^h` are CCV scripts since 0.10.0 (4.6), so a reader
+would skip the `SEQ_FINAL` check (`design/audit/channels.md`, B7).
+Reachable by the holder of a stolen `owner_key` in a lenient tree, and
+by an owner whose counterparty trusted C.7. Fixed in text: C.6.2 states
+the lenient-tree consequence and that a channel-hosting tree SHOULD use
+`EXIT^=`; C.7's CCV row applies C.6.5 as FULL does, with each numerics'
+`SEQ_FINAL`. The audit's other text item, naming the offerer's deadline
+in C.5.6, is fixed with it.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):

@@ -106,7 +106,7 @@
       },
       {
         "title": "A credit leaf for receiving",
-        "caption": "R holds no Bitcoin and wants to receive over Lightning. The operator funded the credit leaf Cr, whose exit key is R's. Each payment to R reaches the operator, which signs R a new voucher against Cr for the running total: 2, then 5. R keeps the latest and can redeem it alone if the operator stops cooperating.",
+        "caption": "R holds no Bitcoin and wants to receive over Lightning. The operator funded the credit leaf Cr, whose exit key is R's, and tops it up as payments arrive, since all of Cr is R's if the operator removes it alone. Each payment to R reaches the operator, which settles it first and only then signs R a new voucher against Cr for the running total: 2, then 5. R keeps the latest and can redeem it alone if the operator stops cooperating.",
         "ops": [
           {"op": "badge", "pos": 7, "text": "voucher: R 5", "kind": "voucher"}
         ]
@@ -164,10 +164,17 @@
   <h2 id="credit">A credit leaf for receiving over Lightning</h2>
   <p>A user with no on-chain coins can receive into a credit leaf: a leaf the
   operator funds and owns, whose exit key is the recipient's. Each Lightning
-  payment to the recipient arrives at the operator, which signs a new hash-locked
-  voucher against the credit leaf for the running total. That costs no on-chain
-  bytes per payment, has no minimum amount and never expires, and the recipient
-  can redeem the latest voucher alone. Plain <code>CLAIM</code> would leave a gap,
+  payment to the recipient arrives at the operator, which settles the payment
+  first and only then signs a new voucher against the credit leaf for the running
+  total. That costs no on-chain bytes per payment, has no minimum amount and never
+  expires, and the recipient can redeem the latest voucher alone. The order
+  matters: a voucher signed before the payment settled would stay redeemable if
+  the payment then failed, and the operator would have no way to cancel it. The
+  recipient trusts the operator only for the one payment between settling and
+  signing. Whatever the credit leaf holds is the recipient's on every path the
+  operator can take alone, since an exit or an eviction pays the whole leaf to the
+  recipient's key, so the operator funds it with little more than it has vouched
+  for and tops it up as payments arrive. Plain <code>CLAIM</code> would leave a gap,
   because the operator could sign itself a voucher and drain the leaf first. The
   variant <code>CLAIM^x</code> closes it by also requiring a signature from the
   source leaf's exit key, which is the recipient's, for 8 more bytes of script.
