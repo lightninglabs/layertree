@@ -355,3 +355,72 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 	}
 	return spend, cur, nil
 }
+
+// BuildUpdate builds UPDATE (spec 7.4): replace the leaf at pos with
+// newLeaf, signed by the old leaf's owner and the operator. A decrease is
+// free for the transaction to spend; an increase must come from
+// opts.Inputs. In the sparse profile newLeaf must derive the same position.
+func BuildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
+	opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	return buildUpdate(st, pos, newLeaf, false, opts)
+}
+
+// BuildUpdateX builds UPDATE^x (spec 7.4 rule 5): UPDATE with a third
+// signature, by the old leaf's exit key, in the slot above the operator's.
+func BuildUpdateX(st *TreeState, pos uint64, newLeaf *tree.Leaf,
+	opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	return buildUpdate(st, pos, newLeaf, true, opts)
+}
+
+// buildUpdate is the shared body of BuildUpdate and BuildUpdateX.
+func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
+	exitConsent bool, opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	old := st.Tree.Leaves[pos]
+	if old == nil {
+		return nil, nil, fmt.Errorf("txn: no leaf at position %d", pos)
+	}
+	if err := st.checkPos(pos, newLeaf); err != nil {
+		return nil, nil, err
+	}
+	next := st.Tree.Clone()
+	next.Leaves[pos] = newLeaf
+
+	in := st.Input()
+	path := st.pathWitness(st.Tree.Path(pos, 0), 0)
+	name := "UPDATE"
+	var stack [][]byte
+	if exitConsent {
+		name = "UPDATE_X"
+		stack = UpdateXWitness(
+			path, old, newLeaf, sigPlaceholder(), sigPlaceholder(),
+			sigPlaceholder(), in.RootHash, in.MerkleRoot,
+		)
+	} else {
+		stack = UpdateWitness(
+			path, old, newLeaf, sigPlaceholder(), sigPlaceholder(),
+			in.RootHash, in.MerkleRoot,
+		)
+	}
+
+	// owner_sig and operator_sig follow the two leaves; exit_sig, when
+	// present, sits directly above operator_sig.
+	ownerIdx := len(path) + 2
+	sigs := []SigSlot{
+		{Index: ownerIdx, Key: old.OwnerKey, Role: "owner"},
+		{Index: ownerIdx + 1, Key: st.OperatorKey, Role: "operator"},
+	}
+	if exitConsent {
+		sigs = append(sigs, SigSlot{
+			Index: ownerIdx + 2, Key: old.ExitKey, Role: "exit",
+		})
+	}
+
+	spend, err := finish(st, next, name, nil, stack, sigs, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return spend, next, nil
+}

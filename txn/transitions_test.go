@@ -340,6 +340,38 @@ func joinCases(depth int, sparse bool) []txCase {
 	})
 }
 
+// withAmountSeq is the suite's Leaf.with_amount_seq: a copy of l with a new
+// amount and seq.
+func withAmountSeq(l *tree.Leaf, amount uint64, seq uint32) *tree.Leaf {
+	c := *l
+	c.Amount, c.Seq = amount, seq
+	return &c
+}
+
+// updateCases are UPDATE and UPDATE^x: alice tops her leaf up from 50,000
+// to 80,000 and bumps seq, funded by a second input.
+func updateCases(depth int, sparse bool) []txCase {
+	update := func(x bool) func(w *world) (*Spend, *tree.Tree, error) {
+		return func(w *world) (*Spend, *tree.Tree, error) {
+			alice, _, _, sAlice, _, _ := w.base()
+			alice2 := withAmountSeq(alice, 80_000, 1)
+			opts := &TxOpts{Inputs: w.fee(30_700)}
+			if x {
+				return BuildUpdateX(w.st, sAlice, alice2, opts)
+			}
+			return BuildUpdate(w.st, sAlice, alice2, opts)
+		}
+	}
+	return []txCase{{
+		name: "UPDATE", depth: depth, sparse: sparse,
+		build: update(false),
+	}, {
+		name: "UPDATE_X", depth: depth, sparse: sparse,
+		variants: []string{"UPDATE_X"},
+		build:    update(true),
+	}}
+}
+
 // allCases is every transition at every depth and profile covered.
 func allCases() []txCase {
 	var cases []txCase
@@ -349,6 +381,7 @@ func allCases() []txCase {
 	}{{4, false}, {16, false}, {8, true}} {
 		cases = append(cases, exitCases(p.depth, p.sparse)...)
 		cases = append(cases, joinCases(p.depth, p.sparse)...)
+		cases = append(cases, updateCases(p.depth, p.sparse)...)
 	}
 	return cases
 }
@@ -363,6 +396,8 @@ var pythonSighash = map[string]string{
 	"FULL/D/D16/JOINK_2":            "21255b80d08dc94ba44a9c224a49702db0e08ecfebfb42607c80568f69bc87d4",
 	"FULL/D/D16/JOIN_0":             "0262562a1214a0335dda0ee74470d80ba9993c92ab23bfcdc78e000d5d88d732",
 	"FULL/D/D16/JOIN_2":             "e9335a1d92ebed3017335a2f3aaf050f29fd0d382e1ff05b78a44519a136c295",
+	"FULL/D/D16/UPDATE":             "cb13ed17059bb73f2f8ed6cb234ddb030010c961cfdd9ca6ddd2e6bb6e999b64",
+	"FULL/D/D16/UPDATE_X":           "56bf2aa99754a67139c025c1a6a60e4982fa9d8d97c839ed5d83fb138e8d6603",
 	"FULL/D/D4/EXIT_1 evict":        "e0e0e3cb177cf844cd8469b459ec1d9ac94dc0502f3f454b6352a715eda54e6c",
 	"FULL/D/D4/EXIT_1 owner":        "510bd24c7d848faa9172be058fb018ecce260ce4cb0795470c50ecb9ab6dec23",
 	"FULL/D/D4/EXIT_1 terminal":     "ea05448dd87f911ea0d2d705f4c8b882b6eeb3d1f30db2fd955dbb9bc76733d8",
@@ -370,12 +405,16 @@ var pythonSighash = map[string]string{
 	"FULL/D/D4/JOINK_2":             "db5dd9c44b0d28171080ecb7d5d69d1374bc10152016203f64530be9dec75f4b",
 	"FULL/D/D4/JOIN_0":              "aebb00edb4dd482df4715a61c64a3aa01c11b45176b6f61f6b0cac45b5756377",
 	"FULL/D/D4/JOIN_2":              "8a71422e21bb636a9738821d265df2c9c466d7f3ecc10b5c45fd9bf339d3c147",
+	"FULL/D/D4/UPDATE":              "42d9710a0fc094c3f0017806a7527beb63c65c1e241875deffc8c10cfca1d54f",
+	"FULL/D/D4/UPDATE_X":            "d4a147a9e9f5bd1130b61bf95a10fec51b818c036e2eb5ce10a1bd1375916c07",
 	"FULL/S/D8/EXIT_1 evict":        "10fdfcec310f6b26c5df5a677d2b22cbd1cd3fa9e8501965b2c4acbf18cad9f2",
 	"FULL/S/D8/EXIT_1 owner":        "15e749e2dc8452e4ea8afe76c4fe9f3e66f17ff1396a90629b69084c27807f64",
 	"FULL/S/D8/EXIT_1 terminal":     "d24aec9d575201584c1348dc3e027b201eef60f27e7886e8615aa374593c352e",
 	"FULL/S/D8/EXIT_2 owner+evict":  "2d7b226c2a86f89d53be35e62327fc40ae5b67b963eae05dd4770efe3ebd99ed",
 	"FULL/S/D8/JOINK_2":             "d42bb153448e06826b82079beb096239f59f67d5ae4cf215f3a014b9025cb9dd",
 	"FULL/S/D8/JOIN_0":              "0492b7c416f5175d3b2e10a0c93504f7fc3efe5f22626606c95975b237dcef11",
+	"FULL/S/D8/UPDATE":              "a1f4a14400dc49036b986eafb8d409a110a84d8673ef75bee8ce2b446a21b82d",
+	"FULL/S/D8/UPDATE_X":            "8356821d3d5fc60b0ea3093978a74d02e453152db71f740f1e76bec24abad399",
 }
 
 // dumpCase is one case as LAYERTREE_TXN_DUMP writes it.
@@ -671,6 +710,16 @@ func TestBuilderRejects(t *testing.T) {
 			_, _, err := BuildJoinK(w.st, []PlacedLeaf{
 				{Pos: 12, Leaf: hank}, {Pos: 12, Leaf: ivy},
 			}, &TxOpts{Inputs: w.fee(30_000)})
+			return err
+		},
+	}, {
+		name: "sparse update that moves the leaf", sparse: true,
+		build: func(w *world) error {
+			alice, _, _, sAlice, _, _ := w.base()
+			moved := withAmountSeq(alice, 80_000, 1)
+			moved.Nonce++
+			_, _, err := BuildUpdate(w.st, sAlice, moved,
+				&TxOpts{Inputs: w.fee(30_700)})
 			return err
 		},
 	}, {
