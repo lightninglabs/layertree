@@ -40,10 +40,39 @@ with numbers.
 
 ## In flight right now
 
-- Zoom-out discussion with the owner on the batching open questions and
-  on what is not implemented, before any new build starts.
-- TeX works on this machine (see `layertree-tex-build` in memory):
-  `PATH=$HOME/bin:/Library/TeX/texbin:$PATH make` in paper/.
+Six workers, each in its own worktree, partitioned by file so they can be
+integrated one at a time (each commits on its branch, never pushes; the
+orchestrator merges into main, regenerates golden and listings, runs the
+matrix, resolves the shared count lines in 4.5, 14, CLAUDE.md, status):
+
+- A (Fable): FULL tier `CLAIM^x`, the issue-112 regression test,
+  `REWRITE_h` with the leaf-to-`E_0` payout rule (spec 7.9), `DETACH_h`
+  (spec 7.10, 10.5 throughput note); spec to 0.9.0. Owns
+  `layertree_scripts.py`, `test_scripts.py`, `script/full.go`,
+  `spec/layertree.md`.
+- B (Opus): MID `EVICT_SUBTREE_h`; CCV `0xC0` `SPLIT` and sweep; CCV
+  `CLAIM`/`CLAIM^h` via a per-tree `tree_id` constant in the voucher
+  message (CCV-only, with a recommendation on unifying). Owns the MID and
+  CCV generators and tests, `script/mid.go`, `script/ccv.go`, 4.6.
+- C (Fable): Lean steps for the sweep, the terminal exit, sparse
+  positions, `REWRITE_h` and a two-output `DETACH_h`. Owns `formal/`.
+- D (Opus): Go end-to-end build, sign and verify for every transition in
+  `txn/`. Owns `txn/`.
+- E (Opus): Appendix C executable (`tools/layertree_chan.py`,
+  `tools/test_chan.py`, `script/chan.go`), TLV channel messages in
+  `msg/`, Appendix C test section. Owns `spec/channel-leaves.md`, `msg/`.
+- G (Opus): paper four-tier wording, `\fullversion` toggle with
+  `main.pdf` and `main-full.pdf`, design-page content lifted into the
+  full version. Owns `paper/`, `tools/gen_cost_figures.py`. Reviewer
+  profiles run after the builds land.
+
+Integration order when they report: C (no overlap), D (no overlap), E,
+A, B (A and B both touch 4.5, 14, golden.json), then a numbers
+reconciliation commit, then G, then the reviewer pass on the paper.
+
+Out of this round, by size, and said so to the owner: the P model
+(issue #1), a regtest harness (needs the opcodes in a node), and a
+verified tapscript interpreter.
 
 ## Next, in order
 
