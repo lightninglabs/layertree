@@ -128,6 +128,14 @@ with numbers.
   CLAUDE.md, builds the PDFs, pushes after each merge. After the round:
   triage the audits, spawn fix workers for confirmed findings, then open
   work 9 (cohort transitions beyond FULL).
+  E landed first (merge of 0649248, PDF twins 007392b). Its findings,
+  forwarded to A and D: prefix overhead per EXIT_1 is 10.5 / 10.0 vB in
+  FULL / CCV but 42.5 / 44.75 in MID / MIN; spec 11 REWRITE table and
+  depth-8 EXIT_1 (765) disagree with the model (359/195/158, 144, 762);
+  spec 11 sweep rows mix bases; paper UPDATE 1,030 vs 1,073, graft 614
+  vs 657, sparse lifetime row. Still to fix by the orchestrator after
+  C2 lands: sizes.md's `EXIT_1 (terminal)` rows report 0 witness bytes
+  (test_scripts.py records 0; real witness 901 B dense, 244 B sparse).
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
