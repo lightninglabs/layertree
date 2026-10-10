@@ -24,6 +24,7 @@ open LayerTree
 #print axioms update_sound
 #print axioms claim_sound
 #print axioms witness_root_binds
+#print axioms ccv_input_binds
 #print axioms Encoding.serializeLeaf_inj
 #print axioms Encoding.serializeNode_inj
 #print axioms Encoding.enc64_eq_minimal

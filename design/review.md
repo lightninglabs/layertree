@@ -354,6 +354,74 @@ separation) and a `TREE_SPK` injectivity hypothesis; the tapscript bytecode
 is deliberately outside it and stays covered by the simulator, the golden
 vectors and the Go cross-checks.
 
+### F19. The CCV tier: what changed and what did not
+
+BIP-443 `OP_CHECKCONTRACTVERIFY` (issue #3) replaces every taproot-key
+binding of the FULL tier with a native opcode call, in a fourth
+tree-creation choice (spec 4.6). What changed:
+
+* The state key is the BIP-443 data tweak of `NUMS` by the root hash
+  (untagged `sha256(NUMS || r)`, then the ordinary TapTweak), so a CCV
+  tree and a FULL tree with the same root have different scriptPubKeys;
+  the tier is a tree-creation parameter, and `tools/layertree_ref.py`
+  grows `ccv_internal_key` / `tree_spk_ccv` beside the originals.
+* `r` and `m` leave the witness entirely: `CHECK_INPUT` with the `-1`
+  taptree operand binds the old root to the input under the input's own
+  script set, which is 10.4's whole argument made a opcode semantic
+  (F4's conclusion, native).
+* The EC ops draft and `OP_TWEAKADD` drop out of the tier's dependency
+  list. Measured at dense `D = 16`: `EXIT_1` 1,716 / 838 bytes of
+  script / witness (FULL: 2,101 / 902), `JOIN_2` 1,456 / 679, `UPDATE`
+  1,752 / 1,016.
+
+What did not change, and why:
+
+* **Amount reads remain necessary.** CCV ties amounts to the input's
+  amount, not to script-computed values, so a sum tree still needs one
+  `OP_TX` read per constrained amount: `out0.amount == ns` (rule 5),
+  `payout == leaf.amount`. CCV removes the key arithmetic, not the
+  introspection.
+* **The input-amount equality stays.** The first cut of the tier dropped
+  `os == input amount`, planning to lean on the opcode's residual
+  bookkeeping; execution showed that keeping it costs one `OP_TX` read
+  and makes the tier's amount semantics identical to every other tier,
+  so it was restored.
+* **Output 0 uses the assign mode, not DEDUCT.** DEDUCT would pin
+  output 0 to the tree input's own amount and make every value-adding
+  transition (a JOIN, a funded UPDATE) unspendable: the residual of the
+  tree input alone cannot cover the new root's sum. The assign mode's
+  floor plus the numeric equality keeps rule 5 exact and lets the
+  joiner's funds arrive above the floor.
+* **Payouts are exact.** With assign-on-output-0, a payout short of
+  `leaf.amount` strands its difference in the residual and forces
+  output 0 above `ns`, breaking rule 5; so the tier takes the MID/MIN
+  trade (exact payouts, exogenous fees) rather than FULL's
+  fee-from-payout option.
+* **CLAIM and CLAIM^h are out, for now.** The voucher message binds `m`,
+  which the CCV witness no longer carries and which BIP-443 exposes only
+  as an operand special value, never as a stack item; vouchers need a
+  redefined message that still separates trees (dropping `m` alone would
+  let a voucher replay across two trees sharing an owner key) and stay
+  the tier's follow-up. The tier does not assume `OP_CHECKSIGFROMSTACK`
+  either. `CLAIM^h` signs the same message plus the payment hash.
+* **SPLIT is in.** It is authorised by the source owner's transaction
+  signature, which commits to the spent scriptPubKey without naming `m`,
+  so the FULL carve body carries over with only the binding swapped:
+  dense `D = 16` 3,338 / 1,610 against FULL's 3,728 / 1,674. A CCV tree
+  thus keeps member-to-member payment without vouchers. `UPDATE^x` is
+  measured in both numerics (dense `D = 16` 1,759 / 1,080 in `0xC2`).
+* **Two tree inputs cannot share output 0.** Every call names the current
+  input, so two trees in different states cannot meet; two inputs with
+  the same state are stopped by BIP-443's per-output minimum, which
+  accumulates both residuals while `out0 == ns` allows only one. The
+  BIP-443 amount rules this depends on are pinned in spec 4.1 [A-6]
+  against a named commit of the BIP and tested one by one.
+* The fold, the chained-step consistency checks, sparse position
+  derivation and the authorisation are the FULL tier's, byte for byte;
+  the Lean model's `Binding.lean` builds the CCV state key as
+  `CCVTweak.binding`, a second `BindingModel` whose injectivity is
+  proved from the two tweak stages (data tweak, then TapTweak).
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):

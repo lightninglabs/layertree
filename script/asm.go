@@ -46,6 +46,17 @@ const (
 	OP_TWEAKADD          = 0xc0 // BIP-449 says "0xBE or TBD"; PLACEHOLDER
 	OP_INTERNALKEY       = 0xcb // BIP-349
 	OP_CHECKSIGFROMSTACK = 0xcc // BIP-348
+	// BIP-443 OP_CHECKCONTRACTVERIFY redefines OP_SUCCESS187 (0xbb), which
+	// the EC ops draft also claims (spec 4.1 [A-4]); 0xc1 is a PLACEHOLDER
+	// to keep the two apart, mirroring tools/script_sim.py.
+	OP_CHECKCONTRACTVERIFY = 0xc1
+)
+
+// CCV operand special values (BIP-443): raw byte patterns, identical in
+// every tapleaf version. 0x81 is the minimal CScriptNum encoding of -1.
+var (
+	ccvMinus1 = []byte{0x81}
+	ccvEmpty  = []byte{}
 )
 
 // OP_TX selectors (spec 8.1).

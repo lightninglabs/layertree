@@ -44,6 +44,11 @@ OPS = {
     # BIP-449 OP_TWEAKADD ("0xBE or TBD"); 0xc0 PLACEHOLDER here to avoid the
     # collision with OP_EC_POINT_X_COORD.
     "OP_TWEAKADD": 0xc0, "OP_BOOLOR": 0x9b, "OP_BOOLAND": 0x9a, "OP_1NEGATE": 0x4f,
+    # BIP-443 OP_CHECKCONTRACTVERIFY redefines OP_SUCCESS187 (0xbb), which
+    # the EC ops draft also claims (see [A-4]); 0xc1 is a PLACEHOLDER here to
+    # keep the two apart inside the simulator. The real opcode number does not
+    # affect the design (any single byte works identically).
+    "OP_CHECKCONTRACTVERIFY": 0xc1,
 }
 for i in range(1, 17):
     OPS[f"OP_{i}"] = 0x50 + i
@@ -53,6 +58,20 @@ SIGCHECK_COST = 500_000
 # EC ops draft BIP: sigops-budget units where OP_CHECKSIG is 50; BIP-440 makes
 # a sigcheck 500,000 varops, i.e. 10,000 varops per sigops unit.
 EC_ADD_COST, EC_MUL_COST, EC_NEG_COST, EC_X_COST = 100_000, 300_000, 50_000, 10_000
+# BIP-443 OP_CHECKCONTRACTVERIFY. The BIP's sigops-budget accounting is TODO
+# upstream; the simulator charges one signature check (500,000 varops) per call,
+# the cost of the taproot tweaks it performs (spec section 4.1 [A-6]).
+CCV_COST = 500_000
+# CCV modes (BIP-443: minimally encoded integers).
+CCV_MODE_CHECK_INPUT = -1
+CCV_MODE_CHECK_OUTPUT = 0
+CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT = 1
+CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT = 2
+# Raw byte patterns of the special values (matched on bytes, not on decoded
+# numbers, so they work identically in 0xC2 and 0xC0 numerics). 0x81 is the
+# minimal CScriptNum encoding of -1; 0x51..0x60 are OP_1..OP_16.
+CCV_MINUS1 = b"\x81"
+CCV_ZERO = b""
 
 
 def num_encode(n):
@@ -70,6 +89,11 @@ def num_decode(b):
 
 def wordspan(n):
     return ((n + 7) // 8) * 8
+
+
+class _CcvSuccess(Exception):
+    """Internal: a CCV call with an undefined mode; the input's script is
+    unconditionally valid (BIP-443: OP_SUCCESSx semantics)."""
 
 
 class ScriptError(Exception):
@@ -193,7 +217,8 @@ class TxContext:
     """
 
     def __init__(self, inputs, outputs, locktime=0, input_index=0, sequences=None,
-                 prevouts=None, version=2, tapleaf_hash=bytes(32)):
+                 prevouts=None, version=2, tapleaf_hash=bytes(32),
+                 internal_key=None, taptree_root=None):
         # inputs: list of (amount, scriptPubKey); outputs: list of (amount, scriptPubKey)
         self.inputs, self.outputs = inputs, outputs
         self.locktime, self.input_index = locktime, input_index
@@ -201,6 +226,35 @@ class TxContext:
         self.prevouts = prevouts or [(hashlib.sha256(b"prevout%d" % i).digest(), i) for i in range(len(inputs))]
         self.version = version
         self.tapleaf_hash = tapleaf_hash
+        # BIP-443 OP_CHECKCONTRACTVERIFY needs the current input's taproot
+        # internal key and taptree Merkle root (the special values -1), and
+        # transaction-wide amount state shared by every input's script.
+        # internal_key is the 32-byte x-only internal key of the input being
+        # spent (key-path spends have no taptree; the None default keeps
+        # every existing caller unchanged and fails loudly if a CCV script
+        # reaches for the special values without the caller supplying them).
+        self.internal_key = internal_key
+        self.taptree_root = taptree_root
+        self.ccv_reset()  # tx-wide init: output_min_amount = [0] * n_outputs etc.
+
+    def ccv_reset(self):
+        """Transaction-wide CCV initialization (BIP-443): the three arrays.
+
+        Called from __init__ (a fresh TxContext is a fresh transaction) and
+        by tests that reuse a TxContext across multiple inputs' scripts.
+        """
+        n = len(self.outputs)
+        self.ccv_min_amount = [0] * n
+        self.ccv_checked_default = [False] * n
+        self.ccv_checked_deduct = [False] * n
+
+    def ccv_input_init(self, index):
+        """Per-input CCV initialization: residual = this input's amount.
+
+        BIP-443 runs this at the beginning of each input's script
+        # evaluation. The Interp.run() entry point calls it.
+        """
+        self.ccv_residual = self.inputs[index][0]
 
     # BIP-341 intermediate hashes
     def sha_prevouts(self):
@@ -317,8 +371,12 @@ class Interp:
             raise ScriptError("varops budget exceeded")
 
     def run(self, script, stack):
+        self._ccv_success = False
+        self.ctx.ccv_input_init(self.ctx.input_index)  # BIP-443 per-input init
         try:
             return self._run(script, stack)
+        except _CcvSuccess:
+            return True  # undefined CCV mode: script succeeds unconditionally
         except ScriptError as e:
             tr = getattr(self, "_trace", None)
             if tr:
@@ -643,6 +701,8 @@ class Interp:
                 pushv(bytes(x & (b[i] if i < len(b) else 0) for i, x in enumerate(a)))
             elif name == "OP_TX":
                 self.op_tx(st, pop, popn, pushv)
+            elif name == "OP_CHECKCONTRACTVERIFY":
+                self.op_ccv(st, pop, pushv)
             else:
                 raise ScriptError(f"unimplemented {name}")
         if cond:
@@ -726,3 +786,129 @@ class Interp:
         for o in outs:
             self.charge(len(o) * 2)
             pushv(o)
+
+    def op_ccv(self, st, pop, pushv):
+        """OP_CHECKCONTRACTVERIFY (BIP-443), pinned as spec section 4.1 [A-6].
+
+        Stack (bottom..top): <data> <index> <pk> <taptree> <mode>; the BIP
+        pops all five. The parameters are matched on their raw byte
+        patterns, so the special values work identically under 0xC2 and
+        0xC0 numerics: 0x81 is the minimal CScriptNum -1 everywhere.
+        """
+        ctx = self.ctx
+        self.charge(CCV_COST)
+        mode = pop()
+        taptree = pop()
+        pk = pop()
+        index = pop()
+        data = pop()
+
+        # Mode is a minimally encoded integer; any value outside -1..2 is
+        # OP_SUCCESSx (the script unconditionally succeeds). Model it as
+        # "drop the five operands and succeed" by pushing 1: the caller
+        # treats a non-empty stack top as success.
+        def num_of(b):
+            # Minimal CScriptNum decode (BIP-443 pins minimal encoding for
+            # mode and index; reject non-minimal with the 0xC0 decoder).
+            return scriptnum_decode(b, 4)
+        try:
+            mval = num_of(mode)
+        except ScriptError:
+            raise ScriptError("CCV: non-minimal mode operand")
+        if not (CCV_MODE_CHECK_INPUT <= mval <= CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT):
+            # Undefined mode: the opcode is OP_SUCCESSx for this input, the
+            # script unconditionally succeeds. Mark the whole run as such;
+            # the interpreter stops and accepts.
+            self._ccv_success = True
+            raise _CcvSuccess()
+
+        # Index: -1 (0x81) or a minimally encoded non-negative integer.
+        if index == CCV_MINUS1:
+            idx = ctx.input_index
+        else:
+            idx = num_of(index)
+            if idx < 0:
+                raise ScriptError("CCV: negative index")
+
+        # Taptree: 0x81 = current input's taptree; empty = no taptweak;
+        # 32 bytes = a Merkle root. Anything else fails.
+        if taptree == CCV_MINUS1:
+            if ctx.taptree_root is None:
+                raise ScriptError("CCV: input taptree not modelled")
+            taptree = ctx.taptree_root
+        elif taptree == b"":
+            pass
+        elif len(taptree) == 32:
+            pass
+        else:
+            raise ScriptError("CCV: invalid taptree operand")
+
+        # Naked key: empty = NUMS (BIP-341 H); 0x81 = current input
+        # internal key; 32 bytes = an x-only key. Anything else fails.
+        if pk == b"":
+            naked = lt.NUMS_X
+        elif pk == CCV_MINUS1:
+            if ctx.internal_key is None:
+                raise ScriptError("CCV: input internal key not modelled")
+            naked = ctx.internal_key
+        elif len(pk) == 32:
+            naked = pk
+        else:
+            raise ScriptError("CCV: invalid pk operand")
+
+        # tweak_embed_data: empty data returns the pubkey unchanged (no
+        # data tweak at all); otherwise the tweak is sha256(pk||data),
+        # untagged, per BIP-443.
+        if data != b"":
+            t = int.from_bytes(lt.sha256(naked + data), "big")
+            if t >= lt.N:
+                raise ScriptError("CCV: data tweak >= n")
+            P = lt.lift_x(int.from_bytes(naked, "big"))
+            if P is None:
+                raise ScriptError("CCV: naked key has no curve point")
+            Q = lt.point_add(P, lt.point_mul(lt.G, t))
+            internal_key = lt.xonly(Q)
+        else:
+            internal_key = naked
+
+        # TapTweak (tagged, BIP-341) unless the taptree operand is empty.
+        if taptree != b"":
+            t2 = int.from_bytes(lt.tagged_hash("TapTweak", internal_key + taptree), "big")
+            P2 = lt.lift_x(int.from_bytes(internal_key, "big"))
+            if P2 is None:
+                raise ScriptError("CCV: internal key has no curve point")
+            Q2 = lt.point_add(P2, lt.point_mul(lt.G, t2))
+            final_key = lt.xonly(Q2)
+        else:
+            final_key = internal_key
+        target_spk = bytes([0x51, 0x20]) + final_key
+
+        # Bound checks and target scriptPubKey comparison.
+        if mval == CCV_MODE_CHECK_INPUT:
+            if idx < 0 or idx >= len(ctx.inputs):
+                raise ScriptError("CCV: input index out of bounds")
+            target = ctx.inputs[idx][1]
+        else:
+            if idx < 0 or idx >= len(ctx.outputs):
+                raise ScriptError("CCV: output index out of bounds")
+            target = ctx.outputs[idx][1]
+            # Amount semantics (deferred state on the TxContext).
+            out_amt = ctx.outputs[idx][0]
+            if mval == CCV_MODE_CHECK_OUTPUT:
+                if ctx.ccv_checked_deduct[idx]:
+                    raise ScriptError("CCV: default after deduct on same output")
+                ctx.ccv_min_amount[idx] += ctx.ccv_residual
+                ctx.ccv_residual = 0
+                if out_amt < ctx.ccv_min_amount[idx]:
+                    raise ScriptError("CCV: output below assigned amount")
+                ctx.ccv_checked_default[idx] = True
+            elif mval == CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT:
+                if ctx.ccv_residual < out_amt:
+                    raise ScriptError("CCV: residual below deducted amount")
+                if ctx.ccv_checked_default[idx] or ctx.ccv_checked_deduct[idx]:
+                    raise ScriptError("CCV: duplicate deduct / default+deduct mix")
+                ctx.ccv_residual -= out_amt
+                ctx.ccv_checked_deduct[idx] = True
+            # CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT: no amount bookkeeping.
+        if target != target_spk:
+            raise ScriptError("CCV: target scriptPubKey mismatch")

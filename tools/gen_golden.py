@@ -38,6 +38,15 @@ for name, toks in M.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(
 for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,)).items():
     add("MID", "S", 8, name, toks, "c0")
 add("MIN", "D", 4, "EXIT_1", N.exit_script(4), "c0")
+import layertree_ccv as CV  # noqa: E402
+for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
+    add("CCV", "D", 4, name, toks, "c2")
+add("CCV", "D", 4, "EVICT_SUBTREE_2", CV.evict_subtree_script_ccv(4, 2, OP_KEY), "c2")
+add("CCV", "D", 16, "EXIT_1", CV.exit_script_ccv(16, 1, "D"), "c2")
+for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
+    add("CCV", "S", 8, name, toks, "c2")
+add("CCV", "S", 8, "UPDATE_X", CV.update_script_ccv(8, OP_KEY, "S", exit_consent=True), "c2")
+add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
 # CLAIM^h the hash-locked voucher (7.5.1), and SPLIT the owner-authorised
@@ -57,6 +66,8 @@ add("FULL", "S", 8, "SPLIT", F.split_script(8, "S"), "c2")
 add("MID", "D", 4, "SPLIT", M.split_script(4, False), "c0")
 add("MID", "S", 8, "SPLIT", M.split_script(8, True), "c0")
 add("MIN", "D", 4, "SPLIT", N.split_script(4), "c0")
+add("CCV", "D", 4, "SPLIT", CV.split_script_ccv(4, "D"), "c2")
+add("CCV", "S", 8, "SPLIT", CV.split_script_ccv(8, "S"), "c2")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

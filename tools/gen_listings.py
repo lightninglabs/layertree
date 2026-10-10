@@ -151,6 +151,39 @@ with open(os.path.join(OUT, "LEVEL.txt"), "a") as f:
     f.write("\n")
     f.write(listing("PADZ gadget: [x z w] -> [le32(x)]", LM.padz()))
 
+# ---- CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY; spec 4.6) ----
+import layertree_ccv as CV  # noqa: E402
+import test_ccv  # noqa: E402
+for d, prof in ((16, "D"), (32, "S")):
+    costs = test_ccv.test_all(d, prof, verbose=False)
+    for k, (it, sl, wl) in costs.items():
+        rows.append(("CCV/" + prof, d, k, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+    for k, fn in (("UPDATE_X", test_ccv.test_update_x_ccv), ("SPLIT", test_ccv.test_split_ccv)):
+        it, sl, wl = fn(d, prof)
+        rows.append(("CCV/" + prof, d, k, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+for d, prof in ((16, "D"), (31, "S")):
+    costs = test_ccv.test_c0(d, prof)
+    for k, (it, sl, wl) in costs.items():
+        rows.append(("CCV-c0/" + prof, d, k, sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
+    with open(os.path.join(OUT, f"CCV_{name}_D4.txt"), "w") as f:
+        f.write(listing(f"{name} (CCV tier, dense, D=4)", toks))
+for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
+    with open(os.path.join(OUT, f"CCV_{name}_S8.txt"), "w") as f:
+        f.write(listing(f"{name} (CCV tier, sparse, D=8)", toks))
+with open(os.path.join(OUT, "CCV_UPDATE_X_D4.txt"), "w") as f:
+    f.write(listing("UPDATE_X (CCV tier, dense, D=4)",
+                    CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True)))
+with open(os.path.join(OUT, "CCV_SPLIT_D4.txt"), "w") as f:
+    f.write(listing("SPLIT (CCV tier, owner-authorised carve, dense, D=4)",
+                    CV.split_script_ccv(4, "D")))
+with open(os.path.join(OUT, "CCV_LEVEL.txt"), "w") as f:
+    f.write(listing("CCV_CHECK_INPUT macro ([data] -> []): BIP-443 CHECK_INPUT on the current input", CV.ccv_check_input()))
+    f.write("\n")
+    f.write(listing("CCV_TREE_OUTPUT macro ([data] -> []): BIP-443 CHECK_OUTPUT assign on output 0", CV.ccv_tree_output(0)))
+    f.write("\n")
+    f.write(listing("CCV_PAYOUT macro ([leaf] -> [leaf]): BIP-443 CHECK_OUTPUT|DEDUCT on the exit key", CV.ccv_payout_fixed(1)))
+
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
     f.write("add 41 bytes per additional non-empty sibling (about log2 N in total).\n\n")
