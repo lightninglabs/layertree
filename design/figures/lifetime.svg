@@ -220,8 +220,8 @@ z
    </g>
    <g id="patch_15">
     <path d="M 28.8 305.28 
-L 66.058971 305.28 
-L 66.058971 316.8 
+L 104.239543 305.28 
+L 104.239543 316.8 
 L 28.8 316.8 
 z
 " clip-path="url(#pbfba968cba)" style="fill: #1baf7a"/>
@@ -293,7 +293,7 @@ L 28.8 86.4
     <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="464.767086" y="300.127444" transform="rotate(-0 464.767086 300.127444)">3,281</text>
    </g>
    <g id="text_24">
-    <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="70.058971" y="313.087444" transform="rotate(-0 70.058971 313.087444)">283</text>
+    <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="108.239543" y="313.087444" transform="rotate(-0 108.239543 313.087444)">573</text>
    </g>
    <g id="text_25">
     <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="369.052343" y="326.047444" transform="rotate(-0 369.052343 326.047444)">2,554</text>

@@ -89,10 +89,34 @@ the taptree carries a few heights, not a script per subset. This shape
 was not built on its own: it is the exit-only case of `REWRITE_h` below
 (every position's new element is `E_0`), and the measured figures are
 that case's. At `D = 16`, with every position leaving, `REWRITE_2/4/6`
-cost about 370, 198 and 159 vbytes per leaf [the estimates from the
+cost about 359, 195 and 158 vbytes per leaf [the estimates from the
 sweep's sizes were 353, 222 and 177 at the sweep's occupancies]. Sixty
 four owners who coordinate therefore pay what the operator pays to sweep
 them (158), instead of 6.5 times.
+
+![Per-leaf cost against cohort size](figures/cohort-cost.svg)
+
+The figure plots the cost per leaf removed against the number of leaves
+removed in one transaction, for the three ways out at `D = 16`. Owners
+who leave one by one pay 1,020 vbytes for `EXIT_1`, and batching them in
+`EXIT_K` brings the average down to 842 at two exits and towards 665,
+the marginal cost of each further exit, but never below it, because each
+leaf still carries its whole path. The rewrite line starts below that
+floor: `REWRITE_2` is 359 vbytes per leaf at four leaves. Fitting the
+three rewrite points as a fixed part plus a per-leaf part gives about
+860 vbytes fixed and 145 per leaf, so the rewrite line crosses the
+`EXIT_K` marginal near two leaves and the single exit near one; every
+height the taptree carries is cheaper per leaf than any `EXIT_K`. At
+the same height the operator's sweep costs more per leaf than the
+rewrite (432 against 359 at `h = 2`, 203 against 195 at `h = 4`),
+because the measured sweeps leave three of every sixteen positions empty
+and still publish them, so a sweep of a given height removes fewer
+leaves. Plotted against leaves removed, the two lines cross near eight
+leaves at about 270 vbytes per leaf: below that the rewrite is cheaper,
+above it the sweep is a few vbytes cheaper per leaf for the same count,
+and at `h = 6` the two meet at 158. Neither reaches a bare spend's 111:
+the leaf's bytes, its signature, its payout output and its share of the
+unrolled step stay.
 
 The Lean model covers it as it stands: the shape is one `Step` whose old
 node is a published subtree and whose new node is that subtree with
@@ -143,9 +167,9 @@ copies, about 117 vbytes, whether or not it changes [the estimate was
 57]; an owner signature adds 16 vbytes and an exit adds its 43-byte
 output and drops the new leaf, so a changed leaf costs about 133 vbytes
 and an exiting one about 147. Over a whole transaction a 64-leaf cohort
-that rewrites every balance pays about 145 vbytes per leaf, against
+that rewrites every balance pays about 144 vbytes per leaf, against
 1,073 for an `UPDATE` each [the estimate was 120], and one that leaves
-together pays 159 per leaf, the same as the operator's sweep. The
+together pays 158 per leaf, the same as the operator's sweep. The
 unchanged position is more expensive than estimated because it is
 published twice, as old and new element, and because its `REWRITE_STEP`
 (the four-way branch, the amount-only test and two `ELEM_NODE`s) is
@@ -216,9 +240,9 @@ tree. Every later exit from the cohort pays `h` levels instead of `D`,
 and the `D − h` upper levels were proven exactly once, by the detach.
 Measured at `D = 16` and `h = 8` (spec 7.10, 8.10, 11): the detach is
 1,548 bytes of script and 497 of witness, about 780 vbytes [estimated
-815], and each subsequent exit costs the depth-8 figure of 765 vbytes
-instead of 1,020 [estimated 762], so it pays for itself at the fourth
-exit [estimated the third]; a cohort of 256 that all leave alone saves
+815], and each subsequent exit costs the depth-8 figure of 762 vbytes
+instead of 1,020, so it pays for itself at the fourth exit [estimated
+the third]; a cohort of 256 that all leave alone saves
 about a quarter. The test suite shows a member's old path truncated to
 its lower eight levels is the detached tree's own path and that an
 `EXIT_1` from the detached tree succeeds with it.
@@ -270,9 +294,9 @@ detached node. Both are small.
 |---|---|---|---|
 | `EXIT_K` | each owner | 842 average at `K = 2` | measured |
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
-| `EXIT_SUBTREE_h` | each exiting owner | 159 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
-| `REWRITE_h` | each changed owner, operator | 145 per changed leaf at 64 leaves (update); 117 per unchanged position | measured; spec 7.9 |
-| `DETACH_h` then exits at depth `h` | operator, then each owner | 765 per exit after about 780 once | measured; spec 7.10 |
+| `EXIT_SUBTREE_h` | each exiting owner | 158 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
+| `REWRITE_h` | each changed owner, operator | 144 per changed leaf at 64 leaves (update); 117 per unchanged position | measured; spec 7.9 |
+| `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 780 once | measured; spec 7.10 |
 
 What the two new shapes have in common is that they reuse the existing
 machinery: `REWRITE_h` is the post-order fold of `EVICT_SUBTREE_h` run
