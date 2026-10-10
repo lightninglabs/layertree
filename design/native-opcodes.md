@@ -53,7 +53,7 @@ node  := hash(32) || sum(le64)                     40 bytes
 proof := depth(u8)
       || position(⌈depth/8⌉ bytes, big-endian, MSB = the top level)
       || bitmap(⌈depth/8⌉ bytes, bit k = a supplied sibling at level k)
-      || siblings: one node per set bit, deepest level first
+      || siblings: one node per set bit, deepest level (k = 0) first
 ```
 
 Per level k from the leaf up: the sibling is the next supplied node if
@@ -62,7 +62,11 @@ spec's parent rule; consensus may precompute the chain); position bit k
 gives the side; the parent is the spec's node hash — `H_node` over
 `left.hash || enc64(left.sum) || right.hash || enc64(right.sum)` — with
 the sums added. Fail on sum overflow past `2^64`, `depth` 0 or > 64, a
-malformed proof, or leftover sibling bytes. The old and new node fold in
+malformed proof, leftover sibling bytes, a position or bitmap bit above
+`depth`, or a supplied sibling equal to `E_k`. The last two make the
+encoding canonical: the witness is not covered by the signature hash, so
+without them a relay could un-compress a spender's proof and inflate its
+weight. The old and new node fold in
 one pass over the same path; `new_node == old_node` degenerates to
 verification. Cost: `2 * depth` node hashes, charged as BIP-440 varops
 (the wordspan of an 82-byte preimage per hash).
@@ -71,8 +75,10 @@ The reference implementation is `op_msu` in `tools/script_sim.py`
 (behind `hypothetical=True`); the semantics above are what it executes,
 and `tools/test_msu.py`'s unit tests pin them (proof round-trips against
 `layertree_ref`, the compressed and full encodings, the degeneracy, the
-guard, wrong position bits, bitmap mismatches, leftover bytes, depth
-bounds, overflow).
+guard, wrong position bits, bitmap mismatches, an explicitly supplied
+empty sibling, bits above the depth, leftover bytes, depth bounds,
+overflow), and a quarantine test checks that the opcode is in no tier's
+allowed set, no tier generator's output and no golden script.
 
 ### Why the sums must stay in the nodes
 
@@ -158,8 +164,8 @@ chained calls; `EVICT_SUBTREE_h` needs the subtree root from its
 ## Reproducing
 
 ```
-python3 tools/test_msu.py      # 47 checks: opcode units + scripts
-python3 tools/test_ccv.py      # the CCV tier (part 1), 139 checks
+python3 tools/test_msu.py      # 61 checks: opcode units, quarantine, scripts
+python3 tools/test_ccv.py      # the CCV tier (part 1), 309 checks
 ```
 
 The MSU scripts are excluded from the tier matrix (spec 4.5), from

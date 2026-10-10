@@ -23,7 +23,7 @@ conclusions):
   cap do not exist in these scripts.
 * One MSU call per transition replaces the D unrolled LEVEL macros: the
   witness supplies the compressed proof (one sibling per non-empty
-  level, deepest first, bitmap-marked), and the opcode folds the old
+  level, deepest level first, bitmap-marked, canonical), and the opcode folds the old
   and new node over the same path in one pass.
 * The binding is the CCV tier's (tools/layertree_ccv.py): CHECK_INPUT
   binds the old root to the input under the input's own taptree,
@@ -77,10 +77,8 @@ def node_from_leaf():
       DUP TOALT            -> [proof leaf]       | leaf
       DUP 8 LEFT TOALT     -> [proof leaf]      | amt8 leaf
       TAG SWAP CAT SHA256  -> [proof Hleaf]     | amt8 leaf
-      FROMALT CAT          -> [proof Hleaf amt8] | leaf ... wrong: FROMALT
-      pops amt8 onto the Hleaf: [proof Hleaf amt8], CAT -> [proof node40]
-    (the parks: leaf first, then amt8; FROMALT pops amt8 back on top of
-    Hleaf for the CAT; the leaf stays parked below it.)
+      FROMALT              -> [proof Hleaf amt8] | leaf
+      CAT                  -> [proof node40]     | leaf
     """
     return ["OP_DUP", "OP_TOALTSTACK",
             "OP_DUP", 8, "OP_LEFT", "OP_TOALTSTACK",

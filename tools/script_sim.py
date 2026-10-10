@@ -944,19 +944,21 @@ class Interp:
                  the side at the top level; bit 0 = the leaf level)
                  || bitmap(ceil(d/8), bit k set = the sibling at level k
                  is supplied) || siblings (one 40-byte node per set bit,
-                 deepest level first)
+                 deepest level first, i.e. level 0 first)
 
         Per level k, leaf up: the sibling is the next supplied node if
         bitmap bit k is set, else E_k (E_0 = (0^32, 0), E_{k+1} the parent
         of E_k with itself, precomputable by consensus); the position bit
         gives the side; the parent is the spec's node_hash with sums
-        added. Fails on sum overflow, depth > 64, malformed proof or
-        leftover sibling bytes. The old and new nodes fold in one pass
+        added. Fails on sum overflow, depth 0 or > 64, a malformed proof,
+        leftover sibling bytes, bitmap or position bits set above the
+        depth, or a supplied sibling equal to E_k: the proof encoding is
+        canonical, so a relay cannot inflate a spender's witness by
+        un-compressing it (the witness is not covered by the sighash). The old and new nodes fold in one pass
         over the same path; new_node == old_node degenerates to
         verification. Cost: 2*depth node hashes, charged as BIP-440
         varops (wordspan of an 82-byte preimage per hash).
         """
-        ctx_dummy = None  # the opcode reads no transaction data
         new_node = pop()
         old_node = pop()
         proof = pop()
@@ -975,7 +977,7 @@ class Interp:
             raise ScriptError("MSU: depth out of range")
         pos_len = (d + 7) // 8
         bm_len = (d + 7) // 8
-        if len(proof) != 1 + pos_len + bm_len and len(proof) < 1 + pos_len + bm_len:
+        if len(proof) < 1 + pos_len + bm_len:
             raise ScriptError("MSU: proof too short")
         pos_bytes = proof[1:1 + pos_len]
         bm_bytes = proof[1 + pos_len:1 + pos_len + bm_len]
@@ -986,9 +988,11 @@ class Interp:
         pos_int = int.from_bytes(pos_bytes, "big")
         # Bitmap: bit k set = the sibling at level k (k = 0 the leaf
         # level) is supplied. The sibling list runs deepest level first,
-        # so the bytes are consumed from the highest set k downward.
+        # i.e. in the order the fold consumes it, from k = 0 upward.
         bm_int = int.from_bytes(bm_bytes, "big")
-        set_levels = [k for k in range(d - 1, -1, -1) if (bm_int >> k) & 1]
+        if pos_int >> d or bm_int >> d:
+            raise ScriptError("MSU: position or bitmap bit above the depth")
+        set_levels = [k for k in range(d) if (bm_int >> k) & 1]
         if len(rest) != 40 * len(set_levels):
             raise ScriptError("MSU: sibling count mismatch")
         sibs = {}
@@ -1008,6 +1012,8 @@ class Interp:
             side = (pos_int >> k) & 1
             if k in sibs:
                 s = sibs[k]
+                if s == empties[k]:
+                    raise ScriptError("MSU: empty sibling supplied explicitly")
             else:
                 s = empties[k]
             sh, ss = s

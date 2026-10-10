@@ -79,7 +79,7 @@ def build_proof(tree, slot, depth, height=0):
         if sib != lt.empty_node(height + k):
             bm_int |= 1 << k
             supplied.append((k, sib))
-    supplied.sort(key=lambda ks: -ks[0])
+    supplied.sort(key=lambda ks: ks[0])     # deepest level (k = 0) first
     n = depth - height
     pw = bytes([n]) + pos_int.to_bytes((n + 7) // 8, "big") + bm_int.to_bytes((n + 7) // 8, "big")
     for k, sib in supplied:
@@ -91,19 +91,26 @@ def build_proof(tree, slot, depth, height=0):
 
 def test_opcode():
     ctx = TxContext([(1, P2WPKH)], [])
-    tree = lt.Tree(4)
     a = mk_leaf("a", 10_000); b = mk_leaf("b", 20_000)
-    tree.leaves = {0: a, 1: b}
+    # a tree in which every sibling on slot 1's path is non-empty, so the
+    # canonical proof supplies all four
+    others = {2: mk_leaf("c", 1_000), 4: mk_leaf("d", 2_000), 8: mk_leaf("e", 3_000)}
+    tree = lt.Tree(4)
+    tree.leaves = {0: a, 1: b, **others}
     root = tree.root()
-    t2 = lt.Tree(4); t2.leaves = {0: a}
+    t2 = lt.Tree(4); t2.leaves = {0: a, **others}
     r2 = t2.root()
-    # full-sibling proof for slot 1 (all four supplied)
     path = tree.path(1)
+    check(all(sib != lt.empty_node(k) for k, (_, sib) in enumerate(path)),
+          "unit: fixture has no empty sibling on the path")
     pos_int = 0
     for k, (bit, sib) in enumerate(path):
         pos_int |= (bit & 1) << k
     bm_full = 0b1111
-    sibs_deep_first = [path[3][1], path[2][1], path[1][1], path[0][1]]
+    sibs_deep_first = [path[0][1], path[1][1], path[2][1], path[3][1]]   # level 0 first
+    check(build_proof(tree, 1, 4) == bytes([4]) + pos_int.to_bytes(1, "big") + bm_full.to_bytes(1, "big") +
+          b"".join(n40(x) for x in sibs_deep_first),
+          "unit: build_proof emits siblings deepest level first")
     proof = bytes([4]) + pos_int.to_bytes(1, "big") + bm_full.to_bytes(1, "big")
     for s in sibs_deep_first:
         proof += s[0] + s[1].to_bytes(8, "little")
@@ -132,8 +139,11 @@ def test_opcode():
     check(captured["old"] == n40(root), "unit: full proof folds the true old root")
     check(captured["new"] == n40(r2), "unit: full proof folds the true new root")
 
-    # compressed proof: supply only non-empty siblings (the sparse case)
-    proof_c = build_proof(tree, 1, 4)
+    # compressed proof: supply only non-empty siblings (the sparse case),
+    # on a tree where three of the four siblings are empty
+    small = lt.Tree(4); small.leaves = {0: a, 1: b}
+    proof_c = build_proof(small, 1, 4)
+    check(len(proof_c) == 3 + 40, "unit: compressed proof carries one sibling")
     it = Interp(ctx, mode="c2", hypothetical=True)
     it.run(assemble([proof_c, n40(b.node()), n40(lt.empty_node(0)),
                      "OP_MERKLESUMUPDATE", "OP_2DROP", "OP_1"]), [])
@@ -173,9 +183,22 @@ def test_opcode():
         "unit: bitmap/sibling count mismatch")
 
     # empty sibling supplied explicitly (bitmap bit set, bytes are E_k):
-    # allowed by the encoding; the fold is the same. Supplying garbage
-    # bytes of the right length must change the root (stale-root covered
-    # at the script level).
+    # rejected, so the encoding is canonical and a relay cannot inflate a
+    # spender's witness by un-compressing its proof.
+    spath = small.path(1)
+    uncompressed = bytes([4]) + pos_int.to_bytes(1, "big") + bm_full.to_bytes(1, "big") + \
+        b"".join(n40(sib) for _, sib in spath)
+    expect_fail(lambda: Interp(ctx, mode="c2", hypothetical=True).run(
+        assemble([uncompressed, n40(b.node()), n40(lt.empty_node(0)),
+                  "OP_MERKLESUMUPDATE", "OP_2DROP", "OP_1"]), []),
+        "unit: empty sibling supplied explicitly")
+    # bitmap or position bits above the depth: rejected (canonical)
+    for bad in (bytes([4]) + bytes([pos_int | 0x10]) + proof_c[2:],
+                bytes([4]) + proof_c[1:2] + bytes([proof_c[2] | 0x80]) + proof_c[3:]):
+        expect_fail(lambda bad=bad: Interp(ctx, mode="c2", hypothetical=True).run(
+            assemble([bad, n40(b.node()), n40(lt.empty_node(0)),
+                      "OP_MERKLESUMUPDATE", "OP_2DROP", "OP_1"]), []),
+            "unit: position or bitmap bit above the depth")
     # leftover bytes
     expect_fail(lambda: Interp(ctx, mode="c2", hypothetical=True).run(
         assemble([proof_c + b"junk", n40(b.node()), n40(lt.empty_node(0)),
@@ -363,11 +386,50 @@ def test_scripts(depth, profile):
     return sizes
 
 
+# ------------------------------------------------------------ quarantine --
+
+def test_quarantine():
+    """The hypothetical opcode must stay out of every real tier: absent from
+    each tier's allowed-opcode set, from every script the tier generators
+    emit (which is what spec/golden.json is built from), and from every
+    compiled script in spec/golden.json; and the default interpreter
+    refuses it (test_opcode's guard check)."""
+    import json
+    import test_scripts as TS
+    import test_mid as TM
+    import test_min as TN
+    import test_ccv as TC
+    import layertree_scripts as F
+    import layertree_mid as M
+    import layertree_min as N
+    import layertree_ccv as CV
+    from script_sim import disassemble
+    for name, ops in (("FULL", TS.ALLOWED_OPCODES), ("FULL minimal", TS.MINIMAL_OPCODES),
+                      ("MID", TM.MID_OPCODES), ("MIN", TN.MIN_OPCODES),
+                      ("CCV 0xC2", TC.ALLOWED), ("CCV 0xC0", TC.C0_OPCODES)):
+        check(U.MSU not in ops, f"quarantine: {name} allowed set excludes OP_MERKLESUMUPDATE")
+    key = pubkey_x(lt.sha256(b"operator"))
+    sets = [F.all_scripts(4, key, (0, 2), (1, 2), "D", (2,)), F.all_scripts(8, key, (0,), (1,), "S", (2,)),
+            M.all_scripts(4, key, False), M.all_scripts(8, key, True),
+            {"EXIT_1": N.exit_script(4), "SPLIT": N.split_script(4)},
+            CV.all_scripts_ccv(4, key, (0, 2), (1, 2), "D", (2,)), CV.all_scripts_ccv(8, key, (0,), (1,), "S", (2,)),
+            CV.all_scripts_ccv(4, key, (0, 2), (1, 2), "D", (2,), numeric="c0")]
+    hits = [n for d in sets for n, toks in d.items() if U.MSU in toks]
+    check(not hits, f"quarantine: no tier generator emits OP_MERKLESUMUPDATE {hits}")
+    golden = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "spec", "golden.json")))
+    bad = [k for k, v in golden["scripts"].items()
+           if "OP_MERKLESUMUPDATE" in disassemble(bytes.fromhex(v["hex"]))]
+    check(not bad, f"quarantine: no golden script contains OP_MERKLESUMUPDATE {bad}")
+
+
 def main():
     global FAILS, CHECKS
     print("OP_MERKLESUMUPDATE (HYPOTHETICAL measurement; never a tier)")
     test_opcode()
     print(f"  opcode units: {CHECKS} checks so far")
+    before = CHECKS
+    test_quarantine()
+    print(f"  quarantine: {CHECKS - before} checks")
     all_sizes = {}
     for depth, profile in ((4, "D"), (16, "D"), (8, "S"), (32, "S")):
         before = CHECKS
