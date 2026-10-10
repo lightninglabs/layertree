@@ -1,0 +1,122 @@
+# brain.md
+
+A running brain dump: what LayerTree is trying to do, where every piece
+stands, what is in flight, what is next, and what is undecided. Update it
+whenever the answer to "where are we" changes. `design/status.md` is the
+formal hand-off with the decision log; this file is the informal one.
+
+Last updated 2026-10-09, main at the commit that adds this file.
+
+## What we are trying to do
+
+Show that one shared UTXO plus an off-chain Merkle-sum tree plus
+tapscript covenants gives a shared-UTXO system whose unilateral exit is
+one transaction with no timelock, no presigning and no expiry, that is
+cheaper to leave than Ark round trees and channel factories, that admits
+and evicts whole cohorts for one price, and that hosts Lightning
+channels and vouchers so that value moves off-chain and the chain sees
+only membership changes and exits. Prove the tree rules in Lean, prove
+the scripts by execution against a simulator, mirror them byte-exactly
+in Go, and write it up for Financial Cryptography.
+
+The one-line defence against "why not a bare UTXO": entry is near free in
+bulk, activity is free off-chain, and the insurance (unilateral exit) is
+one transaction; the price is that exercising the insurance alone costs
+about ten times a bare spend. `design/cost-comparison.md` is the argument
+with numbers.
+
+## Where things stand
+
+| Area | State |
+|---|---|
+| Spec | 0.7.0 on main (0.8.1 after #10 lands, 0.8.2 after #6). Complete for the scoped design. Editorial fixes landed today: check counts, channel tag strings, 5.5 sibling element is 41 bytes, 13.2 radix note replaced by the measured result. |
+| Python simulator | 325 / 86 / 7 checks on main; 422 / 113 / 7 plus 139 CCV plus 47 MSU across the PR stack. |
+| Go | 34 golden scripts byte-exact; EXIT_1 built and signed end to end; other transitions have witness assemblers only. |
+| Lean | Builds clean, no sorry; covers tree binding, conservation, payability, JOIN, UPDATE, CLAIM. Not covered: EVICT_SUBTREE, terminal exit, sparse positions, anything about scripts or timing. |
+| Paper | 15 body pages, six appendices, PDF stamped 8d8ccc0 and stale against today's source edits. The 15-page FC limit is being lifted into a two-version build (see below). |
+| Design pages | `design/cost-comparison.md`, `design/profiles.md`, `design/receive.md`, `design/batching.md`, all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
+| Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
+| PR stack | One linear stack: #8 (swap rules) then #10 (SPLIT) then #6 (CCV tier) then #7 (hypothetical native opcode). Opus workers are integrating each for merge in that order. |
+
+## In flight right now
+
+- Opus worker on #8: verify against the checklist, dry-merge, review the
+  9.6.2 rules, strip the attribution footer. Expected: ready as is.
+- Opus worker on #10: issue #9 acceptance items, decide the MIN-tier
+  SPLIT (implement if bounded, otherwise state the blocker), review the
+  seq interaction with outstanding vouchers.
+- Opus worker on #6 and #7: add the CCV `BindingModel` instance in Lean,
+  add the CCV column to the 4.5 capability table, measure UPDATE^x under
+  CCV, implement SPLIT under CCV if bounded, update the four-tier wording,
+  quarantine checks for the hypothetical opcode.
+- TeX: the machine has TeX Live 2020 basic without multirow, pgfplots,
+  cm-super or latexmk, and 4 GB of disk. A user-mode tlmgr install from
+  the 2020 historic repository is being tried; if it fails the PDF is
+  rebuilt elsewhere.
+- Figure agent: the batching-shapes figure and corrected multiproof
+  points on the amortisation figure.
+
+## Next, in order
+
+1. Merge the stack: #8, #10, #6, #7, each after its worker reports ready
+   and a dry merge is clean. Reconcile counts and the spec version on
+   main after the last merge and run the full matrix.
+2. Paper, two versions from one source. A `\fullversion` toggle like the
+   existing `\anontrue`: the short build keeps the FC body under the
+   limit and sends the rest to appendices; the full build lifts the limit
+   to roughly 25 to 30 body pages and pulls the functionality proof, the
+   Lean treatment, channel leaves, the cost comparison, the profile
+   analysis, the receive case and the batching shapes into the body.
+   Makefile targets `main.pdf` and `main-full.pdf`, both stamped. Build
+   order stays: sources first, then make, then commit PDFs with
+   version.tex.
+3. Build the batching shapes: `EXIT_SUBTREE_h` (owner multiproof, spec
+   13.4), `REWRITE_h` (cohort rewrite with per-leaf signatures), and
+   `DETACH_h` (move a subtree to its own output). All three are variants
+   of the `EVICT_SUBTREE_h` post-order generator; `DETACH_h` needs a
+   two-output Lean step. Run the change checklist for each.
+4. `CLAIM^x`: a `CLAIM` variant requiring the source leaf's exit-key
+   signature at redemption, seven bytes like `UPDATE^x`. It is what makes
+   a dedicated credit leaf trust-free (`design/receive.md`).
+5. Regression test named after taproot-assets-private#112 (sibling-sum
+   binding), even though the node format already excludes it; deferred
+   only because changing the check count ripples through the PR stack.
+6. The older open list from `design/status.md`: P model (issue #1), Go
+   builders for every transition, channel-leaf TLV messages, regtest
+   harness, verified interpreter.
+
+## Decisions taken today (not yet in status.md)
+
+- Radix 2 stays for the dense tree; measured, not estimated.
+- The sparse profile is documented as the key-addressed option, 1.6 to
+  2.7 times the dense cost, not the cheaper one.
+- Cost pages compare against bare UTXOs, Lightning and Ark on lifetime
+  bytes per member with stated assumptions; the paper will inherit those
+  tables.
+- Receiving over Lightning is modelled as a cumulative hash-locked
+  voucher against a dedicated credit leaf, one-way, no contest window;
+  two-way traffic stays on channel leaves.
+- Workers add commits only; no rebases on the stack until it is merged.
+
+## Open questions
+
+- Should `chan_id` exclude `m` so that a `DETACH_h` does not invalidate
+  channel-leaf states? Argued yes in `design/batching.md`; not decided.
+- Who authorises `DETACH_h`: operator only, or a cohort parameter at
+  graft time?
+- Is the MIN tier worth extending beyond EXIT_1 (SPLIT is the first
+  candidate), or is MIN an existence proof and nothing more?
+- The leaf hash could be restructured so an exit publishes 72 bytes
+  instead of 116 (exit key, amount, hash of the rest); about 11 vbytes
+  per leaf in every shape. Format change; needs its own page.
+- Paper length for the full version: "not too far" past 18 pages. Target
+  25 to 30 body pages.
+
+## Pointers
+
+- Conventions and gotchas: `CLAUDE.md` (identical to `AGENTS.md`).
+- Spec: `spec/layertree.md`; channel leaves: `spec/channel-leaves.md`.
+- Numbers: `spec/scripts/sizes.md`, `spec/fee-analysis.md`.
+- Proofs: `formal/README.md`.
+- Findings and decision log: `design/review.md`, `design/status.md`.
+- Issues: #1 P model, #3 native primitives (#6, #7), #9 SPLIT (#10).
