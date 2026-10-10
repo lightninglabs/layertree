@@ -5,11 +5,14 @@ This generator needs matplotlib (3.10 was used) and is not part of the CI
 matrix; the rest of the repository's tools are dependency-free. Run it from
 the repository root:
 
-    python3 tools/gen_cost_figures.py [--png-dir DIR]
+    python3 tools/gen_cost_figures.py [--png-dir DIR] [--pdf-dir DIR]
 
 The SVG output is deterministic (no dates, a fixed hash salt, text kept as
 text), so a re-run leaves the files byte-identical. With --png-dir, a 2x
-PNG twin of each figure is also written there for inspection.
+PNG twin of each figure is also written there for inspection. With
+--pdf-dir, a PDF twin of each figure is written there for the paper
+(paper/figures); it carries no creation date or producer string, so it is
+deterministic too.
 """
 
 import argparse
@@ -113,6 +116,7 @@ AQUA = "#1baf7a"
 GRAY = "#898781"
 RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#184f95"]
 OUT_DIR = os.path.join("design", "figures")
+PDF_DIR = None  # set from --pdf-dir in main().
 
 matplotlib.rcParams.update({
     "svg.fonttype": "none",
@@ -132,6 +136,7 @@ matplotlib.rcParams.update({
     "figure.facecolor": SURFACE,
     "axes.facecolor": SURFACE,
     "savefig.facecolor": SURFACE,
+    "pdf.fonttype": 42,
 })
 
 
@@ -189,6 +194,11 @@ class Fig:
         if png_dir:
             self.fig.savefig(os.path.join(png_dir, name[:-4] + ".png"),
                              dpi=200, facecolor=SURFACE)
+        if PDF_DIR:
+            self.fig.savefig(os.path.join(PDF_DIR, name[:-4] + ".pdf"),
+                             format="pdf", facecolor=SURFACE,
+                             metadata={"Creator": None, "Producer": None,
+                                       "CreationDate": None})
         plt.close(self.fig)
 
 
@@ -645,9 +655,14 @@ def fig_batching_shapes(png_dir):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--png-dir", help="also write 2x PNG twins here")
+    ap.add_argument("--pdf-dir", help="also write PDF twins here")
     args = ap.parse_args()
     if args.png_dir:
         os.makedirs(args.png_dir, exist_ok=True)
+    if args.pdf_dir:
+        global PDF_DIR
+        PDF_DIR = args.pdf_dir
+        os.makedirs(PDF_DIR, exist_ok=True)
     fig_exit_anatomy(args.png_dir)
     fig_exit_amortisation(args.png_dir)
     fig_join_amortisation(args.png_dir)
