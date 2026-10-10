@@ -50,6 +50,17 @@ with numbers.
   version 64 pages with References on 16, full version 70 pages with
   References on 33 (body about 32.8 pages, two over the target; the
   writer may move something to an appendix).
+- `tree_id` in every tier (Fable worker, spec 0.10.0): the voucher
+  message binds a per-lineage `tree_id` constant instead of `m` in FULL
+  and MID as it already does in CCV; a detached child inherits it, so
+  vouchers survive a detach. Owner's decision 2026-10-10, prompted by the
+  cryptographer's finding 6 (`m` names a rule set, so two trees with the
+  same parameters share it and vouchers replay). The frozen D4 golden
+  root moves once, by design.
+- Awaiting the owner's yes on the carve fix (cryptographer's finding 9):
+  a claim leaf's `evictor_key` MUST equal the source's and its
+  `evict_after` MUST be no later, so `SPLIT` and a self-issued `CLAIM`
+  cannot escape eviction or block a cohort sweep with a dust leaf.
 - All six build workers (A to G) landed on main; the matrix is green
   on the combined tree (852 / 198 / 31 / 798 / 149 / 61, golden and
   listings clean, Go ok, Lean rc 0).
@@ -66,10 +77,10 @@ with numbers.
 1. Paper review round (in flight, above); after it, the response pass
    and a rebuild; then trim the full version back to about 30 body
    pages if the reviewers do not already force cuts.
-2. Owner decision: adopt `tree_id` in every tier (status.md open work 8).
-   Pro: vouchers survive a detach, one voucher message. Cost: every
-   FULL/MID `CLAIM` script changes bytes and the frozen
-   `taptree_full_d4.merkle_root` moves.
+2. Decided and in flight: `tree_id` in every tier (above). Then the
+   carve constraint if approved, and the `DETACH_h` creation rule that
+   `m_h` is compiled with the parent's options (exact payouts, `^x`,
+   carves), from the cryptographer's findings 9 and 7.
 3. Cohort transitions beyond FULL (status.md open work 9): MID
    `REWRITE_STEP`, CCV `DETACH_h` second output, the one-byte "unchanged"
    marker for `REWRITE_h` (about 29 vB per unchanged position).
