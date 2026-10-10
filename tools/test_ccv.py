@@ -744,7 +744,7 @@ def test_split_ccv(depth, profile):
 # ----------------------------------------------------------- 0xC0 numerics --
 
 C0_OPCODES = (BIP342_OPS | BIP441_OPS - {"OP_SUBSTR", "OP_LEFT", "OP_RIGHT", "OP_AND", "OP_DOWNSHIFT"}
-              | OPTX_OPS | CCV_OPS | {"OP_CAT"})
+              | OPTX_OPS | CCV_OPS | {"OP_CAT", "OP_GREATERTHANOREQUAL"})
 
 
 class WorldC0:
@@ -973,6 +973,164 @@ def test_c0(depth, profile):
     return costs
 
 
+def test_evict_subtree_ccv(depth, height, numeric="c2", full=False):
+    """EVICT_SUBTREE_h (spec 7.7) under CCV, mirroring
+    test_scripts.test_evict_subtree: the same cohort (every fifth
+    position already exited, or every position occupied with full=True)
+    and the same negatives, plus the CCV-specific ones (output 0 under a
+    wrong taptree, a payout to a tweaked key). In 0xC2 the witness is
+    FULL's minus r and m; in 0xC0 it is the MID sweep's minus r and m.
+    Returns (interp, script bytes, witness) for the positive run."""
+    c0 = numeric == "c0"
+    name = f"EVICT_SUBTREE_{height}"
+    if c0:
+        w = WorldC0(depth, "D")
+        toks = C._evict_subtree_script_ccv0(depth, height, w.op_pk)
+        allowed, mode, lv = C0_OPCODES, "c0", 0xc0
+    else:
+        w = World(depth, "D")
+        toks = C.evict_subtree_script_ccv(depth, height, w.op_pk)
+        allowed, mode, lv = ALLOWED, "c2", 0xc2
+    bad = {t for t in toks if isinstance(t, str)} - allowed
+    check(not bad, f"{numeric} {name}: opcodes outside the CCV set: {sorted(bad)}")
+    w.compiled = dict(w.compiled); w.compiled[name] = assemble(toks, mode=mode)
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    n = 1 << height
+    idx = 1
+    base = idx << height
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+              for i in range(n) if full or i % 5 != 3}
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+
+    def sweep_outputs(tree, spk_of=None):
+        rest = lt.Tree(depth)
+        rest.leaves = {p: l for p, l in tree.leaves.items() if not base <= p < base + n}
+        r = rest.root()
+        return [(r[1], (spk_of or w.spk)(r))] + [
+            (tree.leaves[base + i].amount, lt.p2tr_spk(tree.leaves[base + i].exit_key))
+            for i in range(n) if base + i in tree.leaves]
+
+    def body(tree):
+        if c0:
+            return M.w_evict_subtree(tree, depth, height, idx)
+        wit = []
+        for d, sib in reversed(tree.path(base, height=height)):
+            wit += [b"\x01" if d else b"", sc_bytes(sib)]
+        return wit + [tree.leaves[base + i].serialize() if base + i in tree.leaves else b""
+                      for i in reversed(range(n))]
+
+    def run(outs, locktime=800_000, tree=None, signer=None):
+        saved = w.tree
+        if tree is not None:
+            w.tree = tree
+        try:
+            ctx = w.ctx(outs, (5_000, P2WPKH), locktime=locktime)
+            wit = body(w.tree) + [schnorr_sign(ctx.sighash(), signer or w.op_sk)]
+            return w.run(name, wit, ctx), wit
+        finally:
+            w.tree = saved
+    outputs = sweep_outputs(w.tree) + [(400, P2WPKH)]
+    it, wit = None, []
+    try:
+        it, wit = run(outputs)
+        check(True, f"{numeric}: {name} sweeps {len(cohort)} leaves")
+    except ScriptError as e:
+        check(False, f"{numeric}: {name} positive: {str(e)[:90]}")
+    tag = f"{numeric}: {name}"
+    expect_fail(lambda: run(outputs, locktime=799_999), f"{tag} before lease expiry")
+    short = list(outputs); short[1] = (outputs[1][0] - 1, outputs[1][1])
+    expect_fail(lambda: run(short), f"{tag} shortchanges a leaf")
+    t_n = w.clone()
+    t_n.leaves[next((base + i for i in range(n) if base + i not in cohort), base)] = mk_leaf("stubborn", 5_000)
+    expect_fail(lambda: run(sweep_outputs(t_n), tree=t_n), f"{tag} with a non-evictable leaf")
+    expect_fail(lambda: run(outputs, signer=sk("alice-owner")), f"{tag} without the operator signature")
+    wrong = sweep_outputs(w.tree, lambda r: lt.tree_spk_ccv(r[0], lt.sha256(b"wrong-taptree"))) + [(400, P2WPKH)]
+    expect_fail(lambda: run(wrong), f"{tag} output 0 under a wrong taptree")
+    tweaked = list(outputs)
+    first = cohort[min(cohort)]
+    tweaked[1] = (first.amount, lt.tree_spk_ccv(first.exit_key, w.m))
+    expect_fail(lambda: run(tweaked), f"{tag} payout to a tweaked exit key")
+    return it, len(w.compiled[name]), sum(len(x) for x in wit)
+
+
+def test_split_ccv0(depth, profile):
+    """SPLIT (spec 7.5.2) under the CCV tier's 0xC0 numerics: MID's carve
+    witness minus r and m. Mirrors test_mid.test_split and
+    test_split_ccv."""
+    S = profile == "S"
+    w = WorldC0(depth, profile)
+    toks = C._split_script_ccv0(depth, S)
+    bad = {t for t in toks if isinstance(t, str)} - C0_OPCODES
+    check(not bad, f"c0 SPLIT: opcodes outside the c0 CCV set: {sorted(bad)}")
+    w.compiled = dict(w.compiled); w.compiled["SPLIT"] = assemble(toks, mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+
+    def mk(label, amount, evictor=None, evict_after=0):
+        lf = mk_leaf(label, amount, evictor, evict_after)
+        while S and not M.pos_ok(lf):
+            lf.nonce = (lf.nonce + 1) & 0xffffffff
+        return lf
+    alice = mk("alice", 500_000)
+    oper = mk("operator", 1_000_000)
+    s_a, s_o = w.slot(alice, 0), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_a: alice, s_o: oper}
+    root = w.tree.root()
+    bob = mk("bob", 200_000, w.op_pk, 900_000)
+    s_b = w.slot(bob, 3)
+    spath = w.tree.path(s_a)
+    t1 = w.clone(); lt.apply_claim(t1, s_a, s_b, bob)
+    src2 = t1.leaves[s_a]
+    r1 = t1.root()
+    check(r1[1] == root[1], "c0: SPLIT conserves sum")
+
+    def head(new, s_new, cnode, amt_new):
+        t = w.clone(); t.leaves[s_a] = src2; t.leaves[s_new] = new
+        ex = ([M.scriptnum(alice.seq)] + list(M.pad(alice.seq)) + list(M.pad(alice.seq + 1)) +
+              list(M.pad(amt_new)))
+        return (list(M.pad(t.root()[1])) + M.w_levels(t.path(s_new), lt.EMPTY_NODE, new.node(), S) +
+                w.pos(new) + w.pads_for(root[1]) + M.w_levels(spath, alice.node(), cnode, S) +
+                w.pos(alice) + M.w_leaf(alice) + M.w_leaf(new) + ex)
+    ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+    asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
+    h0 = head(bob, s_b, src2.node(), alice.amount - bob.amount)
+    it = None
+    try:
+        it = w.run("SPLIT", h0 + [asig], ctx)
+        check(True, "c0: SPLIT authorised by the source owner")
+    except ScriptError as e:
+        check(False, f"c0: SPLIT positive: {str(e)[:70]}")
+    expect_fail(lambda: w.run("SPLIT", h0 + [schnorr_sign(ctx.sighash(), w.op_sk)], ctx),
+                "c0: SPLIT signed by the operator")
+    expect_fail(lambda: w.run("SPLIT", h0 + [schnorr_sign(ctx.sighash(), sk("bob-owner"))], ctx),
+                "c0: SPLIT signed by the recipient")
+    expect_fail(lambda: w.run("SPLIT", h0 + [bytes(64)], ctx), "c0: SPLIT garbage signature")
+    vsig = schnorr_sign(lt.voucher_msg(w.m, alice, bob), sk("alice-owner"))
+    expect_fail(lambda: w.run("SPLIT", h0 + [vsig], ctx), "c0: SPLIT with a voucher signature")
+    greedy = mk("greedy", alice.amount + 1, w.op_pk, 900_000)
+    expect_fail(lambda: w.run("SPLIT", head(greedy, w.slot(greedy, 3), src2.node(), 0) + [asig], ctx),
+                "c0: SPLIT over-split underflow")
+    if not S:
+        occ = mk("bob", 200_000, w.op_pk, 900_000)
+        expect_fail(lambda: w.run("SPLIT", head(occ, s_o, src2.node(), alice.amount - occ.amount) + [asig], ctx),
+                    "c0: SPLIT into an occupied position")
+    ctxu = w.ctx([(r1[1] - 1, w.spk(r1))], (600, P2WPKH))
+    expect_fail(lambda: w.run("SPLIT", h0 + [schnorr_sign(ctxu.sighash(), sk("alice-owner"))], ctxu),
+                "c0: SPLIT with output 0 below ns")
+    ctxs = TxContext([(r1[1], w.spk(r1)), (600, P2WPKH)], [(r1[1], w.spk(r1))],
+                     internal_key=lt.ccv_internal_key(r1[0]), taptree_root=w.m)
+    expect_fail(lambda: w.run("SPLIT", h0 + [schnorr_sign(ctxs.sighash(), sk("alice-owner"))], ctxs),
+                "c0: SPLIT against a stale root")
+    mallory = mk("mallory", bob.amount, w.op_pk, 900_000)
+    s_m = w.slot(mallory, 3)
+    tm = w.clone(); lt.apply_claim(tm, s_a, s_m, mallory); rm = tm.root()
+    ctx_m = w.ctx([(rm[1], w.spk(rm))], (600, P2WPKH))
+    expect_fail(lambda: w.run("SPLIT", head(mallory, s_m, src2.node(), alice.amount - mallory.amount) + [asig], ctx_m),
+                "c0: SPLIT recipient swapped under the owner's signature")
+    return it, len(w.compiled["SPLIT"]), sum(len(x) for x in h0 + [asig])
+
+
 def main():
     global FAILS, CHECKS
     print("CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY)")
@@ -989,6 +1147,12 @@ def main():
         test_update_x_ccv(depth, profile)
         test_split_ccv(depth, profile)
         print(f"  {profile}/{depth} (c2) UPDATE^x, SPLIT: {CHECKS - before} checks")
+    # EVICT_SUBTREE_h with real cohorts in both numerics (spec 7.7).
+    for numeric in ("c2", "c0"):
+        before = CHECKS
+        for depth, h in ((4, 1), (4, 2), (16, 2), (16, 4), (16, 6)):
+            test_evict_subtree_ccv(depth, h, numeric)
+        print(f"  D (EVICT_SUBTREE, {numeric}): {CHECKS - before} checks")
     # 0xC0 numerics: dense D=4/16; sparse D=31 (MID's D <= 31 limit, spec 4.5).
     for depth, profile in ((4, "D"), (16, "D"), (31, "S")):
         before = CHECKS
@@ -997,6 +1161,10 @@ def main():
         except Exception as e:
             check(False, f"c0 {profile}/{depth}: {str(e)[:80]}")
         print(f"  {profile}/{depth} (c0): {CHECKS - before} checks")
+    for depth, profile in ((4, "D"), (16, "D"), (31, "S")):
+        before = CHECKS
+        test_split_ccv0(depth, profile)
+        print(f"  {profile}/{depth} (c0) SPLIT: {CHECKS - before} checks")
     print(f"\n{CHECKS} checks, {FAILS} failures")
     return 1 if FAILS else 0
 

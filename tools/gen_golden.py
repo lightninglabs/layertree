@@ -48,6 +48,12 @@ add("CCV", "D", 16, "EXIT_1", CV.exit_script_ccv(16, 1, "D"), "c2")
 for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
     add("CCV", "S", 8, name, toks, "c2")
 add("CCV", "S", 8, "UPDATE_X", CV.update_script_ccv(8, OP_KEY, "S", exit_consent=True), "c2")
+# The CCV tier under 0xC0 numerics (MID encoding), keyed CCV0 so that the
+# 0xC2 keys above keep one assembler mode.
+for h in (1, 2):
+    add("CCV0", "D", 4, f"EVICT_SUBTREE_{h}", CV._evict_subtree_script_ccv0(4, h, OP_KEY), "c0")
+add("CCV0", "D", 4, "SPLIT", CV._split_script_ccv0(4, False), "c0")
+add("CCV0", "S", 8, "SPLIT", CV._split_script_ccv0(8, True), "c0")
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),

@@ -25,7 +25,7 @@ for h in range(0, 33):
 
 
 def listing(name, tokens):
-    mode = "c0" if ("MID" in name or "MIN" in name or "PADZ" in name) else "c2"
+    mode = "c0" if ("MID" in name or "MIN" in name or "PADZ" in name or "0xC0" in name) else "c2"
     script = assemble(tokens, mode)
     words = disassemble(script, names)
     lines = [f"# {name}: {len(script)} bytes", ""]
@@ -175,6 +175,21 @@ for d, prof in ((16, "D"), (31, "S")):
     costs = test_ccv.test_c0(d, prof)
     for k, (it, sl, wl) in costs.items():
         rows.append(("CCV-c0/" + prof, d, k, sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for numeric in ("c2", "c0"):
+    tierp = "CCV/D" if numeric == "c2" else "CCV-c0/D"
+    for h in (2, 4, 6):
+        it, sl, wl = test_ccv.test_evict_subtree_ccv(16, h, numeric)
+        rows.append((tierp, 16, f"EVICT_SUBTREE_{h} ({1 << h} positions, every fifth exited)", sl, wl, 129,
+                     sl + wl + 129, it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for d, prof in ((16, "D"), (31, "S")):
+    it, sl, wl = test_ccv.test_split_ccv0(d, prof)
+    rows.append(("CCV-c0/" + prof, d, "SPLIT", sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+with open(os.path.join(OUT, "CCV0_SPLIT_D4.txt"), "w") as f:
+    f.write(listing("SPLIT (CCV tier, 0xC0 numerics, owner-authorised carve, dense, D=4)",
+                    CV._split_script_ccv0(4, False)))
+with open(os.path.join(OUT, "CCV0_EVICT_SUBTREE_2_D4.txt"), "w") as f:
+    f.write(listing("EVICT_SUBTREE_2 (CCV tier, 0xC0 numerics, cohort sweep, dense, D=4)",
+                    CV._evict_subtree_script_ccv0(4, 2, OP_KEY)))
 for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
     with open(os.path.join(OUT, f"CCV_{name}_D4.txt"), "w") as f:
         f.write(listing(f"{name} (CCV tier, dense, D=4)", toks))

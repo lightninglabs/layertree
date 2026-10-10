@@ -335,6 +335,12 @@ open(os.path.join(OUT, f"CCV_UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (CCV tier, exit-key consent, dense, D={D})", CV.update_script_ccv(D, OP_KEY, "D", exit_consent=True), "c2", CCV))
 open(os.path.join(OUT, f"CCV_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV tier, owner-authorised carve, dense, D={D})", CV.split_script_ccv(D, "D"), "c2", CCV))
+open(os.path.join(OUT, f"CCV0_SPLIT_D{D}.txt"), "w").write(
+    structured(f"SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+               CV._split_script_ccv0(D, False), "c0", MID))
+open(os.path.join(OUT, f"CCV0_EVICT_SUBTREE_2_D{D}.txt"), "w").write(
+    structured(f"EVICT_SUBTREE_2 (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+               CV._evict_subtree_script_ccv0(D, 2, OP_KEY), "c0", MID))
 for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
     open(os.path.join(OUT, f"CCV_{name}_S8.txt"), "w").write(structured(f"{name} (CCV tier, sparse, D=8)", toks, "c2", CCV))
 print("wrote", len(os.listdir(OUT)), "structured listings to", os.path.relpath(OUT))

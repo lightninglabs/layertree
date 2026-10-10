@@ -308,12 +308,13 @@ def _carve_script(depth, sparse=False, auth="voucher"):
     return s + carve_claim(depth, sparse) + final(depth)
 
 
-def carve_source(depth, sparse=False):
+def carve_source(depth, sparse=False, alt_r=True):
     """Step 1 of CLAIM, CLAIM^h and SPLIT, after the authorisation check.
     Stack on entry: src(10) claim(10) extras(7) ; altstack: .. m r.
     On exit: T oh os nh ns over the source path ; altstack: .. m claim_leaf amt_c r.
     Shared with the MIN tier, which differs only in how the result is bound
-    to the transaction."""
+    to the transaction, and with the CCV tier's 0xC0 numerics, which carry
+    no r (alt_r=False: the altstack holds .. claim_leaf amt_c on exit)."""
     s = []
     # seq consistency: le32(seq_num) == src.seq ; consumes zq0 wq0
     s += [20, "OP_PICK", 7, "OP_PICK"] + roll(7, 2) + padz() + ["OP_EQUALVERIFY"]   # extras -> seq_num zq1 wq1 zs2 ws2
@@ -324,7 +325,10 @@ def carve_source(depth, sparse=False):
     s += ["OP_FROMALTSTACK", "OP_DUP", "OP_FROMALTSTACK",            # oh amt_s amt_s mid
           "OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # oh amt_s amt_s mid claim_leaf amt_c
     s += ["OP_FROMALTSTACK"] * 5                                     # ... amt_c seq_num zq1 wq1 zs2 ws2   | m r
-    s += ["OP_FROMALTSTACK", 7, "OP_PICK", "OP_TOALTSTACK", 6, "OP_PICK", "OP_TOALTSTACK", "OP_TOALTSTACK"]  # | m claim_leaf amt_c r
+    if alt_r:
+        s += ["OP_FROMALTSTACK", 7, "OP_PICK", "OP_TOALTSTACK", 6, "OP_PICK", "OP_TOALTSTACK", "OP_TOALTSTACK"]  # | m claim_leaf amt_c r
+    else:
+        s += [6, "OP_PICK", "OP_TOALTSTACK", 5, "OP_PICK", "OP_TOALTSTACK"]   # | claim_leaf amt_c
     s += roll(6) + ["OP_DROP"]                                       # oh amt_s amt_s mid amt_c seq_num zq1 wq1 zs2 ws2
     s += roll(7) + roll(6) + ["OP_SUB",                              # oh amt_s mid seq_num zq1 wq1 zs2 ws2 amt_new
           "OP_DUP", "OP_0", "OP_GREATERTHANOREQUAL", "OP_VERIFY",
@@ -372,18 +376,25 @@ EVICT_SLOT_WITNESS = LEAF_WITNESS + 4
 E0_SC = lt.EMPTY_LEAF_HASH + lt.enc64(0)
 
 
-def _evict_leaf_step(operator_key):
+def _evict_pay():
+    """The payout check of _evict_leaf_step: [leaf(10) idx] -> [leaf(10)],
+    output idx pays exactly leaf.amount to P2TR(leaf.exit_key). The CCV
+    tier's 0xC0 numerics substitute a CHECK_OUTPUT|DEDUCT call here."""
+    return [SEL_OUT_SINGLE, "OP_TX",                                 # leaf(10) amt spk
+            F.P2TR_PREFIX, 11, "OP_PICK", "OP_CAT", "OP_EQUALVERIFY",  # leaf(10) amt
+            10, "OP_PICK", "OP_EQUALVERIFY"]                         # leaf(10)   (exact payout)
+
+
+def _evict_leaf_step(operator_key, pay=None):
     """[.. slot idx] | .. -> [.. idx'] | .. s sc   (idx' = idx + 1 if paid)"""
     return (["OP_SWAP", "OP_IF",                                     # leaf(10) ea_num ze we idx
              "OP_TOALTSTACK",                                        # leaf(10) ea_num ze we       | .. idx
              2, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"] + padz() + [   # leaf(10) le32(ea_num)
              6, "OP_PICK", "OP_EQUALVERIFY",                         # leaf(10)   (ea field matches)
              6, "OP_PICK", operator_key, "OP_EQUALVERIFY",           # evictor_key == OPERATOR_KEY
-             "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf(10) idx      | .. idx'
-             SEL_OUT_SINGLE, "OP_TX",                                # leaf(10) amt spk
-             F.P2TR_PREFIX, 11, "OP_PICK", "OP_CAT", "OP_EQUALVERIFY",  # leaf(10) amt
-             10, "OP_PICK", "OP_EQUALVERIFY",                        # leaf(10)   (exact payout)
-             9, "OP_PICK", b"\x01", "OP_CAT", "OP_TOALTSTACK"]       # leaf(10)          | .. idx' enc
+             "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK"]  # leaf(10) idx      | .. idx'
+            + (pay if pay is not None else _evict_pay()) +           # leaf(10)
+            [9, "OP_PICK", b"\x01", "OP_CAT", "OP_TOALTSTACK"]       # leaf(10)          | .. idx' enc
             + leaf_join() + tagged(F.LEAF_PREFIX) +                  # lh                | .. idx' enc s
             ["OP_FROMALTSTACK", "OP_FROMALTSTACK",                   # lh s enc
              "OP_ROT", "OP_SWAP", "OP_CAT",                          # s sc
@@ -435,9 +446,18 @@ def evict_subtree_script(depth, height, operator_key):
     """
     assert 1 <= height <= depth
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]             # .. slots            | m r
-    s += ["OP_1"]                                                    # .. slots idx
+    s += evict_body(height, operator_key)                            # T oh os E_h 0       | m r
+    s += levels(False, depth, height)
+    return s + check_old(False) + final(depth)
+
+
+def evict_body(height, operator_key, pay=None):
+    """The tier-independent middle of EVICT_SUBTREE_h after the operator's
+    signature: [.. slots] -> [T oh os E_h 0]. Shared with the CCV tier's
+    0xC0 numerics, which pass their own payout check as `pay`."""
+    s = ["OP_1"]                                                     # .. slots idx
     for _ in range(1 << height):
-        s += _evict_leaf_step(operator_key)                          # .. idx'             | m r (s sc)*
+        s += _evict_leaf_step(operator_key, pay)                     # .. idx'             | .. (s sc)*
     s += ["OP_DROP", F.NODE_PREFIX]                                  # T
     t = [0]
 
@@ -450,10 +470,8 @@ def evict_subtree_script(depth, height, operator_key):
         gen(k - 1, False)
         s.extend(_evict_hash_step(t[0], root))
         t[0] -= 2
-    gen(height, True)                                                # T oh os             | m r
-    s += [lt.empty_node(height)[0], "OP_0"]                          # T oh os E_h 0
-    s += levels(False, depth, height)
-    return s + check_old(False) + final(depth)
+    gen(height, True)                                                # T oh os
+    return s + [lt.empty_node(height)[0], "OP_0"]                    # T oh os E_h 0
 
 
 def w_evict_slot(leaf):

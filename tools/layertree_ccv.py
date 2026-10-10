@@ -270,9 +270,15 @@ def split_script_ccv(depth, profile="D"):
     conservation are F._carve_body's, token for token, apart from the
     altstack bookkeeping for r and m.
     """
-    s = prologue_ccv() + [
+    return prologue_ccv() + [
         2, "OP_PICK", F.OFF_OWNER_KEY, 32, "OP_SUBSTR",     # src claim sig owner_key
-        "OP_CHECKSIGVERIFY",                                # src claim
+        "OP_CHECKSIGVERIFY"] + _carve_body_ccv(depth, profile)
+
+
+def _carve_body_ccv(depth, profile):
+    """[src claim] -> [1], after the authorisation: F._carve_body's two
+    steps bound by CHECK_INPUT and final_ccv."""
+    s = [
         "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
         "OP_SWAP", "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",  # src claim
         # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
@@ -314,15 +320,13 @@ def leaf_step_ccv(operator_key):
             "OP_DUP", F.OFF_EVICT_AFTER, F.LEN_EVICT_AFTER, "OP_SUBSTR",
             "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
             # idx -> idx+1 on alt, keep a copy for the OP_TX index.
-            "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf idx
-            "OP_DUP", "OP_TOALTSTACK",                               # leaf idx | copy
+            "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf idx       | idx'
+            "OP_DUP", "OP_TOALTSTACK",                               # leaf idx       | idx' idx
             # CCV: data empty, index idx, pk leaf.exit_key, taptree empty, mode 2.
-            # Build bottom..top: "" idx ek "" 2, with ek picked from leaf.
-            "OP_2SWAP",                                   # idx "" leaf  (data idx to bottom)
-            "OP_2SWAP", "OP_DUP", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_ROT",
-            # ... arrangement is verified by the test suite.
-            b"", 2, CCV,
-            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",  # leaf amt
+            b"", "OP_SWAP",                                          # leaf "" idx
+            2, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR",           # leaf "" idx ek
+            b"", 2, CCV,                                             # leaf           DEDUCT payout
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",  # leaf amt      | idx'
             "OP_OVER", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",
             ] + F.leaf_acc() + [
             "OP_ELSE",
@@ -480,15 +484,48 @@ def _update_script_ccv0(depth, operator_key, sparse=False, exit_consent=False):
     return s + _check_old_ccv0(sparse) + _final_ccv0(depth)
 
 
+def _pay_evict_ccv0():
+    """The EVICT_SUBTREE payout under c0, in place of M._evict_pay:
+    [leaf(10) idx] | .. idx' -> [leaf(10)]. A CHECK_OUTPUT|DEDUCT call on
+    the leaf's exit-key element at the dynamic output index, then the exact
+    amount compare against the amount field with one OP_TX read."""
+    return ["OP_DUP", "OP_TOALTSTACK",                       # leaf(10) idx    | .. idx' idx
+            b"", "OP_SWAP",                                  # leaf(10) "" idx
+            10, "OP_PICK",                                   # leaf(10) "" idx ek
+            b"", 2, CCV,                                     # leaf(10)        DEDUCT payout
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",   # leaf(10) amt
+            10, "OP_PICK", "OP_EQUALVERIFY"]                 # leaf(10)   (exact payout)
+
+
 def _evict_subtree_script_ccv0(depth, height, operator_key):
-    """EVICT_SUBTREE_h (dense) under c0: the c2 tier's fixed post-order
-    program adapted to MID's element leaves. Each leaf slot's witness is
-    the ten leaf elements plus the eviction pads; empty slots contribute
-    one empty element. The payout reuses _pay_ccv0 with the dynamic
-    output index taken from the altstack."""
-    raise NotImplementedError(
-        "EVICT_SUBTREE under c0 needs an element-based leaf step; see the "
-        "tier's follow-up (the c2 tier covers the sweep shape)")
+    """EVICT_SUBTREE_h (dense) under c0: the MID tier's element-based sweep
+    (M.evict_body: a pre-pass of leaf steps in position order, then a
+    mirrored post-order hash pass) with the payout check replaced by a CCV
+    DEDUCT call and the two bindings by CHECK_INPUT and the assign-mode
+    output check. Witness: MID's minus r and m."""
+    s = [operator_key, "OP_CHECKSIGVERIFY"]
+    s += M.evict_body(height, operator_key, _pay_evict_ccv0())      # T oh os E_h 0
+    s += M.levels(False, depth, height)
+    return s + _check_old_ccv0(False) + _final_ccv0(depth)
+
+
+def _split_script_ccv0(depth, sparse=False):
+    """SPLIT (7.5.2) under c0: MID's carve with the owner's transaction
+    signature, no r and no m. Witness: MID's SPLIT witness minus r and m,
+    so src.ok is 25 deep under the signature. MID's carve_source runs
+    with alt_r=False, CHECK_INPUT replaces the parked-root comparison of
+    step 1, and _final_ccv0 replaces FINAL."""
+    s = [25, "OP_PICK", "OP_CHECKSIGVERIFY"]                         # src(10) claim(10) extras(7)
+    return s + _carve_body_ccv0(depth, sparse)
+
+
+def _carve_body_ccv0(depth, sparse):
+    """[src(10) claim(10) extras(7)] -> [1]: MID's two carve steps bound by
+    CCV."""
+    s = M.carve_source(depth, sparse, alt_r=False)                   # T oh os nh ns     | claim_leaf amt_c
+    s += _check_old_ccv0(sparse)                                     # T nh1 ns1
+    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
+    return s + M.carve_claim(depth, sparse) + _final_ccv0(depth)
 
 
 def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
@@ -508,6 +545,10 @@ def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
         for k in join_ks:
             out[f"JOINK_{k}"] = _join_script_ccv0(depth, 0, operator_key, sparse, k)
         out["UPDATE"] = _update_script_ccv0(depth, operator_key, sparse)
+        if profile == "D":
+            for h in (1, 2):
+                if h <= depth:
+                    out[f"EVICT_SUBTREE_{h}"] = _evict_subtree_script_ccv0(depth, h, operator_key)
         return out
     out = {f"EXIT_{k}": exit_script_ccv(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):

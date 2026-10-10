@@ -216,6 +216,18 @@ func TestMidEvictSubtree(t *testing.T) {
 	}
 }
 
+// TestCCV0Scripts checks the CCV tier's 0xC0-numerics scripts, which reuse
+// the MID machinery, against their CCV0 golden keys.
+func TestCCV0Scripts(t *testing.T) {
+	g, key := midLoadGolden(t)
+	midCheckScript(t, g, "CCV0/D/D4/EVICT_SUBTREE_1",
+		CCV0EvictSubtreeScript(4, 1, key))
+	midCheckScript(t, g, "CCV0/D/D4/EVICT_SUBTREE_2",
+		CCV0EvictSubtreeScript(4, 2, key))
+	midCheckScript(t, g, "CCV0/D/D4/SPLIT", CCV0SplitScript(4, false))
+	midCheckScript(t, g, "CCV0/S/D8/SPLIT", CCV0SplitScript(8, true))
+}
+
 func midHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)

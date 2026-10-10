@@ -315,9 +315,8 @@ func CCVEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 			Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // leaf idx | copy
 			// CCV: data empty, index idx, pk leaf.exit_key, taptree empty,
 			// mode DEDUCT, mirroring the Python leaf_step token for token.
-			Op(ts.OP_2SWAP),                                                           // idx "" leaf
-			Op(ts.OP_2SWAP),                                                           // "" idx leaf
-			Op(ts.OP_DUP), Num(fullOffExitKey), Num(32), Op(OP_SUBSTR), Op(ts.OP_ROT), // "" idx ek
+			Data(ccvEmpty), Op(ts.OP_SWAP), // leaf "" idx
+			Num(2), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32), Op(OP_SUBSTR), // leaf "" idx ek
 			Data(ccvEmpty), Num(ccvModeDeductOut), Op(OP_CHECKCONTRACTVERIFY), // leaf
 			Op(ts.OP_FROMALTSTACK), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP), // leaf amt
 			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_NUMEQUALVERIFY),
@@ -356,6 +355,86 @@ func CCVEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 	)
 	s = fullCat(s, fullLevels(false, depth, height), ccvCheckOld(false), ccvFinal(depth))
 	return s
+}
+
+// ------------------------------------------------------ 0xC0 numerics --
+
+// ccv0CheckOld is the MID tier's CHECK_OLD with the parked-root comparison
+// replaced by CHECK_INPUT on the folded old root
+// (tools/layertree_ccv.py _check_old_ccv0).
+func ccv0CheckOld(sparse bool) []Token {
+	s := midCheckOld(sparse)
+	s = append([]Token{}, s[:len(s)-2]...)
+	return append(s, ccvCheckInput()...)
+}
+
+// ccv0Final is the MID tier's FINAL with output 0's scriptPubKey check
+// replaced by the CCV assign call and the amount compared as bytes
+// (tools/layertree_ccv.py _final_ccv0). Entry [zf wf T nh ns].
+func ccv0Final(depth int) []Token {
+	s := []Token{
+		Op(ts.OP_ROT), Op(ts.OP_DROP),
+		Op(ts.OP_OVER), Data(midEmptyNodeHash(depth)), Op(ts.OP_EQUAL),
+		Op(ts.OP_IF), Op(ts.OP_2DROP), Op(ts.OP_2DROP), Op(ts.OP_1),
+		Op(ts.OP_ELSE),
+	}
+	s = append(s, midRoll(3, 2)...)
+	s = append(s, midLe64()...) // nh le64(ns)
+	return append(s,
+		Op(ts.OP_TOALTSTACK), // nh | le64(ns)
+		Op(ts.OP_0), Data(ccvEmpty), Data(ccvMinus1), Num(ccvModeAssignOut),
+		Op(OP_CHECKCONTRACTVERIFY),
+		Op(ts.OP_FROMALTSTACK),
+		Op(ts.OP_0), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP),
+		Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_1), Op(ts.OP_ENDIF),
+	)
+}
+
+// ccv0PayEvict is the EVICT_SUBTREE payout under 0xC0, in place of
+// midEvictPay: [leaf(10) idx] | .. idx' -> [leaf(10)], a CHECK_OUTPUT
+// DEDUCT call on the exit-key element at the dynamic index, then the
+// exact amount compare (tools/layertree_ccv.py _pay_evict_ccv0).
+func ccv0PayEvict() []Token {
+	return []Token{
+		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // leaf(10) idx | .. idx' idx
+		Data(ccvEmpty), Op(ts.OP_SWAP), // leaf(10) "" idx
+		Num(10), Op(ts.OP_PICK), // leaf(10) "" idx ek
+		Data(ccvEmpty), Num(ccvModeDeductOut), Op(OP_CHECKCONTRACTVERIFY),
+		Op(ts.OP_FROMALTSTACK), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP),
+		Num(10), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY),
+	}
+}
+
+// CCV0EvictSubtreeScript is EVICT_SUBTREE_h (dense) under the CCV tier's
+// 0xC0 numerics: the MID tier's element-based sweep with a CCV DEDUCT
+// payout, CHECK_INPUT for the old root and the assign-mode output check
+// (tools/layertree_ccv.py _evict_subtree_script_ccv0).
+func CCV0EvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
+	s := []Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)}
+	s = append(s, midEvictBody(height, operatorKey, ccv0PayEvict())...)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, ccv0CheckOld(false)...)
+	return append(s, ccv0Final(depth)...)
+}
+
+// ccv0CarveBody is MID's two carve steps bound by CCV:
+// [src(10) claim(10) extras(7)] -> [1]. Shared by SPLIT, CLAIM and
+// CLAIM^h under 0xC0 (tools/layertree_ccv.py _carve_body_ccv0).
+func ccv0CarveBody(depth int, sparse bool) []Token {
+	s := midCarveSourceAlt(depth, sparse, false)
+	s = append(s, ccv0CheckOld(sparse)...)
+	s = append(s, Op(ts.OP_FROMALTSTACK), Op(ts.OP_FROMALTSTACK))
+	s = append(s, midCarveClaim(depth, sparse)...)
+	return append(s, ccv0Final(depth)...)
+}
+
+// CCV0SplitScript is SPLIT (spec 7.5.2) under the CCV tier's 0xC0
+// numerics: MID's carve witness minus r and m, authorised by src.ok's
+// transaction signature (tools/layertree_ccv.py _split_script_ccv0).
+func CCV0SplitScript(depth int, sparse bool) []Token {
+	s := []Token{Num(25), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY)}
+	return append(s, ccv0CarveBody(depth, sparse)...)
 }
 
 // CCVAllScripts returns the CCV-tier script set for a tree: exit_ks

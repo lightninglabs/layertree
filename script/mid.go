@@ -557,6 +557,13 @@ func midCarveScript(depth int, sparse bool, auth string) []Token {
 // altstack: .. m r. On exit: T oh os nh ns over the source path ; altstack:
 // .. m claim_leaf amt_c r. The MIN tier shares it.
 func midCarveSource(depth int, sparse bool) []Token {
+	return midCarveSourceAlt(depth, sparse, true)
+}
+
+// midCarveSourceAlt is midCarveSource with the altstack's r optional: the
+// CCV tier's 0xC0 numerics carry no r, so with altR false the altstack
+// holds .. claim_leaf amt_c on exit (layertree_mid.carve_source alt_r).
+func midCarveSourceAlt(depth int, sparse, altR bool) []Token {
 	var s []Token
 	// seq consistency: le32(seq_num) == src.seq
 	s = append(s, Num(20), Op(txscript.OP_PICK), Num(7), Op(txscript.OP_PICK))
@@ -575,9 +582,14 @@ func midCarveSource(depth int, sparse bool) []Token {
 		Op(txscript.OP_FROMALTSTACK),
 		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK))
 	s = append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 5)...)
-	s = append(s, Op(txscript.OP_FROMALTSTACK), Num(7), Op(txscript.OP_PICK),
-		Op(txscript.OP_TOALTSTACK), Num(6), Op(txscript.OP_PICK),
-		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
+	if altR {
+		s = append(s, Op(txscript.OP_FROMALTSTACK), Num(7), Op(txscript.OP_PICK),
+			Op(txscript.OP_TOALTSTACK), Num(6), Op(txscript.OP_PICK),
+			Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
+	} else {
+		s = append(s, Num(6), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK),
+			Num(5), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK))
+	}
 	s = append(s, midRoll(6, 1)...)
 	s = append(s, Op(txscript.OP_DROP))
 	s = append(s, midRoll(7, 1)...)
@@ -632,10 +644,23 @@ func midCarveClaim(depth int, sparse bool) []Token {
 // hash followed by enc64(0).
 var midEvictE0Sc = append(append([]byte{}, midEmptyLeafHash...), midEnc0...)
 
+// midEvictPay is the MID payout check of the EVICT_SUBTREE leaf step:
+// [leaf(10) idx] -> [leaf(10)], output idx pays exactly leaf.amount to
+// P2TR(leaf.exit_key).
+func midEvictPay() []Token {
+	return []Token{
+		Num(SelOutSingle), Op(OP_TX),
+		Data(midP2TRPrefix), Num(11), Op(txscript.OP_PICK),
+		Op(txscript.OP_CAT), Op(txscript.OP_EQUALVERIFY),
+		Num(10), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+	}
+}
+
 // midEvictLeafStep is one position of the EVICT_SUBTREE pre-pass:
 // [.. slot idx] | .. -> [.. idx'] | .. s sc. A present slot is leaf(10)
-// ea_num ze we 0x01, an empty one a single empty element.
-func midEvictLeafStep(operatorKey [32]byte) []Token {
+// ea_num ze we 0x01, an empty one a single empty element. pay is the
+// payout check, [leaf(10) idx] -> [leaf(10)].
+func midEvictLeafStep(operatorKey [32]byte, pay []Token) []Token {
 	s := []Token{
 		Op(txscript.OP_SWAP), Op(txscript.OP_IF),
 		Op(txscript.OP_TOALTSTACK),
@@ -649,10 +674,9 @@ func midEvictLeafStep(operatorKey [32]byte) []Token {
 		Op(txscript.OP_EQUALVERIFY),
 		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_DUP),
 		Op(txscript.OP_1ADD), Op(txscript.OP_TOALTSTACK),
-		Num(SelOutSingle), Op(OP_TX),
-		Data(midP2TRPrefix), Num(11), Op(txscript.OP_PICK),
-		Op(txscript.OP_CAT), Op(txscript.OP_EQUALVERIFY),
-		Num(10), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+	}...)
+	s = append(s, pay...)
+	s = append(s, []Token{
 		Num(9), Op(txscript.OP_PICK), Data([]byte{0x01}),
 		Op(txscript.OP_CAT), Op(txscript.OP_TOALTSTACK),
 	}...)
@@ -701,10 +725,20 @@ func midEvictHashStep(t int64, root bool) []Token {
 // Like FULL's it stays out of MidAllScripts.
 func MidEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 	s := midPrologue()
-	s = append(s, Data(operatorKey[:]), Op(txscript.OP_CHECKSIGVERIFY),
-		Op(txscript.OP_1))
+	s = append(s, Data(operatorKey[:]), Op(txscript.OP_CHECKSIGVERIFY))
+	s = append(s, midEvictBody(height, operatorKey, midEvictPay())...)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, midCheckOld(false)...)
+	return append(s, midFinal(depth)...)
+}
+
+// midEvictBody is the middle of EVICT_SUBTREE_h after the operator's
+// signature, [.. slots] -> [T oh os E_h 0], shared with the CCV tier's
+// 0xC0 numerics, which pass their own payout check.
+func midEvictBody(height int, operatorKey [32]byte, pay []Token) []Token {
+	s := []Token{Op(txscript.OP_1)}
 	for i := 0; i < 1<<height; i++ {
-		s = append(s, midEvictLeafStep(operatorKey)...)
+		s = append(s, midEvictLeafStep(operatorKey, pay)...)
 	}
 	s = append(s, Op(txscript.OP_DROP), Data(midNodePrefix))
 	var t int64
@@ -722,10 +756,7 @@ func MidEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 		t -= 2
 	}
 	gen(height, true)
-	s = append(s, Data(midEmptyNodeHash(height)), Op(txscript.OP_0))
-	s = append(s, midLevels(false, depth, height)...)
-	s = append(s, midCheckOld(false)...)
-	return append(s, midFinal(depth)...)
+	return append(s, Data(midEmptyNodeHash(height)), Op(txscript.OP_0))
 }
 
 // MidAllScripts builds the MID-tier script set for one profile, keyed as

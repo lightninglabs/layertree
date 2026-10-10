@@ -367,9 +367,9 @@ are interchangeable, with one numeric cap noted below.
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum`; `D ≤ 31` | as MID | as FULL (`0xC2`) or as MID (`0xC0`, `D ≤ 31`) |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | no: the voucher message binds `m`, which the CCV witness does not carry (4.6) |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | no (same message as `CLAIM`, 4.6) |
-| `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes in `0xC2`; `0xC0` not implemented |
+| `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes, both numerics |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
-| `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | `0xC2` only (`0xC0` needs an element-based leaf step, 4.6) |
+| `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's sweep and stack bound, 4.6) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | n/a (no `CLAIM`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output | yes |
@@ -395,15 +395,17 @@ script / witness data:
 | `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | n/a (4.6) | 9,896 / 688 | 18,241 / 1,543 | n/a (4.6) |
 | `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | n/a (4.6) | 9,905 / 515 | 18,250 / 1,438 | n/a (4.6) |
 | `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 3,338 / 1,610 | 9,822 / 483 | 18,110 / 1,412 | 9,432 / 419 |
-| `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,097 / 1,157 | — | — | — | — | — |
-| `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | — | — | — | — |
-| `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | — | — | — | — |
+| `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,097 / 1,157 | — | 2,340 / 987 | — | — | — |
+| `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | 4,960 / 2,065 | — | — | — |
+| `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`): dense `D = 16` — `EXIT_1`
 2,934 / 914, `JOIN_2` 2,456 / 730, `UPDATE` 3,039 / 1,092, `UPDATE^x`
-3,043 / 1,156; sparse `D = 31` — `EXIT_1` 8,909 / 732, `JOIN_0`
-8,886 / 719, `UPDATE` 9,025 / 905, `UPDATE^x` 9,029 / 969. The CCV call saves about 360 bytes of script over MID at
+3,043 / 1,156, `SPLIT` 5,787 / 1,749, `EVICT_SUBTREE_2/4/6` 3,745 / 1,093,
+7,561 / 2,353 and 23,761 / 7,397; sparse `D = 31` — `EXIT_1` 8,909 / 732,
+`JOIN_0` 8,886 / 719, `UPDATE` 9,025 / 905, `UPDATE^x` 9,029 / 969,
+`SPLIT` 17,737 / 1,348. The CCV call saves about 360 bytes of script over MID at
 either profile (MID `EXIT_1` at `D = 16`: 3,299 / 978), because the
 `TREE_SPK_MIN` recomputation and the spk introspection read drop out.
 
@@ -493,7 +495,7 @@ payment hash and is left out for the same reason. `SPLIT` (7.5.2) has
 neither obstacle: it is authorised by the source owner's transaction
 signature (`OP_CHECKSIGVERIFY`), which commits to the spent outputs and so
 to the tree's scriptPubKey without naming `m`, and its two steps are
-CLAIM's. The tier therefore carries `SPLIT` (`0xC2`; `split_script_ccv`),
+CLAIM's. The tier therefore carries `SPLIT` (both numerics; `split_script_ccv`),
 which gives a CCV tree member-to-member payment without vouchers.
 `UPDATE^x` (both numerics), terminal exits and every other transition are
 unchanged. Tree-creation variants (`UPDATE^x`, `SPLIT`) stay out of a
@@ -505,10 +507,16 @@ draft and `OP_TWEAKADD` from the dependency list. It comes in both
 numerics: `0xC2` (BIP-441, the sizes above) and, with the MID tier's
 encoding (seven-element leaves, `PADZ`, sums below 2^31 sat, sparse
 `D ≤ 31`), `0xC0`; the CCV binding itself is numerics-independent. In
-`0xC0` the tier covers `EXIT_K`, `JOIN_h`, `JOINK_K`, `UPDATE` and
-`UPDATE^x` (`EVICT_SUBTREE_h` needs an element-based leaf step and
-`SPLIT` a port of MID's carve body; both are left as the tier's follow-up
-there).
+`0xC0` the tier covers every transition it covers in `0xC2`. `SPLIT` is
+MID's carve body (8.6.2) with no `r` on the altstack, `CHECK_INPUT` on the
+first step's old root and the assign-mode output check in place of
+`FINAL`. `EVICT_SUBTREE_h` is the MID tier's element-based sweep (8.7):
+the same pre-pass of leaf steps and mirrored post-order hash pass, with
+each payout a `CHECK_OUTPUT|DEDUCT` call on the leaf's exit-key element at
+the dynamic output index, followed by the exact `OP_TX` amount read. Its
+witness is MID's minus `r` and `m` and no prologue runs, so the
+1,000-element bound of 4.5 applies with one more position to spare (55 of
+64 occupied positions at `h = 6`, `D = 16`).
 
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
@@ -2395,9 +2403,15 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `D ≤ 31` limit applies, 4.5), 309 checks in total: the positive owner,
+  `D ≤ 31` limit applies, 4.5), 529 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
-  joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1`), and
+  joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
+  `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
+  FULL's cohorts with the FULL suite's negatives plus a missing operator
+  signature, output 0 under a wrong taptree and a payout to a tweaked
+  exit key; this suite caught a `0xC2` leaf step that handed the whole
+  leaf to `OP_CHECKCONTRACTVERIFY` as its key, which the earlier sweep of
+  two empty positions never reached), and
   negatives for the CCV-specific failure modes (output 0 under a wrong
   taptree, output 0 with the FULL-tier key, a payout to a tweaked rather
   than bare exit key, output 0 underfunded and overfunded, a payout above
@@ -2408,10 +2422,12 @@ exits in a batch" as `EXIT_K` (section 13).
   inputs carrying one state, which cannot share output 0 or deduct one
   payout twice (4.6); the `UPDATE^x` variant in both numerics (exit
   signature by the wrong key, garbage or absent, owner signature absent)
-  and `SPLIT` in `0xC2` at dense `D = 4`/`16` and sparse `D = 8` (signed
+  and `SPLIT` in `0xC2` at dense `D = 4`/`16` and sparse `D = 8` and in
+  `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (signed
   by the operator, by the recipient, with garbage or a voucher signature,
   over-splitting, into an occupied position, with output 0 below `ns`, or
-  against a stale root, all fail); and one direct opcode test for each
+  against a stale root, all fail, and in `0xC0` a recipient swapped
+  under the owner's signature as well); and one direct opcode test for each
   BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
@@ -2426,7 +2442,9 @@ exits in a batch" as `EXIT_K` (section 13).
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
   `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`,
-  `EVICT_SUBTREE_1` and `EVICT_SUBTREE_2` under `MID/D/D4`, and
+  `EVICT_SUBTREE_1` and `EVICT_SUBTREE_2` under `MID/D/D4`, the CCV
+  tier's `0xC0` scripts under `CCV0/D/D4` (`EVICT_SUBTREE_1/2`, `SPLIT`)
+  and `CCV0/S/D8` (`SPLIT`), and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

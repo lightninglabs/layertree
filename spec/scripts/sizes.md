@@ -140,3 +140,11 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/S | 31 | UPDATE (c0) | 9025 | 905 | 129 | 10059 | n/a (0xC0) | 2 |
 | CCV-c0/S | 31 | UPDATE_X (c0) | 9029 | 969 | 129 | 10127 | n/a (0xC0) | 3 |
 | CCV-c0/S | 31 | EXIT_2 (c0) | 17697 | 1443 | 129 | 19269 | n/a (0xC0) | 2 |
+| CCV/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 2340 | 987 | 129 | 3456 | 3332386 | 1 |
+| CCV/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 4960 | 2065 | 129 | 7154 | 8522510 | 1 |
+| CCV/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 15968 | 6391 | 129 | 22488 | 28379132 | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 3745 | 1093 | 129 | 4967 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7561 | 2353 | 129 | 10043 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23761 | 7397 | 129 | 31287 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | SPLIT | 5787 | 1749 | 129 | 7665 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | SPLIT | 17737 | 1348 | 129 | 19214 | n/a (0xC0) | 1 |
