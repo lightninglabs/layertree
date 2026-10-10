@@ -94,7 +94,7 @@
       },
       {
         "title": "One leaf on other terms blocks the sweep",
-        "caption": "Had C renewed to a lease of 2,000, or named a different evictor, the script would reject the whole sweep: it removes every leaf of the subtree or none. That is why a cohort should share one set of lease terms.",
+        "caption": "Had C renewed to a lease of 2,000, or named a different evictor, the script would reject the whole sweep: it removes every leaf of the subtree or none. That is why the operator puts members with the same lease terms in the same cohort.",
         "ops": [
           {"op": "region", "h": 2, "i": 1, "label": "lease expired"},
           {"op": "badge", "pos": 6, "text": "if lease 2,000", "kind": "bad"},
@@ -175,7 +175,7 @@
   1,000 stack elements, which caps a 64-slot sweep at 54 occupied slots.</p>
 
   <h2 id="griefing">Cheap eviction cuts the other way too</h2>
-  <p>At about 160 vB per leaf, an operator can clear expired members very cheaply.
+  <p>At about 160 vB per leaf, an operator can clear expired members cheaply.
   That keeps small balances removable at high fee rates, and it also makes removing
   members a cheap way to harass them. Removal always pays in full, so the harm is
   the member's lost place in the tree, not their money. Members who care choose
@@ -187,7 +187,7 @@
       <li><a href="../../spec/layertree.md#72-exit">Spec 7.2</a> rule 4: eviction through the exit script.</li>
       <li><a href="../../spec/layertree.md#77-evict_subtree_h-cohort-sweep">Spec 7.7</a>: <code>EVICT_SUBTREE_h</code>; <a href="../../spec/layertree.md#94-eviction">9.4</a>: the eviction protocol and cohorts.</li>
       <li><a href="../../spec/layertree.md#108-eviction">Spec 10.8</a>: eviction's security considerations.</li>
-      <li><a href="../../spec/layertree.md#11-cost-analysis">Spec 11</a>: sweep sizes, and why cohorts should share an aligned subtree and a lease.</li>
+      <li><a href="../../spec/layertree.md#11-cost-analysis">Spec 11</a>: sweep sizes, and why a cohort shares an aligned subtree and a lease.</li>
       <li><a href="../../design/cost-comparison.md"><code>design/cost-comparison.md</code></a>: removal cost against batch size.</li>
     </ul>
   </section>

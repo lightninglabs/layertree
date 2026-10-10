@@ -292,8 +292,8 @@
   <p>The rules are mechanised in Lean 4 in <code>formal/</code>, with no external
   libraries and no unproved steps. The headline theorems, by name:</p>
   <ul>
-    <li><code>fold_sound</code>: a node and a path that fold to a tree's root
-    really are that node at that position, assuming the hash has no collisions.
+    <li><code>fold_sound</code>: if a node and a path fold to a tree's root, the
+    tree holds that node at that position, assuming the hash has no collisions.
     This is check 1.</li>
     <li><code>witness_root_binds</code> and <code>output_binds</code>: the output
     key determines both the root and the script set, so checks 1 and 3 pin the
@@ -304,8 +304,8 @@
     <li><code>payable</code>: whoever holds a leaf and its path can always build
     an accepted exit paying the leaf's amount, without anyone's cooperation.</li>
   </ul>
-  <p><code>payable</code> assumes the committed root really is the root of a
-  tree, which creation and grafting must establish off-chain; the
+  <p><code>payable</code> assumes the committed root is the root of an actual
+  tree, an invariant that creation and grafting must establish off-chain; the
   <a href="join.html">join page</a> explains why. Lean covers the rules, not the
   bytecode. The scripts are checked by execution: a simulator runs every compiled
   script against reference trees, with failing cases for every rule, and a Go

@@ -207,8 +207,8 @@
     unconfirmed descendants, which caps how fast strangers can leave one at a
     time. A batch counts once against that cap. One cheap transaction early in
     the chain can also hold back the fee rate of everything behind it. Splitting
-    a deployment into several trees is the structural answer, and trees should
-    be sized by how fast members may need to leave.</dd>
+    a deployment into several trees is the structural answer, with each tree
+    sized by how fast its members may need to leave.</dd>
     <dt>Cheap eviction is also cheap griefing.</dt>
     <dd>At about 160 vB per leaf, the operator can clear expired members cheaply.
     Members who want a firm guarantee choose a lease far in the future, or no
