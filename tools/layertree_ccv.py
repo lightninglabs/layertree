@@ -263,16 +263,73 @@ def split_script_ccv(depth, profile="D"):
     signature by src.owner_key, so nothing in it signs `m`, and it carries
     over from the FULL tier unchanged except for the binding: F's
     _carve_body with the parked root replaced by CHECK_INPUT on the first
-    step's old root, and FINAL by final_ccv. CLAIM and CLAIM^h do not
-    carry over this way, because their voucher message binds `m` (spec 4.6).
+    step's old root, and FINAL by final_ccv. CLAIM and CLAIM^h share the
+    body (_carve_body_ccv) with a tree_id-bound voucher check in place of
+    the signature (claim_script_ccv, spec 4.6).
 
     The two steps, the seq increment, the drained-source rule and
     conservation are F._carve_body's, token for token, apart from the
     altstack bookkeeping for r and m.
     """
-    s = prologue_ccv() + [
+    return prologue_ccv() + [
         2, "OP_PICK", F.OFF_OWNER_KEY, 32, "OP_SUBSTR",     # src claim sig owner_key
-        "OP_CHECKSIGVERIFY",                                # src claim
+        "OP_CHECKSIGVERIFY"] + _carve_body_ccv(depth, profile)
+
+
+# ------------------------------------------------- vouchers: tree_id --
+# The FULL and MID voucher message binds m, the taptree root, which the
+# script reads from the witness and checks against the input's
+# scriptPubKey. The CCV witness carries no m, and a script cannot embed
+# its own taptree root (it is a hash over the script itself). The CCV tier
+# binds vouchers to a per-tree constant instead: a 32-byte tree_id fixed
+# at tree creation and baked into the tier's CLAIM scripts (spec 4.6).
+TAG_TREE_ID = "LayerTree/tree-id"
+
+
+def tree_id(txid, vout):
+    """RECOMMENDED tree_id (spec 6.2): H_tag("LayerTree/tree-id", creation
+    outpoint), the outpoint serialised as txid (32 bytes, internal order)
+    || le32(vout). Any value unique to the tree works."""
+    return lt.tagged_hash(TAG_TREE_ID, txid + vout.to_bytes(4, "little"))
+
+
+def voucher_msg_ccv(tid, source_leaf, claim_leaf, payment_hash=None):
+    """The CCV-tier voucher message (spec 9.6): H_voucher(tree_id || src ||
+    claim), or with a payment hash H_voucher_h(tree_id || src || claim ||
+    payment_hash). The FULL and MID message with tree_id in place of m."""
+    if payment_hash is None:
+        return lt.voucher_msg(tid, source_leaf, claim_leaf)
+    return lt.voucher_h_msg(tid, source_leaf, claim_leaf, payment_hash)
+
+
+def claim_script_ccv(depth, tid, profile="D", hashlock=False):
+    """CLAIM (7.5) or CLAIM^h (7.5.1) under CCV (0xC2).
+
+    Witness (bottom..top): [claim path] [source path] src_leaf claim_leaf
+    voucher_sig [preimage]. No r, no m. The voucher message is rebuilt
+    with the tree's tree_id as a script constant and checked by
+    OP_CHECKSIGFROMSTACK against src.owner_key; the rest is SPLIT's body.
+    """
+    assert len(tid) == 32
+    s = prologue_ccv()
+    if hashlock:
+        s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+              "OP_TOALTSTACK"]                              # src claim vsig     | phash
+    s += [2, "OP_PICK", 2, "OP_PICK", "OP_CAT",             # src claim vsig (src||claim)
+          tid, "OP_SWAP", "OP_CAT"]                         # src claim vsig (tree_id||src||claim)
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                  # ... (tree_id||src||claim||phash)
+    s += F.tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)   # src claim vsig msg
+    s += [3, "OP_PICK", F.OFF_OWNER_KEY, 32, "OP_SUBSTR",   # src claim vsig msg src.owner_key
+          "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]              # src claim
+    return s + _carve_body_ccv(depth, profile)
+
+
+def _carve_body_ccv(depth, profile):
+    """[src claim] -> [1], after the authorisation: F._carve_body's two
+    steps bound by CHECK_INPUT and final_ccv. Shared by SPLIT, CLAIM and
+    CLAIM^h under 0xC2."""
+    s = [
         "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
         "OP_SWAP", "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY", "OP_SWAP",  # src claim
         # new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq + 1)
@@ -314,15 +371,13 @@ def leaf_step_ccv(operator_key):
             "OP_DUP", F.OFF_EVICT_AFTER, F.LEN_EVICT_AFTER, "OP_SUBSTR",
             "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
             # idx -> idx+1 on alt, keep a copy for the OP_TX index.
-            "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf idx
-            "OP_DUP", "OP_TOALTSTACK",                               # leaf idx | copy
+            "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf idx       | idx'
+            "OP_DUP", "OP_TOALTSTACK",                               # leaf idx       | idx' idx
             # CCV: data empty, index idx, pk leaf.exit_key, taptree empty, mode 2.
-            # Build bottom..top: "" idx ek "" 2, with ek picked from leaf.
-            "OP_2SWAP",                                   # idx "" leaf  (data idx to bottom)
-            "OP_2SWAP", "OP_DUP", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_ROT",
-            # ... arrangement is verified by the test suite.
-            b"", 2, CCV,
-            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",  # leaf amt
+            b"", "OP_SWAP",                                          # leaf "" idx
+            2, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR",           # leaf "" idx ek
+            b"", 2, CCV,                                             # leaf           DEDUCT payout
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",  # leaf amt      | idx'
             "OP_OVER", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",
             ] + F.leaf_acc() + [
             "OP_ELSE",
@@ -480,24 +535,81 @@ def _update_script_ccv0(depth, operator_key, sparse=False, exit_consent=False):
     return s + _check_old_ccv0(sparse) + _final_ccv0(depth)
 
 
+def _pay_evict_ccv0():
+    """The EVICT_SUBTREE payout under c0, in place of M._evict_pay:
+    [leaf(10) idx] | .. idx' -> [leaf(10)]. A CHECK_OUTPUT|DEDUCT call on
+    the leaf's exit-key element at the dynamic output index, then the exact
+    amount compare against the amount field with one OP_TX read."""
+    return ["OP_DUP", "OP_TOALTSTACK",                       # leaf(10) idx    | .. idx' idx
+            b"", "OP_SWAP",                                  # leaf(10) "" idx
+            10, "OP_PICK",                                   # leaf(10) "" idx ek
+            b"", 2, CCV,                                     # leaf(10)        DEDUCT payout
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",   # leaf(10) amt
+            10, "OP_PICK", "OP_EQUALVERIFY"]                 # leaf(10)   (exact payout)
+
+
 def _evict_subtree_script_ccv0(depth, height, operator_key):
-    """EVICT_SUBTREE_h (dense) under c0: the c2 tier's fixed post-order
-    program adapted to MID's element leaves. Each leaf slot's witness is
-    the ten leaf elements plus the eviction pads; empty slots contribute
-    one empty element. The payout reuses _pay_ccv0 with the dynamic
-    output index taken from the altstack."""
-    raise NotImplementedError(
-        "EVICT_SUBTREE under c0 needs an element-based leaf step; see the "
-        "tier's follow-up (the c2 tier covers the sweep shape)")
+    """EVICT_SUBTREE_h (dense) under c0: the MID tier's element-based sweep
+    (M.evict_body: a pre-pass of leaf steps in position order, then a
+    mirrored post-order hash pass) with the payout check replaced by a CCV
+    DEDUCT call and the two bindings by CHECK_INPUT and the assign-mode
+    output check. Witness: MID's minus r and m."""
+    s = [operator_key, "OP_CHECKSIGVERIFY"]
+    s += M.evict_body(height, operator_key, _pay_evict_ccv0())      # T oh os E_h 0
+    s += M.levels(False, depth, height)
+    return s + _check_old_ccv0(False) + _final_ccv0(depth)
+
+
+def _split_script_ccv0(depth, sparse=False):
+    """SPLIT (7.5.2) under c0: MID's carve with the owner's transaction
+    signature, no r and no m. Witness: MID's SPLIT witness minus r and m,
+    so src.ok is 25 deep under the signature. MID's carve_source runs
+    with alt_r=False, CHECK_INPUT replaces the parked-root comparison of
+    step 1, and _final_ccv0 replaces FINAL."""
+    s = [25, "OP_PICK", "OP_CHECKSIGVERIFY"]                         # src(10) claim(10) extras(7)
+    return s + _carve_body_ccv0(depth, sparse)
+
+
+def _claim_script_ccv0(depth, tid, sparse=False, hashlock=False):
+    """CLAIM / CLAIM^h under c0: MID's carve witness minus r and m, with the
+    voucher message rebuilt over the script constant tree_id in place of m.
+
+    Witness (bottom..top): MID's CLAIM witness up to vsig, then [preimage];
+    no r, no m. src's seven fields sit 27 deep under vsig (the voucher
+    signature replaces MID's m at the top), claim's 17."""
+    assert len(tid) == 32
+    s = []
+    if hashlock:
+        s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+              "OP_TOALTSTACK"]                                       # ... extras(7) vsig  | phash
+    s += [27, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig src_leaf
+    s += [18, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig src_leaf claim_leaf
+    s += ["OP_CAT", tid, "OP_SWAP", "OP_CAT"]                        # ... vsig (tree_id||src||claim)
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                           # ... (tree_id||src||claim||phash)
+    s += M.tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)   # ... vsig msg
+    s += [26, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]        # src(10) claim(10) extras(7)
+    return s + _carve_body_ccv0(depth, sparse)
+
+
+def _carve_body_ccv0(depth, sparse):
+    """[src(10) claim(10) extras(7)] -> [1]: MID's two carve steps bound by
+    CCV. Shared by SPLIT, CLAIM and CLAIM^h under c0."""
+    s = M.carve_source(depth, sparse, alt_r=False)                   # T oh os nh ns     | claim_leaf amt_c
+    s += _check_old_ccv0(sparse)                                     # T nh1 ns1
+    s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
+    return s + M.carve_claim(depth, sparse) + _final_ccv0(depth)
 
 
 def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
                     profile="D", join_ks=(2,), numeric="c2"):
     """Ordered dict name -> token list for a CCV-tier tree's taptree.
 
-    CLAIM is not generated (spec 4.6): the FULL-tier voucher message binds
-    `m`, which no longer exists in the CCV-tier witness; vouchers would
-    need a redefined message and are left as the tier's documented follow-up.
+    CLAIM and CLAIM^h are not generated here: their voucher message binds
+    the tree's tree_id in place of `m` (spec 4.6), so they take it as a
+    parameter (claim_script_ccv, _claim_script_ccv0), and they are the
+    only CCV scripts that need OP_CHECKSIGFROMSTACK. A tree adds them at
+    creation, as it does SPLIT and UPDATE^x.
     """
     c0 = numeric == "c0"
     if c0:
@@ -508,6 +620,10 @@ def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
         for k in join_ks:
             out[f"JOINK_{k}"] = _join_script_ccv0(depth, 0, operator_key, sparse, k)
         out["UPDATE"] = _update_script_ccv0(depth, operator_key, sparse)
+        if profile == "D":
+            for h in (1, 2):
+                if h <= depth:
+                    out[f"EVICT_SUBTREE_{h}"] = _evict_subtree_script_ccv0(depth, h, operator_key)
         return out
     out = {f"EXIT_{k}": exit_script_ccv(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):

@@ -38,6 +38,7 @@ NAMES[N.CHALLENGE_PREFIX] = "<TAG_CHALLENGE>"
 NAMES[N.G_X] = "<G_X>"
 NAMES[N.G_X + N.G_X] = "<G_X||G_X>"
 NAMES[M.ENC64_SUFFIX] = "<00000000_01>"
+NAMES[M.E0_SC] = "<E_0.sc>"
 for h in range(0, 65):
     NAMES[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
 
@@ -82,13 +83,17 @@ def mid_macros():
           ("CHECK_PREV", M.check_prev(False)), ("CHECK_PREV_S", M.check_prev(True)),
           ("LEAF_JOIN", M.leaf_join())]
     t += [("FINAL", M.final(d)) for d in (4, 8, 16, 31, 32)]
+    t += [("EVICT_LEAF_STEP", M._evict_leaf_step(OP_KEY))]
+    t += [(f"EVICT_HASH_STEP({k})", M._evict_hash_step(k, False)) for k in range(4, 40)]
+    t += [(f"EVICT_HASH_ROOT({k})", M._evict_hash_step(k, True)) for k in range(4, 6)]
     return [(n, words(x, "c0")) for n, x in t]
 
 
 def ccv_macros():
     t = []
     for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("POS", F.POS_PREFIX),
-                     ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
+                     ("TAPTWEAK", F.TAPTWEAK_PREFIX), ("VOUCHER", F.VOUCHER_PREFIX),
+                     ("VOUCHER_H", F.VOUCHER_H_PREFIX)):
         t.append((f"TAGGED({tag})", F.tagged(pre)))
     t += [("CCV_CHECK_INPUT", CV.ccv_check_input()),
           ("CCV_PAYOUT(1)", CV.ccv_payout_fixed(1)),
@@ -272,6 +277,9 @@ NOTES_MID = {
     "CHECK_PREV_S": "CHECK_PREV with the sparse teardown",
     "FINAL": "output 0 is (le64(ns), TREE_SPK(nh, m)) unless nh == E_D",
     "LEAF_JOIN": "[amt8 ek ok evk ea nonce seq amt_num za wa] -> [leaf] | amt_num",
+    "EVICT_LEAF_STEP": "cohort sweep pre-pass: [slot idx] -> [idx'] | s sc, paying the next output",
+    "EVICT_HASH_STEP": "cohort sweep: [Rsc Rs Lsc Ls] -> [psc ps], one PADZ pad pair from below T",
+    "EVICT_HASH_ROOT": "cohort sweep: [Rsc Rs Lsc Ls] -> [oh os] at the subtree root",
 }
 
 CCV = ccv_macros()
@@ -315,6 +323,9 @@ open(os.path.join(OUT, f"MID_CLAIM_H_D{D}.txt"), "w").write(
     structured(f"CLAIM_H (MID tier, hash-locked voucher, dense, D={D})", M.claim_script(D, False, hashlock=True), "c0", MID))
 open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (MID tier, owner-authorised carve, dense, D={D})", M.split_script(D, False), "c0", MID))
+open(os.path.join(OUT, f"MID_EVICT_SUBTREE_2_D{D}.txt"), "w").write(
+    structured(f"EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D={D})",
+               M.evict_subtree_script(D, 2, OP_KEY), "c0", MID))
 open(os.path.join(OUT, f"MIN_EXIT_1_D{D}.txt"), "w").write(
     structured(f"EXIT_1 (MIN tier, dense, D={D})", N.exit_script(D), "c0", MIN))
 open(os.path.join(OUT, f"MIN_SPLIT_D{D}.txt"), "w").write(
@@ -325,6 +336,21 @@ open(os.path.join(OUT, f"CCV_UPDATE_X_D{D}.txt"), "w").write(
     structured(f"UPDATE_X (CCV tier, exit-key consent, dense, D={D})", CV.update_script_ccv(D, OP_KEY, "D", exit_consent=True), "c2", CCV))
 open(os.path.join(OUT, f"CCV_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV tier, owner-authorised carve, dense, D={D})", CV.split_script_ccv(D, "D"), "c2", CCV))
+CCV_TREE_ID = CV.tree_id(lt.sha256(b"creation-txid"), 0)
+NAMES[CCV_TREE_ID] = "<TREE_ID>"
+for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
+    open(os.path.join(OUT, f"CCV_{nm}_D{D}.txt"), "w").write(
+        structured(f"{nm} (CCV tier, tree_id voucher, dense, D={D})",
+                   CV.claim_script_ccv(D, CCV_TREE_ID, "D", hl), "c2", CCV))
+    open(os.path.join(OUT, f"CCV0_{nm}_D{D}.txt"), "w").write(
+        structured(f"{nm} (CCV with 0xC0 numerics, in MID macros, tree_id voucher, dense, D={D})",
+                   CV._claim_script_ccv0(D, CCV_TREE_ID, False, hl), "c0", MID))
+open(os.path.join(OUT, f"CCV0_SPLIT_D{D}.txt"), "w").write(
+    structured(f"SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+               CV._split_script_ccv0(D, False), "c0", MID))
+open(os.path.join(OUT, f"CCV0_EVICT_SUBTREE_2_D{D}.txt"), "w").write(
+    structured(f"EVICT_SUBTREE_2 (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+               CV._evict_subtree_script_ccv0(D, 2, OP_KEY), "c0", MID))
 for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
     open(os.path.join(OUT, f"CCV_{name}_S8.txt"), "w").write(structured(f"{name} (CCV tier, sparse, D=8)", toks, "c2", CCV))
 print("wrote", len(os.listdir(OUT)), "structured listings to", os.path.relpath(OUT))

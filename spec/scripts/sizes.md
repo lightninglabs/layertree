@@ -101,6 +101,10 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | CLAIM_H | 18250 | 1438 | 129 | 19817 | n/a (0xC0) | 1 |
 | MID/D | 16 | SPLIT | 6160 | 1813 | 129 | 8102 | n/a (0xC0) | 1 |
 | MID/S | 31 | SPLIT | 18110 | 1412 | 129 | 19651 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 4097 | 1157 | 129 | 5383 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7865 | 2417 | 129 | 10411 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23873 | 7461 | 129 | 31463 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13149 | 4907 | 129 | 18185 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |
 | MIN/D | 16 | SPLIT | 6441 | 2010 | 129 | 8580 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |
@@ -136,3 +140,19 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/S | 31 | UPDATE (c0) | 9025 | 905 | 129 | 10059 | n/a (0xC0) | 2 |
 | CCV-c0/S | 31 | UPDATE_X (c0) | 9029 | 969 | 129 | 10127 | n/a (0xC0) | 3 |
 | CCV-c0/S | 31 | EXIT_2 (c0) | 17697 | 1443 | 129 | 19269 | n/a (0xC0) | 2 |
+| CCV/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 2340 | 987 | 129 | 3456 | 3332386 | 1 |
+| CCV/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 4960 | 2065 | 129 | 7154 | 8522510 | 1 |
+| CCV/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 15968 | 6391 | 129 | 22488 | 28379132 | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 3745 | 1093 | 129 | 4967 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7561 | 2353 | 129 | 10043 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23761 | 7397 | 129 | 31287 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | SPLIT | 5787 | 1749 | 129 | 7665 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | SPLIT | 17737 | 1348 | 129 | 19214 | n/a (0xC0) | 1 |
+| CCV/D | 16 | CLAIM | 3447 | 1626 | 129 | 5202 | 2168807 | 1 |
+| CCV/D | 16 | CLAIM_H | 3455 | 1658 | 129 | 5242 | 2172993 | 1 |
+| CCV/S | 32 | CLAIM | 9541 | 419 | 129 | 10089 | 3350042 | 1 |
+| CCV/S | 32 | CLAIM_H | 9549 | 451 | 129 | 10129 | 3354228 | 1 |
+| CCV-c0/D | 16 | CLAIM | 5946 | 1765 | 129 | 7840 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | CLAIM_H | 5954 | 1797 | 129 | 7880 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | CLAIM | 17896 | 1342 | 129 | 19367 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | CLAIM_H | 17904 | 1374 | 129 | 19407 | n/a (0xC0) | 1 |

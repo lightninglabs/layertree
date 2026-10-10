@@ -37,6 +37,8 @@ for name, toks in M.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(
     add("MID", "D", 4, name, toks, "c0")
 for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,)).items():
     add("MID", "S", 8, name, toks, "c0")
+for h in (1, 2):
+    add("MID", "D", 4, f"EVICT_SUBTREE_{h}", M.evict_subtree_script(4, h, OP_KEY), "c0")
 add("MIN", "D", 4, "EXIT_1", N.exit_script(4), "c0")
 import layertree_ccv as CV  # noqa: E402
 for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
@@ -46,6 +48,22 @@ add("CCV", "D", 16, "EXIT_1", CV.exit_script_ccv(16, 1, "D"), "c2")
 for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,)).items():
     add("CCV", "S", 8, name, toks, "c2")
 add("CCV", "S", 8, "UPDATE_X", CV.update_script_ccv(8, OP_KEY, "S", exit_consent=True), "c2")
+# The CCV tier under 0xC0 numerics (MID encoding), keyed CCV0 so that the
+# 0xC2 keys above keep one assembler mode.
+for h in (1, 2):
+    add("CCV0", "D", 4, f"EVICT_SUBTREE_{h}", CV._evict_subtree_script_ccv0(4, h, OP_KEY), "c0")
+add("CCV0", "D", 4, "SPLIT", CV._split_script_ccv0(4, False), "c0")
+add("CCV0", "S", 8, "SPLIT", CV._split_script_ccv0(8, True), "c0")
+# CCV vouchers bind a per-tree tree_id (spec 4.6, 6.2, 9.6), a constant of
+# the CLAIM scripts; the vector fixes the RECOMMENDED derivation.
+CCV_TXID = lt.sha256(b"creation-txid")
+CCV_TREE_ID = CV.tree_id(CCV_TXID, 0)
+out["ccv_tree_id"] = {"txid": CCV_TXID.hex(), "vout": 0, "tree_id": CCV_TREE_ID.hex()}
+for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
+    add("CCV", "D", 4, nm, CV.claim_script_ccv(4, CCV_TREE_ID, "D", hl), "c2")
+    add("CCV", "S", 8, nm, CV.claim_script_ccv(8, CCV_TREE_ID, "S", hl), "c2")
+    add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, CCV_TREE_ID, False, hl), "c0")
+    add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, CCV_TREE_ID, True, hl), "c0")
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),

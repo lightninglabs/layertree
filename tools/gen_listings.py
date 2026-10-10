@@ -19,12 +19,15 @@ os.makedirs(OUT, exist_ok=True)
 OP_KEY = pubkey_x(lt.sha256(b"operator"))
 names = dict(ls.CONST_NAMES)
 names[OP_KEY] = "<OPERATOR_KEY>"
+names[LM.E0_SC] = "<E_0.sc>"
+import layertree_ccv as _CV  # noqa: E402
+names[_CV.tree_id(lt.sha256(b"creation-txid"), 0)] = "<TREE_ID>"
 for h in range(0, 33):
     names[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
 
 
 def listing(name, tokens):
-    mode = "c0" if ("MID" in name or "MIN" in name or "PADZ" in name) else "c2"
+    mode = "c0" if ("MID" in name or "MIN" in name or "PADZ" in name or "0xC0" in name) else "c2"
     script = assemble(tokens, mode)
     words = disassemble(script, names)
     lines = [f"# {name}: {len(script)} bytes", ""]
@@ -123,6 +126,12 @@ for d, sparse in ((16, False), (31, True)):
     it, sl, wl = test_mid.test_split(d, sparse, verbose=False)
     rows.append(("MID/" + ("S" if sparse else "D"), d, "SPLIT", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for h, full in ((2, False), (4, False), (6, False), (5, True)):
+    it, script, wit = test_mid.test_evict_subtree(16, h, verbose=False, full=full)
+    n = 1 << h
+    occ = "all occupied" if full else "every fifth exited"
+    rows.append(("MID/D", 16, f"EVICT_SUBTREE_{h} ({n} positions, {occ})", len(script), sum(len(x) for x in wit), 129,
+                 len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
@@ -132,6 +141,9 @@ rows.append(("MIN/D", 16, "SPLIT", len(script), sum(len(x) for x in wit), 129,
 for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,)).items():
     with open(os.path.join(OUT, f"MID_{name}_D4.txt"), "w") as f:
         f.write(listing(f"{name} (MID tier, dense, D=4)", toks))
+with open(os.path.join(OUT, "MID_EVICT_SUBTREE_2_D4.txt"), "w") as f:
+    f.write(listing("EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D=4)",
+                    LM.evict_subtree_script(4, 2, OP_KEY)))
 with open(os.path.join(OUT, "MID_UPDATE_X_D4.txt"), "w") as f:
     f.write(listing("UPDATE_X (MID tier, dense, D=4)",
                     LM.update_script(4, OP_KEY, False, exit_consent=True)))
@@ -165,6 +177,34 @@ for d, prof in ((16, "D"), (31, "S")):
     costs = test_ccv.test_c0(d, prof)
     for k, (it, sl, wl) in costs.items():
         rows.append(("CCV-c0/" + prof, d, k, sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for numeric in ("c2", "c0"):
+    tierp = "CCV/D" if numeric == "c2" else "CCV-c0/D"
+    for h in (2, 4, 6):
+        it, sl, wl = test_ccv.test_evict_subtree_ccv(16, h, numeric)
+        rows.append((tierp, 16, f"EVICT_SUBTREE_{h} ({1 << h} positions, every fifth exited)", sl, wl, 129,
+                     sl + wl + 129, it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for d, prof in ((16, "D"), (31, "S")):
+    it, sl, wl = test_ccv.test_split_ccv0(d, prof)
+    rows.append(("CCV-c0/" + prof, d, "SPLIT", sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31, "S", "c0")):
+    for hl in (False, True):
+        it, sl, wl = test_ccv.test_claim_ccv(d, prof, numeric, hl)
+        tierp = ("CCV/" if numeric == "c2" else "CCV-c0/") + prof
+        rows.append((tierp, d, "CLAIM_H" if hl else "CLAIM", sl, wl, 129, sl + wl + 129,
+                     it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
+    with open(os.path.join(OUT, f"CCV_{nm}_D4.txt"), "w") as f:
+        f.write(listing(f"{nm} (CCV tier, tree_id voucher, dense, D=4)",
+                        CV.claim_script_ccv(4, test_ccv.TREE_ID, "D", hl)))
+    with open(os.path.join(OUT, f"CCV0_{nm}_D4.txt"), "w") as f:
+        f.write(listing(f"{nm} (CCV tier, 0xC0 numerics, tree_id voucher, dense, D=4)",
+                        CV._claim_script_ccv0(4, test_ccv.TREE_ID, False, hl)))
+with open(os.path.join(OUT, "CCV0_SPLIT_D4.txt"), "w") as f:
+    f.write(listing("SPLIT (CCV tier, 0xC0 numerics, owner-authorised carve, dense, D=4)",
+                    CV._split_script_ccv0(4, False)))
+with open(os.path.join(OUT, "CCV0_EVICT_SUBTREE_2_D4.txt"), "w") as f:
+    f.write(listing("EVICT_SUBTREE_2 (CCV tier, 0xC0 numerics, cohort sweep, dense, D=4)",
+                    CV._evict_subtree_script_ccv0(4, 2, OP_KEY)))
 for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():
     with open(os.path.join(OUT, f"CCV_{name}_D4.txt"), "w") as f:
         f.write(listing(f"{name} (CCV tier, dense, D=4)", toks))
