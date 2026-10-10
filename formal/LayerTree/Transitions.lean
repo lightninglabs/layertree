@@ -406,24 +406,40 @@ theorem claimedSource_amount (src : Leaf) (v : Nat) (hv : v ≤ src.amount) :
   · simp; omega
 
 /-- What `CLAIM` accepts: the source step then the claim step (rules 2 and
-3), output 0 carrying the final sum, and the voucher authorisation.
+3), output 0 carrying the final sum, the voucher authorisation, and the
+carve rule (rule 5): the claim leaf keeps the source's evictor key and a
+lease no longer than the source's, so nothing carved out of a leaf is
+harder to evict than the leaf itself.
 
 `auth` is opaque, so this structure covers both voucher forms of the spec.
 Plain `CLAIM` (7.5) instantiates it with "`voucher_sig` verifies under
-`src.owner_key` over `H_voucher(m ‖ src ‖ claim)`"; the hash-locked
+`src.owner_key` over `H_voucher(tree_id ‖ src ‖ claim)`"; the hash-locked
 `CLAIM^h` (7.5.1) instantiates it with "`preimage` is 32 bytes and
 `voucher_sig` verifies under `src.owner_key` over
-`H_voucher_h(m ‖ src ‖ claim ‖ SHA256(preimage))`". The hash lock changes
+`H_voucher_h(tree_id ‖ src ‖ claim ‖ SHA256(preimage))`". The hash lock changes
 who may redeem and when, never what the redemption does to the tree, so
 `claim_sound` below applies verbatim to both and the model needs no case
 for the variant. -/
 structure Claim (auth : Prop) (r : Node H) (srcPath claimPath : List (Bool × Node H))
     (src claim : Leaf) (r' : Node H) (out0 : Nat) : Prop where
   amount_le : claim.amount ≤ src.amount
+  evictorKey_eq : claim.evictorKey = src.evictorKey
+  evictAfter_le : claim.evictAfter ≤ src.evictAfter
   steps : Steps r [leafStep srcPath (some src) (claimedSource src claim.amount),
                    leafStep claimPath none (some claim)] r'
   out0_eq : out0 = r'.sum
   authorised : auth
+
+/-- **A carve is never easier to keep than its source** (rule 5): whoever
+may evict the source leaf at height `h` may evict the claim leaf there too,
+with the same key. Eviction is therefore a property of a balance, not of
+one leaf: no sequence of carves escapes it. -/
+theorem claim_evictable {auth : Prop} {r r' : Node H}
+    {srcPath claimPath : List (Bool × Node H)} {src claim : Leaf} {out0 : Nat}
+    (hc : Claim auth r srcPath claimPath src claim r' out0)
+    (h : Nat) (hsrc : src.evictAfter ≤ h) :
+    claim.evictorKey = src.evictorKey ∧ claim.evictAfter ≤ h :=
+  ⟨hc.evictorKey_eq, Nat.le_trans hc.evictAfter_le hsrc⟩
 
 /-- **A claim conserves the total** (rule 4) and **rewrites exactly the
 source and claim positions**: the source position held the source leaf,

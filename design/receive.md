@@ -122,10 +122,9 @@ The 1,652 vbytes is the FULL tier at `D = 16` with no help, and it is
 large for a structural reason: a `CLAIM^h` proves two positions, the
 source leaf and the claim slot, so it carries two full paths of sixteen
 unrolled levels each, two leaves, the voucher signature and the preimage.
-The CCV tier reduces it a little: since its vouchers bind a per-tree
-`tree_id` constant in place of `m` (spec 4.6), it carries `CLAIM^h` at
-3,455 bytes of script and 1,658 of witness at `D = 16`, about 1,550
-vbytes against the FULL tier's 1,652.
+The CCV tier reduces it a little: with `r` and `m` gone from the
+witness it carries `CLAIM^h` at 3,455 bytes of script and 1,658 of
+witness at `D = 16`, about 1,550 vbytes against the FULL tier's 1,652.
 
 The largest saving needs no new opcode. A credit leaf dedicated to one
 recipient can have its sibling slot reserved for that recipient's claim
@@ -133,14 +132,14 @@ leaf, so the source and the claim sit under one path and share fifteen
 of the sixteen levels. A `CLAIM` variant that folds the sibling pair
 under a single path (the "sibling pairs" shape of spec 13.4) costs about
 1,130 vbytes on the measured parts, a third less, and it suits the
-credit leaf exactly because the operator chose the slot. Three further
-cuts stack on it: binding the voucher to a tree identifier compiled into
-the script instead of `m`, which would let the CCV tier carry `CLAIM` and
-take roughly another fifth off; the `OP_MULTI OP_CAT` level and the
-`OP_INTERNALKEY` fast path of spec 13.3 and 13.8, perhaps 150 vbytes
-more; and a native Merkle-sum opcode, which would put the redemption
-near 500 vbytes. None of these is built; the sibling-pair `CLAIM` is the
-one this page recommends building first.
+credit leaf exactly because the operator chose the slot. Two further
+cuts stack on it: the `OP_MULTI OP_CAT` level and the `OP_INTERNALKEY`
+fast path of spec 13.3 and 13.8, perhaps 150 vbytes more; and a native
+Merkle-sum opcode, which would put the redemption near 500 vbytes.
+Neither is built; the sibling-pair `CLAIM` is the one this page
+recommends building first. (Binding the voucher to a tree identifier
+compiled into the script instead of `m`, the third cut an earlier draft
+listed, is now the rule in every tier: spec 6.2 and 7.5.)
 
 ## What the user trusts
 
@@ -165,7 +164,10 @@ tree-creation parameters. With `UPDATE^x` (7.4 rule 5) the operator
 cannot rewrite the leaf without a signature from its exit key, which is
 the recipient's. With `EXIT^=` (7.2 rule 6) an exit of the leaf pays its
 whole amount to the exit key, so the operator leaving the leaf only pays
-the recipient more than it owed. An evictor key of NUMS removes eviction.
+the recipient more than it owed. An evictor key of NUMS removes eviction,
+and it survives the carve rule of spec 7.5 rule 5: a credit leaf created
+by `JOIN` with a NUMS evictor is still fine, since every leaf carved out
+of it inherits that evictor, which is what the recipient wants.
 The fourth move is not covered: the operator can issue itself a voucher
 against the credit leaf and redeem it with plain `CLAIM`, which needs no
 consent from anyone. That drains the leaf and voids the recipient's
@@ -180,9 +182,8 @@ in the taptree, a credit leaf's balance can only grow or be paid to its
 recipient, and the recipient's exposure is the operator's liveness:
 nothing worse than a provider that stops issuing. The variant is now spec
 7.5.3, with `CLAIM^hx` as the same addition to the hash-locked form; it
-measures 8 bytes over `CLAIM` in the FULL tier (`UPDATE^x`'s seven plus
-an `OP_SWAP`, because the voucher message keeps a spare copy of `m` above
-the signature) and 64 bytes of witness, and `tools/test_scripts.py`
+measures 7 bytes over `CLAIM` in the FULL tier, as `UPDATE^x` over
+`UPDATE`, and 64 bytes of witness, and `tools/test_scripts.py`
 exercises the credit-leaf scenario directly: the operator's own voucher
 plus its own transaction signature fails. The Lean model is unaffected,
 since `Claim` takes an opaque authorisation.

@@ -139,7 +139,7 @@ func MinSplitScript(depth int) []Token {
 	s = append(s, Op(txscript.OP_TOALTSTACK),
 		Op(txscript.OP_DUP), Op(txscript.OP_TOALTSTACK),
 		Op(txscript.OP_SWAP), Op(txscript.OP_TOALTSTACK),
-		Op(txscript.OP_DROP), Num(25), Op(txscript.OP_PICK),
+		Op(txscript.OP_DROP), Num(midCarveOwnerDepth), Op(txscript.OP_PICK),
 		Op(txscript.OP_CHECKSIGVERIFY))
 	s = append(s, midCarveSource(depth, false)...)
 	// As MID check_old, but the input amount is kept for the message.

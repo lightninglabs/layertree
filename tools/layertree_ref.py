@@ -96,6 +96,7 @@ TAG_STATE = "LayerTree/state"
 TAG_VOUCHER = "LayerTree/voucher"
 TAG_VOUCHER_H = "LayerTree/voucher-hashlock"
 TAG_POS = "LayerTree/pos"
+TAG_TREE_ID = "LayerTree/tree-id"
 TAG_TAPTWEAK = "TapTweak"
 TAG_TAPLEAF = "TapLeaf"
 TAG_TAPBRANCH = "TapBranch"
@@ -396,25 +397,42 @@ def apply_update(tree, slot, new_leaf):
     return old
 
 
-def voucher_msg(merkle_root, source_leaf, claim_leaf):
-    return tagged_hash(TAG_VOUCHER, merkle_root + source_leaf.serialize() + claim_leaf.serialize())
+def tree_id(txid, vout):
+    """The RECOMMENDED tree_id (spec 6.2): H_tag("LayerTree/tree-id", txid
+    || le32(vout)) over the creation outpoint, txid in internal byte order.
+    Any 32-byte value unique to the tree's lineage works; a tree created by
+    DETACH_h inherits its parent's."""
+    assert len(txid) == 32
+    return tagged_hash(TAG_TREE_ID, txid + le32(vout))
 
 
-def voucher_h_msg(merkle_root, source_leaf, claim_leaf, payment_hash):
+def voucher_msg(tree_id, source_leaf, claim_leaf):
+    """Voucher message (spec 7.5): H_voucher(tree_id || src || claim). The
+    tree_id, not m, is what binds a voucher to one tree: m names a rule set,
+    which two trees can share."""
+    assert len(tree_id) == 32
+    return tagged_hash(TAG_VOUCHER, tree_id + source_leaf.serialize() + claim_leaf.serialize())
+
+
+def voucher_h_msg(tree_id, source_leaf, claim_leaf, payment_hash):
     """Hash-locked voucher message (spec 7.5.1).
 
     A separate tag keeps the two voucher forms disjoint: a plain voucher can
     never be redeemed by CLAIM_H and vice versa, whatever the payload.
     """
-    assert len(payment_hash) == 32
+    assert len(tree_id) == 32 and len(payment_hash) == 32
     return tagged_hash(TAG_VOUCHER_H,
-                       merkle_root + source_leaf.serialize() + claim_leaf.serialize() + payment_hash)
+                       tree_id + source_leaf.serialize() + claim_leaf.serialize() + payment_hash)
 
 
 def apply_claim(tree, source_slot, claim_slot, claim_leaf):
+    """A carve (spec 7.5 rules 2, 3 and 5): the claim leaf keeps the
+    source's evictor and a lease no longer than the source's."""
     src = tree.leaves[source_slot]
     assert claim_slot not in tree.leaves
     assert claim_leaf.amount <= src.amount
+    assert claim_leaf.evictor_key == src.evictor_key, "7.5 rule 5: evictor_key"
+    assert claim_leaf.evict_after <= src.evict_after, "7.5 rule 5: evict_after"
     tree.leaves[source_slot] = src.with_amount_seq(src.amount - claim_leaf.amount, src.seq + 1)
     tree.leaves[claim_slot] = claim_leaf
     return src
@@ -447,7 +465,8 @@ def det_key(label):
 
 def build_vectors():
     vec = {"description": "LayerTree reference test vectors; see spec/layertree.md",
-           "tags": {t: hx(tag_prefix(t)) for t in (TAG_LEAF, TAG_NODE, TAG_STATE, TAG_VOUCHER, TAG_VOUCHER_H)},
+           "tags": {t: hx(tag_prefix(t)) for t in (TAG_LEAF, TAG_NODE, TAG_STATE, TAG_VOUCHER, TAG_VOUCHER_H,
+                                                    TAG_TREE_ID)},
            "nums_x": hx(NUMS_X), "nums_compressed": hx(compress(NUMS)),
            "empty_leaf_hash": hx(EMPTY_LEAF_HASH),
            "empty_nodes": [node_json(empty_node(h)) for h in range(0, 33)]}
@@ -459,6 +478,10 @@ def build_vectors():
     oper = Leaf(1_000_000, det_key("operator-exit"), det_key("operator"), NUMS_X, 0, nonce=7)
     t.leaves = {0: alice, 5: bob, 15: oper}
     merkle_root = sha256(b"example taptree root (placeholder)")
+    # The creation outpoint is a placeholder too; tree_id is its RECOMMENDED
+    # derivation (6.2) and is what the voucher vectors below bind.
+    creation_txid = sha256(b"example creation txid (placeholder)")
+    tid = tree_id(creation_txid, 0)
     r0 = t.root()
 
     vec["example_tree"] = {
@@ -467,6 +490,8 @@ def build_vectors():
         "root": node_json(r0),
         "internal_key": hx(internal_key(r0[0])),
         "merkle_root_placeholder": hx(merkle_root),
+        "creation_outpoint": {"txid": hx(creation_txid), "vout": 0},
+        "tree_id": hx(tid),
         "output_key": hx(output_key(r0[0], merkle_root)[0]),
         "scriptPubKey": hx(tree_spk(r0[0], merkle_root)),
         "paths": {str(s): path_json(t.path(s)) for s in t.leaves},
@@ -516,9 +541,11 @@ def build_vectors():
     }
 
     # CLAIM: voucher from operator leaf (slot 15) creating erin (slot 3).
+    # erin keeps the operator leaf's NUMS evictor and evict_after 0 (7.5
+    # rule 5): a carve is never easier to keep than its source.
     t4 = Tree(D)
     t4.leaves = dict(t3.leaves)
-    erin = Leaf(40_000, det_key("erin-exit"), det_key("erin-owner"), det_key("operator"), 900_000, 0)
+    erin = Leaf(40_000, det_key("erin-exit"), det_key("erin-owner"), NUMS_X, 0, 0)
     spath = t4.path(15)
     src_before = t4.leaves[15]
     apply_claim(t4, 15, 3, erin)
@@ -532,7 +559,7 @@ def build_vectors():
         "source_leaf_after": src_after.to_json(), "source_path": path_json(spath),
         "intermediate_root": node_json(r_mid),
         "claim_slot": 3, "claim_leaf": erin.to_json(), "claim_path": path_json(cpath),
-        "voucher_msg": hx(voucher_msg(merkle_root, src_before, erin)),
+        "voucher_msg": hx(voucher_msg(tid, src_before, erin)),
         "old_root": node_json(r3), "new_root": node_json(r4),
     }
     # Hash-locked form of the same carve (7.5.1): same steps, different
@@ -541,7 +568,7 @@ def build_vectors():
     vec["transition_claim"]["preimage"] = hx(claim_preimage)
     vec["transition_claim"]["payment_hash"] = hx(sha256(claim_preimage))
     vec["transition_claim"]["voucher_h_msg"] = hx(
-        voucher_h_msg(merkle_root, src_before, erin, sha256(claim_preimage)))
+        voucher_h_msg(tid, src_before, erin, sha256(claim_preimage)))
     # Sparse profile example: positions derived from (owner_key, nonce).
     SD = 32
     sp = Tree(SD)

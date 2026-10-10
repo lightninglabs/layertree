@@ -13,19 +13,21 @@ import (
 
 // TLV types for Voucher (spec 7.5, 9.6).
 const (
-	TypeVoucherMerkleRoot tlv.Type = 0
+	TypeVoucherTreeID     tlv.Type = 0
 	TypeVoucherSourceLeaf tlv.Type = 1
 	TypeVoucherClaimLeaf  tlv.Type = 2
 	TypeVoucherSig        tlv.Type = 3
 )
 
-// Voucher is an off-chain eviction voucher (spec 7.5, 9.6): the source
-// leaf's owner signs H_voucher(m || source_leaf || claim_leaf), authorizing
-// claim_leaf to later stand in for source_leaf's exit path.
+// Voucher is an off-chain voucher (spec 7.5, 9.6): the source leaf's owner
+// signs H_voucher(tree_id || source_leaf || claim_leaf), authorizing anyone
+// holding it to carve claim_leaf out of source_leaf with CLAIM. It is the
+// tuple (tree_id, source_leaf, claim_leaf, voucher_sig) of 9.6.
 type Voucher struct {
-	// MerkleRoot is m, the tree root hash committed into the voucher
-	// message.
-	MerkleRoot [32]byte
+	// TreeID is the tree's tree_id (spec 6.2), the value its CLAIM scripts
+	// carry; a recipient checks it against the published creation
+	// parameters (9.6).
+	TreeID [32]byte
 
 	// SourceLeaf is the leaf whose owner_key signs the voucher.
 	SourceLeaf tree.Leaf
@@ -39,10 +41,10 @@ type Voucher struct {
 	Sig [64]byte
 }
 
-// Msg returns H_voucher(m || source_leaf || claim_leaf), the message
+// Msg returns H_voucher(tree_id || source_leaf || claim_leaf), the message
 // SourceLeaf.OwnerKey signs (spec 7.5).
 func (v *Voucher) Msg() [32]byte {
-	return tree.VoucherMsg(v.MerkleRoot, &v.SourceLeaf, &v.ClaimLeaf)
+	return tree.VoucherMsg(v.TreeID, &v.SourceLeaf, &v.ClaimLeaf)
 }
 
 // Sign signs the voucher with priv, which must own SourceLeaf.OwnerKey.
@@ -82,13 +84,13 @@ func (v *Voucher) Verify() bool {
 // voucherRecords returns the TLV records for the voucher's fields, bound to
 // the passed backing variables.
 func voucherRecords(
-	merkleRoot *[32]byte,
+	treeID *[32]byte,
 	source, claim *tree.Leaf,
 	sig *[64]byte,
 ) []tlv.Record {
 
 	return []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeVoucherMerkleRoot, merkleRoot),
+		tlv.MakePrimitiveRecord(TypeVoucherTreeID, treeID),
 		leafRecord(TypeVoucherSourceLeaf, source),
 		leafRecord(TypeVoucherClaimLeaf, claim),
 		tlv.MakePrimitiveRecord(TypeVoucherSig, sig),
@@ -97,10 +99,10 @@ func voucherRecords(
 
 // Encode serializes the voucher as a TLV stream.
 func (v *Voucher) Encode(w io.Writer) error {
-	merkleRoot, sig := v.MerkleRoot, v.Sig
+	treeID, sig := v.TreeID, v.Sig
 
 	stream, err := tlv.NewStream(voucherRecords(
-		&merkleRoot, &v.SourceLeaf, &v.ClaimLeaf, &sig,
+		&treeID, &v.SourceLeaf, &v.ClaimLeaf, &sig,
 	)...)
 	if err != nil {
 		return err
@@ -112,12 +114,12 @@ func (v *Voucher) Encode(w io.Writer) error {
 // Decode deserializes a voucher from a TLV stream produced by Encode.
 func (v *Voucher) Decode(r io.Reader) error {
 	var (
-		merkleRoot [32]byte
-		sig        [64]byte
+		treeID [32]byte
+		sig    [64]byte
 	)
 
 	stream, err := tlv.NewStream(voucherRecords(
-		&merkleRoot, &v.SourceLeaf, &v.ClaimLeaf, &sig,
+		&treeID, &v.SourceLeaf, &v.ClaimLeaf, &sig,
 	)...)
 	if err != nil {
 		return err
@@ -126,7 +128,7 @@ func (v *Voucher) Decode(r io.Reader) error {
 		return err
 	}
 
-	v.MerkleRoot = merkleRoot
+	v.TreeID = treeID
 	v.Sig = sig
 
 	return nil

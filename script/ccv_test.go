@@ -2,9 +2,7 @@ package script
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
@@ -137,30 +135,10 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 }
 
 // TestCCVClaim checks the CCV tier's CLAIM and CLAIM^h ports (spec 4.6) in
-// both numerics against their golden keys, and the RECOMMENDED tree_id
-// derivation against the ccv_tree_id vector the scripts were built with.
+// both numerics against their golden keys, built over the tree_id vector
+// every tier's golden CLAIM shares (goldenTreeID).
 func TestCCVClaim(t *testing.T) {
-	raw, err := os.ReadFile("../spec/golden.json")
-	if err != nil {
-		t.Fatalf("read golden.json: %v", err)
-	}
-	var v struct {
-		CCVTreeID struct {
-			Txid   string `json:"txid"`
-			Vout   uint32 `json:"vout"`
-			TreeID string `json:"tree_id"`
-		} `json:"ccv_tree_id"`
-	}
-	if err := json.Unmarshal(raw, &v); err != nil {
-		t.Fatalf("parse golden.json: %v", err)
-	}
-	var txid [32]byte
-	copy(txid[:], midHex(t, v.CCVTreeID.Txid))
-	treeID := CCVTreeID(txid, v.CCVTreeID.Vout)
-	if hex.EncodeToString(treeID[:]) != v.CCVTreeID.TreeID {
-		t.Fatalf("tree_id %x, want %s", treeID, v.CCVTreeID.TreeID)
-	}
-
+	treeID := midGoldenTreeID(t)
 	g, _ := midLoadGolden(t)
 	for _, hl := range []bool{false, true} {
 		name := "CLAIM"

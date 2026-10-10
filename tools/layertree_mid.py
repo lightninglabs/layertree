@@ -252,9 +252,10 @@ def update_script(depth, operator_key, sparse=False, exit_consent=False):
     return s + check_old(sparse) + final(depth)
 
 
-def claim_script(depth, sparse=False, hashlock=False):
-    """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script."""
-    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher")
+def claim_script(depth, tree_id, sparse=False, hashlock=False):
+    """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script. tree_id is the
+    tree's 32-byte voucher binding (6.2), a constant of the script."""
+    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher", tree_id)
 
 
 def split_script(depth, sparse=False):
@@ -263,12 +264,48 @@ def split_script(depth, sparse=False):
     return _carve_script(depth, sparse, "owner")
 
 
-def _carve_script(depth, sparse=False, auth="voucher"):
+# The carve witness holds, below the authorisation element, src(10)
+# claim(10) and thirteen extras: seq_num zq0 wq0 (the source seq and its
+# pad), zq1 wq1 (the pad of seq + 1), zs2 ws2 (the pad of the new source
+# amount), then sea zse wse cea zce wce (the minimal evict_after of the
+# source and of the claim leaf, each with its pad; carve_rules). src.ok,
+# the third field of the source block, therefore sits 31 deep under the
+# authorisation element.
+CARVE_EXTRAS = 13
+CARVE_OWNER_DEPTH = 31
+
+
+def voucher_auth(tree_id, hashlock=False):
+    """The voucher check of CLAIM and CLAIM^h under 0xC0 numerics (spec 7.5
+    rule 1, 7.5.1 rule 1), shared with the CCV tier's 0xC0 scripts:
+    [src(10) claim(10) extras(13) vsig] -> [src(10) claim(10) extras(13)],
+    with SHA256(preimage) parked on the altstack beforehand under hashlock.
+
+    The message H_voucher(tree_id || src || claim) is assembled from the
+    seven leaf fields of each leaf block by fourteen OP_PICKs; src's fields
+    sit 33 deep under vsig, claim's 24 once src_leaf is on the stack, and
+    src.ok (the third field) 32 deep once the message replaces the copies.
+    """
+    assert len(tree_id) == 32
+    s = [33, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig src_leaf
+    s += [24, "OP_PICK"] * 7 + ["OP_CAT"] * 6                       # ... vsig src_leaf claim_leaf
+    s += ["OP_CAT", tree_id, "OP_SWAP", "OP_CAT"]                   # ... vsig (tree_id||src||claim)
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                          # ... (tree_id||src||claim||phash)
+    s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)   # ... vsig msg
+    return s + [32, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # src(10) claim(10) extras(13)
+
+
+def _carve_script(depth, sparse=False, auth="voucher", tree_id=None):
     """witness (bottom..top):
        zf wf [claim levels] [sparse claim: ck cnonce cplo cphi]
        zi wi [src levels] [sparse src: sk snonce splo sphi]
-       src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 vsig [preimage] r m
-       zf wf pad the final sum, zi wi the input amount; pads sit below levels.
+       src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2
+       sea zse wse cea zce wce vsig [preimage] r m
+       zf wf pad the final sum, zi wi the input amount; pads sit below
+       levels. sea and cea are the minimal evict_after of the source and of
+       the claim leaf with their PADZ pads (carve_rules; w_carve_extras
+       builds the thirteen extras).
 
     auth selects the authorisation and nothing else: "voucher" is CLAIM,
     "hashlock" is CLAIM^h (a 32-byte preimage sits between vsig and r and
@@ -277,45 +314,52 @@ def _carve_script(depth, sparse=False, auth="voucher"):
     place of the voucher)."""
     assert auth in ("voucher", "hashlock", "owner")
     hashlock = auth == "hashlock"
-    s = [SEL_CURR_INPUT, "OP_TX", "OP_0", "OP_NUMEQUALVERIFY",
-         "OP_2DUP"] + F.tree_spk_min() + [SEL_IN_SPK, "OP_TX", "OP_EQUALVERIFY",
-         "OP_DUP", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK"]       # ... extras(7) vsig [pre] m | m r
+    s = prologue()                                                   # ... extras(7) vsig [pre] | m r
     if auth == "owner":
         # SPLIT (7.5.2): the owner signs the transaction, so no message is
-        # rebuilt. Drop the spare m; src.ok then sits 25 deep, since the
-        # witness holds src(10) claim(10) extras(7) below the signature and
-        # the owner key is the third field of the source leaf block.
-        s += ["OP_DROP",                                             # ... extras(7) osig
-              25, "OP_PICK",                                         # ... osig src.ok
-              "OP_CHECKSIGVERIFY"]                                   # src(10) claim(10) extras(7)
+        # rebuilt. src.ok sits CARVE_OWNER_DEPTH deep, since the witness
+        # holds src(10) claim(10) extras(13) below the signature and the
+        # owner key is the third field of the source leaf block.
+        s += [CARVE_OWNER_DEPTH, "OP_PICK",                          # ... osig src.ok
+              "OP_CHECKSIGVERIFY"]                                   # src(10) claim(10) extras(13)
     else:
         if hashlock:
             # park SHA256(preimage) on the altstack: every pick depth below is as in CLAIM
-            s += ["OP_SWAP", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
-                  "OP_TOALTSTACK"]                                    # ... vsig m | m r phash
-        # voucher message m || src_leaf || claim_leaf [|| phash]
-        s += [28, "OP_PICK"] * 7 + ["OP_CAT"] * 6                    # ... vsig m src_leaf
-        s += [19, "OP_PICK"] * 7 + ["OP_CAT"] * 6                    # ... vsig m src_leaf claim_leaf
-        s += [2, "OP_PICK", "OP_ROT", "OP_ROT", "OP_CAT", "OP_CAT"]  # ... vsig m (m||src||claim)
-        if hashlock:
-            s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (m||src||claim||phash)
-        s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)  # ... vsig m msg
-        s += ["OP_ROT", "OP_SWAP",                                   # ... m vsig msg
-              27, "OP_PICK",                                         # ... m vsig msg src.ok
-              "OP_CHECKSIGFROMSTACK", "OP_VERIFY", "OP_DROP"]        # src(10) claim(10) extras(7)
+            s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+                  "OP_TOALTSTACK"]                                    # ... vsig | m r phash
+        s += voucher_auth(tree_id, hashlock)                         # src(10) claim(10) extras(13)
     s += carve_source(depth, sparse) + check_old(sparse)            # T nh1 ns1        | m claim_leaf amt_c
     s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                      # T nh1 ns1 amt_c claim_leaf
     return s + carve_claim(depth, sparse) + final(depth)
 
 
+def carve_rules():
+    """The carve rule of spec 7.5 rule 5 under 0xC0 numerics:
+    [src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)].
+
+    The claim leaf's evictor_key must equal the source's (the fourth field
+    of each block, 19 and 30 deep), and its evict_after must be no later
+    than the source's. The raw le32 fields are not numbers under
+    CScriptNum, so, as EXIT_1 does for the lock time, the witness supplies
+    each evict_after as a minimal number with a PADZ pad; the pad is
+    checked against the leaf's own field and the two numbers compared."""
+    return ([19, "OP_PICK", 30, "OP_PICK", "OP_EQUALVERIFY",         # claim.evk == src.evk
+             2, "OP_PICK", "OP_TOALTSTACK"] + padz() +               # ... sea zse wse le32(cea)   | cea
+            [16, "OP_PICK", "OP_EQUALVERIFY",                        # le32(cea) == claim.ea
+             2, "OP_PICK", "OP_TOALTSTACK"] + padz() +               # ... le32(sea)               | cea sea
+            [23, "OP_PICK", "OP_EQUALVERIFY",                        # le32(sea) == src.ea
+             "OP_FROMALTSTACK", "OP_FROMALTSTACK",                   # ... sea cea
+             "OP_GREATERTHANOREQUAL", "OP_VERIFY"])                  # src(10) claim(10) extras(7)
+
+
 def carve_source(depth, sparse=False, alt_r=True):
     """Step 1 of CLAIM, CLAIM^h and SPLIT, after the authorisation check.
-    Stack on entry: src(10) claim(10) extras(7) ; altstack: .. m r.
+    Stack on entry: src(10) claim(10) extras(13) ; altstack: .. m r.
     On exit: T oh os nh ns over the source path ; altstack: .. m claim_leaf amt_c r.
     Shared with the MIN tier, which differs only in how the result is bound
     to the transaction, and with the CCV tier's 0xC0 numerics, which carry
     no r (alt_r=False: the altstack holds .. claim_leaf amt_c on exit)."""
-    s = []
+    s = carve_rules()                                                # src(10) claim(10) extras(7)
     # seq consistency: le32(seq_num) == src.seq ; consumes zq0 wq0
     s += [20, "OP_PICK", 7, "OP_PICK"] + roll(7, 2) + padz() + ["OP_EQUALVERIFY"]   # extras -> seq_num zq1 wq1 zs2 ws2
     s += ["OP_TOALTSTACK"] * 5                                       # src(10) claim(10) | m r ws2 zs2 wq1 zq1 seq_num
@@ -500,14 +544,17 @@ def w_evict_subtree(tree, depth, height, idx):
     return items
 
 
-def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,)):
+def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,),
+                tree_id=None):
+    """The reference script set (spec 6.2) under MID; tree_id is the
+    tree's voucher binding, a constant of CLAIM."""
     out = {f"EXIT_{k}": exit_script(depth, k, sparse) for k in exit_ks}
     for h in (join_heights if not sparse else (0,)):
         out[f"JOIN_{h}"] = join_script(depth, h, operator_key, sparse)
     for k in join_ks:
         out[f"JOINK_{k}"] = join_script(depth, 0, operator_key, sparse, k)
     out["UPDATE"] = update_script(depth, operator_key, sparse)
-    out["CLAIM"] = claim_script(depth, sparse)
+    out["CLAIM"] = claim_script(depth, tree_id, sparse)
     return out
 
 
@@ -558,6 +605,18 @@ def w_levels(path, old_node, new_node, sparse=False, height=0):
     for lv in reversed(per_level):
         items += lv
     return items
+
+
+def w_carve_extras(src, claim, amt_new=None):
+    """The thirteen carve extras (bottom..top): the source seq as a number
+    with its pad, the pad of seq + 1, the pad of the new source amount, and
+    the minimal evict_after of the source and of the claim leaf with their
+    pads (carve_rules). amt_new defaults to src.amount - claim.amount."""
+    if amt_new is None:
+        amt_new = src.amount - claim.amount
+    return ([scriptnum(src.seq)] + list(pad(src.seq)) + list(pad(src.seq + 1)) + list(pad(amt_new)) +
+            [scriptnum(src.evict_after)] + list(pad(src.evict_after)) +
+            [scriptnum(claim.evict_after)] + list(pad(claim.evict_after)))
 
 
 def w_pos(leaf):

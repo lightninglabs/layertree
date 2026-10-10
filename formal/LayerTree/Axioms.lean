@@ -23,6 +23,7 @@ open LayerTree
 #print axioms join_sound
 #print axioms update_sound
 #print axioms claim_sound
+#print axioms claim_evictable
 #print axioms terminal_no_leaf
 #print axioms ExitKT.terminal_conservation
 #print axioms ExitKT.single_terminal

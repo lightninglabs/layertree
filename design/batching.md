@@ -202,8 +202,11 @@ carries the path above the subtree and the subtree's root node. Rules:
 1. The old node `(R_h, sum_h)` MUST fold with the path to `(r, S)`.
 2. The new node is `E_h`. Output 0 is `(S − sum_h, TREE_SPK(r', m))`.
 3. Output 1 is `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is the taptree
-   root of the same script set compiled for depth `h`, fixed at tree
-   creation as part of `m`.
+   root of the parent's option set compiled for depth `h` (every variant
+   the parent carries, less the heights that do not fit), fixed at tree
+   creation as part of `m`; since spec 0.10.0 this is a rule, not a
+   convention, so a cohort of channel leaves keeps its exact-payout exit
+   when detached.
 4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 
 After a detach the cohort is a LayerTree of depth `h` whose root is the
@@ -228,17 +231,17 @@ property of the deployment into a lever the operator can pull when a
 cohort's leaves become time-sensitive, for instance channel leaves whose
 HTLC deadlines are near (C.9.5).
 
-Two consequences need rules, and one that looked like a consequence is
-not. Vouchers bind `m`, and `CLAIM` re-derives `m` from the input it
-spends, so a voucher issued against a leaf in a detached subtree must be
-reissued under `m_h`; the issuer's obligation of 9.6 to rebuild vouchers
-after a source-leaf change extends to a detach. (A voucher bound to a
-tree identifier that a detach preserves would remove this, and is the
-same change the CCV tier needs to carry `CLAIM`.) And the detach spends
-nobody's balance, but it changes everyone's exit path, so it is the
-operator's decision, like `JOIN_h`; a per-cohort parameter chosen at
-graft time would be a format change for no gain, since a detach can only
-shorten a member's path.
+One consequence needs a rule, one that needed a rule no longer does,
+and one that looked like a consequence is not. Vouchers used to bind
+`m`, which `CLAIM` re-derives from the input it spends, so a voucher
+against a leaf in a detached subtree had to be reissued under `m_h`.
+Since spec 0.10.0 vouchers bind `tree_id` (6.2, 7.5), which the detached
+tree inherits and whose `CLAIM` carries as a constant, so a voucher
+issued in the parent redeems in the child as issued; the test suite
+checks exactly that. And the detach spends nobody's balance, but it
+changes everyone's exit path, so it is the operator's decision, like
+`JOIN_h`; a per-cohort parameter chosen at graft time would be a format
+change for no gain, since a detach can only shorten a member's path.
 
 Channel leaves need nothing. `chan_id` (C.2.2) binds `m`, but as a
 constant baked into the channel scripts of the leaf's `exit_key` at

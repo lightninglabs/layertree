@@ -100,11 +100,11 @@ func TestVoucherRoundTrip(t *testing.T) {
 	sourceKey := xOnlyKey(sourcePriv)
 	claimKey := xOnlyKey(mustKey(t))
 
-	var merkleRoot [32]byte
-	copy(merkleRoot[:], bytes.Repeat([]byte{0xab}, 32))
+	var treeID [32]byte
+	copy(treeID[:], bytes.Repeat([]byte{0xab}, 32))
 
 	v := &Voucher{
-		MerkleRoot: merkleRoot,
+		TreeID:     treeID,
 		SourceLeaf: *newTestLeaf(t, sourceKey, 5000, 7, 1),
 		ClaimLeaf:  *newTestLeaf(t, claimKey, 5000, 8, 0),
 	}
