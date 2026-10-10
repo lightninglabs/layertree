@@ -195,6 +195,190 @@ theorem seqFinalMid_succ_length :
   unfold LayerTree.Leaf.seqFinalMid
   exact ⟨by decide, by decide⟩
 
+/-! ## `PADZ` (MID and MIN tiers, sections 4.5 and 8.2)
+
+Without BIP-441 numerics a script cannot widen a number to a fixed-width
+field, so the MID and MIN tiers take the field's value `x` as a minimal
+`CScriptNum` and let the witness supply a zero pad `z` together with a
+filler `w`. `PADZ` checks `z ‖ w = 00000000` and `size(x) + size(z) = 4`
+and leaves `x ‖ z` on the stack. The theorems below say what that gadget
+guarantees: for `x = scriptNum n` the result is `le32 n`, the pad is the
+only one the gadget accepts for that `x`, and the gadget rejects every
+`n ≥ 2^31`, which is where the tier's sum cap of 4.5 comes from. -/
+
+/-- The `PADZ` gadget on stack `[x z w]`: `some (x ‖ z)` when the checks
+pass, `none` when the script fails. -/
+def padz (x z w : List Nat) : Option (List Nat) :=
+  if z ++ w = List.replicate 4 0 ∧ x.length + z.length = 4 then some (x ++ z) else none
+
+theorem padz_some {x z w out : List Nat} (h : padz x z w = some out) :
+    z ++ w = List.replicate 4 0 ∧ x.length + z.length = 4 ∧ out = x ++ z := by
+  by_cases hc : z ++ w = List.replicate 4 0 ∧ x.length + z.length = 4
+  · rw [padz, if_pos hc] at h
+    exact ⟨hc.1, hc.2, (Option.some.inj h).symm⟩
+  · rw [padz, if_neg hc] at h
+    cases h
+
+/-- A prefix of a string of zeros is a string of zeros. -/
+theorem eq_replicate_of_append_replicate : ∀ (l l' : List Nat) (n : Nat),
+    l ++ l' = List.replicate n 0 → l = List.replicate l.length 0
+  | [], _, _, _ => rfl
+  | a :: l, l', n, h => by
+    cases n with
+    | zero => simp at h
+    | succ n =>
+      simp only [List.cons_append, List.replicate_succ, List.cons.injEq] at h
+      obtain ⟨rfl, h2⟩ := h
+      rw [List.length_cons, List.replicate_succ]
+      exact congrArg (List.cons 0) (eq_replicate_of_append_replicate l l' n h2)
+
+/-- **The pad is unique.** For a given `x`, `PADZ` accepts exactly one
+`(z, w)`: `z` is `4 − size(x)` zero bytes and `w` the remaining zeros. A
+witness therefore cannot choose a pad that changes the field. -/
+theorem padz_unique {x z w z' w' out out' : List Nat} (h : padz x z w = some out)
+    (h' : padz x z' w' = some out') : z = z' ∧ w = w' ∧ out = out' := by
+  obtain ⟨hz, hl, rfl⟩ := padz_some h
+  obtain ⟨hz', hl', rfl⟩ := padz_some h'
+  have e1 := eq_replicate_of_append_replicate z w 4 hz
+  have e2 := eq_replicate_of_append_replicate z' w' 4 hz'
+  have hzz : z = z' := by
+    rw [e1, e2]
+    congr 1
+    omega
+  subst hzz
+  refine ⟨rfl, ?_, rfl⟩
+  rw [← hz'] at hz
+  exact List.append_cancel_left hz
+
+theorem leBytes_zero (k : Nat) : leBytes k 0 = List.replicate k 0 := by
+  induction k with
+  | zero => rfl
+  | succ k ih => simp [leBytes, List.replicate_succ, ih]
+
+theorem leBytes_four (n : Nat) :
+    leBytes 4 n = [n % 256, n / 256 % 256, n / 256 / 256 % 256, n / 256 / 256 / 256 % 256] := rfl
+
+/-- The minimal magnitude bytes of `n < 2^(8k)`, padded with zeros, are
+its `k`-byte little-endian encoding. -/
+theorem magBytes_pad : ∀ (k fuel n : Nat), k ≤ fuel → n < 2 ^ (8 * k) →
+    ∃ j, magBytes fuel n ++ List.replicate j 0 = leBytes k n
+  | 0, fuel, n, _, hn => by
+    simp at hn; subst hn
+    refine ⟨0, ?_⟩
+    cases fuel <;> simp [magBytes, leBytes]
+  | k + 1, fuel, n, hk, hn => by
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    by_cases h0 : n = 0
+    · subst h0
+      exact ⟨k + 1, by simp [magBytes, leBytes_zero]⟩
+    · have hpow : 2 ^ (8 * (k + 1)) = 2 ^ (8 * k) * 256 := by
+        rw [show 8 * (k + 1) = 8 * k + 8 from by omega, Nat.pow_add]
+      have hlt : n / 256 < 2 ^ (8 * k) := by
+        rw [Nat.div_lt_iff_lt_mul (by omega)]; omega
+      obtain ⟨j, hj⟩ := magBytes_pad k f (n / 256) (by omega) hlt
+      exact ⟨j, by simp [magBytes, h0, leBytes, hj]⟩
+
+/-- A number of at least `k + 1` bytes has at least `k + 1` magnitude
+bytes (with enough fuel). -/
+theorem magBytes_length_ge : ∀ (k fuel n : Nat), k < fuel → 2 ^ (8 * k) ≤ n →
+    k + 1 ≤ (magBytes fuel n).length
+  | 0, fuel, n, hk, hn => by
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    simp at hn
+    simp [magBytes, Nat.pos_iff_ne_zero.mp hn]
+  | k + 1, fuel, n, hk, hn => by
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    have hpow : 2 ^ (8 * (k + 1)) = 2 ^ (8 * k) * 256 := by
+      rw [show 8 * (k + 1) = 8 * k + 8 from by omega, Nat.pow_add]
+    have hpos : n ≠ 0 := by
+      have := Nat.pow_pos (n := 8 * k) (by omega : 0 < 2); omega
+    have hge : 2 ^ (8 * k) ≤ n / 256 := by
+      rw [Nat.le_div_iff_mul_le (by omega)]; omega
+    have := magBytes_length_ge k f (n / 256) (by omega) hge
+    simp [magBytes, hpos]; omega
+
+/-- `scriptNum` of a positive natural number: the magnitude bytes, with a
+`0x00` appended when the top byte has bit 7 set. -/
+theorem scriptNum_natCast (n : Nat) (hn : 0 < n) :
+    scriptNum n = if 128 ≤ (magBytes 16 n).getLast?.getD 0 then magBytes 16 n ++ [0]
+      else (magBytes 16 n).dropLast ++ [(magBytes 16 n).getLast?.getD 0] := by
+  have hnn : ¬ ((n : Int) < 0) := Int.not_lt.mpr (Int.natCast_nonneg n)
+  simp [scriptNum, Nat.pos_iff_ne_zero.mp hn, hnn]
+
+theorem magBytes_ne_nil (fuel n : Nat) (hn : 0 < n) : magBytes (fuel + 1) n ≠ [] := by
+  simp [magBytes, Nat.pos_iff_ne_zero.mp hn]
+
+/-- If the `k`-byte encoding of `n < 2^32` ends in at least one pad byte,
+`n < 2^24`. -/
+theorem lt_of_pad_pos {n j : Nat} {mag : List Nat} (hj : mag ++ List.replicate j 0 = leBytes 4 n)
+    (hlen : mag.length + j = 4) (hpos : 0 < j) (h32 : n < 2 ^ 32) : n < 2 ^ 24 := by
+  have h3 : (mag ++ List.replicate j 0)[3]? = some 0 := by
+    rw [List.getElem?_append_right (by omega), List.getElem?_replicate, if_pos (by omega)]
+  rw [hj, leBytes_four] at h3
+  simp at h3
+  rw [show 2 ^ 32 = 4294967296 by rfl] at h32
+  rw [show 2 ^ 24 = 16777216 by rfl]
+  omega
+
+/-- **`PADZ` reconstructs the field and enforces the cap.** Whenever the
+gadget accepts `x = scriptNum n` with some pad, its result is `le32 n`,
+and `n < 2^31`: a value of `2^31` or more has a five-byte `CScriptNum`,
+which no pad brings to four. This is the fixed-width rule of 4.5 for
+`evict_after`, `nonce`, `seq` and the sparse `pos_lo`, and the reason
+every MID or MIN sum is below `2^31` satoshis. -/
+theorem padz_scriptNum (n : Nat) {z w out : List Nat} (h : padz (scriptNum n) z w = some out) :
+    out = leBytes 4 n ∧ n < 2 ^ 31 := by
+  obtain ⟨hz, hl, rfl⟩ := padz_some h
+  obtain ⟨m, rfl⟩ : ∃ m, z = List.replicate m 0 := ⟨_, eq_replicate_of_append_replicate z w 4 hz⟩
+  simp only [List.length_replicate] at hl
+  by_cases h0 : n = 0
+  · subst h0
+    have hs : scriptNum ((0 : Nat) : Int) = [] := by simp [scriptNum]
+    rw [hs] at hl ⊢
+    simp at hl
+    subst hl
+    rw [leBytes_zero]
+    exact ⟨rfl, by decide⟩
+  · have hpos := Nat.pos_of_ne_zero h0
+    have hne := magBytes_ne_nil 15 n hpos
+    have hmag : (magBytes 16 n).dropLast ++ [(magBytes 16 n).getLast?.getD 0] = magBytes 16 n := by
+      rw [List.getLast?_eq_getLast hne, Option.getD_some]
+      exact List.dropLast_concat_getLast hne
+    rw [scriptNum_natCast n hpos, hmag] at hl ⊢
+    by_cases h32 : n < 2 ^ 32
+    · obtain ⟨j, hj⟩ := magBytes_pad 4 16 n (by omega) h32
+      have hlen4 : (magBytes 16 n).length + j = 4 := by
+        have := congrArg List.length hj; simpa using this
+      have h31 : 2 ^ 31 = 2147483648 := rfl
+      have h24 : 2 ^ 24 = 16777216 := rfl
+      by_cases htop : 128 ≤ (magBytes 16 n).getLast?.getD 0
+      · rw [if_pos htop] at hl ⊢
+        simp at hl
+        have hj1 : j = m + 1 := by omega
+        subst hj1
+        refine ⟨?_, ?_⟩
+        · rw [← hj, List.replicate_succ]; simp
+        · have := lt_of_pad_pos hj hlen4 (by omega) h32
+          omega
+      · rw [if_neg htop] at hl ⊢
+        have hjz : (m : Nat) = j := by omega
+        subst hjz
+        refine ⟨hj, ?_⟩
+        by_cases hj0 : (m : Nat) = 0
+        · subst hj0
+          simp at hj
+          have hd : (leBytes 4 n).getLast?.getD 0 = n / 256 / 256 / 256 % 256 := rfl
+          rw [hj, hd] at htop
+          rw [show 2 ^ 32 = 4294967296 by rfl] at h32
+          omega
+        · have := lt_of_pad_pos hj hlen4 (by omega) h32
+          omega
+    · exfalso
+      have h5 := magBytes_length_ge 4 16 n (by omega) (by omega)
+      split at hl
+      · simp at hl; omega
+      · omega
+
 /-! ## Leaf serialisation (section 5.2) -/
 
 /-- The 116-byte leaf record: `le64 amount || be32 exit || be32 owner ||
