@@ -29,11 +29,11 @@ with numbers.
 
 | Area | State |
 |---|---|
-| Spec | 0.9.0 on main: everything from the PR stack plus `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h` over a per-tree `tree_id` (4.6, 9.6), 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
-| Python simulator | 852 / 198 / 31 / 798 checks (FULL / MID / MIN / CCV), 149 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
-| Go | 77 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator); TLV channel messages in `msg/`. |
-| Lean | Builds clean, no sorry, 31 audited theorems: tree binding, conservation, payability, JOIN, UPDATE, CLAIM, the sweep, terminal exit, sparse positions, `REWRITE_h`, `DETACH_h` (including truncated-path reuse). Not covered: scripts or timing. |
-| Paper | Two versions from one source (`make` builds `main.pdf`, 44 pages with References on 16, and `main-full.pdf`, 50 pages with References on 31); four tiers throughout; full-only sections 12 to 16 from the design pages. Numbers predate the build round and need the reconciliation listed below, then the reviewer pass. |
+| Spec | 0.10.0 on main: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
+| Python simulator | 956 / 228 / 35 / 864 checks (FULL / MID / MIN / CCV), 149 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
+| Go | 79 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
+| Lean | Builds clean, no sorry, 32 audited theorems (`claim_evictable` added): tree binding, conservation, payability, JOIN, UPDATE, CLAIM, the sweep, terminal exit, sparse positions, `REWRITE_h`, `DETACH_h` (including truncated-path reuse). Not covered: scripts or timing. |
+| Paper | Two versions from one source (`make` builds `main.pdf`, 35 pages, body ends on 15 with References at the top of 16 and no slack, and `main-full.pdf`, 74 pages with References on 29); four tiers throughout; round-two review response landed; 0.10.0 CLAIM figures in (0d8c0bd, PDFs 0580c8b). Open: citations to verify, one overfull bibliography line, trimming the full version. |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
 | PR stack | Empty. #8 (72e9846), #10 (54d094f), #6 (f23f193) and #7 (3ef8128) all merged. |
@@ -56,9 +56,14 @@ with numbers.
   Landed 2026-10-10: the site (d22de96, nine pages, one engine) and all
   three explorations. The owner chose B (schematic: drafting grid, IBM
   Plex, vermilion, datasheet cards) with the warmth of C (cream surfaces,
-  softer shapes) folded in; an Opus worker is applying it across the
-  site. Later: GitHub Pages deployment; update the payment and batching
-  pages once `tree_id` lands (they still say vouchers bind `m`).
+  softer shapes) folded in; landed 2026-10-10 (merge 186edae: warm
+  schematic tokens, IBM Plex via Google Fonts with system fallbacks,
+  logomark in `site/assets/`, orthogonal-bus tree drawing, FIG. n
+  captions, palette validated in both modes). The payment and batching
+  pages now describe `tree_id` (0d8c0bd). Not yet checked: animations
+  mid-play, `prefers-reduced-motion`, `file://` opening; long table
+  captions scroll with the table on narrow screens. Later: GitHub Pages
+  deployment.
 - Paper round two landed (merge of 800a245): every finding of the three
   reviews answered in `paper/review-response.md`; the liveness bound is
   now assumption [C] with parameters kappa (chain limit) and beta
@@ -87,10 +92,20 @@ with numbers.
   docstring. Design: relative lock on value-neutral transitions (P1c),
   outpoint-independent exit authorisation for towers (P8), Lightning
   figures in cost-comparison, REWRITE figures in batching.
-- Workers in flight: the rule worker (Fable: `tree_id` everywhere, carve
-  constraint, `DETACH_h` creation rule, spec 0.10.0) and the four site
-  agents above. Workers commit on their
-  worktree branches and never push; merge one at a time.
+- Spec 0.10.0 landed 2026-10-10 (merge 9045d24, follow-up 0d8c0bd,
+  PDFs 0580c8b): `tree_id` in every tier (6.2 creation parameter, the
+  RECOMMENDED derivation hashes the outpoint spent by input 0 of the
+  creation transaction, since the tree's own outpoint is circular),
+  carve rule 7.5 rule 5 (claim leaf keeps the source's `evictor_key`,
+  `evict_after` no later; residual: a NUMS-evictor leaf can still carve
+  NUMS dust, 10.8), `DETACH_h` 7.10 rule 3 (`m_h` compiled from the
+  parent's option set; `TreeOptions` / `FullTreeOptions`). D4 golden
+  root moved once to eff4a173...; `sighash_vector`, `tree_spk_vector`
+  and `chan.*` moved with it. Counts now FULL 956, MID 228, MIN 35, CCV
+  864, chan 149, MSU 61; Lean audit adds `claim_evictable`.
+  `tools/replay_txn_dump.py` re-derives the Go sighash pins. CLAIM at
+  D = 16 is 3,859 / 1,690 (1,656 vB; 1,614 in the paper's no-payout
+  model), CLAIM^h 1,624, MIN SPLIT 6,501 bytes. No workers in flight.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the
@@ -146,17 +161,19 @@ with numbers.
 
 ## Next, in order
 
-1. Paper review round (in flight, above); after it, the response pass
-   and a rebuild; then trim the full version back to about 30 body
-   pages if the reviewers do not already force cuts.
-2. In flight, one worker: `tree_id` in every tier, the carve
-   constraint, the `DETACH_h` creation rule (above).
+1. Spec follow-up pass for the review hand-offs (list under "Handed off
+   by the paper writer" above): 10.1, 10.5/C.9.5 liveness as [C], 11
+   witness prefixes and sweep rows, 9.6.1/9.6.2 "atomic", 10.10, 4.1,
+   fee-analysis leaf count; then the tools, formal and design items.
+2. Paper: verify the citations the writer could not pin down, fix the
+   overfull bibliography line, trim the full version toward 30 body
+   pages. Owner decisions outstanding: relative lock on value-neutral
+   transitions (P1c), outpoint-independent exit authorisation (P8).
 3. Cohort transitions beyond FULL (status.md open work 9): MID
    `REWRITE_STEP`, CCV `DETACH_h` second output, the one-byte "unchanged"
    marker for `REWRITE_h` (about 29 vB per unchanged position).
-4. Go: the exact-payout `EXIT_1^=` script in `script/full.go`, and a
-   committed replay script under `tools/` for the pinned sighashes
-   (`LAYERTREE_TXN_DUMP`).
+4. Site: GitHub Pages deployment; check animations mid-play, reduced
+   motion and `file://`; narrow-screen table captions.
 5. Sibling-pair `CLAIM` (about 1,130 vB, still an estimate); `SLASH`
    bond (issue #11) if the shared bond-leaf model is wanted.
 6. Projects of their own, not started: P model (#1), regtest harness,
@@ -168,7 +185,7 @@ with numbers.
 - `DETACH_h` is operator-authorised. `chan_id` keeps `m`: a detach does
   not invalidate channel states, because `chan_id` is a constant in the
   channel scripts behind `exit_key`, not re-derived from the spent tree.
-  Only vouchers need reissue after a detach.
+  Vouchers survive a detach too since 0.10.0 (`tree_id` is inherited).
 - `SLASH` bond: issue #11, not built now.
 - MIN stays an existence proof; the 116-byte leaf stays.
 
@@ -176,10 +193,6 @@ with numbers.
 
 - Paper length for the full version: "not too far" past 18 pages. Target
   25 to 30 body pages.
-- One voucher message for every tier (bound to a tree identifier instead
-  of `m`) would let CCV carry `CLAIM` and make vouchers survive a detach;
-  the CCV worker builds it CCV-only first and reports whether unifying
-  is worth the golden churn.
 
 ## Pointers
 
