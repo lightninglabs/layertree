@@ -231,4 +231,70 @@ theorem rewrite_exit_conservation {h : Nat} {auth : Pos h 0 → Prop} {r r' : No
     rw [← Tree.root_sum]; exact Tree.emptyNode_sum h
   rw [hr.out0_eq]; omega
 
+/-! ## DETACH_h (`design/batching.md`, Shape 3) -/
+
+/-- What `DETACH_h` accepts. Rule 1: the old node `(R_h, sum_h)` folds with
+the path to the committed root. Rule 2: the new node is `E_h` and output 0
+carries the new sum. Rule 3: output 1 is a tree output whose root hash is
+`R_h` and whose amount is `sum_h` (`r₁`, `out1`); its taptree `m_h` is a
+binding-side fact (`LayerTree.Binding`). Rule 4: the operator signs. -/
+structure Detach (auth : Prop) (h : Nat) (r : Node H) (path : List (Bool × Node H))
+    (sub : Node H) (r' : Node H) (out0 : Nat) (r₁ : H) (out1 : Nat) : Prop where
+  steps : Steps r [Step.mk h path sub (Tree.emptyNode h)] r'
+  out0_eq : out0 = r'.sum
+  r₁_eq : r₁ = sub.hash
+  out1_eq : out1 = sub.sum
+  authorised : auth
+
+/-- **A detach moves a subtree into its own tree output.** Value is
+conserved across the two outputs; output 0 commits to the tree with the
+subtree emptied; output 1 is a well-formed tree output of depth `h`: its
+root hash is that of the subtree `t.getSub p` and its amount is that
+subtree's total, the invariant of section 5.6; and every member's path in
+the old tree, with the shared `d − h` upper levels dropped, is that
+member's path in the detached tree, holding the same leaf. -/
+theorem detach_sound {auth : Prop} {d h : Nat} (t : Tree d) (path : List (Bool × Node H))
+    (sub r' : Node H) (out0 : Nat) (r₁ : H) (out1 : Nat) (hwf : path.length + h = d)
+    (hd : Detach auth h t.root path sub r' out0 r₁ out1) :
+    ∃ p : Pos d h,
+      out0 + out1 = t.root.sum ∧
+      r' = (t.setSub p (Tree.empty h)).root ∧
+      r₁ = (t.getSub p).root.hash ∧ out1 = (t.getSub p).total ∧
+      ∀ q : Pos h 0, (t.getSub p).get q = t.get (p.append q) ∧
+        (t.getSub p).path q = (t.path (p.append q)).drop (d - h) := by
+  cases hd.steps with
+  | cons hv hrest =>
+    cases hrest
+    obtain ⟨p, hold, hnew⟩ := Step.sound t (Step.mk h path sub (Tree.emptyNode h)) r' hwf hv
+    have hold : sub = (t.getSub p).root := hold
+    have hs := Step.sum _ _ _ hv
+    simp only [Tree.emptyNode_sum] at hs
+    have hlen : (t.pathSub p).length + h = d := Tree.pathSub_length t p
+    refine ⟨p, ?_, hnew (Tree.empty h) rfl, ?_, ?_, fun q => ⟨(Tree.get_append t p q).symm, ?_⟩⟩
+    · rw [hd.out0_eq, hd.out1_eq]; omega
+    · rw [hd.r₁_eq, hold]
+    · rw [hd.out1_eq, hold, Tree.root_sum]
+    · unfold Tree.path
+      rw [Tree.pathSub_append]
+      exact (List.drop_left' (by omega)).symm
+
+/-- **Members' proofs survive a detach.** A leaf inside the detached
+subtree, with the truncated path of `detach_sound`, has a valid `EXIT`
+step from the detached tree's root to the root without it, paying its
+amount: `payable` applied to the detached tree. -/
+theorem detach_member_payable {d h : Nat} (t : Tree d) (p : Pos d h) (q : Pos h 0) (l : Leaf)
+    (hl : t.get (p.append q) = some l) :
+    (leafStep ((t.path (p.append q)).drop (d - h)) (some l) none).valid
+      (t.getSub p).root ((t.getSub p).set q none).root ∧
+    ((t.getSub p).set q none).root.sum + l.amount = (t.getSub p).root.sum := by
+  have hl' : (t.getSub p).get q = some l := by rw [← Tree.get_append]; exact hl
+  have hlen := Tree.pathSub_length t p
+  have hpath : (t.path (p.append q)).drop (d - h) = (t.getSub p).path q := by
+    unfold Tree.path
+    rw [Tree.pathSub_append]
+    exact List.drop_left' (by omega)
+  rw [hpath]
+  have := payable (t.getSub p) q l hl'
+  exact ⟨this.1, this.2.1⟩
+
 end LayerTree
