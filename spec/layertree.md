@@ -1569,10 +1569,10 @@ redeemable until the issuer advances the source leaf's `seq`.
    on-chain, because the voucher has no deadline and the HTLC does: the
    HTLC would expire while the voucher sat unredeemed. Where this ordering
    cannot be arranged, the parties MUST use two HTLCs instead.
-3. A voucher issuer MUST NOT advance the source leaf's `seq` (by `UPDATE`,
-   `CLAIM` or `SPLIT`) while an HTLC naming the same `payment_hash` is in
-   flight, since that leaves the counterparty having revealed a preimage
-   for a voucher it can no longer redeem.
+3. A voucher issuer MUST NOT advance the source leaf's `seq` while an HTLC
+   naming the same `payment_hash` is in flight, since that leaves the
+   counterparty having revealed a preimage for a voucher it can no longer
+   redeem.
 4. A recipient holding a redeemable hash-locked voucher SHOULD redeem it
    promptly (9.6.1). Its exposure is the window between learning the
    preimage and confirming the `CLAIM^h`, during which the issuer can void
