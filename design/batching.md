@@ -2,9 +2,12 @@
 
 *A design note on how LayerTree amortises the cost of a transition across
 many leaves, what the spec already provides, and three shapes that would
-provide more. Figures come from `tools/gen_cost_figures.py`; estimates
+provide more. `REWRITE_h` is now built (spec 7.9, 8.9) and its figures
+below are measured by `tools/test_scripts.py --rewrite`; the earlier
+estimates they replace are kept in brackets where they were wrong.
+Figures come from `tools/gen_cost_figures.py`; the remaining estimates
 are built from the measured sizes in `spec/scripts/sizes.md` and are
-labelled as estimates throughout.*
+labelled as estimates.*
 
 Every transition proves one or more leaves against the committed root
 and folds their replacements up to a new root. The proof is a path of
@@ -135,12 +138,27 @@ with only the members whose balances fall signing, nothing expiring, and
 unchanged members doing nothing. It is the on-chain settlement step of a
 cohort that otherwise transacts off-chain by voucher or channel leaf.
 
-Cost per changed leaf is the sweep's per-position cost plus the new leaf
-and the signature and minus the payout, about 120 vbytes at `D = 16`
-when most of a 64-position subtree changes; unchanged positions cost
-about 57. A rewrite in which only a few leaves change is still cheaper
-than the same number of `UPDATE`s above about two leaves, but the
-unchanged leaves' bytes make it a tool for cohorts that settle together.
+Measured at `D = 16` (spec 11), a position of a 64-position rewrite
+costs 233 bytes of script and 234 bytes of witness for its two leaf
+copies, about 117 vbytes, whether or not it changes [the estimate was
+57]; an owner signature adds 16 vbytes and an exit adds its 43-byte
+output and drops the new leaf, so a changed leaf costs about 133 vbytes
+and an exiting one about 147. Over a whole transaction a 64-leaf cohort
+that rewrites every balance pays about 145 vbytes per leaf, against
+1,073 for an `UPDATE` each [the estimate was 120], and one that leaves
+together pays 159 per leaf, the same as the operator's sweep. The
+unchanged position is more expensive than estimated because it is
+published twice, as old and new element, and because its `REWRITE_STEP`
+(the four-way branch, the amount-only test and two `ELEM_NODE`s) is
+about 200 bytes of unrolled script where the sweep's `LEAF_STEP` is
+about 150. The generator already hoists the `TAG_LEAF` prefix and `E_0`
+out of the step (186 bytes per position saved); a one-byte "unchanged"
+marker in place of the second leaf copy would save a further 29 vbytes
+per unchanged position for about 2 of script, and is the next cut if
+rewrites with few changes turn out to matter. A rewrite in which only a
+few leaves change is still cheaper than the same number of `UPDATE`s
+above about three leaves, but the unchanged leaves' bytes make it a tool
+for cohorts that settle together.
 
 Shape 1 is a special case of this shape once one rule is added: a
 position whose old element is a leaf and whose new element is `E_0` MUST
@@ -148,7 +166,12 @@ pay the leaf's amount (exactly, or with the FULL tier's fee option) to
 `P2TR(leaf.exit_key)` from the next unused output. With that rule the
 rewrite is a safe mass exit, so the taptree carries one script per height
 instead of two, and the owner's decision (2026-10-09) is to build
-`REWRITE_h` with the exit rule and not a separate `EXIT_SUBTREE_h`.
+`REWRITE_h` with the exit rule and not a separate `EXIT_SUBTREE_h`. It
+is built: spec 7.9 states the seven rules (the exit payout is exact, as
+in the sweep), 8.9 gives the script, and the measured sizes at `D = 16`
+are 2,731 / 5,336 / 16,444 bytes of script for `h = 2, 4, 6` with
+1,643 / 4,329 / 15,139 bytes of witness on the mixed cohort of the test
+suite. The `^x` form adds 16 vbytes to every signed position.
 
 The Lean argument is the same as for Shape 1: one `Step` with a published
 old and new subtree, conservation from `Steps.sum` unconditionally,
@@ -156,6 +179,15 @@ grounding from the witness. The rewrite also closes the opacity caveat of
 the design review (F18) for cohort joins: a graft whose leaves are
 published is grounded by construction, where `JOIN_h` trusts the joiners
 to have checked.
+
+One detail of the built form is worth recording. The script decides from
+the old and new elements whether a signature is due and rolls one up from
+the witness only then, so the witness carries no placeholder for
+positions that need none; a signature supplied where none is due is
+consumed as the next position's old element and fails the fold. The
+rule-3 exemption is checked as `new[8:] == old[8:]` and
+`old.amount <= new.amount`, so every field but the amount is pinned
+byte for byte.
 
 ## Shape 3: caching the shared path, `DETACH_h`
 
@@ -231,8 +263,8 @@ detached node. Both are small.
 |---|---|---|---|
 | `EXIT_K` | each owner | 842 average at `K = 2` | measured |
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
-| `EXIT_SUBTREE_h` | each exiting owner | about 177 at 51 leaves | specified in 13.4; folded into `REWRITE_h` |
-| `REWRITE_h` | each changed owner, operator | about 120 per changed leaf | being built, with the exit rule below |
+| `EXIT_SUBTREE_h` | each exiting owner | 159 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
+| `REWRITE_h` | each changed owner, operator | 145 per changed leaf at 64 leaves (update); 117 per unchanged position | measured; spec 7.9 |
 | `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 815 once | proposed, being built |
 
 What the three new shapes have in common is that they are variants of

@@ -89,6 +89,16 @@ func fullScriptFor(profile string, depth int, name string,
 			return nil, err
 		}
 		return FullEvictSubtreeScript(depth, n, key), nil
+	case strings.HasPrefix(name, "REWRITE_X_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_X_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullRewriteScript(depth, n, key, true), nil
+	case strings.HasPrefix(name, "REWRITE_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullRewriteScript(depth, n, key, false), nil
 	}
 	return nil, fmt.Errorf("unknown script name %q", name)
 }
@@ -370,6 +380,25 @@ func TestFullSplit(t *testing.T) {
 		[]int{2})["SPLIT"]; ok {
 
 		t.Error("SPLIT must stay out of FullAllScripts")
+	}
+}
+
+// TestFullRewrite checks the cohort rewrite REWRITE_h and its ^x form (spec
+// 7.9) against their golden vectors. Both are tree-creation variants: they
+// stay out of FullAllScripts and out of the reference taptree root.
+func TestFullRewrite(t *testing.T) {
+	g, key := loadGolden(t)
+
+	fullCheckScript(t, g, "FULL/D/D4/REWRITE_2",
+		FullRewriteScript(4, 2, key, false))
+	fullCheckScript(t, g, "FULL/D/D4/REWRITE_X_2",
+		FullRewriteScript(4, 2, key, true))
+
+	set := FullAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2})
+	for _, name := range []string{"REWRITE_2", "REWRITE_X_2"} {
+		if _, ok := set[name]; ok {
+			t.Errorf("%s must stay out of FullAllScripts", name)
+		}
 	}
 }
 

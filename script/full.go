@@ -793,6 +793,171 @@ func FullEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 	)
 }
 
+// ---------------------------------------------------------------------------
+// Cohort rewrite: REWRITE_h (dense profile, spec 7.9, 8.9).
+//
+// The post-order fold of EVICT_SUBTREE_h run over two subtrees at once: for
+// every position the witness supplies an old element and a new element (a
+// 116-byte leaf or the empty string for E_0), the old elements fold to the
+// old node, the new elements to the new node, and both fold up the shared
+// path. A position whose old element is a leaf and whose new element differs
+// needs a signature by the old leaf's owner_key, except when the only change
+// is an increase of amount; a position whose new element is empty is an exit
+// and pays the old leaf to its exit key from the next unused output. The
+// operator signs once. Under the ^x creation parameter the old leaf's
+// exit_key signs wherever the owner does.
+//
+// Signatures are consumed only where the rules require them: the next
+// witness element is always directly below T and every roll depth is a
+// constant, so a branch that needs a signature rolls one more element and a
+// branch that does not leaves the witness untouched.
+// ---------------------------------------------------------------------------
+
+// fullElemNode: [elem] -> [h s]; a 116-byte leaf gives (H_leaf, amount), the
+// empty element E_0. The TAG_LEAF prefix and E_0 are not pushed inline: the
+// rewrite keeps one copy of each below T and picks them, at depth kLeaf
+// (measured with `amt leaf` on top) and kEmpty (with the element dropped).
+func fullElemNode(kLeaf, kEmpty int) []Token {
+	return []Token{
+		Op(ts.OP_SIZE), Op(ts.OP_0NOTEQUAL),
+		Op(ts.OP_IF), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_DUP), Num(8), Op(OP_LEFT), Op(ts.OP_SWAP), // amt leaf
+		Num(int64(kLeaf)), Op(ts.OP_PICK), Op(ts.OP_SWAP), Op(OP_CAT),
+		Op(ts.OP_SHA256), Op(ts.OP_SWAP), // h amt
+		Op(ts.OP_ELSE), Op(ts.OP_DROP), Num(int64(kEmpty)), Op(ts.OP_PICK),
+		Op(ts.OP_0), Op(ts.OP_ENDIF), // E_0 0
+	}
+}
+
+// fullOwnerAuth: [... old new] -> [... old new], consuming the next witness
+// element (at depth k) as a signature by old.owner_key, and under ^x one
+// more by old.exit_key.
+func fullOwnerAuth(k int, exitConsent bool) []Token {
+	s := []Token{
+		Num(int64(k)), Op(ts.OP_ROLL), Num(2), Op(ts.OP_PICK),
+		Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR), Op(ts.OP_CHECKSIGVERIFY),
+	}
+	if exitConsent {
+		s = append(s,
+			Num(int64(k)), Op(ts.OP_ROLL), Num(2), Op(ts.OP_PICK),
+			Num(fullOffExitKey), Num(32), Op(OP_SUBSTR), Op(ts.OP_CHECKSIGVERIFY),
+		)
+	}
+	return s
+}
+
+// fullRewriteStep: [Z L T ...] with old, new and any signatures below Z ->
+// [Z L T ... oh os nh ns]; the altstack's output index advances on an exit.
+// d is the number of machine elements above T; Z (E_0's hash) and L (the
+// TAG_LEAF prefix) sit directly below T, so the next witness element is at
+// depth d+3.
+func fullRewriteStep(d int, exitConsent bool) []Token {
+	return fullCat(
+		[]Token{
+			Num(int64(d + 3)), Op(ts.OP_ROLL), Num(int64(d + 4)), Op(ts.OP_ROLL), // old new
+			Op(ts.OP_2DUP), Op(ts.OP_EQUAL), Op(ts.OP_NOTIF), // changed?
+			Op(ts.OP_OVER), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
+			Op(ts.OP_IF), // old is a leaf?
+			Op(ts.OP_DUP), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
+			Op(ts.OP_IF), // new is a leaf: rewrite
+			// Exempt from the owner signature iff new[8:] == old[8:] and
+			// old.amount <= new.amount.
+			Op(ts.OP_2DUP), Num(fullOffExitKey), Num(fullLeafLen - fullOffExitKey),
+			Op(OP_SUBSTR),
+			Op(ts.OP_SWAP), Num(fullOffExitKey), Num(fullLeafLen - fullOffExitKey),
+			Op(OP_SUBSTR), Op(ts.OP_EQUAL), // old new same_rest
+			Op(ts.OP_IF), Op(ts.OP_2DUP), Op(ts.OP_SWAP), Num(8), Op(OP_LEFT),
+			Op(ts.OP_SWAP), Num(8), Op(OP_LEFT), Op(ts.OP_LESSTHANOREQUAL),
+			Op(ts.OP_ELSE), Op(ts.OP_0), Op(ts.OP_ENDIF), // old new exempt
+			Op(ts.OP_NOTIF),
+		},
+		fullOwnerAuth(d+5, exitConsent),
+		[]Token{Op(ts.OP_ENDIF), Op(ts.OP_ELSE)}, // new is empty: an exit
+		fullOwnerAuth(d+5, exitConsent),
+		[]Token{
+			Op(ts.OP_FROMALTSTACK), Op(ts.OP_DUP), Op(ts.OP_1ADD),
+			Op(ts.OP_TOALTSTACK),         // old new idx
+			Num(SelOutSingle), Op(OP_TX), // old new amt spk
+			Data(fullP2TRPrefix), Num(4), Op(ts.OP_PICK), Num(fullOffExitKey),
+			Num(32), Op(OP_SUBSTR), Op(OP_CAT),
+			Op(ts.OP_EQUALVERIFY), // old new amt
+			Num(2), Op(ts.OP_PICK), Num(8), Op(OP_LEFT),
+			Op(ts.OP_NUMEQUALVERIFY), // old new (exact payout)
+			Op(ts.OP_ENDIF),
+			Op(ts.OP_ENDIF), // old empty: a join, operator only
+			Op(ts.OP_ENDIF), // unchanged
+			Op(ts.OP_SWAP),
+		},
+		fullElemNode(d+4, d+3), // new oh os
+		[]Token{Op(ts.OP_ROT)},
+		fullElemNode(d+5, d+4), // oh os nh ns
+	)
+}
+
+// fullHashStep2: [T ... loh los lnh lns roh ros rnh rns] ->
+// [T ... poh pos pnh pns]; d machine elements above T. Two HASH_STEPs, the
+// old pair first, then the new pair. The eight nodes sit on top, so the roll
+// depths are constants; only the HASH_STEP pick depth for T varies with d.
+func fullHashStep2(d int) []Token {
+	return fullCat(
+		[]Token{
+			Op(ts.OP_2SWAP), Num(7), Op(ts.OP_ROLL), Num(7), Op(ts.OP_ROLL),
+			Op(ts.OP_2SWAP), // lnh lns rnh rns loh los roh ros
+		},
+		fullHashStep(d), // lnh lns rnh rns poh pos
+		[]Token{
+			Op(ts.OP_2SWAP), Num(5), Op(ts.OP_ROLL), Num(5), Op(ts.OP_ROLL),
+			Op(ts.OP_2SWAP), // poh pos lnh lns rnh rns
+		},
+		fullHashStep(d-2), // poh pos pnh pns
+	)
+}
+
+// FullRewriteScript is REWRITE_h (spec 7.9, dense profile), and REWRITE_h^x
+// with exitConsent.
+//
+// witness (bottom..top) = [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op r m,
+// block_i = [xsig_i] [sig_i] new_i old_i (old_i on top; each element is a
+// 116-byte leaf or empty; sig_i only where 7.9 rule 3 requires it, xsig_i
+// only under ^x and only where sig_i is present).
+func FullRewriteScript(depth, height int, operatorKey [32]byte,
+	exitConsent bool) []Token {
+
+	s := fullCat(
+		fullPrologue(),
+		[]Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)}, // ...blocks | m r
+		[]Token{
+			Op(ts.OP_1), Op(ts.OP_TOALTSTACK), // | m r 1
+			Data(fullEmptyLeafHash), Data(fullLeafPrefix), Data(fullNodePrefix), // Z L T
+		},
+	)
+	d := 0
+	var gen func(h int)
+	gen = func(h int) {
+		if h == 0 {
+			s = append(s, fullRewriteStep(d, exitConsent)...)
+			d += 4
+			return
+		}
+		gen(h - 1)
+		gen(h - 1)
+		s = append(s, fullHashStep2(d)...)
+		d -= 4
+	}
+	gen(height) // Z L T oh os nh ns | m r idx
+
+	return fullCat(s,
+		[]Token{
+			Op(ts.OP_FROMALTSTACK), Op(ts.OP_DROP), // drop idx
+			Num(6), Op(ts.OP_ROLL), Op(ts.OP_DROP), Num(5), Op(ts.OP_ROLL),
+			Op(ts.OP_DROP), // T oh os nh ns (drop Z, L)
+		},
+		fullLevels(false, depth, height),
+		fullCheckOldRootFromAlt(false),
+		fullFinalOutput(depth),
+	)
+}
+
 // FullAllScripts returns the FULL-tier taptree script set for a tree, keyed
 // exactly as tools/layertree_scripts.py's all_scripts: "EXIT_%d", "JOIN_%d",
 // "JOINK_%d", "UPDATE" and "CLAIM". In the sparse profile only height 0

@@ -665,3 +665,112 @@ def evict_subtree_script(depth, height, operator_key):
           lt.empty_node(height)[0], "OP_0"]                  # T oh os E_h 0
     s += levels("D", depth, height)
     return s + check_old_root_from_alt("D") + final_output(depth)
+
+
+# ---------------------------------------------------------------------------
+# Cohort rewrite: REWRITE_h (dense profile, spec 7.9, 8.9).
+#
+# The post-order fold of EVICT_SUBTREE_h run over two subtrees at once: for
+# every position the witness supplies an old element and a new element (a
+# 116-byte leaf or the empty string for E_0), the old elements fold to the
+# old node, the new elements to the new node, and both fold up the shared
+# path. A position whose old element is a leaf and whose new element differs
+# needs a signature by the old leaf's owner_key, except when the only change
+# is an increase of amount; a position whose new element is empty is an
+# exit and pays the old leaf to its exit key from the next unused output.
+# The operator signs once. Under the ^x creation parameter the old leaf's
+# exit_key signs wherever the owner does.
+#
+# Signatures are consumed only where the rules require them, so an
+# unchanged position costs two leaf elements of witness and nothing else:
+# the next witness element is always directly below T, and every roll depth
+# is a constant, so a branch that needs a signature rolls one more element
+# and a branch that does not leaves the witness untouched.
+# ---------------------------------------------------------------------------
+def _elem_node(k_leaf, k_empty):
+    """[elem] -> [h s]: a 116-byte leaf gives (H_leaf, amount), the empty
+    element E_0. The TAG_LEAF prefix and E_0 are not pushed inline: the
+    rewrite keeps one copy of each below T and picks them, at depth k_leaf
+    (measured with `amt leaf` on top) and k_empty (with the element dropped)."""
+    return ["OP_SIZE", "OP_0NOTEQUAL",
+            "OP_IF", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+            "OP_DUP", 8, "OP_LEFT", "OP_SWAP",                                   # amt leaf
+            k_leaf, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256", "OP_SWAP",       # h amt
+            "OP_ELSE", "OP_DROP", k_empty, "OP_PICK", "OP_0", "OP_ENDIF"]        # E_0 0
+
+
+def _owner_auth(k, exit_consent):
+    """[... old new] -> [... old new], consuming the next witness element
+    (at depth k) as a signature by old.owner_key, and under ^x one more by
+    old.exit_key."""
+    s = [k, "OP_ROLL", 2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]
+    if exit_consent:
+        s += [k, "OP_ROLL", 2, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]
+    return s
+
+
+def _rewrite_step(d, exit_consent):
+    """[Z L T ...] with old, new and any signatures below Z  ->  [Z L T ... oh os nh ns]
+    | .. m r idx  ->  | .. m r idx'.  `d` is the number of machine elements
+    above T; Z (E_0's hash) and L (the TAG_LEAF prefix) sit directly below T,
+    so the next witness element is at depth d+3."""
+    return ([d + 3, "OP_ROLL", d + 4, "OP_ROLL",            # T ... old new
+             "OP_2DUP", "OP_EQUAL", "OP_NOTIF",              # changed?
+             "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",   # old is a leaf?
+             "OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",    # new is a leaf: rewrite
+             # exempt from the owner signature iff new[8:] == old[8:] and old.amount <= new.amount
+             "OP_2DUP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
+             "OP_SWAP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR", "OP_EQUAL",  # old new same_rest
+             "OP_IF", "OP_2DUP", "OP_SWAP", 8, "OP_LEFT", "OP_SWAP", 8, "OP_LEFT",
+             "OP_LESSTHANOREQUAL",                                                        # old new old.amt<=new.amt
+             "OP_ELSE", "OP_0", "OP_ENDIF",                  # old new exempt
+             "OP_NOTIF"] + _owner_auth(d + 5, exit_consent) + ["OP_ENDIF",
+             "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + [   # new is empty: an exit, paid to old.exit_key
+             "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",   # old new idx   | .. idx+1
+             SEL_OUT_SINGLE, "OP_TX",                                    # old new amt spk
+             P2TR_PREFIX, 4, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
+             "OP_EQUALVERIFY",                                           # old new amt
+             2, "OP_PICK", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",            # old new   (exact payout)
+             "OP_ENDIF",
+             "OP_ENDIF",                                     # (old empty: a join, operator only)
+             "OP_ENDIF",                                     # (unchanged)
+             "OP_SWAP"] + _elem_node(d + 4, d + 3) +         # new oh os
+            ["OP_ROT"] + _elem_node(d + 5, d + 4))           # oh os nh ns
+
+
+def _hash_step2(d):
+    """[T ... loh los lnh lns roh ros rnh rns] -> [T ... poh pos pnh pns]; d machine elements above T.
+    Two HASH_STEPs: the old pair first, then the new pair. The eight nodes
+    sit on top, so the roll depths are constants; only the HASH_STEP pick
+    depth for T varies with d."""
+    return (["OP_2SWAP", 7, "OP_ROLL", 7, "OP_ROLL", "OP_2SWAP"] +  # lnh lns rnh rns loh los roh ros
+            _hash_step(d) +                                         # lnh lns rnh rns poh pos
+            ["OP_2SWAP", 5, "OP_ROLL", 5, "OP_ROLL", "OP_2SWAP"] +  # poh pos lnh lns rnh rns
+            _hash_step(d - 2))                                      # poh pos pnh pns
+
+
+def rewrite_script(depth, height, operator_key, exit_consent=False):
+    """REWRITE_h (spec 7.9): rewrite every position of an aligned subtree.
+
+    witness (bottom..top) = [dir sc]*(D-h)  block_{2^h-1} ... block_0  sig_op  r  m
+    block_i = [xsig_i] [sig_i] new_i old_i   (old_i on top; each element is a
+    116-byte leaf or empty; sig_i only where 7.9 rule 3 requires it, xsig_i
+    only under ^x and only where sig_i is present).
+    """
+    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks | m r
+    s += ["OP_1", "OP_TOALTSTACK",                            #            | m r 1
+          lt.EMPTY_LEAF_HASH, LEAF_PREFIX, NODE_PREFIX]       # Z L T      (hoisted constants)
+    d = [0]
+    def gen(h):
+        if h == 0:
+            s.extend(_rewrite_step(d[0], exit_consent))
+            d[0] += 4
+        else:
+            gen(h - 1); gen(h - 1)
+            s.extend(_hash_step2(d[0]))
+            d[0] -= 4
+    gen(height)                                              # Z L T oh os nh ns   | m r idx
+    s += ["OP_FROMALTSTACK", "OP_DROP",                      # drop idx
+          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]  # T oh os nh ns       (drop Z, L)
+    s += levels("D", depth, height)
+    return s + check_old_root_from_alt("D") + final_output(depth)

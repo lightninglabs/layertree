@@ -592,6 +592,228 @@ def test_evict_subtree(depth, height, verbose=True):
 
 
 
+def _rewrite_plan(w, height, scenario):
+    """Old and new elements for every position of an aligned height-h subtree.
+
+    Returns (base, old, new): old and new map offset -> Leaf or None (empty).
+    The scenarios are "mixed" (exits, an unchanged leaf, a key rotation, an
+    amount-only increase, a payer, a lease renewal, a join into an empty
+    position and an empty position left alone, in rotation), "update" (every
+    position occupied and every leaf's key rotated) and "exit" (every
+    position occupied and every leaf leaving).
+    """
+    n = 1 << height
+    base = 1 << height                          # subtree index 1
+    old, new = {}, {}
+    for i in range(n):
+        lf = mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+        rotated = lt.Leaf(lf.amount, lf.exit_key, pubkey_x(sk(f"c{i}-owner2")), lf.evictor_key,
+                          lf.evict_after, lf.nonce, lf.seq)
+        if scenario == "update":
+            old[i], new[i] = lf, rotated
+            continue
+        if scenario == "exit":
+            old[i], new[i] = lf, None
+            continue
+        if i % 7 == 6:                           # empty position
+            old[i] = None
+            new[i] = mk_leaf(f"j{i}", 5_000 + i, w.op_pk, 900_000) if i % 2 == 0 else None
+            continue
+        old[i] = lf
+        kind = i % 6
+        if kind == 0:
+            new[i] = None                                      # exit
+        elif kind == 1:
+            new[i] = lf                                        # unchanged
+        elif kind == 2:
+            new[i] = rotated                                   # key rotation
+        elif kind == 3:
+            new[i] = lf.with_amount_seq(lf.amount + 500, lf.seq)   # amount-only increase
+        elif kind == 4:
+            new[i] = lf.with_amount_seq(lf.amount - 300, lf.seq)   # payer
+        else:
+            new[i] = lt.Leaf(lf.amount, lf.exit_key, lf.owner_key, lf.evictor_key,
+                             900_000, lf.nonce, lf.seq)        # lease renewal
+    return base, old, new
+
+
+def _needs_owner_sig(old, new):
+    """Spec 7.9 rule 3, computed independently of the script."""
+    if old is None or old == new or (new is not None and old.serialize() == new.serialize()):
+        return False
+    if new is not None and new.serialize()[8:] == old.serialize()[8:] and new.amount >= old.amount:
+        return False
+    return True
+
+
+def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent, sign=True):
+    """Witness (bottom..top) for REWRITE_h: path, blocks for position 2^h-1 .. 0, sig_op, r, m.
+    Returns (witness, signatures) where signatures maps offset -> [sig, xsig]."""
+    n = 1 << height
+    sigs = {}
+    blocks = []
+    for i in reversed(range(n)):
+        o, nw = old[i], new[i]
+        block = []
+        if _needs_owner_sig(o, nw) and sign:
+            s = [schnorr_sign(ctx.sighash(), sk(f"c{i}-owner"))]
+            if exit_consent:
+                s.append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
+            sigs[i] = s
+            block += list(reversed(s))           # xsig below sig
+        block += [nw.serialize() if nw else b"", o.serialize() if o else b""]
+        blocks += block
+    return w.path_witness(path, height) + blocks + [sig_op, root[0], w.m], sigs
+
+
+def rewrite_case(depth, height, scenario="mixed", exit_consent=False):
+    """Build a REWRITE_h spend for a scenario. Returns a dict with the world,
+    script, witness, context, plan and the signatures, for tests and sizing."""
+    name = f"REWRITE_X_{height}" if exit_consent else f"REWRITE_{height}"
+    w = World(depth, "D")
+    toks = ls.rewrite_script(depth, height, w.op_pk, exit_consent)
+    bad = {t for t in toks if isinstance(t, str)} - ALLOWED_OPCODES
+    check(not bad, f"{name} uses non-candidate opcodes: {sorted(bad)}")
+    script = assemble(toks)
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
+    base, old, new = _rewrite_plan(w, height, scenario)
+    w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for i, lf in new.items():
+        if lf:
+            t1.leaves[base + i] = lf
+        else:
+            t1.leaves.pop(base + i, None)
+    r1 = t1.root()
+    delta = r1[1] - root[1]
+    outputs = [(r1[1], w.spk(r1))]
+    for i in range(1 << height):
+        if old[i] and new[i] is None:
+            outputs.append((old[i].amount, lt.p2tr_spk(old[i].exit_key)))
+    outputs.append((400, P2WPKH))
+    ctx = w.ctx(outputs, extra_in=(max(delta, 0) + 5_000, P2WPKH))
+    sig_op = schnorr_sign(ctx.sighash(), w.op_sk)
+    wit, sigs = _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent)
+    return dict(name=name, w=w, script=script, wit=wit, ctx=ctx, root=root, r1=r1, t1=t1,
+                path=path, base=base, old=old, new=new, sigs=sigs, sig_op=sig_op,
+                outputs=outputs, delta=delta)
+
+
+def test_rewrite(depth, height, exit_consent=False, verbose=True):
+    """REWRITE_h (spec 7.9): rewrite a cohort's aligned subtree in one spend,
+    with the mixed scenario of _rewrite_plan. Negatives target each rule."""
+    c = rewrite_case(depth, height, "mixed", exit_consent)
+    w, name, ctx, root, wit = c["w"], c["name"], c["ctx"], c["root"], c["wit"]
+    old, new, sigs, path, base = c["old"], c["new"], c["sigs"], c["path"], c["base"]
+    n = 1 << height
+    it = w.run(name, wit, ctx)
+    check(True, f"{name} D={depth}: mixed rewrite of {n} positions")
+    check(c["ctx"].outputs[0][0] == root[1] + c["delta"], f"{name} output 0 is S + (sum new - sum old)")
+
+    def rebuild(old_, new_, ctx_=ctx, path_=path, root_=root, sig_op_=None, sign=True):
+        so = sig_op_ if sig_op_ is not None else schnorr_sign(ctx_.sighash(), w.op_sk)
+        return _rewrite_witness(w, height, path_, old_, new_, ctx_, root_, so, exit_consent, sign)[0]
+
+    # rule 3: a changed leaf without its owner's signature
+    i_rot = next(i for i in range(n) if old[i] and new[i] and _needs_owner_sig(old[i], new[i]))
+    wit_nosig = list(wit)
+    pos = wit_nosig.index(sigs[i_rot][0])
+    del wit_nosig[pos]
+    expect_fail(lambda: w.run(name, wit_nosig, ctx), f"{name} changed leaf without the owner signature")
+    # rule 3: a key rotation disguised as an amount-only increase (no signature)
+    i_inc = next(i for i in range(n) if old[i] and new[i] and not _needs_owner_sig(old[i], new[i])
+                 and new[i].amount > old[i].amount)
+    disguised = dict(new)
+    lf = old[i_inc]
+    disguised[i_inc] = lt.Leaf(lf.amount + 500, lf.exit_key, pubkey_x(sk("mallory")), lf.evictor_key,
+                               lf.evict_after, lf.nonce, lf.seq)
+    t_d = w.clone()
+    t_d.leaves[base + i_inc] = disguised[i_inc]
+    for i, x in new.items():
+        if i != i_inc:
+            if x:
+                t_d.leaves[base + i] = x
+            else:
+                t_d.leaves.pop(base + i, None)
+    outs_d = [(t_d.root()[1], w.spk(t_d.root()))] + c["outputs"][1:]
+    ctx_d = w.ctx(outs_d, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    wit_d = rebuild(old, disguised, ctx_d)
+    # the witness builder would sign it (the rule says so); strip that signature to attempt the disguise
+    sig_d = schnorr_sign(ctx_d.sighash(), sk(f"c{i_inc}-owner"))
+    wit_d_nosig = [x for x in wit_d if x != sig_d and not (exit_consent and x == schnorr_sign(ctx_d.sighash(), sk(f"c{i_inc}-exit")))]
+    expect_fail(lambda: w.run(name, wit_d_nosig, ctx_d), f"{name} key rotation disguised as an amount increase")
+    w.run(name, wit_d, ctx_d)
+    check(True, f"{name} the same rotation with the owner's signature succeeds")
+    # rule 5: a shortchanged exit payout, and one paid to the wrong key
+    i_exit = next(i for i in range(n) if old[i] and new[i] is None)
+    k = 1 + sum(1 for i in range(i_exit) if old[i] and new[i] is None)
+    outs_s = list(c["outputs"]); outs_s[k] = (outs_s[k][0] - 1, outs_s[k][1])
+    ctx_s = w.ctx(outs_s, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, rebuild(old, new, ctx_s), ctx_s), f"{name} shortchanged exit payout")
+    outs_k = list(c["outputs"]); outs_k[k] = (outs_k[k][0], lt.p2tr_spk(pubkey_x(sk("mallory"))))
+    ctx_k = w.ctx(outs_k, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+    expect_fail(lambda: w.run(name, rebuild(old, new, ctx_k), ctx_k), f"{name} exit paid to the wrong key")
+    # rule 4: no operator signature
+    expect_fail(lambda: w.run(name, rebuild(old, new, sig_op_=schnorr_sign(ctx.sighash(), sk("alice-owner"))), ctx),
+                f"{name} without the operator signature")
+    # rule 6: output 0 not conserved (under and over)
+    for off in (-1, +1):
+        outs_u = list(c["outputs"]); outs_u[0] = (outs_u[0][0] + off, outs_u[0][1])
+        ctx_u = w.ctx(outs_u, extra_in=(max(c["delta"], 0) + 5_000, P2WPKH))
+        expect_fail(lambda: w.run(name, rebuild(old, new, ctx_u), ctx_u), f"{name} output 0 off by {off:+d}")
+    # rule 1: a stale path (a rewrite leaves the subtree's own path unchanged,
+    # so the stale one comes from a change elsewhere in the tree) and a forged old leaf
+    t_s = w.clone(); t_s.leaves[0] = mk_leaf("alice", 51_000)
+    stale = t_s.path(base, height=height)
+    expect_fail(lambda: w.run(name, rebuild(old, new, path_=stale), ctx), f"{name} stale path")
+    forged = dict(old)
+    forged[i_rot] = old[i_rot].with_amount_seq(old[i_rot].amount + 1, old[i_rot].seq)
+    expect_fail(lambda: w.run(name, rebuild(forged, new), ctx), f"{name} forged old leaf")
+    if exit_consent:
+        # rule 7: the exit key of a changed leaf must sign too
+        wit_nox = list(wit)
+        del wit_nox[wit_nox.index(sigs[i_rot][1])]
+        expect_fail(lambda: w.run(name, wit_nox, ctx), f"{name} changed leaf without the exit-key signature")
+        wit_wx = list(wit)
+        wit_wx[wit_wx.index(sigs[i_rot][1])] = sigs[i_rot][0]
+        expect_fail(lambda: w.run(name, wit_wx, ctx), f"{name} exit-key signature by the owner key")
+    if verbose:
+        n_sig = len(sigs)
+        print(f"{name} D={depth}: {n} positions, {n_sig} owner signatures, script {len(c['script'])} B, "
+              f"witness {sum(len(x) for x in wit)} B, varops {it.cost}, sigops {it.sigchecks}, maxdepth {it.max_depth}")
+    return it, len(c["script"]), sum(len(x) for x in wit)
+
+
+def rewrite_sizes(depth, height):
+    """Measured sizes of REWRITE_h at one depth and height for the design
+    note: the three scenarios of _rewrite_plan plus the per-position script
+    share. Returns a dict of figures; prints a table."""
+    out = {}
+    for scenario in ("mixed", "update", "exit"):
+        c = rewrite_case(depth, height, scenario)
+        it = c["w"].run(c["name"], c["wit"], c["ctx"])
+        n_changed = sum(1 for i in c["old"] if (c["old"][i] is not None or c["new"][i] is not None)
+                        and (c["old"][i] is None or c["new"][i] is None or
+                             c["old"][i].serialize() != c["new"][i].serialize()))
+        n_exit = sum(1 for i in c["old"] if c["old"][i] and c["new"][i] is None)
+        wl = sum(len(x) for x in c["wit"])
+        out[scenario] = dict(script=len(c["script"]), witness=wl, changed=n_changed, exits=n_exit,
+                             sigs=len(c["sigs"]), varops=it.cost, sigops=it.sigchecks)
+    # per-position script share: everything the positions add over the fixed part
+    fixed = len(assemble(ls.prologue() + [bytes(32), "OP_CHECKSIGVERIFY", "OP_1", "OP_TOALTSTACK",
+                                          lt.EMPTY_LEAF_HASH, ls.LEAF_PREFIX, ls.NODE_PREFIX,
+                                          "OP_FROMALTSTACK", "OP_DROP", 6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"] +
+                         ls.levels("D", depth, height) + ls.check_old_root_from_alt("D") + ls.final_output(depth)))
+    out["fixed_script"] = fixed
+    out["per_position_script"] = (out["mixed"]["script"] - fixed) / (1 << height)
+    return out
+
+
 def test_update_x(depth, profile, verbose=True):
     """UPDATE^x (spec 7.4 rule 5): UPDATE plus a signature by old_leaf.exit_key.
 
@@ -1022,12 +1244,31 @@ def test_swap(depth, verbose=True):
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
+        test_rewrite(d, h)
     print(f"\n{CHECKS} checks, {FAILS} failures")
 
 
-if __name__ == "__main__" and "--subtree" not in sys.argv:
+if __name__ == "__main__" and "--rewrite" in sys.argv:
+    # Measured sizes for design/batching.md: REWRITE_h at D = 16 for the
+    # three scenarios, with the per-position script share.
+    for h in (2, 4, 6):
+        r = rewrite_sizes(16, h)
+        n = 1 << h
+        print(f"\nREWRITE_{h} D=16 ({n} positions): fixed script {r['fixed_script']} B, "
+              f"per position {r['per_position_script']:.1f} B")
+        for sc in ("mixed", "update", "exit"):
+            x = r[sc]
+            wu = x["script"] + x["witness"] + 129
+            print(f"  {sc:7} script {x['script']:6} B  witness {x['witness']:5} B  changed {x['changed']:3} "
+                  f"exits {x['exits']:3} sigs {x['sigs']:3}  witness WU {wu:6}  varops {x['varops']}")
+    sys.exit(1 if FAILS else 0)
+
+
+if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in sys.argv:
     for d, h in ((16, 2), (16, 4)):
         test_evict_subtree(d, h)
+        test_rewrite(d, h)
+    test_rewrite(16, 4, exit_consent=True)
     for d in (4, 16):
         test_minimal(d)
         test_channel_rules(d)
