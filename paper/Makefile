@@ -21,7 +21,7 @@ version.tex: FORCE
 listings: ../tools/gen_structured.py ../tools/layertree_scripts.py ../tools/layertree_mid.py ../tools/layertree_min.py
 	python3 ../tools/gen_structured.py
 
-main.pdf: main.tex refs.bib appendix-*.tex version.tex
+main.pdf: main.tex refs.bib appendix-*.tex version.tex $(wildcard ../spec/scripts/structured/*.txt)
 	latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
 
 clean:
