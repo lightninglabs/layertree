@@ -186,6 +186,27 @@ with numbers.
   weights.md is regenerated: fee-analysis.md:38, spec 11 measured rows
   (MID 1,381/1,338), CONCEPTS.md MID 1,338. The rule worker was told to
   merge main first and recompute golden/counts once.
+  Matrix green on the merged tree (1,017/250/47/886/149/61, Go, Lean
+  60); weights.md regenerated (MID EXIT_1 1,355 model / 1,398 measured,
+  MIN 1,473 / 1,518); spec 11, fee-analysis, CONCEPTS and the paper
+  carry the new MID/MIN sizes; PDFs rebuilt at ab41a93 (532a9a6).
+  Still in flight: the A1/A2 rule worker (spec 0.11.0 DUST_MIN and the
+  REWRITE SEQ_FINAL exclusion; also carries 7.5.3/7.9 rule 7/5.2
+  wording and receive.md's floor). Started: a channel-leaf audit
+  (Appendix C, swaps, receive, DETACH/REWRITE with channels) writing
+  design/audit/channels.md only. Landed (merge of f72fffa): B1
+  settlement outputs below 330 sat make two dust outputs with the
+  ephemeral anchor, non-standard (rule: C.3.4 dust floor, trimmed value
+  to the anchor, reference + Go validation + test); B2 receive.md's flow
+  inverts 9.6.2 rule 1 (text: operator settles the inbound HTLC first,
+  then a plain CLAIM^x voucher); B3 unissued credit-leaf capital is the
+  recipient's on every unilateral path (text); B4 stale-state
+  publication one per block eats C.4.4's margin (rule: budget term);
+  B5 = A1 (in flight); B6 chan_id binds m, audit recommends tree_id
+  (owner decision, decision 13 said keep m; no attack found); B7 text
+  (C.6.2, C.7). An Opus text worker is doing B2, B3, B7, C.5.6 and
+  F30 to F36. After the A1/A2 rule worker lands: a Fable channel rule
+  worker for B1, B4, the C.6/C.9 test-coverage list, Appendix C 0.4.0.
 - Paper review round done: `paper/reviews/{crypto,protocol,systems}.md`
   on main (727afa3). Verdicts: cryptographer weak reject (Lean holds
   up; the UC liveness bound Delta(N) does not follow from the model, the

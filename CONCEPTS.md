@@ -318,7 +318,7 @@ below, is in [`design/cost-comparison.md`](design/cost-comparison.md).
 **One exit alone is expensive.** At depth 16 a unilateral exit is 1,020 vB
 in the FULL tier, against 111 vB for a bare spend and 2,511 vB to
 unroll a transaction-tree branch of the same size. The MID and MIN tiers
-cost 1,338 and 1,456 vB. That is the price of the proof, and it is a
+cost 1,355 and 1,473 vB. That is the price of the proof, and it is a
 constant: it does not grow with the number of members.
 
 **Per-leaf cost falls with batch size.** Owners who exit together each

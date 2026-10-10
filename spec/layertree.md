@@ -2889,8 +2889,8 @@ a figure that appears in more than one place is the same figure:
   several small elements (over 160 items); a MID sweep at `h = 6` has
   about 950 items, 955 WU of prefixes. Measured against the model, the
   owner `EXIT_1` rows are FULL dense 1,030 vB (model 1,020), FULL sparse
-  `D = 32` 1,648 (1,637), MID dense 1,381 (1,338), MID sparse `D = 31`
-  2,864 (2,787), MIN dense 1,501 (1,456), CCV dense 918 (908) and CCV
+  `D = 32` 1,648 (1,637), MID dense 1,398 (1,355), MID sparse `D = 31`
+  2,896 (2,819), MIN dense 1,518 (1,473), CCV dense 918 (908) and CCV
   sparse 1,535 (1,525). The prefixes are omitted the same way from every
   row here, in `spec/fee-analysis.md` and in the paper, so the
   comparisons between rows stand; the absolute figures are about 1% low
