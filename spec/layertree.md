@@ -2043,6 +2043,18 @@ spend `U`'s input is one whose output 0 commits to a root containing `U`'s
 leaf. `U` SHOULD retain the leaf, both paths, `r`, `r'` and the transaction
 id (section 9.7).
 
+*(informative)* A self-funded `JOIN_h` is a signing round among the
+joiners. Every member signs the same transaction, and its output 0
+commits to the subtree holding every new leaf, so the cohort must be
+fixed before anyone signs, and a member who withdraws, changes its leaf or
+never signs invalidates every other member's signature; the operator then
+rebuilds the subtree and collects signatures again, with the abort and
+retry exposure of a coinjoin or an Ark round. The covenant itself needs
+only the operator's signature (7.3 rule 2); the round is the price of
+members funding their own leaves on-chain. An operator-funded graft has
+no round: the operator fronts the value and is paid off-chain, as the
+next two paragraphs describe.
+
 The operator MAY use `JOIN_0` for a single member and MAY fund leaves
 itself (for example when providing liquidity to a channel leaf, or when
 selling a leaf to a member who pays off-chain).
@@ -2123,7 +2135,7 @@ payments and of the original sketch's signed vouchers: an operator that
 keeps a funded bond leaf can pay recipients instantly with a voucher that is
 independently redeemable if the operator later disappears.
 
-#### 9.6.1 Hash-locked vouchers and swaps
+#### 9.6.1 Hash-locked vouchers and exchanges
 
 A hash-locked voucher (7.5.1) carries the obligations of 9.6 and three more.
 
@@ -2144,8 +2156,9 @@ that holds the same `payment_hash` in another contract (a Lightning HTLC, a
 channel-leaf HTLC of Appendix C.4.1, a voucher in another tree) MUST assume
 the counterparty in that contract learns the preimage as soon as the
 `CLAIM^h` transaction is in a block, and MUST size its own deadlines
-accordingly. This is what makes the swap atomic, and it is also why a
-redeemer SHOULD settle or secure its own leg before broadcasting.
+accordingly. The shared hash orders the two legs; it does not make the
+exchange atomic (9.6.2), which is why a redeemer SHOULD settle or secure
+its own leg before broadcasting.
 
 *(informative)* The canonical flow buys a leaf with off-chain funds, for a
 recipient holding no on-chain Bitcoin. `A` owns a funded leaf and wants
@@ -2160,14 +2173,21 @@ that `A` advances `seq` first; neither is removed by the hash lock, which
 orders the exchange rather than securing it. Reversing the roles (`B`
 generating `R` and being paid over Lightning) swaps which side carries
 which risk. Section 13 item 9 composes the same hash with a channel-leaf
-HTLC, giving a swap with no on-chain step on the channel side.
+HTLC, giving an exchange with no on-chain step on the channel side.
 
-#### 9.6.2 Swaps against a channel-leaf HTLC
+#### 9.6.2 Pairing a voucher with a channel-leaf HTLC
 
-A `CLAIM^h` voucher and a channel-leaf HTLC (Appendix C.4.1) that name the
-same `payment_hash` form an atomic swap: the preimage that resolves one
-resolves the other. Both legs apply the same 32-byte preimage discipline,
-so a preimage valid for one is valid for the other by construction.
+A `CLAIM^h` voucher is a hash-locked cheque, not an HTLC: the value stays
+in the source leaf, and until the redemption confirms the issuer can void
+the cheque with a conflicting `EXIT` or `SPLIT` of that leaf. Pairing it
+with a channel-leaf HTLC (Appendix C.4.1) that names the same
+`payment_hash` therefore gives an ordered exchange, not an atomic swap.
+The order is fixed: the HTLC resolves first, its preimage enables the
+voucher, and the voucher resolves second (rules 1 and 2); the voucher
+holder carries the issuer risk of 9.6.1 from the moment it offers the HTLC
+until its `CLAIM^h` confirms (rule 4). Both legs apply the same 32-byte
+preimage discipline, so a preimage valid for one is valid for the other by
+construction.
 
 The two legs are not symmetric, and the asymmetry drives the rules below.
 The HTLC leg has a deadline the chain enforces, `cltv_expiry`, after which
@@ -2325,8 +2345,9 @@ IOU: the first redeemer is paid by consensus.
 
 A hash-locked voucher (7.5.1) adds ordering, not security. It guarantees
 that the holder cannot carve the leaf without the preimage, which is what
-makes an exchange against an off-chain leg atomic, and it leaves both risks
-of the preceding paragraph exactly where they were: the issuer can still
+lets an off-chain leg be resolved first and the voucher second (9.6.2),
+and it leaves both risks of the preceding paragraph exactly where they
+were: the issuer can still
 over-issue, and can still invalidate an unredeemed voucher by advancing
 `seq`. Because the two forms use different tags, a plain voucher cannot be
 redeemed under the hash lock and a hash-locked voucher cannot be redeemed
@@ -2783,9 +2804,10 @@ exits in a batch" as `EXIT_K` (section 13).
    coordination and is left for a separate document.
 6. **Hash-locked vouchers.** Now specified as 7.5.1 (`CLAIM^h`), with the
    protocol in 9.6.1 and the security analysis in 10.3; the entry is kept so
-   the numbering stays stable. It enables atomic swaps between trees, into
-   Lightning, or with on-chain funds, and third-party liquidity provision:
-   any leaf owner can service a swap by issuing a voucher.
+   the numbering stays stable. It enables ordered exchanges (9.6.1, not
+   atomic swaps) between trees, into Lightning, or with on-chain funds,
+   and third-party liquidity provision: any leaf owner can service such an
+   exchange by issuing a voucher.
 7. **Nesting.** A leaf's `exit_key` may be the output key of another
    LayerTree, giving hierarchical trees with constant-size exit at each
    level.
@@ -2794,8 +2816,10 @@ exits in a batch" as `EXIT_K` (section 13).
    `TREE_SPK`; see the caveat in section 10.4.
 9. **Vouchers and channel HTLCs share a hash.** Now specified as 9.6.2: a
    `CLAIM^h` voucher (7.5.1) and a channel-leaf HTLC (Appendix C.4.1) that
-   name the same payment hash give an atomic swap between the credit
-   instrument and the settlement instrument, with one leg on-chain at most.
+   name the same payment hash give an ordered exchange between the credit
+   instrument and the settlement instrument (HTLC first, voucher second,
+   issuer risk on the voucher holder until its `CLAIM^h` confirms), with
+   one leg on-chain at most.
    The entry is kept so the numbering stays stable.
 10. **`UPDATE` with `exit_key` consent.** Now specified as 7.4 rule 5
    (`UPDATE^x`); the entry is kept so the numbering stays stable.
