@@ -2156,13 +2156,25 @@ does, and also lowers the balance they draw on, so the rebuilt set MUST
 fit the reduced amount. A `DETACH_h` (7.10) of the subtree holding the
 source leaf changes nothing: the detached tree inherits `tree_id` and the
 leaf is unchanged, so outstanding vouchers redeem there as issued.
+Eviction is different. Once the source leaf's `evict_after` has passed,
+its evictor can remove it by `EXIT_1` with `is_evict`, `EXIT_K` or
+`EVICT_SUBTREE_h` (7.7), paying the whole balance to the source's
+`exit_key`; every outstanding voucher against it is then void, although
+the issuer did nothing, and the holder's only recourse is the issuer.
 
 A recipient MUST verify `voucher_sig`, MUST check that `tree_id` is the
 value the tree's `CLAIM` scripts carry (it is one of the published
 creation parameters from which `m` is recomputed, 9.1), MUST verify that
 `source_leaf` is currently in the tree at some position (by obtaining and
-checking a path),
-and SHOULD treat the voucher as settled only after (a) redeeming it via
+checking a path), MUST read the source leaf's `evictor_key` and
+`evict_after`, and SHOULD treat a voucher whose source lease has passed,
+or will pass before a redemption broadcast now can be expected to
+confirm under the bound `Delta(q)` of 10.5, as unsecured credit. A
+recipient SHOULD require an issuer's lease to run past the recipient's
+own redemption deadline plus `Delta(q)`. A source leaf whose
+`evictor_key` is `NUMS`, or whose `evictor_key` is the recipient's own,
+cannot be evicted out from under the voucher. The recipient
+SHOULD treat the voucher as settled only after (a) redeeming it via
 `CLAIM`, or (b) the issuer has included `claim_leaf` via `JOIN`/`UPDATE`
 and the recipient has verified inclusion. Until then the recipient bears the
 risk that the issuer double-issues against the same balance; the covenant
@@ -2202,7 +2214,8 @@ its own leg before broadcasting.
 recipient holding no on-chain Bitcoin. `A` owns a funded leaf and wants
 Lightning liquidity; `B` wants a leaf. `A` draws a preimage `R`, sets
 `payment_hash = SHA256(R)`, issues `B` a hash-locked voucher for the leaf,
-and offers a Lightning invoice with the same hash. `B` pays the invoice; to
+and offers a Lightning invoice with the same hash. `B` checks the source
+leaf's lease as 9.6 and 9.6.2 rule 5 require, then pays the invoice; to
 settle it `A` releases `R`, which reaches `B` through the payment. `B` now
 redeems the voucher. `B` cannot obtain the leaf without paying, and `A`
 cannot take the payment without releasing `R`. `A` keeps the credit risk of
@@ -2257,6 +2270,13 @@ redeemable until the issuer advances the source leaf's `seq`.
    in a reorganisation with a transition that advances `seq`. The interval
    between learning the preimage and confirmation includes contention for
    the tree output and is governed by the bound of 10.5, not by a constant.
+5. The source leaf's evictor can void the voucher without the issuer
+   breaking rule 3, by evicting the source once its lease has passed
+   (9.6). Before it offers the HTLC, or pays a Lightning invoice on the
+   same hash as in 9.6.1, the voucher holder MUST apply the lease check
+   of 9.6 to the source leaf, and SHOULD NOT proceed if the lease can
+   pass before the latest time its `CLAIM^h` can be expected to confirm,
+   that is, the HTLC's `cltv_expiry` plus `Delta(q)` of 10.5.
 
 *(informative)* Under rule 2 the chain sees at most one leg. In the usual
 flow the channel HTLC is settled off-chain by exchanging the preimage, and
@@ -2392,6 +2412,17 @@ redeemed under the hash lock and a hash-locked voucher cannot be redeemed
 without one; an implementation that reused `TAG_VOUCHER` for both would let
 a redeemer strip the hash lock. Redemption publishes the preimage, which
 9.6.1 requires holders of the same hash elsewhere to account for.
+
+Eviction voids vouchers too, and it is not the issuer's act. A voucher
+binds the source leaf's bytes, so once the source's lease has passed its
+evictor can remove the leaf (`EXIT_1` with `is_evict`, or a cohort sweep
+by `EVICT_SUBTREE_h`) and every outstanding voucher against it fails
+from then on. The leaf's balance goes to its `exit_key`, which for a
+shared bond leaf is the issuer, not the holder, so a holder who has paid
+for a voucher is left with the issuer's goodwill. 9.6 therefore has the
+holder check the source lease, and an issuer whose vouchers are meant to
+be secured SHOULD give its source leaf a `NUMS` evictor or a lease that
+runs well past the vouchers' expected redemption.
 
 `SPLIT` (7.5.2) is one more way for an issuer to advance `seq` and so void
 its own outstanding vouchers. It adds no capability: an owner could already
@@ -2569,8 +2600,12 @@ and operators SHOULD validate all leaf keys before grafting.
 ### 10.8 Eviction
 
 Eviction pays the leaf in full to `exit_key`; it cannot shortchange or
-redirect. Its cost to the owner is loss of the off-chain position and, for
-channel leaves, a forced on-chain channel. `evict_after` bounds when this
+redirect the leaf. It does void every outstanding voucher against the
+evicted leaf, and a cohort sweep (7.7) voids every voucher against every
+leaf it removes: the holders are not paid by the eviction, and the
+issuer, not the evictor, owes them (9.6, 10.3). Its cost to the owner is
+loss of the off-chain position and, for channel leaves, a forced
+on-chain channel. `evict_after` bounds when this
 can happen and is renewable only with the owner's signature (`UPDATE`).
 Owners SHOULD treat `evict_after` as a lease expiry and renew ahead of it.
 
