@@ -58,13 +58,19 @@ TREE_EXIT_VB = 2511
 # Exit amortisation, vB per leaf removed in one transaction against the
 # batch size. "Owner exits" is measured (spec/fee-analysis.md, one and two
 # leaves); the cohort rewrite exits are the measured REWRITE_2/4/6 with
-# every position leaving (spec 11: 370, 198 and 159 vB per leaf at 4, 16
-# and 64 positions); the operator sweeps are the measured
+# every position leaving, priced by the fee analysis model with one 43 vB
+# payout per leaf (359, 195 and 158 vB per leaf at 4, 16 and 64
+# positions; spec 11's table has 370, 198 and 159, and the serialised
+# transactions are in spec/scripts/weights.md); the operator sweeps are the measured
 # EVICT_SUBTREE_4/6/8 sizes divided by the leaves they remove (13, 51
-# and 206), spec/scripts/sizes.md.
+# and 206), spec/scripts/sizes.md, with the same model.
 OWNER_EXITS = [(1, 1020), (2, 842)]
-REWRITE_EXITS = [(4, 370), (16, 198), (64, 159)]
+REWRITE_EXITS = [(4, 359), (16, 195), (64, 158)]
 OPERATOR_SWEEPS = [(13, 203), (51, 158), (206, 147)]
+# The sweeps at D = 16 only, h = 2, 4 and 6 (3, 13 and 51 leaves swept),
+# for the cohort figure; EVICT_SUBTREE_2 is 3,889 WU of witness, 1,295 vB.
+SWEEPS_D16 = [(3, 432), (13, 203), (51, 158)]
+SECOND_EXIT_VB = 665  # marginal second exit in EXIT_2, spec/fee-analysis.md.
 BATCH_OUTPUT_VB = 43  # one P2TR output inside a batch transaction.
 
 # Join amortisation, vB per member admitted. Dense JOIN_h admits 2^h
@@ -86,13 +92,15 @@ LN_OPEN_VB = 154
 # Lifetime bytes per member, entry plus exit (vB), derived by summing the
 # entry and exit figures above for each scenario; the assumptions are
 # listed in design/cost-comparison.md. Lightning in the last scenario is a
-# batched open of 43 plus a force close of 130 plus a sweep of 110. The
+# batched open of 43 plus a simple taproot channel's force close of 530
+# (a 240 vB commitment, its 152 vB anchor child and a 138 vB sweep, as
+# derived in paper/appendix-channels.tex and paper/full-cost.tex). The
 # order within a scenario is fixed: dense, sparse, Lightning, Ark, bare
 # on-chain.
 LIFETIME_GROUPS = [
     ("Enters in a batch, never exits alone", [3, 1644, 197, 86, 154]),
     ("Enters in a batch, exits in a batch", [161, 3108, 197, 86, 154]),
-    ("Enters in a batch, exits alone", [1023, 3281, 283, 2554, 154]),
+    ("Enters in a batch, exits alone", [1023, 3281, 573, 2554, 154]),
 ]
 
 # ---------------------------------------------------------------------------
@@ -599,11 +607,12 @@ def fig_radix(png_dir):
 
 # The batching shapes share the axes of the exit-amortisation figure. The
 # cohort rewrite point is the measured REWRITE_6 with every key rotated
-# (145 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
-# after a DETACH_8 (765 vB), spec 11; the other series reuse the
-# constants above.
-COHORT_REWRITE = [(64, 145)]
-DETACH_EXIT = [(256, 765)]
+# (144 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
+# after a DETACH_8 (780 vB once); the depth-8 EXIT_1 is 762 vB by the
+# fee analysis model (spec 11's table rounds it to 765). The other series
+# reuse the constants above.
+COHORT_REWRITE = [(64, 144)]
+DETACH_EXIT = [(256, 762)]
 VIOLET = "#4a3aa7"
 
 
@@ -631,9 +640,9 @@ def fig_batching_shapes(png_dir):
     series(ax, COHORT_REWRITE, ORANGE, hollow=True, line=False)
     series(ax, DETACH_EXIT, VIOLET, hollow=True, line=False)
     label(ax, 1, 1020, "1,020", 10, 0)
-    label(ax, 64, 159, "159", 0, 12, ha="center")
-    label(ax, 64, 145, "145", 10, -4)
-    label(ax, 256, 765, "765", 0, 12, ha="center")
+    label(ax, 64, 158, "158", 0, 12, ha="center")
+    label(ax, 64, 144, "144", 10, -4)
+    label(ax, 256, 762, "762", 0, 12, ha="center")
     label(ax, 206, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA),
@@ -649,6 +658,52 @@ def fig_batching_shapes(png_dir):
            INK3, ha="right")
     f.text(64, top - 10, "vB per leaf", 11, INK3)
     f.save("batching-shapes.svg", png_dir)
+
+
+# ---------------------------------------------------------------------------
+# Figure 9: per-leaf cost against cohort size.
+# ---------------------------------------------------------------------------
+
+def fig_cohort_cost(png_dir):
+    top, bottom = 150, 400
+    f = Fig(bottom + 56, "Leaving together: per-leaf cost against cohort "
+            "size", "vbytes per leaf removed, dense D=16, fee analysis "
+            "model with one 43 vB payout per leaf")
+    ax = f.axes(64, top, 590, bottom)
+    log_x(ax, [1, 2, 4, 8, 16, 32, 64], 1, 80)
+    ax.set_ylim(0, 1100)
+    ax.set_yticks(range(0, 1001, 200))
+    ax.set_yticklabels([fmt(t) for t in range(0, 1001, 200)])
+    ax.spines["left"].set_visible(False)
+    vgrid(ax)
+    hgrid(ax)
+    for v, s in ((SECOND_EXIT_VB, "each further exit in EXIT_K 665"),
+                 (BARE_SPEND_VB, "bare P2TR spend 111")):
+        ax.axhline(v, color=BASE, lw=1 * PX, zorder=2)
+        ax.annotate(s, (1, v), xycoords=("axes fraction", "data"),
+                    xytext=(8, 0), textcoords="offset points", va="center",
+                    fontsize=11 * PX, color=INK3, annotation_clip=False)
+    series(ax, OWNER_EXITS, GRAY)
+    series(ax, SWEEPS_D16, AQUA)
+    series(ax, REWRITE_EXITS, BLUE)
+    label(ax, 1, 1020, "1,020", 10, 0)
+    label(ax, 2, 842, "842", 10, 4)
+    label(ax, 3, 432, "432", -10, 0, ha="right")
+    label(ax, 4, 359, "359", 10, 4)
+    label(ax, 13, 203, "203", -10, -6, ha="right")
+    label(ax, 16, 195, "195", 10, 6)
+    label(ax, 64, 158, "158", 0, 12, ha="center")
+    f.legend([line_handle(GRAY), line_handle(BLUE), line_handle(AQUA)],
+             ["EXIT_1 alone, then EXIT_2 (each owner carries its own "
+              "path)",
+              "REWRITE_2/4/6, every position exits (owners sign, no "
+              "lease needed)",
+              "EVICT_SUBTREE_2/4/6, three of every sixteen positions "
+              "empty (operator, leases)"], 68)
+    f.text(590, bottom + 36, "leaves removed in one transaction", 11,
+           INK3, ha="right")
+    f.text(64, top - 10, "vB per leaf", 11, INK3)
+    f.save("cohort-cost.svg", png_dir)
 
 
 def main():
@@ -670,6 +725,7 @@ def main():
     fig_level_cost(args.png_dir)
     fig_radix(args.png_dir)
     fig_batching_shapes(args.png_dir)
+    fig_cohort_cost(args.png_dir)
 
 
 if __name__ == "__main__":
