@@ -738,7 +738,20 @@ HTLC's owner chooses. The rules are:
 * a party MUST NOT accept a new HTLC whose `cltv_expiry` leaves less than the
   budget of C.4.4;
 * a party with an in-flight HTLC approaching that bound MUST force-close
-  (exit or evict) rather than wait;
+  (exit or evict) rather than wait. The bound is a different one for each
+  side of the HTLC:
+  * the *payee's deadline*: the payee of an HTLC whose preimage it holds
+    MUST start its force-close no later than the budget of C.4.4 before
+    `cltv_expiry`, so that its success sweep confirms before the
+    offerer's timeout sweep is final;
+  * the *offerer's deadline*: the offerer of an HTLC that the payee has
+    neither fulfilled nor failed MUST start its force-close no later than
+    `G_exit + 1 + csv_delay + 1` blocks before `cltv_expiry`, so that the
+    settlement has confirmed when the HTLC expires and its timeout sweep
+    can confirm in the block after. Started later, the offerer may learn
+    the preimage from the payee's sweep up to a whole budget after
+    `cltv_expiry`, and the upstream HTLC it forwarded this one for would
+    need a `cltv_expiry_delta` of twice the budget to stay claimable;
 * an operator SHOULD NOT evict a channel leaf while HTLCs are in flight in
   that channel, and SHOULD instead fail them back first;
 * `EVICT_SUBTREE_h` sweeps a whole cohort at once and therefore starts the
