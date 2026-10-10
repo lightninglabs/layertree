@@ -19,6 +19,7 @@ os.makedirs(OUT, exist_ok=True)
 OP_KEY = pubkey_x(lt.sha256(b"operator"))
 names = dict(ls.CONST_NAMES)
 names[OP_KEY] = "<OPERATOR_KEY>"
+names[LM.E0_SC] = "<E_0.sc>"
 for h in range(0, 33):
     names[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
 
@@ -123,6 +124,12 @@ for d, sparse in ((16, False), (31, True)):
     it, sl, wl = test_mid.test_split(d, sparse, verbose=False)
     rows.append(("MID/" + ("S" if sparse else "D"), d, "SPLIT", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for h, full in ((2, False), (4, False), (6, False), (5, True)):
+    it, script, wit = test_mid.test_evict_subtree(16, h, verbose=False, full=full)
+    n = 1 << h
+    occ = "all occupied" if full else "every fifth exited"
+    rows.append(("MID/D", 16, f"EVICT_SUBTREE_{h} ({n} positions, {occ})", len(script), sum(len(x) for x in wit), 129,
+                 len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
@@ -132,6 +139,9 @@ rows.append(("MIN/D", 16, "SPLIT", len(script), sum(len(x) for x in wit), 129,
 for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(1,), join_ks=(2,)).items():
     with open(os.path.join(OUT, f"MID_{name}_D4.txt"), "w") as f:
         f.write(listing(f"{name} (MID tier, dense, D=4)", toks))
+with open(os.path.join(OUT, "MID_EVICT_SUBTREE_2_D4.txt"), "w") as f:
+    f.write(listing("EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D=4)",
+                    LM.evict_subtree_script(4, 2, OP_KEY)))
 with open(os.path.join(OUT, "MID_UPDATE_X_D4.txt"), "w") as f:
     f.write(listing("UPDATE_X (MID tier, dense, D=4)",
                     LM.update_script(4, OP_KEY, False, exit_consent=True)))

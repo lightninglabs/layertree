@@ -369,7 +369,7 @@ are interchangeable, with one numeric cap noted below.
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | no (same message as `CLAIM`, 4.6) |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes in `0xC2`; `0xC0` not implemented |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
-| `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | not implemented | no | `0xC2` only (`0xC0` needs an element-based leaf step, 4.6) |
+| `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | `0xC2` only (`0xC0` needs an element-based leaf step, 4.6) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | n/a (no `CLAIM`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output | yes |
@@ -395,6 +395,9 @@ script / witness data:
 | `CLAIM` | 3,802 / 1,690 | 6,291 / 1,832 | n/a | n/a (4.6) | 9,896 / 688 | 18,241 / 1,543 | n/a (4.6) |
 | `CLAIM^h` | 3,811 / 1,722 | 6,300 / 1,861 | n/a | n/a (4.6) | 9,905 / 515 | 18,250 / 1,438 | n/a (4.6) |
 | `SPLIT` | 3,728 / 1,674 | 6,160 / 1,813 | 6,441 / 2,010 | 3,338 / 1,610 | 9,822 / 483 | 18,110 / 1,412 | 9,432 / 419 |
+| `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,097 / 1,157 | — | — | — | — | — |
+| `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,865 / 2,417 | — | — | — | — | — |
+| `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 23,873 / 7,461 | — | — | — | — | — |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`): dense `D = 16` — `EXIT_1`
@@ -403,6 +406,20 @@ encoding: seven-element leaves, `PADZ`): dense `D = 16` — `EXIT_1`
 8,886 / 719, `UPDATE` 9,025 / 905, `UPDATE^x` 9,029 / 969. The CCV call saves about 360 bytes of script over MID at
 either profile (MID `EXIT_1` at `D = 16`: 3,299 / 978), because the
 `TREE_SPK_MIN` recomputation and the spk introspection read drop out.
+
+The MID `EVICT_SUBTREE_h` (8.7) carries each occupied position as
+fourteen witness elements (the ten of a MID leaf, the minimal
+`evict_after` with its `PADZ` pad, and a presence flag), each empty
+position as one, and each internal node below the subtree root as one
+`PADZ` pad pair. With `p` of the `2^h` positions occupied its witness is
+`13p + 2^h + 2(2^h − 2) + 9(D − h) + 7` elements, and the prologue pushes
+three more before any is consumed, so BIP-342's limit of 1,000 stack plus
+altstack elements bounds the sweep: at `D = 16`, `h ≤ 5` fits at any
+occupancy (617 elements at the peak of a full 32-leaf sweep) and `h = 6`
+fits with at most 54 of its 64 positions occupied (990 at the peak). A
+full 64-leaf cohort is swept as two `EVICT_SUBTREE_5` spends. The sums
+stay within the tier's 2^31 cap, so the numeric limit binds nothing here.
+FULL has no such bound: BIP-441 raises the element limit.
 
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
@@ -1558,6 +1575,37 @@ OP_FROMALTSTACK                                    # ph ps
 The output index is kept on the altstack and passed to `OP_TX` dynamically,
 so empty positions consume no output.
 
+In the MID tier a leaf is thirteen witness elements, and rolling each one
+up past the machine stack would cost about 40 bytes per position, so the
+leaf steps are hoisted into a pre-pass that runs at the top of the stack
+before `T` is pushed. Witness: `zf wf zi wi  levels(D − h)  pads  slot_{2^h−1}
+… slot_0  sig  r  m`, where a present slot is `leaf(10) ea_num ze we 0x01`
+(the exit witness of 8.3 plus a flag) and an empty one is a single empty
+element:
+
+```
+PROLOGUE <OPERATOR_KEY> OP_CHECKSIGVERIFY OP_1     # … slots idx          | m r
+EVICT_LEAF_STEP × 2^h                              # idx                  | m r (s sc) × 2^h
+OP_DROP <TAG_NODE>                                 # T
+HASH_PASS(h)                                       # T oh os              | m r
+<E_h.hash> OP_0  LEVEL_MID × (D − h)  CHECK_OLD FINAL
+```
+
+`EVICT_LEAF_STEP` takes the flag (`OP_SWAP OP_IF`, so `MINIMALIF` makes it
+exact); for a present leaf it checks `CLTV(ea_num)`, `PADZ(ea_num) ==
+evict_after`, `evictor_key == OPERATOR_KEY` and the exact payout to the
+next output as in FULL, then parks the node on the altstack as the pair
+`(s, sc)` with `sc = H_leaf(leaf) || amount || 0x01`, the 41-byte form a
+parent hashes (a leaf's `enc64` is its own amount field, so leaves need no
+pad). An empty slot parks `(0, E_0.hash || enc64(0))`. `HASH_PASS(h)` pops
+the pairs back last position first and combines them in mirrored
+post-order: `[Rsc Rs Lsc Ls] → [psc ps]`, hashing `T || Lsc || Rsc`, with
+`psc = ph || ENC64(ps)` taking one `PADZ` pad pair from directly below `T`
+for every internal node except the subtree root. The witness lists the pad
+pairs so that the first consumed is on top
+(`evict_subtree_pad_nodes` in `tools/layertree_mid.py`). Listing:
+`spec/scripts/MID_EVICT_SUBTREE_2_D4.txt`; the stack bound is in 4.5.
+
 ### 8.8 Sizes
 
 Script sizes are `base + 88·levels` (dense) or `base + 135·levels`
@@ -2114,6 +2162,15 @@ leaf. This is why cohorts SHOULD be grafted into aligned subtrees with a
 common lease expiry: the operator can then both add and remove a cohort in
 one constant-shape transaction each.
 
+The MID tier's sweep (8.7) measures 4,097 / 1,157, 7,865 / 2,417 and
+23,873 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
+same cohorts, about 1.5 times FULL's script and 1.1 to 1.2 times its
+witness: about 615 WU per leaf at `h = 6` against FULL's 445. A full
+32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about 565 WU per
+leaf). The 1,000-element stack limit caps a MID sweep at `D = 16` to
+54 occupied positions (4.5), so a full 64-leaf cohort takes two
+`EVICT_SUBTREE_5` spends.
+
 Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 `D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
 falling with depth because the BIP-440 budget is `10,000 × weight`; the EC operations (82 sigops units per `TREE_SPK`) and the
@@ -2276,13 +2333,19 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 125 and 31 checks respectively; the MID
+  operands during development), 198 and 31 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, and the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
   7.5.2 in both profiles, the dense `JOIN_2` negatives (occupied slot,
   no operator signature), a stale `JOINK_2` second path, and the MID
-  `SPLIT` with the negatives of the FULL suite below. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
+  `SPLIT` with the negatives of the FULL suite below, and the cohort
+  sweep `EVICT_SUBTREE_2/4/6` at `D = 16` with the FULL suite's negatives
+  (a sweep before lease expiry, a shortchanged leaf, a non-evictable
+  leaf) plus an occupied position presented as empty, a malformed node
+  pad, a missing operator signature and a wrong `m`, a full 32-leaf
+  `EVICT_SUBTREE_5`, and a full 64-leaf `EVICT_SUBTREE_6` rejected by the
+  stack limit (4.5). The MIN checks cover `EXIT_1` and the dense `SPLIT` at
   `D = 4` and `16`: a split and a full drain succeed, and one signed by the
   operator or the recipient, an over-split, an occupied destination, a
   stale root, a recipient swapped under the owner's signature, an
@@ -2362,7 +2425,8 @@ exits in a batch" as `EXIT_K` (section 13).
   the FULL `D = 4` set, a BIP-341 sighash vector and the tree scriptPubKey
   vector, produced by `tools/gen_golden.py` and consumed by the Go tests.
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
-  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`, and
+  `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`,
+  `EVICT_SUBTREE_1` and `EVICT_SUBTREE_2` under `MID/D/D4`, and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

@@ -101,6 +101,10 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | CLAIM_H | 18250 | 1438 | 129 | 19817 | n/a (0xC0) | 1 |
 | MID/D | 16 | SPLIT | 6160 | 1813 | 129 | 8102 | n/a (0xC0) | 1 |
 | MID/S | 31 | SPLIT | 18110 | 1412 | 129 | 19651 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 4097 | 1157 | 129 | 5383 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7865 | 2417 | 129 | 10411 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 23873 | 7461 | 129 | 31463 | n/a (0xC0) | 1 |
+| MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13149 | 4907 | 129 | 18185 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3572 | 1175 | 129 | 4876 | n/a (0xC0) | 2 |
 | MIN/D | 16 | SPLIT | 6441 | 2010 | 129 | 8580 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |

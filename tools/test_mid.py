@@ -445,6 +445,103 @@ def test_split(depth, sparse, verbose=True):
     return it, len(script), sum(len(x) for x in wit)
 
 
+def test_evict_subtree(depth, height, verbose=True, full=False):
+    """MID EVICT_SUBTREE_h (spec 7.7): the cohort sweep. Mirrors
+    test_scripts.test_evict_subtree (same cohort, same negatives) over the
+    MID witness. full=True occupies every position of the subtree instead
+    of FULL's pattern, in which every fifth position has already exited.
+
+    Returns (interp, script, witness); interp and witness are None when the
+    full witness exceeds the 1,000-element initial stack limit, in which
+    case the run is checked to fail."""
+    w = MidWorld(depth, False)
+    toks = M.evict_subtree_script(depth, height, w.op_pk)
+    bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+    check(not bad, f"MID EVICT_SUBTREE_{height}: opcodes outside the MID set: {sorted(bad)}")
+    name = f"EVICT_SUBTREE_{height}"
+    script = assemble(toks, mode="c0")
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    n = 1 << height
+    idx = 1
+    base = idx << height
+    cohort = {}
+    for i in range(n):
+        if i % 5 == 3 and not full:
+            continue
+        cohort[base + i] = mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+
+    def sweep_outputs(tree):
+        rest = lt.Tree(depth)
+        rest.leaves = {p: l for p, l in tree.leaves.items() if not base <= p < base + n}
+        r = rest.root()
+        return [(r[1], w.spk(r))] + [(tree.leaves[base + i].amount, lt.p2tr_spk(tree.leaves[base + i].exit_key))
+                                     for i in range(n) if base + i in tree.leaves]
+    outputs = sweep_outputs(w.tree) + [(400, P2WPKH)]
+
+    def run(outs, locktime=800_000, tree=None, mutate=None, signer=None, m=None):
+        saved = w.tree
+        if tree is not None:
+            w.tree = tree
+        try:
+            ctx = w.ctx(outs, (5_000, P2WPKH), locktime=locktime)
+            body = M.w_evict_subtree(w.tree, depth, height, idx)
+            if mutate:
+                body = mutate(body)
+            sig = schnorr_sign(ctx.sighash(), signer or w.op_sk)
+            wit = body + [sig, w.tree.root()[0], m or w.m]
+            return w.run(name, wit, ctx), wit
+        finally:
+            w.tree = saved
+    if len(M.w_evict_subtree(w.tree, depth, height, idx)) + 3 + 3 > 1000:
+        # BIP-342 caps stack plus altstack at 1,000 elements after every
+        # opcode; the witness is the body, sig r m, and the prologue pushes
+        # three more before anything is consumed (spec 4.5).
+        expect_fail(lambda: run(outputs),
+                    f"mid: {name} with {len(cohort)} of {n} positions occupied exceeds 1,000 stack elements")
+        if verbose:
+            print(f"MID EVICT_SUBTREE_{height} D={depth}: {len(cohort)} of {n} positions, script {len(script)} B, "
+                  f"witness over the 1,000-element limit (rejected)")
+        return None, script, None
+    it, wit = None, []
+    try:
+        it, wit = run(outputs)
+        check(True, f"mid: {name} sweeps {len(cohort)} leaves")
+    except ScriptError as e:
+        check(False, f"mid: {name} positive: {str(e)[:90]}")
+    # negatives, as in the FULL suite
+    expect_fail(lambda: run(outputs, locktime=799_999), f"mid: {name} before lease expiry")
+    bad_out = list(outputs); bad_out[1] = (outputs[1][0] - 1, outputs[1][1])
+    expect_fail(lambda: run(bad_out), f"mid: {name} shortchanges a leaf")
+    t_n = w.clone()
+    free = next((base + i for i in range(n) if base + i not in cohort), base)
+    t_n.leaves[free] = mk_leaf("stubborn", 5_000)   # NUMS evictor
+    expect_fail(lambda: run(sweep_outputs(t_n), tree=t_n), f"mid: {name} with a non-evictable leaf")
+    # MID-specific: the witness cannot hide a leaf, malform a node pad,
+    # skip the operator or name another m.
+    hide = lambda body: body[:-M.EVICT_SLOT_WITNESS] + [b""]   # position 0 presented as empty
+    expect_fail(lambda: run(outputs[:1] + outputs[2:], mutate=hide),
+                f"mid: {name} presents an occupied position as empty")
+    if height >= 2:
+        at = 4 + M.LEVEL_WITNESS * (depth - height)            # the last-consumed node pad pair
+
+        def swap_pad(body):
+            # move one zero byte from the filler into the pad: z || w is
+            # still 00000000, but size(x) + size(z) is now 5.
+            b = list(body); b[at], b[at + 1] = b[at] + b"\x00", b[at + 1][1:]
+            return b
+        expect_fail(lambda: run(outputs, mutate=swap_pad), f"mid: {name} with a malformed node pad")
+    expect_fail(lambda: run(outputs, signer=sk("alice-owner")), f"mid: {name} without the operator signature")
+    expect_fail(lambda: run(outputs, m=lt.sha256(b"evil")), f"mid: {name} with a wrong m")
+    if verbose:
+        print(f"MID EVICT_SUBTREE_{height} D={depth}: {len(cohort)} of {n} positions, script {len(script)} B, "
+              f"witness {sum(len(x) for x in wit)} B ({len(wit)} elements), maxdepth {it.max_depth if it else '-'}")
+    return it, script, wit
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
@@ -454,5 +551,9 @@ if __name__ == "__main__":
     test_claim_h(31, True)
     test_split(16, False)
     test_split(31, True)
+    for h in (2, 4, 6):
+        test_evict_subtree(16, h)
+    for h in (5, 6):   # every position occupied: h = 6 exceeds the stack limit (spec 4.5)
+        test_evict_subtree(16, h, full=True)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)

@@ -352,6 +352,136 @@ def carve_claim(depth, sparse=False):
     return s + levels(sparse, depth) + check_prev(sparse)            # T nh2 ns2
 
 
+# ------------------------------------------------- EVICT_SUBTREE_h (7.7) --
+# The FULL tier's post-order fold (section 8.7) under MID numerics. FULL
+# rolls each 116-byte leaf up from below T as it reaches it; a MID leaf is
+# thirteen witness elements, and rolling them past the machine stack would
+# cost about 40 bytes per leaf. The leaf steps are therefore hoisted into a
+# pre-pass that runs at the top of the stack, in position order (so the
+# payout outputs are numbered exactly as in FULL), and parks each node on
+# the altstack as the pair (sc, s): sc = hash || enc64(sum), the 41-byte
+# form a parent hashes, s the sum as a number. A leaf's enc64 is its own
+# amount field plus 0x01, so leaves need no extra pad. The hash pass then
+# pops the pairs back (last position first) and combines them in mirrored
+# post-order; each internal node below the subtree root needs enc64 of its
+# sum, which takes one PADZ pad pair from the witness.
+#
+# Slot witness, bottom..top: a present leaf is leaf(10) ea_num ze we 0x01;
+# an empty position is one empty element (MINIMALIF makes the flag exact).
+EVICT_SLOT_WITNESS = LEAF_WITNESS + 4
+E0_SC = lt.EMPTY_LEAF_HASH + lt.enc64(0)
+
+
+def _evict_leaf_step(operator_key):
+    """[.. slot idx] | .. -> [.. idx'] | .. s sc   (idx' = idx + 1 if paid)"""
+    return (["OP_SWAP", "OP_IF",                                     # leaf(10) ea_num ze we idx
+             "OP_TOALTSTACK",                                        # leaf(10) ea_num ze we       | .. idx
+             2, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"] + padz() + [   # leaf(10) le32(ea_num)
+             6, "OP_PICK", "OP_EQUALVERIFY",                         # leaf(10)   (ea field matches)
+             6, "OP_PICK", operator_key, "OP_EQUALVERIFY",           # evictor_key == OPERATOR_KEY
+             "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",  # leaf(10) idx      | .. idx'
+             SEL_OUT_SINGLE, "OP_TX",                                # leaf(10) amt spk
+             F.P2TR_PREFIX, 11, "OP_PICK", "OP_CAT", "OP_EQUALVERIFY",  # leaf(10) amt
+             10, "OP_PICK", "OP_EQUALVERIFY",                        # leaf(10)   (exact payout)
+             9, "OP_PICK", b"\x01", "OP_CAT", "OP_TOALTSTACK"]       # leaf(10)          | .. idx' enc
+            + leaf_join() + tagged(F.LEAF_PREFIX) +                  # lh                | .. idx' enc s
+            ["OP_FROMALTSTACK", "OP_FROMALTSTACK",                   # lh s enc
+             "OP_ROT", "OP_SWAP", "OP_CAT",                          # s sc
+             "OP_FROMALTSTACK",                                      # s sc idx'
+             "OP_ROT", "OP_TOALTSTACK", "OP_SWAP", "OP_TOALTSTACK",  # idx'              | .. s sc
+             "OP_ELSE",                                              # idx
+             "OP_0", "OP_TOALTSTACK", E0_SC, "OP_TOALTSTACK",        # idx               | .. 0 E_0.sc
+             "OP_ENDIF"])
+
+
+def _evict_hash_step(t, root):
+    """[T .. Rsc Rs Lsc Ls] -> [T .. psc ps] (or [T .. ph ps] at the root).
+    t is the number of elements above T on entry; a non-root step takes
+    its pad pair [z w] from directly below T."""
+    s = [2, "OP_ROLL", "OP_ADD", "OP_TOALTSTACK",                    # Rsc Lsc            | .. ps
+         "OP_SWAP", "OP_CAT",                                        # (Lsc||Rsc)
+         t - 3, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",          # ph
+         "OP_FROMALTSTACK"]                                          # ph ps
+    if not root:
+        s += ["OP_DUP"] + roll(t + 1, 2) + enc64()                   # ph ps enc(ps)
+        s += ["OP_ROT", "OP_SWAP", "OP_CAT", "OP_SWAP"]              # psc ps
+    return s
+
+
+def evict_subtree_pad_nodes(height):
+    """The internal nodes below the subtree root, as (k, i) = (height,
+    index within the subtree), in the order the hash pass consumes their
+    pads. The witness lists the pad pairs in reverse of this order, so the
+    first one consumed sits directly below T."""
+    out = []
+
+    def visit(k, i):
+        if k == 0:
+            return
+        visit(k - 1, 2 * i + 1)
+        visit(k - 1, 2 * i)
+        if k < height:
+            out.append((k, i))
+    visit(height, 0)
+    return out
+
+
+def evict_subtree_script(depth, height, operator_key):
+    """EVICT_SUBTREE_h (7.7, dense) in the MID tier.
+
+    witness (bottom..top):
+      zf wf zi wi [levels h..D-1] [pad pairs, see evict_subtree_pad_nodes]
+      slot_{2^h-1} .. slot_0 sig r m
+    """
+    assert 1 <= height <= depth
+    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]             # .. slots            | m r
+    s += ["OP_1"]                                                    # .. slots idx
+    for _ in range(1 << height):
+        s += _evict_leaf_step(operator_key)                          # .. idx'             | m r (s sc)*
+    s += ["OP_DROP", F.NODE_PREFIX]                                  # T
+    t = [0]
+
+    def gen(k, root):
+        if k == 0:
+            s.extend(["OP_FROMALTSTACK", "OP_FROMALTSTACK"])         # T .. sc s
+            t[0] += 2
+            return
+        gen(k - 1, False)                                            # right child first
+        gen(k - 1, False)
+        s.extend(_evict_hash_step(t[0], root))
+        t[0] -= 2
+    gen(height, True)                                                # T oh os             | m r
+    s += [lt.empty_node(height)[0], "OP_0"]                          # T oh os E_h 0
+    s += levels(False, depth, height)
+    return s + check_old(False) + final(depth)
+
+
+def w_evict_slot(leaf):
+    """Witness items for one EVICT_SUBTREE position (bottom..top)."""
+    if leaf is None:
+        return [b""]
+    return w_leaf_exit(leaf) + [b"\x01"]
+
+
+def w_evict_subtree(tree, depth, height, idx):
+    """Everything EVICT_SUBTREE_h consumes below sig r m, for the subtree
+    `idx` of `tree`: final pads, input-amount pads, levels, node pads and
+    slots. Mirrors evict_subtree_script's witness layout."""
+    base = idx << height
+    t1 = lt.Tree(depth)
+    t1.leaves = {p: l for p, l in tree.leaves.items() if not base <= p < base + (1 << height)}
+    root, r1 = tree.root(), t1.root()
+    old = tree.subtree(height, idx)
+    path = tree.path(base, height=height)
+    items = list(pad(r1[1])) + list(pad(root[1]))
+    items += w_levels(path, old, lt.empty_node(height), False, height)
+    for k, i in reversed(evict_subtree_pad_nodes(height)):
+        items += list(pad(tree.subtree(k, (idx << (height - k)) + i)[1]))
+    for j in reversed(range(1 << height)):
+        items += w_evict_slot(tree.leaves.get(base + j))
+    return items
+
+
 def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,)):
     out = {f"EXIT_{k}": exit_script(depth, k, sparse) for k in exit_ks}
     for h in (join_heights if not sparse else (0,)):

@@ -37,6 +37,8 @@ for name, toks in M.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=(
     add("MID", "D", 4, name, toks, "c0")
 for name, toks in M.all_scripts(8, OP_KEY, True, exit_ks=(1,), join_ks=(2,)).items():
     add("MID", "S", 8, name, toks, "c0")
+for h in (1, 2):
+    add("MID", "D", 4, f"EVICT_SUBTREE_{h}", M.evict_subtree_script(4, h, OP_KEY), "c0")
 add("MIN", "D", 4, "EXIT_1", N.exit_script(4), "c0")
 import layertree_ccv as CV  # noqa: E402
 for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,)).items():

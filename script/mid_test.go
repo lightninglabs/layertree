@@ -200,6 +200,22 @@ func TestMidSplit(t *testing.T) {
 	}
 }
 
+// TestMidEvictSubtree checks the MID EVICT_SUBTREE_h port (spec 7.7)
+// against the golden vectors. Like FULL's it stays out of MidAllScripts.
+func TestMidEvictSubtree(t *testing.T) {
+	g, key := midLoadGolden(t)
+	midCheckScript(t, g, "MID/D/D4/EVICT_SUBTREE_1",
+		MidEvictSubtreeScript(4, 1, key))
+	midCheckScript(t, g, "MID/D/D4/EVICT_SUBTREE_2",
+		MidEvictSubtreeScript(4, 2, key))
+
+	if _, ok := MidAllScripts(4, key, false, []int{0, 2}, []int{1},
+		[]int{2})["EVICT_SUBTREE_2"]; ok {
+
+		t.Error("EVICT_SUBTREE_2 must stay out of MidAllScripts")
+	}
+}
+
 func midHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)

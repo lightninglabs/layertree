@@ -192,7 +192,7 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
 python3 tools/test_scripts.py      # FULL tier, both profiles (425 checks)
-python3 tools/test_mid.py          # MID tier (125 checks)
+python3 tools/test_mid.py          # MID tier (198 checks)
 python3 tools/test_min.py          # MIN tier (31 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (309 checks)
 python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (61 checks)
