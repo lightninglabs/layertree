@@ -34,8 +34,8 @@ State every number here explicitly; nothing below is looked up live.
 * **Excluded.** The witness item count and per-item length prefixes, as
   in section 11. `spec/scripts/weights.md` measures them on serialised
   transactions: 10.5 vB on a FULL dense `D = 16` `EXIT_1` (1,030 vB
-  measured against 1,020 here), 10 vB in CCV, 42.5 vB in MID (1,381
-  against 1,338) and 44.75 vB in MIN (1,501 against 1,456), the `0xC0`
+  measured against 1,020 here), 10 vB in CCV, 42.5 vB in MID (1,398
+  against 1,355) and 44.75 vB in MIN (1,518 against 1,473), the `0xC0`
   tiers carrying over 160 witness items. Every row below omits them the
   same way.
 * **Sparse rows.** The sparse witness figures in `spec/scripts/sizes.md`
