@@ -641,7 +641,7 @@ def fig_batching_shapes(png_dir):
     series(ax, COHORT_REWRITE, ORANGE, hollow=True, line=False)
     series(ax, DETACH_EXIT, VIOLET, hollow=True, line=False)
     label(ax, 1, 1020, "1,020", 10, 0)
-    label(ax, 64, 158, "158", 0, 12, ha="center")
+    label(ax, 64, 162, "162", 0, 12, ha="center")
     label(ax, 64, 144, "144", 10, -4)
     label(ax, 256, 762, "762", 0, 12, ha="center")
     label(ax, 205, 147, "147", 0, 12, ha="center")
@@ -690,10 +690,10 @@ def fig_cohort_cost(png_dir):
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 2, 842, "842", 10, 4)
     label(ax, 3, 432, "432", -10, 0, ha="right")
-    label(ax, 4, 359, "359", 10, 4)
+    label(ax, 4, 364, "364", 10, 4)
     label(ax, 13, 203, "203", -10, -6, ha="right")
-    label(ax, 16, 195, "195", 10, 6)
-    label(ax, 64, 158, "158", 0, 12, ha="center")
+    label(ax, 16, 200, "200", 10, 6)
+    label(ax, 64, 162, "162", 0, 12, ha="center")
     f.legend([line_handle(GRAY), line_handle(BLUE), line_handle(AQUA)],
              ["EXIT_1 alone, then EXIT_2 (each owner carries its own "
               "path)",

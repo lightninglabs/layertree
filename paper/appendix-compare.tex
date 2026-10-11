@@ -126,6 +126,17 @@ leaves).}
 \label{fig:cmp-amortise}
 \end{figure}
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/cohort-cost.pdf}
+\caption{The same three ways out at $D = 16$, per leaf removed against
+the number removed in one transaction: owners alone or in pairs, owners
+leaving together by \tr{REWRITE}$_h$, and the operator's sweep. The
+rewrite starts below the \tr{EXIT}$_K$ floor and meets the sweep near
+$h = 6$ ($162$ against $158\vB$ per leaf).}
+\label{fig:cmp-cohort}
+\end{figure}
+
 \input{table-batch}
 
 Batching changes what the chain limit counts. Every transition spends

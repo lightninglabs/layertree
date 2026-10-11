@@ -6,11 +6,15 @@ all activity is serialised through one output, so an honest exit's delay
 is set by policy and fees, which [C] names rather than derives. Cluster mempool~\cite{clustermempool} (Bitcoin Core 31) replaced the
 25-transaction chain limit with a 64-transaction cluster limit, which raises $\kappa$ for a
 cooperative tree but shares the cluster with every descendant anyone
-attaches. Two open design changes would narrow the dependence: a relative
-lock on transitions that remove no value, so that only removals chain,
-and an exit authorised by a CSFS signature over $m$, the leaf and the
-payout rather than the outpoint, so a tower could rebuild and rebroadcast
-it. A Liquid prototype of MID is the obvious next experiment; a
+attaches. Two changes were weighed against it. A relative lock on
+transitions that remove no value, so that only removals could chain, was
+declined: the first conflicting spend in a block already invalidates an
+honest exit, so the lock would cost throughput and remove nothing. The
+tower exit \tr{EXIT}$_K^{t}$ (spec 7.2 rule 7) was adopted: a signature
+over the leaf and the tree's identifier, checked from the stack, lets a
+tower rebuild and rebroadcast an exit with the owner offline, which takes
+the owner's liveness out of the auction without changing its price. A
+Liquid prototype of MID is the obvious next experiment; a
 hypothetical native Merkle-sum opcode (simulator only) takes \tr{EXIT}$_1$
 to 252 B of script at every depth.
 \else
