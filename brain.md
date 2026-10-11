@@ -40,6 +40,15 @@ with numbers.
 
 ## In flight right now
 
+- Review round (owner's order 2026-10-10 late: 1, then 4, then 2): (1) a
+  Fable adversarial pass over main 8e6e511..318d941 (the whole day:
+  spec 0.11.0 to 0.12.1, Appendix C 0.4.0 to 0.5.1, the Go fixes, the
+  interactivity page, the developer paper), report only; the
+  orchestrator verifies each finding, fixes confirmed highs with
+  regression tests, records the rest. Then (4) a developer-profile
+  review of the short paper (`paper/reviews/`), then (2) MID DETACH_h
+  and CLAIM^x outside FULL.
+
 - Round of 2026-10-10 (evening), owner's "execute 1-4, no GitHub pages,
   refine papers": (a) Opus paper worker in a worktree: new title for
   both versions, "LayerTree: A Shared Bitcoin UTXO with an O(1)
