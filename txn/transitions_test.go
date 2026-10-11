@@ -310,6 +310,11 @@ func ccvOptions(opKey, treeID [32]byte, c0, sparse, tower bool,
 			o.Split = true
 		case variantHeight(v, "EVICT_SUBTREE_") >= 0:
 			o.EvictHeights = append(o.EvictHeights, variantHeight(v, "EVICT_SUBTREE_"))
+		case variantHeight(v, "REWRITE_X_") >= 0:
+			o.RewriteHeights = append(o.RewriteHeights, variantHeight(v, "REWRITE_X_"))
+			o.RewriteX = true
+		case variantHeight(v, "REWRITE_") >= 0:
+			o.RewriteHeights = append(o.RewriteHeights, variantHeight(v, "REWRITE_"))
 		case variantHeight(v, "DETACH_") >= 0:
 			o.DetachHeights = append(o.DetachHeights, variantHeight(v, "DETACH_"))
 		}
@@ -943,12 +948,44 @@ func rewriteCases(s caseSpec) []txCase {
 			return spend, next, err
 		}
 	}
+	// whole rewrites every occupied position of the cohort the same way:
+	// every owner's key rotated (update, every owner signs) or every
+	// position emptied (exit, the mass exit of 7.9 rule 5).
+	whole := func(exit bool) func(w *world) (*Spend, *tree.Tree, error) {
+		return func(w *world) (*Spend, *tree.Tree, error) {
+			w.cohort(2, 1, false)
+			after := make(map[uint64]*tree.Leaf)
+			if !exit {
+				for off := uint64(0); off < 4; off++ {
+					rotated := *w.st.Tree.Leaves[4+off]
+					owner2 := sk(fmt.Sprintf("c%d-owner2", off))
+					w.keys = append(w.keys, owner2)
+					rotated.OwnerKey = xonly(owner2)
+					after[off] = &rotated
+				}
+			}
+			spend, next, err := BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(5_000)})
+			if err == nil && len(spend.Sigs) != 5 {
+				return nil, nil, fmt.Errorf("the rewrite has %d "+
+					"signature slots, want every owner's and the "+
+					"operator's", len(spend.Sigs))
+			}
+			return spend, next, err
+		}
+	}
 	return []txCase{{
 		name: "REWRITE_2", caseSpec: s.withVariant("REWRITE_2"),
 		build: rewrite(false),
 	}, {
 		name: "REWRITE_X_2", caseSpec: s.withVariant("REWRITE_X_2"),
 		build: rewrite(true),
+	}, {
+		name: "REWRITE_2 update", caseSpec: s.withVariant("REWRITE_2"),
+		build: whole(false),
+	}, {
+		name: "REWRITE_2 exit", caseSpec: s.withVariant("REWRITE_2"),
+		build: whole(true),
 	}, {
 		// The operator tops every leaf of the cohort up by 500 (spec 7.9
 		// rule 3's exemption): no owner signs.
@@ -1015,8 +1052,8 @@ func detachCases(s caseSpec) []txCase {
 }
 
 // tierCases is every transition the tier can carry at one depth and
-// profile: the whole matrix for FULL and MID, everything but the rewrite
-// for CCV (its REWRITE_h is not built yet), EXIT_1 and SPLIT for MIN.
+// profile: the whole matrix for FULL, MID and CCV in both numerics, EXIT_1
+// and SPLIT for MIN.
 func tierCases(tier Tier, depth int, sparse bool) []txCase {
 	s := caseSpec{tier: tier, depth: depth, sparse: sparse}
 	cases := exitCases(s)
@@ -1029,9 +1066,7 @@ func tierCases(tier Tier, depth int, sparse bool) []txCase {
 		return cases
 	}
 	cases = append(cases, evictCases(s)...)
-	if tier == Full || tier == Mid {
-		cases = append(cases, rewriteCases(s)...)
-	}
+	cases = append(cases, rewriteCases(s)...)
 	return append(cases, detachCases(s)...)
 }
 
@@ -1313,6 +1348,7 @@ func checkSpend(t *testing.T, w *world, before *tree.Tree, s *Spend,
 type rejectCase struct {
 	name     string
 	tier     Tier
+	depth    int
 	sparse   bool
 	exact    bool
 	tower    bool
@@ -1760,6 +1796,19 @@ func c0Rejects(tier Tier) []rejectCase {
 			return err
 		},
 	}, {
+		// At D = 16 a full 64-position cohort's mass exit needs 10 * 64 +
+		// 64 signature-free slots beyond what the 1,000-element limit
+		// leaves REWRITE_6 (spec 4.5: 10(p_o + p_n - u) + s <= 523 in MID,
+		// 525 under CCV); the builder refuses it before signing.
+		name: "rewrite of a full 64-position cohort past the stack limit",
+		tier: tier, depth: 16, variants: []string{"REWRITE_6"},
+		build: func(w *world) error {
+			w.cohort(6, 1, false)
+			_, _, err := BuildRewrite(w.st, 6, 1, nil, false,
+				&TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
 		// SEQ_FINAL is 0x7FFFFFFF under 0xC0 numerics, not 0xFFFFFFFF.
 		name: "claim against a 0xC0 SEQ_FINAL source", tier: tier,
 		build: func(w *world) error {
@@ -1855,11 +1904,15 @@ func TestBuilderRejects(t *testing.T) {
 		c := c
 		name := fmt.Sprintf("%v/%s", c.tier, c.name)
 		t.Run(name, func(t *testing.T) {
-			depth := 4
-			if c.sparse && c.tier.elements() {
+			depth := c.depth
+			switch {
+			case depth != 0:
+			case c.sparse && c.tier.elements():
 				depth = 31
-			} else if c.sparse {
+			case c.sparse:
 				depth = 8
+			default:
+				depth = 4
 			}
 			w := newWorld(t, caseSpec{
 				tier: c.tier, depth: depth, sparse: c.sparse,

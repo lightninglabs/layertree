@@ -4197,7 +4197,7 @@ exits in a batch" as `EXIT_K` (section 13).
   introspection testable. `txn` builds, signs and verifies every
   transition of every tier end to end against the tier's real taptree
   and tree output, one builder per transition selected by the option
-  set's tier: 259 cases (68 FULL, 65 MID, 8 MIN, 59 CCV in each
+  set's tier: 287 cases (72 FULL, 69 MID, 8 MIN, 69 CCV in each
   numerics), each pinned to the simulator's signature hash, and
   `tools/replay_txn_dump.py` runs every signed Go witness through
   `script_sim.Interp` in CI, so a builder that drifts from a script fails

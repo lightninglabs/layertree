@@ -237,7 +237,7 @@ python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed l
 python3 tools/gen_golden.py        # spec/golden.json
 python3 tools/fee_analysis.py      # spec/fee-analysis.md tables
 GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./... && gofmt -l .
-LAYERTREE_TXN_DUMP=/tmp/txn-dump.json GOTOOLCHAIN=local go test ./txn -run TestTransitionsEndToEnd && python3 tools/replay_txn_dump.py /tmp/txn-dump.json   # every Go-built witness through the simulator (259 cases)
+LAYERTREE_TXN_DUMP=/tmp/txn-dump.json GOTOOLCHAIN=local go test ./txn -run TestTransitionsEndToEnd && python3 tools/replay_txn_dump.py /tmp/txn-dump.json   # every Go-built witness through the simulator (287 cases)
 cd formal && lake build
 ```
 

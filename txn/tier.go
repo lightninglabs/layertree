@@ -356,6 +356,40 @@ func (r rules) nodePads(height int, index uint64, trees ...*tree.Tree) [][]byte 
 	return out
 }
 
+// stackLimit is BIP-342's bound on stack plus altstack elements after
+// every opcode, which binds the 0xC0 cohort scripts (spec 4.5).
+const stackLimit = 1000
+
+// witnessLen is the length of the framed witness stack finish will build
+// from a body of bodyLen elements: the PADZ pad of the new total
+// underneath under 0xC0 numerics, r m on top unless the tier is CCV.
+func (r rules) witnessLen(bodyLen int) int {
+	n := bodyLen
+	if r.tier.elements() {
+		n += 2
+	}
+	if !r.tier.ccv() {
+		n += 2
+	}
+	return n
+}
+
+// checkStack rejects, under 0xC0 numerics, a cohort witness the script
+// would run past the 1,000-element limit (spec 4.5, 4.6): the witness plus
+// the elements the script peaks above it (peak) must fit. FULL has no such
+// bound, since BIP-441 raises the element limit.
+func (r rules) checkStack(name string, bodyLen, peak int) error {
+	if !r.tier.elements() {
+		return nil
+	}
+	if n := r.witnessLen(bodyLen); n+peak > stackLimit {
+		return fmt.Errorf("txn: %s needs %d witness elements and peaks "+
+			"%d above them, past the 1,000-element stack limit of the "+
+			"0xC0 tiers (spec 4.5); split the cohort", name, n, peak)
+	}
+	return nil
+}
+
 // checkTotals rejects, under 0xC0 numerics, a tree total the PADZ gadget
 // cannot carry (spec 4.5): every sum of a MID tree is a minimal CScriptNum
 // below 2^31, and a total within the bound keeps every partial sum and

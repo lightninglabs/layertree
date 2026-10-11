@@ -147,6 +147,12 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 		body = append(body, r.slot(leaves[i], true)...)
 	}
 	body, sigs := operatorSlot(r, body)
+	// The MID prologue pushes three elements before any is consumed
+	// (spec 4.5); the CCV sweep has no prologue, its peak is lower, and
+	// the same figure is a safe bound for it.
+	if err := r.checkStack(name, len(body), 3); err != nil {
+		return nil, nil, err
+	}
 
 	spend, err := finish(st, r, next, name, payouts, body, sigs, opts)
 	if err != nil {
@@ -277,6 +283,11 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 	}
 	body, opSig := operatorSlot(r, body)
 	sigs = append(sigs, opSig...)
+	// The 0xC0 pre-pass peaks four elements above the witness (spec 4.5):
+	// at D = 16 every h <= 5 fits, h = 6 only at low occupancy.
+	if err := r.checkStack(name, len(body), 4); err != nil {
+		return nil, nil, err
+	}
 
 	spend, err := finish(st, r, next, name, payouts, body, sigs, opts)
 	if err != nil {
