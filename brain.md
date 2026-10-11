@@ -70,7 +70,10 @@ with numbers.
   (short body must end on page 15), republish site. After both: review
   F48 status to fixed, brain.md counts, then item 2 (MID DETACH_h,
   CLAIM^x outside FULL). Decisions: see status.md 22 to 27 and the
-  "Decided" paragraph above.
+  "Decided" paragraph above. Post-compaction note: the six suites passed
+  (1,154 / 479 / 57 / 1,353 / 220 / 61); both workers (a) and (b) had
+  been stopped before compaction with nothing committed, so they were
+  relaunched from 54a9867 with the same instructions.
 
 - Round of 2026-10-10 (evening), owner's "execute 1-4, no GitHub pages,
   refine papers": (a) Opus paper worker in a worktree: new title for
