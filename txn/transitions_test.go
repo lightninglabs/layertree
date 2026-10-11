@@ -855,10 +855,11 @@ func checkSpend(t *testing.T, w *world, before *tree.Tree, s *Spend,
 // covenant would reject, rather than producing them.
 func TestBuilderRejects(t *testing.T) {
 	cases := []struct {
-		name   string
-		sparse bool
-		exact  bool
-		build  func(w *world) error
+		name     string
+		sparse   bool
+		exact    bool
+		variants []string
+		build    func(w *world) error
 	}{{
 		// design/audit/go.md G4: EXIT_1^= pays the whole leaf, so a
 		// fee taken from the payout is a transaction no node accepts.
@@ -868,6 +869,78 @@ func TestBuilderRejects(t *testing.T) {
 			_, _, err := BuildExit(w.st, []ExitStep{{
 				Pos: sBob, Fee: 1_000,
 			}}, &TxOpts{Inputs: w.fee(50_000)})
+			return err
+		},
+	}, {
+		// design/audit/go.md G5: OP_CHECKLOCKTIMEVERIFY fails when the
+		// operand and nLockTime are of different types, so an
+		// eviction's lock time must be a height (10.6).
+		name: "eviction with a timestamp lock time",
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildExit(w.st, []ExitStep{{
+				Pos: sBob, Evict: true,
+			}}, &TxOpts{LockTime: 1_000_000_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		name:     "sweep with a timestamp lock time",
+		variants: []string{"EVICT_SUBTREE_2"},
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildEvictSubtree(w.st, 2, sBob>>2,
+				&TxOpts{LockTime: 1_000_000_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// G5: the voucher is checked with OP_CHECKSIGFROMSTACK against
+		// the source owner's key, so one signed by anyone else fails
+		// on chain.
+		name: "claim with a voucher from the wrong issuer",
+		build: func(w *world) error {
+			_, _, oper, _, _, sOper := w.base()
+			frank := w.carveOf(oper, "frank", 40_000)
+			vsig, err := SignVoucher(
+				sk("alice-owner"), w.st.Options.TreeID, oper, frank,
+			)
+			if err != nil {
+				return err
+			}
+			_, _, err = BuildClaim(w.st, sOper, 3, frank, vsig,
+				&TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		// G5: tree.Tree.Root covers positions [0, 2^D), so a claim
+		// placed beyond them is folded in by the path but left out of
+		// output 0.
+		name: "claim into a position outside the tree",
+		build: func(w *world) error {
+			_, _, oper, _, _, sOper := w.base()
+			frank := w.carveOf(oper, "frank", 40_000)
+			vsig, err := SignVoucher(
+				sk("operator-owner"), w.st.Options.TreeID, oper, frank,
+			)
+			if err != nil {
+				return err
+			}
+			_, _, err = BuildClaim(w.st, sOper, 1<<w.depth+3, frank,
+				vsig, &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		// G5: 7.3 rule 4 lets the covenant graft any leaf, so the
+		// builder has to hold the 5.2 line (10.7): a zero amount and
+		// an owner key with no lift_x make a leaf nobody can spend.
+		name: "join of a leaf that fails 5.2",
+		build: func(w *world) error {
+			w.base()
+			opKey := w.st.Options.OperatorKey
+			broken := w.mkLeaf("broken", 0, &opKey, 900_000)
+			broken.OwnerKey = [32]byte{}
+			_, _, err := BuildJoin(w.st, 0, 9,
+				map[uint64]*tree.Leaf{0: broken},
+				&TxOpts{Inputs: w.fee(1_000)})
 			return err
 		},
 	}, {
@@ -1013,7 +1086,8 @@ func TestBuilderRejects(t *testing.T) {
 			return err
 		},
 	}, {
-		name: "sweep before the lease expires",
+		name:     "sweep before the lease expires",
+		variants: []string{"EVICT_SUBTREE_2"},
 		build: func(w *world) error {
 			_, _, _, _, sBob, _ := w.base()
 			_, _, err := BuildEvictSubtree(w.st, 2, sBob>>2,
@@ -1021,7 +1095,8 @@ func TestBuilderRejects(t *testing.T) {
 			return err
 		},
 	}, {
-		name: "sweep over a leaf the operator cannot evict",
+		name:     "sweep over a leaf the operator cannot evict",
+		variants: []string{"EVICT_SUBTREE_2"},
 		build: func(w *world) error {
 			w.base()
 			w.st.Tree.Leaves[6] = w.mkLeaf("stubborn", 5_000, nil, 0)
@@ -1054,7 +1129,7 @@ func TestBuilderRejects(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			w := newWorld(t, 4, c.sparse)
+			w := newWorld(t, 4, c.sparse, c.variants...)
 			if c.exact {
 				w = newExactWorld(t, 4, c.sparse)
 			}

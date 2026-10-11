@@ -3,6 +3,7 @@ package txn
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 
@@ -179,6 +180,24 @@ func SignSchnorr(privKey *btcec.PrivateKey, sighash []byte) ([]byte, error) {
 		return nil, err
 	}
 	return sig.Serialize(), nil
+}
+
+// VerifySchnorr checks a 64-byte BIP-340 signature over msg under the
+// x-only key, as OP_CHECKSIGFROMSTACK does for a voucher (spec 7.5). The
+// error carries the reason only; callers add what was being checked.
+func VerifySchnorr(key [32]byte, msg, sig []byte) error {
+	pub, err := schnorr.ParsePubKey(key[:])
+	if err != nil {
+		return fmt.Errorf("invalid key: %w", err)
+	}
+	parsed, err := schnorr.ParseSignature(sig)
+	if err != nil {
+		return fmt.Errorf("invalid signature: %w", err)
+	}
+	if !parsed.Verify(msg, pub) {
+		return errors.New("signature does not verify")
+	}
+	return nil
 }
 
 // SignTapscript signs input inputIndex of tx for the given tapleaf.
