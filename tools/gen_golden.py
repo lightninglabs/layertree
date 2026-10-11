@@ -65,6 +65,12 @@ for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     add("CCV", "S", 8, nm, CV.claim_script_ccv(8, TREE_ID, "S", hl), "c2")
     add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, TREE_ID, False, hl), "c0")
     add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, TREE_ID, True, hl), "c0")
+for hl, nm in ((False, "CLAIM_X"), (True, "CLAIM_HX")):
+    # CLAIM^x and CLAIM^hx (7.5.3) in both numerics.
+    add("CCV", "D", 4, nm, CV.claim_script_ccv(4, TREE_ID, "D", hl, exit_consent=True), "c2")
+    add("CCV", "S", 8, nm, CV.claim_script_ccv(8, TREE_ID, "S", hl, exit_consent=True), "c2")
+    add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, TREE_ID, False, hl, exit_consent=True), "c0")
+    add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, TREE_ID, True, hl, exit_consent=True), "c0")
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
 # The 0xC0 reference set itself (EXIT_K, JOIN_h, JOINK_K, UPDATE), so that the
 # Go ports a CCV0 DETACH_h's m_h is built from are checked one by one.
@@ -106,6 +112,10 @@ add("FULL", "D", 4, "CLAIM_X", F.claim_script(4, TREE_ID, "D", exit_consent=True
 add("FULL", "S", 8, "CLAIM_X", F.claim_script(8, TREE_ID, "S", exit_consent=True), "c2")
 add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, TREE_ID, "D", hashlock=True, exit_consent=True), "c2")
 add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, TREE_ID, "S", hashlock=True, exit_consent=True), "c2")
+add("MID", "D", 4, "CLAIM_X", M.claim_script(4, TREE_ID, False, exit_consent=True), "c0")
+add("MID", "S", 8, "CLAIM_X", M.claim_script(8, TREE_ID, True, exit_consent=True), "c0")
+add("MID", "D", 4, "CLAIM_HX", M.claim_script(4, TREE_ID, False, hashlock=True, exit_consent=True), "c0")
+add("MID", "S", 8, "CLAIM_HX", M.claim_script(8, TREE_ID, True, hashlock=True, exit_consent=True), "c0")
 add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
 add("MID", "D", 4, "REWRITE_2", M.rewrite_script(4, 2, OP_KEY), "c0")
@@ -117,6 +127,12 @@ add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree
 add("FULL", "D", 4, "EXIT_1_EXACT", F.exit_script(4, 1, "D", exact=True), "c2")
 HOST = F.TreeOptions(OP_KEY, TREE_ID, exact=True, claim_h=True, detach_heights=(2,))
 add("FULL", "D", 4, "DETACH_2_HOST", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID, HOST)), "c2")
+# DETACH_2 under MID (7.10, 8.10): over the reference option set at depth 2,
+# and over a channel-hosting parent (EXIT_K^t, CLAIM^h, DETACH_2), whose m_h
+# the Go MidTreeOptions must reproduce.
+add("MID", "D", 4, "DETACH_2", M.detach_script(4, 2, OP_KEY, M.detached_taptree_root(2, OP_KEY, TREE_ID)), "c0")
+MID_HOST = M.TreeOptions(OP_KEY, TREE_ID, tower=True, claim_h=True, detach_heights=(2,))
+add("MID", "D", 4, "DETACH_2_HOST", M.detach_script(4, 2, OP_KEY, M.detached_taptree_root(2, OP_KEY, TREE_ID, MID_HOST)), "c0")
 # EXIT_K^t (7.2 rule 7), the tower-delegable exit, in every tier that has
 # OP_CHECKSIGFROMSTACK (FULL, MID, CCV in both numerics), over the same
 # tree_id as CLAIM; a constant of the script, as there.

@@ -1411,6 +1411,157 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
     return it, len(w.compiled[name]), sum(len(x) for x in wit)
 
 
+def test_claim_x_ccv(depth, profile, numeric="c2", hashlock=False):
+    """CLAIM^x and CLAIM^hx (7.5.3) under CCV in either numerics, the FULL
+    suite's test_claim_x: the dedicated credit leaf of 10.3, whose owner is
+    the operator and whose exit key is the recipient's. The recipient's
+    redemption with the voucher and its exit-key signature succeeds; an
+    exit_sig by the operator, a garbage or absent exit_sig, a witness
+    without the voucher, a transaction signature in place of the voucher,
+    a voucher by the wrong signer or for another tree_id, an over-claim,
+    the redeemed voucher replayed, the operator draining the leaf with a
+    voucher to itself and, under the hash lock, a wrong preimage all fail;
+    the plain CLAIM rejects the CLAIM^x witness. The script is swapped into
+    the taptree as CLAIM_X or CLAIM_HX, a tree-creation parameter."""
+    S = profile == "S"
+    c0 = numeric == "c0"
+    name = "CLAIM_HX" if hashlock else "CLAIM_X"
+    if c0:
+        w = WorldC0(depth, profile)
+        toks = C._claim_script_ccv0(depth, TREE_ID, S, hashlock, exit_consent=True)
+        plain = C._claim_script_ccv0(depth, TREE_ID, S, hashlock)
+        allowed, mode, lv, over = C0_OPCODES | CSFS_OPS, "c0", 0xc0, 4
+    else:
+        w = World(depth, profile)
+        toks = C.claim_script_ccv(depth, TREE_ID, profile, hashlock, exit_consent=True)
+        plain = C.claim_script_ccv(depth, TREE_ID, profile, hashlock)
+        allowed, mode, lv, over = ALLOWED | CSFS_OPS, "c2", 0xc2, 7
+    tag = f"{numeric} {profile}/{depth}: {name}"
+    bad = {t for t in toks if isinstance(t, str)} - allowed
+    check(not bad, f"{tag}: opcodes outside the CCV set plus CSFS: {sorted(bad)}")
+    w.compiled = dict(w.compiled)
+    w.compiled[name] = assemble(toks, mode=mode)
+    w.compiled["CLAIM_H" if hashlock else "CLAIM"] = assemble(plain, mode=mode)
+    check(len(w.compiled[name]) - len(w.compiled["CLAIM_H" if hashlock else "CLAIM"]) == over,
+          f"{tag} is {over} bytes over its plain form")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+
+    def mk(label, amount, evictor=None, evict_after=0):
+        lf = mk_leaf(label, amount, evictor, evict_after)
+        while c0 and S and not M.pos_ok(lf):
+            lf.nonce = (lf.nonce + 1) & 0xffffffff
+        return lf
+    credit = lt.Leaf(1_000_000, pubkey_x(sk("recipient-exit")), w.op_pk, lt.NUMS_X, 0,
+                     int.from_bytes(lt.sha256(b"credit")[:4], "little"), 0)
+    while c0 and S and not M.pos_ok(credit):
+        credit.nonce = (credit.nonce + 1) & 0xffffffff
+    alice = mk("alice", 50_000)
+    s_credit, s_alice = w.slot(credit, (1 << depth) - 1), w.slot(alice, 0)
+    w.tree.leaves = {s_credit: credit, s_alice: alice}
+    root = w.tree.root()
+    preimage = lt.sha256(b"credit-preimage")
+    phash = lt.sha256(preimage) if hashlock else None
+
+    def head(tree, source, claim, s_src, s_claim):
+        """Witness below the voucher signature for claiming `claim` out of
+        `source` in `tree`, presenting s_claim as empty; returns it with
+        the post-claim tree."""
+        t = lt.Tree(depth); t.leaves = dict(tree.leaves)
+        amt_new = source.amount - claim.amount
+        t.leaves[s_src] = source.with_amount_seq(max(amt_new, 0), source.seq + 1)
+        if amt_new <= 0:
+            del t.leaves[s_src]
+        new_src_node = t.leaves[s_src].node() if s_src in t.leaves else lt.EMPTY_NODE
+        sp = tree.path(s_src)
+        t.leaves[s_claim] = claim
+        cp = t.path(s_claim)
+        if not c0:
+            return w.path_witness(cp) + w.path_witness(sp) + [source.serialize(), claim.serialize()], t
+        ex = M.w_carve_extras(source, claim, amt_new=max(amt_new, 0))
+        return (list(M.pad(t.root()[1])) + M.w_levels(cp, lt.EMPTY_NODE, claim.node(), S) + w.pos(claim) +
+                w.pads_for(tree.root()[1]) + M.w_levels(sp, source.node(), new_src_node, S) + w.pos(source) +
+                M.w_leaf(source) + M.w_leaf(claim) + ex), t
+
+    def vsig(tid, source, claim, key="operator", ph=phash):
+        msg = (lt.voucher_msg(tid, source, claim) if ph is None
+               else lt.voucher_h_msg(tid, source, claim, ph))
+        return schnorr_sign(msg, sk(key))
+
+    def tail(sig, pre=preimage):
+        return [sig] + ([pre] if hashlock and pre is not None else [])
+
+    claim = mk("recipient", 40_000, credit.evictor_key, credit.evict_after)
+    s_claim = w.slot(claim, 3)
+    h0, t1 = head(w.tree, credit, claim, s_credit, s_claim)
+    r1 = t1.root()
+    check(r1[1] == root[1], f"{tag} conserves the sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+    good = vsig(TREE_ID, credit, claim)
+    xsig = schnorr_sign(ctx.sighash(), sk("recipient-exit"))
+    it = None
+    try:
+        it = w.run(name, h0 + tail(good) + [xsig], ctx)
+        check(True, f"{tag} redeemed with the voucher and the exit-key signature")
+    except ScriptError as e:
+        check(False, f"{tag} positive: {str(e)[:120]}")
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(name, h0 + tail(good) + [osig], ctx),
+                f"{tag} exit_sig by the wrong key (the operator, who owns the leaf)")
+    expect_fail(lambda: w.run(name, h0 + tail(good) + [bytes(64)], ctx), f"{tag} garbage exit_sig")
+    expect_fail(lambda: w.run(name, h0 + tail(good), ctx), f"{tag} missing exit_sig")
+    expect_fail(lambda: w.run("CLAIM_H" if hashlock else "CLAIM", h0 + tail(good) + [xsig], ctx),
+                f"{tag} the plain form with the exit-consent witness")
+    expect_fail(lambda: w.run(name, h0 + ([preimage] if hashlock else []) + [xsig], ctx),
+                f"{tag} without the voucher")
+    expect_fail(lambda: w.run(name, h0 + tail(osig) + [xsig], ctx),
+                f"{tag} with a transaction signature in place of the voucher")
+    expect_fail(lambda: w.run(name, h0 + tail(vsig(TREE_ID, credit, claim, "alice-owner")) + [xsig], ctx),
+                f"{tag} voucher by the wrong signer")
+    other_tid = lt.tree_id(lt.sha256(b"creation-txid"), 1)
+    expect_fail(lambda: w.run(name, h0 + tail(vsig(other_tid, credit, claim)) + [xsig], ctx),
+                f"{tag} voucher signed for another tree_id")
+    expect_fail(lambda: w.run(name, h0 + tail(vsig(w.m, credit, claim)) + [xsig], ctx),
+                f"{tag} voucher over m")
+    greedy = mk("greedy", credit.amount + 1, credit.evictor_key, credit.evict_after)
+    s_g = w.slot(greedy, 3)
+    hg, tg = head(w.tree, credit, greedy, s_credit, s_g)
+    ctx_g = w.ctx([(tg.root()[1], w.spk(tg.root()))], (600, P2WPKH))
+    expect_fail(lambda: w.run(name, hg + tail(vsig(TREE_ID, credit, greedy)) +
+                              [schnorr_sign(ctx_g.sighash(), sk("recipient-exit"))], ctx_g),
+                f"{tag} over-claim")
+    # replay against the advanced source
+    saved = w.tree
+    w.tree = t1
+    credit2 = t1.leaves[s_credit]
+    s_c2 = w.slot(mk("recipient2", 40_000, credit.evictor_key, credit.evict_after), 6)
+    hr, tr = head(t1, credit2, claim, s_credit, s_c2)
+    ctx_r = w.ctx([(tr.root()[1], w.spk(tr.root()))], (600, P2WPKH))
+    expect_fail(lambda: w.run(name, hr + tail(good) + [schnorr_sign(ctx_r.sighash(), sk("recipient-exit"))], ctx_r),
+                f"{tag} redeemed voucher replayed against the advanced source")
+    w.tree = saved
+    # the operator cannot drain the credit leaf; the recipient's consent lets the same drain through
+    drain = mk("operator-drain", credit.amount, credit.evictor_key, credit.evict_after)
+    s_drain = w.slot(drain, 6)
+    hd, td = head(w.tree, credit, drain, s_credit, s_drain)
+    ctx_d = w.ctx([(td.root()[1], w.spk(td.root()))], (600, P2WPKH))
+    dsig = vsig(TREE_ID, credit, drain)
+    expect_fail(lambda: w.run(name, hd + tail(dsig) + [schnorr_sign(ctx_d.sighash(), w.op_sk)], ctx_d),
+                f"{tag} the operator draining the credit leaf with a voucher to itself")
+    w.run(name, hd + tail(dsig) + [schnorr_sign(ctx_d.sighash(), sk("recipient-exit"))], ctx_d)
+    check(True, f"{tag} the same drain with the recipient's exit-key signature")
+    if hashlock:
+        expect_fail(lambda: w.run(name, h0 + tail(good, lt.sha256(b"wrong")) + [xsig], ctx), f"{tag} wrong preimage")
+        expect_fail(lambda: w.run(name, h0 + tail(good, preimage[:31]) + [xsig], ctx), f"{tag} preimage not 32 bytes")
+        expect_fail(lambda: w.run(name, h0 + tail(vsig(TREE_ID, credit, claim, ph=None)) + [xsig], ctx),
+                    f"{tag} plain voucher under the hash lock")
+    else:
+        hsig = schnorr_sign(lt.voucher_h_msg(TREE_ID, credit, claim, lt.sha256(preimage)), w.op_sk)
+        expect_fail(lambda: w.run(name, h0 + [hsig, preimage, xsig], ctx),
+                    f"{tag} with a hash-locked voucher and its preimage")
+    wit = h0 + tail(good) + [xsig]
+    return it, len(w.compiled[name]), sum(len(x) for x in wit)
+
+
 def test_carve_rules_ccv(depth, numeric="c2"):
     """The carve rule (spec 7.5 rule 5) against the CCV cohort sweep in
     either numerics, as test_scripts.test_carve_rules: a cohort member's
@@ -1893,7 +2044,9 @@ def main():
             before = CHECKS
             test_claim_ccv(depth, profile, numeric)
             test_claim_ccv(depth, profile, numeric, hashlock=True)
-            print(f"  {profile}/{depth} ({numeric}) CLAIM, CLAIM^h: {CHECKS - before} checks")
+            test_claim_x_ccv(depth, profile, numeric)
+            test_claim_x_ccv(depth, profile, numeric, hashlock=True)
+            print(f"  {profile}/{depth} ({numeric}) CLAIM, CLAIM^h, CLAIM^x, CLAIM^hx: {CHECKS - before} checks")
     # DETACH_h in both numerics (spec 7.10): the detach, the detached tree,
     # and the parent's options compiled at depth h (rule 3).
     for numeric in ("c2", "c0"):

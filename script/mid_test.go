@@ -191,6 +191,120 @@ func TestMidClaimH(t *testing.T) {
 	}
 }
 
+// TestMidClaimX checks the exit-consent carves CLAIM^x and CLAIM^hx (spec
+// 7.5.3) in both profiles against their golden keys. Each is four bytes over
+// its plain form, as UPDATE^x over UPDATE in this tier, and both stay out of
+// MidAllScripts.
+func TestMidClaimX(t *testing.T) {
+	g, key := midLoadGolden(t)
+	treeID := midGoldenTreeID(t)
+	midCheckScript(t, g, "MID/D/D4/CLAIM_X", MidClaimXScript(4, treeID, false, tree.DustMin))
+	midCheckScript(t, g, "MID/S/D8/CLAIM_X", MidClaimXScript(8, treeID, true, tree.DustMin))
+	midCheckScript(t, g, "MID/D/D4/CLAIM_HX", MidClaimHXScript(4, treeID, false, tree.DustMin))
+	midCheckScript(t, g, "MID/S/D8/CLAIM_HX", MidClaimHXScript(8, treeID, true, tree.DustMin))
+	for _, tc := range []struct {
+		depth  int
+		sparse bool
+	}{{4, false}, {8, true}} {
+		plain := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
+		x := MustAssemble(MidClaimXScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
+		if len(x)-len(plain) != 4 {
+			t.Errorf("depth %d sparse %v: CLAIM^x is %d bytes over CLAIM, want 4",
+				tc.depth, tc.sparse, len(x)-len(plain))
+		}
+		plainH := MustAssemble(MidClaimHScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
+		hx := MustAssemble(MidClaimHXScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
+		if len(hx)-len(plainH) != 4 {
+			t.Errorf("depth %d sparse %v: CLAIM^hx is %d bytes over CLAIM^h, want 4",
+				tc.depth, tc.sparse, len(hx)-len(plainH))
+		}
+	}
+	all := MidAllScripts(4, key, treeID, false, []int{0, 2}, []int{1}, []int{2}, tree.DustMin)
+	for _, name := range []string{"CLAIM_X", "CLAIM_HX"} {
+		if _, ok := all[name]; ok {
+			t.Errorf("%s must stay out of MidAllScripts", name)
+		}
+	}
+}
+
+// TestMidDetach checks DETACH_h (spec 7.10, 8.10) in the MID tier against
+// its golden keys: DETACH_2 over the reference option set at depth 2, and
+// DETACH_2_HOST, the detach of a channel-hosting parent (EXIT_K^t, CLAIM^h,
+// DETACH_2) whose m_h is that option set compiled at depth 2 (7.10 rule
+// 3), which MidTreeOptions must reproduce. m_h is a constant the script
+// depends on, and DETACH_h stays out of MidAllScripts.
+func TestMidDetach(t *testing.T) {
+	g, key := midLoadGolden(t)
+	treeID := midGoldenTreeID(t)
+	ref := MidReferenceOptions(key, treeID)
+	mH := MidDetachedTaptreeRoot(2, ref)
+	midCheckScript(t, g, "MID/D/D4/DETACH_2", MidDetachScript(4, 2, key, mH))
+	host := MidReferenceOptions(key, treeID)
+	host.Tower, host.ClaimH, host.DetachHeights = true, true, []int{2}
+	mHost := MidDetachedTaptreeRoot(2, host)
+	if mHost == mH {
+		t.Fatal("the host options compile to the reference m_h")
+	}
+	midCheckScript(t, g, "MID/D/D4/DETACH_2_HOST", MidDetachScript(4, 2, key, mHost))
+	if string(MustAssemble(MidDetachScript(4, 2, key, [32]byte{1}), ModeC0)) ==
+		string(MustAssemble(MidDetachScript(4, 2, key, mH), ModeC0)) {
+
+		t.Error("DETACH_2 does not depend on m_h")
+	}
+	// The host parent at depth 4 carries DETACH_2 itself, built over mHost,
+	// and its child at depth 2 is the host set less the detach, which does
+	// not fit.
+	var names []string
+	for _, s := range host.Scripts(4) {
+		names = append(names, s.Name)
+		if s.Name == "DETACH_2" {
+			midCheckScript(t, g, "MID/D/D4/DETACH_2_HOST", s.Tokens)
+		}
+	}
+	want := "EXIT_1 EXIT_2 JOIN_0 JOINK_2 UPDATE CLAIM CLAIM_H DETACH_2"
+	if got := joinNames(names); got != want {
+		t.Errorf("host Scripts(4) = %q, want %q", got, want)
+	}
+	names = nil
+	for _, s := range host.Scripts(2) {
+		names = append(names, s.Name)
+	}
+	if got := joinNames(names); got != "EXIT_1 EXIT_2 JOIN_0 JOINK_2 UPDATE CLAIM CLAIM_H" {
+		t.Errorf("host Scripts(2) = %q", got)
+	}
+	// EXIT_K^t replaces EXIT_K in place.
+	if string(MustAssemble(host.Scripts(2)[0].Tokens, ModeC0)) !=
+		string(MustAssemble(MidExitTowerScript(2, 1, treeID, false), ModeC0)) {
+
+		t.Error("the host options do not emit EXIT_1^t")
+	}
+	// The reference options compile to the set MidAllScripts builds.
+	all := MidAllScripts(4, key, treeID, false, ref.JoinHeights, ref.ExitKs, ref.JoinKs, tree.DustMin)
+	for _, sc := range ref.Scripts(4) {
+		w, ok := all[sc.Name]
+		if !ok {
+			t.Fatalf("reference options emit %s, which MidAllScripts lacks", sc.Name)
+		}
+		if string(MustAssemble(w, ModeC0)) != string(MustAssemble(sc.Tokens, ModeC0)) {
+			t.Errorf("%s differs between MidReferenceOptions and MidAllScripts", sc.Name)
+		}
+	}
+	if _, ok := all["DETACH_2"]; ok {
+		t.Error("DETACH_2 must stay out of MidAllScripts")
+	}
+}
+
+func joinNames(names []string) string {
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += " "
+		}
+		out += n
+	}
+	return out
+}
+
 // TestMidSplit checks SPLIT (spec 7.5.2) in both profiles: CLAIM with the
 // owner's transaction signature in place of the voucher. Like CLAIM^h it is a
 // tree-creation parameter and stays out of MidAllScripts.

@@ -309,11 +309,23 @@ def update_script(depth, operator_key, sparse=False, exit_consent=False):
     return s + check_old(sparse) + final(depth)
 
 
-def claim_script(depth, tree_id, sparse=False, hashlock=False, dust_min=lt.DUST_MIN):
+def claim_script(depth, tree_id, sparse=False, hashlock=False, dust_min=lt.DUST_MIN,
+                 exit_consent=False):
     """CLAIM (7.5) or CLAIM^h (7.5.1); see _carve_script. tree_id is the
     tree's 32-byte voucher binding (6.2), a constant of the script, and
-    dust_min its DUST_MIN (7.5 rule 6)."""
-    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher", tree_id, dust_min)
+    dust_min its DUST_MIN (7.5 rule 6).
+
+    exit_consent=True is the CLAIM^x variant (spec 7.5.3), or CLAIM^hx
+    with hashlock: the element directly below r is one more signature,
+    exit_sig, which MUST be valid over the transaction by the source
+    leaf's exit_key, exactly as UPDATE^x (7.4 rule 5) adds exit-key
+    consent to UPDATE. The exit key is the second field of the source
+    block, CARVE_EXIT_DEPTH deep under the signature (one deeper with the
+    preimage in between), so the check is one OP_PICK and one
+    OP_CHECKSIGVERIFY before anything else, four bytes over the plain
+    form as UPDATE^x over UPDATE in this tier."""
+    return _carve_script(depth, sparse, "hashlock" if hashlock else "voucher", tree_id, dust_min,
+                         exit_consent)
 
 
 def split_script(depth, sparse=False, dust_min=lt.DUST_MIN):
@@ -328,9 +340,13 @@ def split_script(depth, sparse=False, dust_min=lt.DUST_MIN):
 # amount), then sea zse wse cea zce wce (the minimal evict_after of the
 # source and of the claim leaf, each with its pad; carve_rules). src.ok,
 # the third field of the source block, therefore sits 31 deep under the
-# authorisation element.
+# authorisation element, and src.ek, the second field, 32 deep; under
+# CLAIM^x the voucher signature sits between the exit signature and the
+# blocks, so the exit key is one deeper again (CARVE_EXIT_DEPTH), and the
+# preimage of CLAIM^hx adds one more.
 CARVE_EXTRAS = 13
 CARVE_OWNER_DEPTH = 31
+CARVE_EXIT_DEPTH = 33
 
 
 def voucher_auth(tree_id, hashlock=False):
@@ -359,12 +375,13 @@ def voucher_auth(tree_id, hashlock=False):
     return s + [32, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # src(10) claim(10) extras(13)
 
 
-def _carve_script(depth, sparse=False, auth="voucher", tree_id=None, dust_min=lt.DUST_MIN):
+def _carve_script(depth, sparse=False, auth="voucher", tree_id=None, dust_min=lt.DUST_MIN,
+                  exit_consent=False):
     """witness (bottom..top):
        zf wf [claim levels] [sparse claim: ck cnonce cplo cphi]
        zi wi [src levels] [sparse src: sk snonce splo sphi]
        src(10) claim(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2
-       sea zse wse cea zce wce vsig [preimage] r m
+       sea zse wse cea zce wce vsig [preimage] [xsig] r m
        zf wf pad the final sum, zi wi the input amount; pads sit below
        levels. sea and cea are the minimal evict_after of the source and of
        the claim leaf with their PADZ pads (carve_rules; w_carve_extras
@@ -374,10 +391,17 @@ def _carve_script(depth, sparse=False, auth="voucher", tree_id=None, dust_min=lt
     "hashlock" is CLAIM^h (a 32-byte preimage sits between vsig and r and
     SHA256(preimage) is appended to the signed message under a separate
     tag), "owner" is SPLIT (the witness carries a transaction signature in
-    place of the voucher)."""
+    place of the voucher). exit_consent (CLAIM^x, CLAIM^hx; spec 7.5.3)
+    consumes one more element, xsig, directly below r, before anything
+    else, checked against the source block's exit-key element, so every
+    stack depth below is as in the plain form."""
     assert auth in ("voucher", "hashlock", "owner")
+    assert not (exit_consent and auth == "owner")
     hashlock = auth == "hashlock"
-    s = prologue()                                                   # ... extras(7) vsig [pre] | m r
+    s = prologue()                                                   # ... extras(7) vsig [pre] [xsig] | m r
+    if exit_consent:
+        s += [CARVE_EXIT_DEPTH + (1 if hashlock else 0), "OP_PICK",  # ... vsig [pre] xsig src.ek
+              "OP_CHECKSIGVERIFY"]                                   # ... extras(7) vsig [pre]
     if auth == "owner":
         # SPLIT (7.5.2): the owner signs the transaction, so no message is
         # rebuilt. src.ok sits CARVE_OWNER_DEPTH deep, since the witness
@@ -843,6 +867,140 @@ def w_rewrite(tree, depth, height, idx, new, sigs, marker=True):
             items += w_rewrite_slot(nw)
         items += w_rewrite_slot(o)
     return items
+
+
+# -------------------------------------------------------- DETACH_h (7.10) --
+# FULL's DETACH_h (8.10) under MID numerics: the subtree root R_h and its
+# sum are the old node, E_h the new one, and output 1 is the MID tree
+# output of a depth-h tree at R_h under m_h, recomputed with TREE_SPK_MIN
+# as the prologue recomputes the input's. The sum arrives as a minimal
+# number with its PADZ pad, NONNEG keeps it non-negative before it enters
+# the fold, and le64 of it is compared with output 1's amount as bytes, as
+# every MID payout is. m_h is the parent's option set compiled at depth h
+# (7.10 rule 3), from detached_taptree_root or TreeOptions.taptree_root
+# below. The witness shrinks with h (9(D - h) + 11 elements below sig r m),
+# so the 1,000-element stack limit that caps the MID sweep and rewrite
+# binds nothing here.
+
+def detach_script(depth, height, operator_key, m_h):
+    """DETACH_h (7.10, dense) in the MID tier.
+
+    witness (bottom..top) = zf wf zi wi [levels h..D-1] R_h sum_num zs ws sig r m
+    """
+    assert len(m_h) == 32
+    assert 1 <= height < depth
+    e_h = lt.empty_node(height)[0]
+    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]             # R_h sum zs ws     | m r
+    s += [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"]                # R_h sum zs ws     | m r sum
+    s += le64()                                                       # R_h le64(sum)
+    s += ["OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",      # R_h le64
+          "OP_OVER", m_h] + F.tree_spk_min() + [                      # R_h le64 spk1     (TREE_SPK_MIN(R_h, m_h))
+          "OP_1", SEL_OUT_SINGLE, "OP_TX",                            # R_h le64 spk1 amt1 spk1'
+          "OP_ROT", "OP_EQUALVERIFY",                                 # R_h le64 amt1
+          "OP_EQUALVERIFY",                                           # R_h               (amt1 == le64(sum_h), bytes)
+          "OP_FROMALTSTACK",                                          # R_h sum
+          F.NODE_PREFIX, "OP_ROT", "OP_ROT", e_h, "OP_0"]             # T R_h sum E_h 0
+    s += levels(False, depth, height)
+    return s + check_old(False) + final(depth)
+
+
+def w_detach(tree, depth, height, idx, node=None):
+    """Everything MID DETACH_h consumes below sig r m, for the subtree `idx`
+    of `tree`: final pads, input-amount pads, levels and the subtree node
+    as R_h plus its sum as a minimal number with its pad. `node` replaces
+    the subtree's real (hash, sum) for tests that present a forged one."""
+    base = idx << height
+    t1 = lt.Tree(depth)
+    t1.leaves = {p: l for p, l in tree.leaves.items() if not base <= p < base + (1 << height)}
+    root, r1 = tree.root(), t1.root()
+    old = node if node is not None else tree.subtree(height, idx)
+    path = tree.path(base, height=height)
+    items = list(pad(r1[1])) + list(pad(root[1]))
+    items += w_levels(path, old, lt.empty_node(height), False, height)
+    return items + [old[0], scriptnum(old[1]), *pad(old[1])]
+
+
+class TreeOptions:
+    """A MID tree's creation parameters other than its depth (spec 6.2),
+    as layertree_scripts.TreeOptions is for FULL: the profile,
+    OPERATOR_KEY, tree_id, DUST_MIN, the JOIN heights, EXIT_K sizes and
+    JOINK sizes, and the variants a MID taptree may carry (7.6): the
+    tower-delegable exit EXIT_K^t (7.2 rule 7, in place of EXIT_K; MID
+    payouts are exact already), UPDATE^x (7.4 rule 5, in place of UPDATE),
+    the four CLAIM forms (7.5, 7.5.1, 7.5.3), SPLIT (7.5.2),
+    EVICT_SUBTREE_h (7.7), REWRITE_h and REWRITE_h^x (7.9) and DETACH_h
+    (7.10). at_depth(D) compiles the set for a tree of depth D, which is
+    what the parent's taptree is built from and what a DETACH_h child MUST
+    be built from at depth h (7.10 rule 3). Heights that do not fit the
+    depth are dropped.
+
+    The defaults are the reference set of 6.2 at FULL's heights and sizes:
+    EXIT_1, EXIT_2, JOIN_0, JOINK_2, UPDATE, CLAIM."""
+
+    def __init__(self, operator_key, tree_id, sparse=False, join_heights=(0,), exit_ks=(1, 2),
+                 join_ks=(2,), tower=False, update_x=False, claim=True, claim_h=False,
+                 claim_x=False, claim_hx=False, split=False, evict_heights=(),
+                 rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN):
+        self.operator_key, self.tree_id, self.sparse = operator_key, tree_id, sparse
+        self.dust_min = dust_min
+        self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
+        self.tower, self.update_x = tower, update_x
+        self.claim, self.claim_h, self.claim_x, self.claim_hx = claim, claim_h, claim_x, claim_hx
+        self.split = split
+        self.evict_heights, self.rewrite_heights = tuple(evict_heights), tuple(rewrite_heights)
+        self.rewrite_x, self.detach_heights = rewrite_x, tuple(detach_heights)
+
+    def at_depth(self, depth):
+        """Ordered dict name -> token list: the set compiled for depth `depth`,
+        the reference members first in all_scripts' order, then the
+        variants in FULL's fixed order, so the taptree root is a function
+        of the options and the depth alone."""
+        op, sp = self.operator_key, self.sparse
+        out = {f"EXIT_{k}": exit_script(depth, k, sp, tower=self.tower, tree_id=self.tree_id)
+               for k in self.exit_ks}
+        for h in (self.join_heights if not sp else (0,)):
+            if h <= depth:
+                out[f"JOIN_{h}"] = join_script(depth, h, op, sp)
+        for k in self.join_ks:
+            out[f"JOINK_{k}"] = join_script(depth, 0, op, sp, k)
+        out["UPDATE_X" if self.update_x else "UPDATE"] = update_script(depth, op, sp, exit_consent=self.update_x)
+        for name, hl, xc, on in (("CLAIM", False, False, self.claim), ("CLAIM_H", True, False, self.claim_h),
+                                 ("CLAIM_X", False, True, self.claim_x), ("CLAIM_HX", True, True, self.claim_hx)):
+            if on:
+                out[name] = claim_script(depth, self.tree_id, sp, hashlock=hl, dust_min=self.dust_min,
+                                         exit_consent=xc)
+        if self.split:
+            out["SPLIT"] = split_script(depth, sp, dust_min=self.dust_min)
+        if not sp:
+            for h in self.evict_heights:
+                if h <= depth:
+                    out[f"EVICT_SUBTREE_{h}"] = evict_subtree_script(depth, h, op)
+            for h in self.rewrite_heights:
+                if h <= depth:
+                    out[f"REWRITE_{h}"] = rewrite_script(depth, h, op)
+                    if self.rewrite_x:
+                        out[f"REWRITE_X_{h}"] = rewrite_script(depth, h, op, exit_consent=True)
+            for h in self.detach_heights:
+                if h < depth:
+                    out[f"DETACH_{h}"] = detach_script(depth, h, op, self.taptree_root(h))
+        return out
+
+    def taptree_root(self, depth):
+        """The tree identifier m of a MID tree of depth `depth` created with
+        these options (6.2); for a DETACH_h child this is m_h."""
+        from script_sim import assemble
+        return lt.taptree_root([lt.tapleaf_hash(assemble(t, "c0"), 0xc0) for t in self.at_depth(depth).values()])
+
+
+def detached_taptree_root(height, operator_key, tree_id, options=None):
+    """m_h for DETACH_h under MID (spec 7.10 rule 3): the parent's option
+    set compiled for depth h with the same OPERATOR_KEY and tree_id. With
+    no options this is the reference set of 6.2 (EXIT_1, EXIT_2, JOIN_0,
+    JOINK_2, UPDATE, CLAIM) in this tier."""
+    if options is None:
+        options = TreeOptions(operator_key, tree_id)
+    assert options.operator_key == operator_key and options.tree_id == tree_id
+    return options.taptree_root(height)
 
 
 def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,),

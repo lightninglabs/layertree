@@ -74,7 +74,9 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 			wantUpdateX[k] = want
 			continue
 		}
-		if strings.HasSuffix(k, "/CLAIM") || strings.HasSuffix(k, "/CLAIM_H") {
+		if strings.HasSuffix(k, "/CLAIM") || strings.HasSuffix(k, "/CLAIM_H") ||
+			strings.HasSuffix(k, "/CLAIM_X") || strings.HasSuffix(k, "/CLAIM_HX") {
+
 			// Parametrised by tree_id; checked in TestCCVClaim.
 			continue
 		}
@@ -146,12 +148,15 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 	t.Logf("checked %d CCV golden scripts", checked)
 }
 
-// TestCCVClaim checks the CCV tier's CLAIM and CLAIM^h ports (spec 4.6) in
-// both numerics against their golden keys, built over the tree_id vector
-// every tier's golden CLAIM shares (goldenTreeID).
+// TestCCVClaim checks the CCV tier's CLAIM, CLAIM^h, CLAIM^x and CLAIM^hx
+// ports (spec 4.6, 7.5.3) in both numerics against their golden keys, built
+// over the tree_id vector every tier's golden CLAIM shares (goldenTreeID).
+// The exit-consent forms cost seven bytes over their plain form under 0xC2
+// (FULL's check) and four under 0xC0 (MID's), and CCVTreeOptions compiles
+// them in the generator's order.
 func TestCCVClaim(t *testing.T) {
 	treeID := midGoldenTreeID(t)
-	g, _ := midLoadGolden(t)
+	g, key := midLoadGolden(t)
 	for _, hl := range []bool{false, true} {
 		name := "CLAIM"
 		if hl {
@@ -161,7 +166,44 @@ func TestCCVClaim(t *testing.T) {
 		ccvCheckC2(t, g, "CCV/S/D8/"+name, CCVClaimScript(8, treeID, true, hl, tree.DustMin))
 		midCheckScript(t, g, "CCV0/D/D4/"+name, CCV0ClaimScript(4, treeID, false, hl, tree.DustMin))
 		midCheckScript(t, g, "CCV0/S/D8/"+name, CCV0ClaimScript(8, treeID, true, hl, tree.DustMin))
+		ccvCheckC2(t, g, "CCV/D/D4/"+xName(hl), CCVClaimXScript(4, treeID, false, hl, tree.DustMin))
+		ccvCheckC2(t, g, "CCV/S/D8/"+xName(hl), CCVClaimXScript(8, treeID, true, hl, tree.DustMin))
+		midCheckScript(t, g, "CCV0/D/D4/"+xName(hl), CCV0ClaimXScript(4, treeID, false, hl, tree.DustMin))
+		midCheckScript(t, g, "CCV0/S/D8/"+xName(hl), CCV0ClaimXScript(8, treeID, true, hl, tree.DustMin))
+		for _, sparse := range []bool{false, true} {
+			depth := 4
+			if sparse {
+				depth = 8
+			}
+			c2 := len(MustAssemble(CCVClaimXScript(depth, treeID, sparse, hl, tree.DustMin), ModeC2)) -
+				len(MustAssemble(CCVClaimScript(depth, treeID, sparse, hl, tree.DustMin), ModeC2))
+			c0 := len(MustAssemble(CCV0ClaimXScript(depth, treeID, sparse, hl, tree.DustMin), ModeC0)) -
+				len(MustAssemble(CCV0ClaimScript(depth, treeID, sparse, hl, tree.DustMin), ModeC0))
+			if c2 != 7 || c0 != 4 {
+				t.Errorf("hashlock %v sparse %v: exit consent costs %d (0xC2) and %d (0xC0) bytes, want 7 and 4",
+					hl, sparse, c2, c0)
+			}
+		}
 	}
+	for _, c0 := range []bool{false, true} {
+		opts := CCVReferenceOptions(key, c0)
+		opts.TreeID, opts.Claim, opts.ClaimX, opts.ClaimHX = treeID, true, true, true
+		var names []string
+		for _, s := range opts.Scripts(4) {
+			names = append(names, s.Name)
+		}
+		want := "EXIT_1 JOIN_0 JOINK_2 UPDATE EVICT_SUBTREE_1 EVICT_SUBTREE_2 CLAIM CLAIM_X CLAIM_HX"
+		if got := joinNames(names); got != want {
+			t.Errorf("c0=%v: Scripts(4) = %q, want %q", c0, got, want)
+		}
+	}
+}
+
+func xName(hl bool) string {
+	if hl {
+		return "CLAIM_HX"
+	}
+	return "CLAIM_X"
 }
 
 // ccv0ScriptFor builds the 0xC0-numerics CCV script named by a golden
@@ -182,6 +224,10 @@ func ccv0ScriptFor(profile string, depth int, name string,
 		return CCV0ClaimScript(depth, treeID, sparse, false, tree.DustMin), nil
 	case name == "CLAIM_H":
 		return CCV0ClaimScript(depth, treeID, sparse, true, tree.DustMin), nil
+	case name == "CLAIM_X":
+		return CCV0ClaimXScript(depth, treeID, sparse, false, tree.DustMin), nil
+	case name == "CLAIM_HX":
+		return CCV0ClaimXScript(depth, treeID, sparse, true, tree.DustMin), nil
 	case strings.HasSuffix(name, "_TOWER"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d_TOWER", &n); err != nil {
 			return nil, err

@@ -43,6 +43,11 @@ TREE_ID = lt.tree_id(lt.sha256(b"creation-txid"), 0)   # the suites' tree_id (sp
 NAMES[TREE_ID] = "<TREE_ID>"
 for h in range(0, 65):
     NAMES[lt.empty_node(h)[0]] = f"<EMPTY_{h}>"
+# m_h of DETACH_2 over each tier's reference option set at depth 2 (7.10 rule 3).
+NAMES[F.detached_taptree_root(2, OP_KEY, TREE_ID)] = "<M_2 (FULL reference set)>"
+NAMES[M.detached_taptree_root(2, OP_KEY, TREE_ID)] = "<M_2 (MID reference set)>"
+NAMES[CV.detached_taptree_root_ccv(2, OP_KEY, "c2")] = "<M_2 (CCV reference set)>"
+NAMES[CV.detached_taptree_root_ccv(2, OP_KEY, "c0")] = "<M_2 (CCV 0xC0 reference set)>"
 
 WIDTH = 78
 
@@ -80,11 +85,15 @@ def full_macros():
     t += [(f"ELEM_NODE({d})", F._elem_node(d + 4, d + 3)) for d in range(0, 64)]
     t += [(f"OWNER_AUTH({d})", F._owner_auth(d + 5, False)) for d in range(0, 64, 4)]
     t += [(f"OWNER_AUTH_X({d})", F._owner_auth(d + 5, True)) for d in range(0, 64, 4)]
+    # The exit-key consent of UPDATE^x (k = 4) and CLAIM^x / CLAIM^hx (3, 4):
+    # the source (or old) leaf k deep under the signature yields its exit key.
+    t += [(f"EXIT_CONSENT({k})", [k, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]) for k in (3, 4)]
     return [(n, words(x, "c2")) for n, x in t]
 
 
 PARAM_FAMILIES = ("LEVEL_S(", "HASH_STEP(", "HASH_STEP2(", "REWRITE_STEP(", "REWRITE_STEP_X(",
-                  "OWNER_AUTH(", "OWNER_AUTH_X(", "ELEM_NODE(", "REWRITE_HASH_STEP2(", "REWRITE_HASH_ROOT2(")
+                  "OWNER_AUTH(", "OWNER_AUTH_X(", "ELEM_NODE(", "REWRITE_HASH_STEP2(", "REWRITE_HASH_ROOT2(",
+                  "EXIT_CONSENT(", "EXIT_CONSENT_MID(")
 
 
 def mid_macros():
@@ -115,6 +124,10 @@ def mid_macros():
           ("REWRITE_STEP_MID", M._rewrite_step(False)), ("REWRITE_STEP_MID_X", M._rewrite_step(True))]
     t += [(f"REWRITE_HASH_STEP2({k})", M._rewrite_hash_step2(k, False)) for k in range(8, 40, 4)]
     t += [(f"REWRITE_HASH_ROOT2({k})", M._rewrite_hash_step2(k, True)) for k in range(8, 12, 4)]
+    # The exit-key consent of UPDATE^x (k = 21) and CLAIM^x / CLAIM^hx (33,
+    # 34): the exit-key element of the old or source block, k deep under
+    # the signature.
+    t += [(f"EXIT_CONSENT_MID({k})", [k, "OP_PICK", "OP_CHECKSIGVERIFY"]) for k in (21, 33, 34)]
     return [(n, words(x, "c0")) for n, x in t]
 
 
@@ -138,6 +151,7 @@ def ccv_macros():
     t += [(f"LEVEL_S({k})", F.level_sparse(k)) for k in range(0, 64)]
     t += [("FINAL", CV.final_ccv(d)) for d in (4, 8, 12, 16, 20, 32)]
     t += [("LEVEL_MIN", F.level_min()), ("LEAF_STEP", CV.leaf_step_ccv(OP_KEY))]
+    t += [(f"EXIT_CONSENT({k})", [k, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]) for k in (3, 4)]
     return [(n, words(x, "c2")) for n, x in t]
 
 
@@ -260,6 +274,10 @@ def macro_file(tier, macros, notes):
             shown = "HASH_STEP2(d)   [shown for d = 8; the HASH_STEP pick depths are d-3 and d-5]"
         if key in ("REWRITE_STEP", "REWRITE_STEP_X"):
             shown = f"{key}(d)   [shown for d = 0; the OP_ROLL depths are d+3, d+4 and d+5, the picks d+3 to d+5]"
+        if key == "EXIT_CONSENT":
+            shown = "EXIT_CONSENT(k)   [shown for k = 3; k = 4 under a preimage (CLAIM^hx) or for UPDATE^x]"
+        if key == "EXIT_CONSENT_MID":
+            shown = "EXIT_CONSENT_MID(k)   [shown for k = 21 (UPDATE^x); 33 for CLAIM^x, 34 for CLAIM^hx]"
         if key in ("OWNER_AUTH", "OWNER_AUTH_X"):
             shown = f"{key}(d)   [shown for d = 0; the OP_ROLL depth is d+5]"
         if key == "ELEM_NODE":
@@ -387,6 +405,15 @@ open(os.path.join(OUT, f"EXIT_1_TOWER_D{D}.txt"), "w").write(
 open(os.path.join(OUT, f"MID_EXIT_1_TOWER_D{D}.txt"), "w").write(
     structured(f"EXIT_1_TOWER (MID tier, tower-delegable exit, dense, D={D})",
                M.exit_script(D, 1, False, tower=True, tree_id=TREE_ID), "c0", MID))
+open(os.path.join(OUT, f"MID_CLAIM_X_D{D}.txt"), "w").write(
+    structured(f"CLAIM_X (MID tier, exit-key consent, dense, D={D})",
+               M.claim_script(D, TREE_ID, False, exit_consent=True), "c0", MID))
+open(os.path.join(OUT, "MID_DETACH_2_D8.txt"), "w").write(
+    structured("DETACH_2 (MID tier, dense, D=8): detach a 4-position subtree into its own tree output",
+               M.detach_script(8, 2, OP_KEY, M.detached_taptree_root(2, OP_KEY, TREE_ID)), "c0", MID))
+open(os.path.join(OUT, "CCV0_DETACH_2_D8.txt"), "w").write(
+    structured("DETACH_2 (CCV with 0xC0 numerics, in MID macros, dense, D=8): detach a 4-position subtree",
+               CV._detach_script_ccv0(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c0")), "c0", MID))
 open(os.path.join(OUT, f"CCV_EXIT_1_TOWER_D{D}.txt"), "w").write(
     structured(f"EXIT_1_TOWER (CCV tier, tower-delegable exit, dense, D={D})",
                CV.exit_script_ccv(D, 1, "D", tower=True, tree_id=TREE_ID), "c2", CCV))
@@ -440,6 +467,12 @@ for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     open(os.path.join(OUT, f"CCV0_{nm}_D{D}.txt"), "w").write(
         structured(f"{nm} (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
                    CV._claim_script_ccv0(D, TREE_ID, False, hl), "c0", MID))
+open(os.path.join(OUT, f"CCV_CLAIM_X_D{D}.txt"), "w").write(
+    structured(f"CLAIM_X (CCV tier, exit-key consent, dense, D={D})",
+               CV.claim_script_ccv(D, TREE_ID, "D", exit_consent=True), "c2", CCV))
+open(os.path.join(OUT, f"CCV0_CLAIM_X_D{D}.txt"), "w").write(
+    structured(f"CLAIM_X (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+               CV._claim_script_ccv0(D, TREE_ID, False, exit_consent=True), "c0", MID))
 open(os.path.join(OUT, f"CCV0_SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
                CV._split_script_ccv0(D, False), "c0", MID))

@@ -250,7 +250,34 @@ func CCVSplitScript(depth int, sparse bool, dustMin uint64) []Token {
 func CCVClaimScript(depth int, treeID [32]byte, sparse, hashlock bool,
 	dustMin uint64) []Token {
 
+	return ccvClaimScript(depth, treeID, sparse, hashlock, false, dustMin)
+}
+
+// CCVClaimXScript is CLAIM^x (spec 7.5.3), or CLAIM^hx with hashlock, under
+// the CCV tier (0xC2): CLAIM / CLAIM^h whose top witness element is one more
+// signature over the transaction by src_leaf.exit_key, checked first so
+// that every depth below is as in the plain form. FULL's check token for
+// token, seven bytes (tools/layertree_ccv.py claim_script_ccv
+// exit_consent).
+func CCVClaimXScript(depth int, treeID [32]byte, sparse, hashlock bool,
+	dustMin uint64) []Token {
+
+	return ccvClaimScript(depth, treeID, sparse, hashlock, true, dustMin)
+}
+
+func ccvClaimScript(depth int, treeID [32]byte, sparse, hashlock, exitConsent bool,
+	dustMin uint64) []Token {
+
 	var s []Token
+	if exitConsent {
+		// src is 3 deep under xsig (4 with the preimage in between).
+		pick := int64(3)
+		if hashlock {
+			pick = 4
+		}
+		s = append(s, Num(pick), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32),
+			Op(OP_SUBSTR), Op(ts.OP_CHECKSIGVERIFY)) // src claim vsig [pre]
+	}
 	if hashlock {
 		s = append(s, Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK)) // src claim vsig | phash
@@ -265,7 +292,31 @@ func CCVClaimScript(depth int, treeID [32]byte, sparse, hashlock bool,
 func CCV0ClaimScript(depth int, treeID [32]byte, sparse, hashlock bool,
 	dustMin uint64) []Token {
 
+	return ccv0ClaimScript(depth, treeID, sparse, hashlock, false, dustMin)
+}
+
+// CCV0ClaimXScript is CLAIM^x or CLAIM^hx under the CCV tier's 0xC0
+// numerics: MID's exit-consent check (the source block's exit-key element
+// midCarveExitDepth deep under the signature, one deeper with the
+// preimage), four bytes (tools/layertree_ccv.py _claim_script_ccv0
+// exit_consent).
+func CCV0ClaimXScript(depth int, treeID [32]byte, sparse, hashlock bool,
+	dustMin uint64) []Token {
+
+	return ccv0ClaimScript(depth, treeID, sparse, hashlock, true, dustMin)
+}
+
+func ccv0ClaimScript(depth int, treeID [32]byte, sparse, hashlock, exitConsent bool,
+	dustMin uint64) []Token {
+
 	var s []Token
+	if exitConsent {
+		pick := int64(midCarveExitDepth)
+		if hashlock {
+			pick++
+		}
+		s = append(s, Num(pick), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY))
+	}
 	if hashlock {
 		s = append(s, Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK))
@@ -682,7 +733,7 @@ func CCV0DetachScript(depth, height int, operatorKey [32]byte,
 // the operator key, tree_id, DUST_MIN, the JOIN heights, EXIT_K sizes, JOINK
 // sizes and sweep heights, and the variants a CCV taptree may carry: the
 // tower-delegable exit EXIT_K^t (7.2 rule 7) in place of EXIT_K, UPDATE^x
-// in place of UPDATE, CLAIM and CLAIM^h, SPLIT and DETACH_h. Scripts
+// in place of UPDATE, the four CLAIM forms, SPLIT and DETACH_h. Scripts
 // compiles the set for one depth, which is what the parent's taptree is
 // built from and what a DETACH_h child MUST be built from at depth h
 // (7.10 rule 3; tools/layertree_ccv.py CCVTreeOptions).
@@ -700,6 +751,8 @@ type CCVTreeOptions struct {
 	UpdateX       bool
 	Claim         bool
 	ClaimH        bool
+	ClaimX        bool
+	ClaimHX       bool
 	Split         bool
 	DetachHeights []int
 
@@ -787,15 +840,18 @@ func (o CCVTreeOptions) Scripts(depth int) []FullNamedScript {
 	for _, c := range []struct {
 		name string
 		hl   bool
+		xc   bool
 		on   bool
-	}{{"CLAIM", false, o.Claim}, {"CLAIM_H", true, o.ClaimH}} {
+	}{{"CLAIM", false, false, o.Claim}, {"CLAIM_H", true, false, o.ClaimH},
+		{"CLAIM_X", false, true, o.ClaimX}, {"CLAIM_HX", true, true, o.ClaimHX}} {
+
 		if !c.on {
 			continue
 		}
 		if o.C0 {
-			add(c.name, CCV0ClaimScript(depth, o.TreeID, o.Sparse, c.hl, o.DustMin))
+			add(c.name, ccv0ClaimScript(depth, o.TreeID, o.Sparse, c.hl, c.xc, o.DustMin))
 		} else {
-			add(c.name, CCVClaimScript(depth, o.TreeID, o.Sparse, c.hl, o.DustMin))
+			add(c.name, ccvClaimScript(depth, o.TreeID, o.Sparse, c.hl, c.xc, o.DustMin))
 		}
 	}
 	if o.Split {

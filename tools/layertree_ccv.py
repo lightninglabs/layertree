@@ -284,15 +284,26 @@ def split_script_ccv(depth, profile="D", dust_min=lt.DUST_MIN):
 tree_id = lt.tree_id
 
 
-def claim_script_ccv(depth, tid, profile="D", hashlock=False, dust_min=lt.DUST_MIN):
+def claim_script_ccv(depth, tid, profile="D", hashlock=False, dust_min=lt.DUST_MIN,
+                     exit_consent=False):
     """CLAIM (7.5) or CLAIM^h (7.5.1) under CCV (0xC2).
 
     Witness (bottom..top): [claim path] [source path] src_leaf claim_leaf
-    voucher_sig [preimage]. No r, no m. The voucher check is the FULL
-    tier's (F.voucher_auth) over the tree's tree_id; the rest is SPLIT's
-    body.
+    voucher_sig [preimage] [exit_sig]. No r, no m. The voucher check is the
+    FULL tier's (F.voucher_auth) over the tree's tree_id; the rest is
+    SPLIT's body.
+
+    exit_consent=True is CLAIM^x (7.5.3), or CLAIM^hx with hashlock: the
+    top element is one more signature, exit_sig, which MUST be valid over
+    the transaction by src_leaf.exit_key, checked first so that every
+    depth below is as in the plain form. FULL's check token for token
+    (there the prologue has already parked r and m), seven bytes.
     """
     s = prologue_ccv()
+    if exit_consent:
+        # src is 3 deep under xsig (4 with the preimage in between)
+        s += [4 if hashlock else 3, "OP_PICK",
+              F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]   # src claim vsig [pre]
     if hashlock:
         s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
               "OP_TOALTSTACK"]                              # src claim vsig     | phash
@@ -539,13 +550,20 @@ def _split_script_ccv0(depth, sparse=False, dust_min=lt.DUST_MIN):
     return s + _carve_body_ccv0(depth, sparse, dust_min)
 
 
-def _claim_script_ccv0(depth, tid, sparse=False, hashlock=False, dust_min=lt.DUST_MIN):
+def _claim_script_ccv0(depth, tid, sparse=False, hashlock=False, dust_min=lt.DUST_MIN,
+                       exit_consent=False):
     """CLAIM / CLAIM^h under c0: MID's carve witness minus r and m, with the
     MID tier's voucher check (M.voucher_auth) over the tree's tree_id.
 
-    Witness (bottom..top): MID's CLAIM witness up to vsig, then [preimage];
-    no r, no m."""
+    Witness (bottom..top): MID's CLAIM witness up to vsig, then [preimage]
+    [exit_sig]; no r, no m. exit_consent is CLAIM^x / CLAIM^hx (7.5.3) as
+    in MID: the source block's exit-key element sits M.CARVE_EXIT_DEPTH
+    deep under exit_sig (one deeper with the preimage), one OP_PICK and
+    one OP_CHECKSIGVERIFY, four bytes."""
     s = []
+    if exit_consent:
+        s += [M.CARVE_EXIT_DEPTH + (1 if hashlock else 0), "OP_PICK",
+              "OP_CHECKSIGVERIFY"]                                     # ... extras(7) vsig [pre]
     if hashlock:
         s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
               "OP_TOALTSTACK"]                                       # ... extras(7) vsig  | phash
@@ -619,9 +637,9 @@ class CCVTreeOptions:
     profile, OPERATOR_KEY, tree_id, DUST_MIN, the JOIN heights, EXIT_K
     sizes, JOINK sizes and sweep heights, and the variants a CCV taptree
     may carry: the tower-delegable exit EXIT_K^t (7.2 rule 7, in place of
-    EXIT_K; it needs tree_id), UPDATE^x (in place of UPDATE), CLAIM and
-    CLAIM^h (which
-    need tree_id), SPLIT and DETACH_h. at_depth(D) compiles the set for a
+    EXIT_K; it needs tree_id), UPDATE^x (in place of UPDATE), the four
+    CLAIM forms (7.5, 7.5.1, 7.5.3; they need tree_id), SPLIT and
+    DETACH_h. at_depth(D) compiles the set for a
     tree of depth D, which is what the parent's taptree is built from and
     what a DETACH_h child MUST be built from at depth h (7.10 rule 3).
     Heights that do not fit the depth are dropped. The defaults are
@@ -630,13 +648,15 @@ class CCVTreeOptions:
 
     def __init__(self, operator_key, numeric="c2", profile="D", tree_id=None, join_heights=(0,),
                  exit_ks=(1,), join_ks=(2,), evict_heights=(1, 2), tower=False, update_x=False, claim=False,
-                 claim_h=False, split=False, detach_heights=(), dust_min=lt.DUST_MIN):
+                 claim_h=False, split=False, detach_heights=(), dust_min=lt.DUST_MIN, claim_x=False,
+                 claim_hx=False):
         assert numeric in ("c2", "c0")
         assert not tower or tree_id is not None
         self.operator_key, self.numeric, self.profile, self.tree_id = operator_key, numeric, profile, tree_id
         self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
         self.evict_heights, self.tower, self.update_x = tuple(evict_heights), tower, update_x
         self.claim, self.claim_h, self.split = claim, claim_h, split
+        self.claim_x, self.claim_hx = claim_x, claim_hx
         self.detach_heights, self.dust_min = tuple(detach_heights), dust_min
 
     def at_depth(self, depth):
@@ -656,10 +676,11 @@ class CCVTreeOptions:
             upd_x = (_update_script_ccv0(depth, op, sparse, exit_consent=True) if c0
                      else update_script_ccv(depth, op, prof, exit_consent=True))
             out = {("UPDATE_X" if k == "UPDATE" else k): (upd_x if k == "UPDATE" else v) for k, v in out.items()}
-        for name, hl, on in (("CLAIM", False, self.claim), ("CLAIM_H", True, self.claim_h)):
+        for name, hl, xc, on in (("CLAIM", False, False, self.claim), ("CLAIM_H", True, False, self.claim_h),
+                                 ("CLAIM_X", False, True, self.claim_x), ("CLAIM_HX", True, True, self.claim_hx)):
             if on:
-                out[name] = (_claim_script_ccv0(depth, self.tree_id, sparse, hl, self.dust_min) if c0
-                             else claim_script_ccv(depth, self.tree_id, prof, hl, self.dust_min))
+                out[name] = (_claim_script_ccv0(depth, self.tree_id, sparse, hl, self.dust_min, xc) if c0
+                             else claim_script_ccv(depth, self.tree_id, prof, hl, self.dust_min, xc))
         if self.split:
             out["SPLIT"] = (_split_script_ccv0(depth, sparse, self.dust_min) if c0
                             else split_script_ccv(depth, prof, self.dust_min))
@@ -695,9 +716,9 @@ def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
                     profile="D", join_ks=(2,), numeric="c2", evict_heights=(1, 2)):
     """Ordered dict name -> token list for a CCV-tier tree's taptree.
 
-    CLAIM and CLAIM^h are not generated here: they take the tree's
-    tree_id (claim_script_ccv, _claim_script_ccv0), and they are the only
-    CCV scripts that need OP_CHECKSIGFROMSTACK. A tree adds them at
+    The CLAIM forms are not generated here: they take the tree's tree_id
+    (claim_script_ccv, _claim_script_ccv0), and with EXIT_K^t they are the
+    only CCV scripts that need OP_CHECKSIGFROMSTACK. A tree adds them at
     creation, as it does SPLIT, UPDATE^x and DETACH_h (CCVTreeOptions).
     """
     c0 = numeric == "c0"

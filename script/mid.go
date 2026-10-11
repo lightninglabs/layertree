@@ -552,7 +552,7 @@ func midUpdateScript(depth int, operatorKey [32]byte, sparse,
 func MidClaimScript(depth int, treeID [32]byte, sparse bool,
 	dustMin uint64) []Token {
 
-	return midCarveScript(depth, treeID, sparse, authVoucher, dustMin)
+	return midCarveScript(depth, treeID, sparse, authVoucher, false, dustMin)
 }
 
 // MidClaimHScript is the MID-tier CLAIM^h script (spec 7.5.1): CLAIM with a
@@ -564,7 +564,29 @@ func MidClaimScript(depth int, treeID [32]byte, sparse bool,
 func MidClaimHScript(depth int, treeID [32]byte, sparse bool,
 	dustMin uint64) []Token {
 
-	return midCarveScript(depth, treeID, sparse, authHashlock, dustMin)
+	return midCarveScript(depth, treeID, sparse, authHashlock, false, dustMin)
+}
+
+// MidClaimXScript is the MID-tier CLAIM^x script (spec 7.5.3): CLAIM plus a
+// signature over the transaction by the source leaf's exit key, the element
+// directly below r. The exit key is the second field of the source block,
+// midCarveExitDepth deep under that signature, so the check is one OP_PICK
+// and one OP_CHECKSIGVERIFY before anything else: four bytes over CLAIM,
+// as UPDATE^x over UPDATE in this tier (tools/layertree_mid.py
+// claim_script exit_consent).
+func MidClaimXScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return midCarveScript(depth, treeID, sparse, authVoucher, true, dustMin)
+}
+
+// MidClaimHXScript is the MID-tier CLAIM^hx script (spec 7.5.3): CLAIM^h
+// with the exit-key signature of CLAIM^x, which sits above the preimage, so
+// the pick is one deeper.
+func MidClaimHXScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return midCarveScript(depth, treeID, sparse, authHashlock, true, dustMin)
 }
 
 // MidSplitScript is the MID-tier SPLIT script (spec 7.5.2): CLAIM with the
@@ -573,7 +595,7 @@ func MidClaimHScript(depth int, treeID [32]byte, sparse bool,
 // OP_CHECKSIGFROMSTACK and no tree_id. Like CLAIM^h it is a tree-creation
 // parameter and stays out of MidAllScripts.
 func MidSplitScript(depth int, sparse bool, dustMin uint64) []Token {
-	return midCarveScript(depth, [32]byte{}, sparse, authOwner, dustMin)
+	return midCarveScript(depth, [32]byte{}, sparse, authOwner, false, dustMin)
 }
 
 // The MID carve witness holds, below the authorisation element, src(10)
@@ -581,10 +603,13 @@ func MidSplitScript(depth int, sparse bool, dustMin uint64) []Token {
 // the pad of the new source amount, and the minimal evict_after of the
 // source and of the claim leaf with their pads (midCarveRules). The depth
 // of a source field under the authorisation element follows from that
-// layout: src.ok, the third field, sits 31 deep.
+// layout: src.ok, the third field, sits 31 deep, and under CLAIM^x, where
+// the voucher signature sits between the exit signature and the blocks,
+// src.ek, the second field, 33 deep (34 with the preimage of CLAIM^hx).
 const (
 	midCarveExtras     = 13
 	midCarveOwnerDepth = 31
+	midCarveExitDepth  = 33
 )
 
 // midVoucherAuth is the voucher check of CLAIM and CLAIM^h under 0xC0
@@ -617,12 +642,22 @@ func midVoucherAuth(treeID [32]byte, hashlock bool) []Token {
 }
 
 // midCarveScript is the shared body of the MID CLAIM, CLAIM^h and SPLIT
-// scripts: auth selects the authorisation and nothing else.
+// scripts: auth selects the authorisation and nothing else, and exitConsent
+// (CLAIM^x, CLAIM^hx) consumes one more element, xsig, directly below r,
+// before anything else, so every depth below is as in the plain form.
 func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
-	dustMin uint64) []Token {
+	exitConsent bool, dustMin uint64) []Token {
 
 	hashlock := auth == authHashlock
-	s := midPrologue() // ... extras(7) vsig [pre] | m r
+	s := midPrologue() // ... extras(7) vsig [pre] [xsig] | m r
+	if exitConsent {
+		pick := int64(midCarveExitDepth)
+		if hashlock {
+			pick++
+		}
+		s = append(s, Num(pick), Op(txscript.OP_PICK), // ... vsig [pre] xsig src.ek
+			Op(txscript.OP_CHECKSIGVERIFY)) // ... extras(7) vsig [pre]
+	}
 	if auth == authOwner {
 		// SPLIT (7.5.2): the owner signs the transaction, so no message is
 		// rebuilt. src.ok sits midCarveOwnerDepth deep, since the witness
@@ -1117,6 +1152,183 @@ func MidRewriteScript(depth, height int, operatorKey [32]byte,
 	s = append(s, midLevels(false, depth, height)...)
 	s = append(s, midCheckOld(false)...)
 	return append(s, midFinal(depth)...)
+}
+
+// MidDetachScript is DETACH_h (spec 7.10, 8.10) in the MID tier: FULL's
+// detach under 0xC0 numerics. The subtree root R_h and its sum are the old
+// node, E_h the new one, and output 1 is the MID tree output of a depth-h
+// tree at R_h under mH, recomputed with TREE_SPK_MIN as the prologue
+// recomputes the input's. The sum arrives as a minimal number with its PADZ
+// pad, NONNEG keeps it non-negative before it enters the fold, and le64 of
+// it is compared with output 1's amount as bytes. mH is the parent's
+// option set compiled at depth h (7.10 rule 3, MidDetachedTaptreeRoot).
+//
+// witness (bottom..top) = zf wf zi wi [levels h..D-1] R_h sum_num zs ws sig r m.
+func MidDetachScript(depth, height int, operatorKey [32]byte,
+	mH [32]byte) []Token {
+
+	s := midPrologue()
+	s = append(s, Data(operatorKey[:]), Op(txscript.OP_CHECKSIGVERIFY), // R_h sum zs ws | m r
+		Num(2), Op(txscript.OP_PICK))
+	s = append(s, midNonneg()...)
+	s = append(s, Op(txscript.OP_TOALTSTACK)) // R_h sum zs ws | m r sum
+	s = append(s, midLe64()...)               // R_h le64(sum)
+	s = append(s,
+		Op(txscript.OP_OVER), Op(txscript.OP_SIZE), Num(32),
+		Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_DROP), // R_h le64
+		Op(txscript.OP_OVER), Data(mH[:]))
+	s = append(s, midTreeSpkMin()...) // R_h le64 spk1 (TREE_SPK_MIN(R_h, m_h))
+	s = append(s,
+		Op(txscript.OP_1), Num(SelOutSingle), Op(OP_TX), // R_h le64 spk1 amt1 spk1'
+		Op(txscript.OP_ROT), Op(txscript.OP_EQUALVERIFY), // R_h le64 amt1
+		Op(txscript.OP_EQUALVERIFY),  // R_h (amt1 == le64(sum_h))
+		Op(txscript.OP_FROMALTSTACK), // R_h sum
+		Data(midNodePrefix), Op(txscript.OP_ROT), Op(txscript.OP_ROT),
+		Data(midEmptyNodeHash(height)), Op(txscript.OP_0), // T R_h sum E_h 0
+	)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, midCheckOld(false)...)
+	return append(s, midFinal(depth)...)
+}
+
+// MidTreeOptions are a MID tree's creation parameters other than its depth
+// (spec 6.2), as FullTreeOptions are for FULL: the profile, operator key,
+// tree_id, DUST_MIN, the JOIN heights, EXIT_K sizes and JOINK sizes, and
+// the variants a MID taptree may carry (7.6): the tower-delegable exit
+// EXIT_K^t (7.2 rule 7, in place of EXIT_K; MID payouts are exact
+// already), UPDATE^x (in place of UPDATE), the four CLAIM forms, SPLIT,
+// EVICT_SUBTREE_h, REWRITE_h and its ^x form, and DETACH_h. Scripts
+// compiles the set for one depth, which is what the parent's taptree is
+// built from and what a DETACH_h child MUST be built from at depth h (7.10
+// rule 3; tools/layertree_mid.py TreeOptions).
+type MidTreeOptions struct {
+	OperatorKey [32]byte
+	TreeID      [32]byte
+	Sparse      bool
+	JoinHeights []int
+	ExitKs      []int
+	JoinKs      []int
+
+	Tower          bool
+	UpdateX        bool
+	Claim          bool
+	ClaimH         bool
+	ClaimX         bool
+	ClaimHX        bool
+	Split          bool
+	EvictHeights   []int
+	RewriteHeights []int
+	RewriteX       bool
+	DetachHeights  []int
+
+	// DustMin is the tree's DUST_MIN (spec 6.2), the floor the carve
+	// scripts carry as a constant (7.5 rule 6). Zero means tree.DustMin.
+	DustMin uint64
+}
+
+// DustFloor is the DUST_MIN the tree's carve scripts enforce: DustMin, or
+// tree.DustMin when it is zero.
+func (o MidTreeOptions) DustFloor() uint64 {
+	return dustFloor(o.DustMin)
+}
+
+// MidReferenceOptions are the reference set of 6.2 at FULL's heights and
+// sizes: EXIT_1, EXIT_2, JOIN_0, JOINK_2, UPDATE and CLAIM, dense.
+func MidReferenceOptions(operatorKey, treeID [32]byte) MidTreeOptions {
+	return MidTreeOptions{
+		OperatorKey: operatorKey, TreeID: treeID,
+		JoinHeights: []int{0}, ExitKs: []int{1, 2}, JoinKs: []int{2},
+		Claim: true,
+	}
+}
+
+// Scripts compiles the option set for a tree of the given depth, in the
+// order tools/layertree_mid.py TreeOptions.at_depth emits it: the
+// reference members first (EXIT_K, JOIN_h, JOINK_K, UPDATE or UPDATE_X,
+// the CLAIM forms, SPLIT), then the dense cohort scripts. Heights that do
+// not fit the depth are dropped, and DETACH_h embeds the same options
+// compiled at depth h.
+func (o MidTreeOptions) Scripts(depth int) []FullNamedScript {
+	var out []FullNamedScript
+	add := func(name string, toks []Token) {
+		out = append(out, FullNamedScript{Name: name, Tokens: toks})
+	}
+	for _, k := range o.ExitKs {
+		add(fmt.Sprintf("EXIT_%d", k), midExitScript(depth, k, o.Sparse, o.Tower, o.TreeID))
+	}
+	heights := o.JoinHeights
+	if o.Sparse {
+		heights = []int{0}
+	}
+	for _, h := range heights {
+		if h <= depth {
+			add(fmt.Sprintf("JOIN_%d", h), MidJoinScript(depth, h, o.OperatorKey, o.Sparse, 1))
+		}
+	}
+	for _, k := range o.JoinKs {
+		add(fmt.Sprintf("JOINK_%d", k), MidJoinScript(depth, 0, o.OperatorKey, o.Sparse, k))
+	}
+	if o.UpdateX {
+		add("UPDATE_X", MidUpdateXScript(depth, o.OperatorKey, o.Sparse))
+	} else {
+		add("UPDATE", MidUpdateScript(depth, o.OperatorKey, o.Sparse))
+	}
+	if o.Claim {
+		add("CLAIM", MidClaimScript(depth, o.TreeID, o.Sparse, o.DustMin))
+	}
+	if o.ClaimH {
+		add("CLAIM_H", MidClaimHScript(depth, o.TreeID, o.Sparse, o.DustMin))
+	}
+	if o.ClaimX {
+		add("CLAIM_X", MidClaimXScript(depth, o.TreeID, o.Sparse, o.DustMin))
+	}
+	if o.ClaimHX {
+		add("CLAIM_HX", MidClaimHXScript(depth, o.TreeID, o.Sparse, o.DustMin))
+	}
+	if o.Split {
+		add("SPLIT", MidSplitScript(depth, o.Sparse, o.DustMin))
+	}
+	if o.Sparse {
+		return out
+	}
+	for _, h := range o.EvictHeights {
+		if h <= depth {
+			add(fmt.Sprintf("EVICT_SUBTREE_%d", h), MidEvictSubtreeScript(depth, h, o.OperatorKey))
+		}
+	}
+	for _, h := range o.RewriteHeights {
+		if h <= depth {
+			add(fmt.Sprintf("REWRITE_%d", h), MidRewriteScript(depth, h, o.OperatorKey, false))
+			if o.RewriteX {
+				add(fmt.Sprintf("REWRITE_X_%d", h), MidRewriteScript(depth, h, o.OperatorKey, true))
+			}
+		}
+	}
+	for _, h := range o.DetachHeights {
+		if h < depth {
+			add(fmt.Sprintf("DETACH_%d", h), MidDetachScript(depth, h, o.OperatorKey, o.TapTreeRoot(h)))
+		}
+	}
+	return out
+}
+
+// TapTreeRoot is the tree identifier m of a MID tree of the given depth
+// created with these options (spec 6.2); for a DETACH_h child it is m_h.
+func (o MidTreeOptions) TapTreeRoot(depth int) [32]byte {
+	scripts := o.Scripts(depth)
+	leaves := make([][32]byte, 0, len(scripts))
+	for _, s := range scripts {
+		leaves = append(leaves, TapLeafHash(MustAssemble(s.Tokens, ModeC0), 0xc0))
+	}
+	return TapTreeRoot(leaves)
+}
+
+// MidDetachedTaptreeRoot is m_h for DETACH_h under MID (spec 7.10 rule 3):
+// the parent's option set compiled for depth h with the same operator key
+// and tree_id. For the reference set of 6.2 pass MidReferenceOptions
+// (tools/layertree_mid.py detached_taptree_root).
+func MidDetachedTaptreeRoot(height int, opts MidTreeOptions) [32]byte {
+	return opts.TapTreeRoot(height)
 }
 
 // MidAllScripts builds the MID-tier script set for one profile, keyed as

@@ -1446,6 +1446,365 @@ def test_exit_tower(depth, sparse, verbose=True):
     return sizes
 
 
+def test_claim_x(depth, sparse, hashlock=False, verbose=True):
+    """MID CLAIM^x and CLAIM^hx (spec 7.5.3): CLAIM / CLAIM^h plus a
+    signature over the transaction by the source leaf's exit_key, the FULL
+    suite's test_claim_x over the seven-element leaf.
+
+    The scenario is the dedicated credit leaf of 10.3: the operator owns
+    the source leaf (owner_key) and the recipient holds its exit_key. The
+    recipient's own redemptions carry the exit signature for free, and the
+    operator cannot carve the leaf, not even with a voucher it signed to
+    itself, because it does not hold the exit key. The variant is a
+    tree-creation parameter, swapped into the taptree as CLAIM_X (CLAIM_HX)
+    with m recomputed."""
+    name = "CLAIM_HX" if hashlock else "CLAIM_X"
+    w = MidWorld(depth, sparse)
+    S = sparse
+    toks = M.claim_script(depth, w.tree_id, sparse, hashlock=hashlock, exit_consent=True)
+    bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+    check(not bad, f"MID {name}: opcodes outside the MID set: {sorted(bad)}")
+    script = assemble(toks, mode="c0")
+    plain = assemble(M.claim_script(depth, w.tree_id, sparse, hashlock=hashlock), mode="c0")
+    check(len(script) - len(plain) == 4, f"mid: {name} is four bytes over its plain form, as UPDATE^x over UPDATE")
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    # credit leaf: the operator is the owner (issuer), the recipient holds the exit key
+    credit = lt.Leaf(1_000_000, pubkey_x(sk("recipient-exit")), w.op_pk, lt.NUMS_X, 0,
+                     int.from_bytes(lt.sha256(b"credit")[:4], "little"), 0)
+    while S and not M.pos_ok(credit):
+        credit.nonce = (credit.nonce + 1) & 0xffffffff
+    alice = mk_leaf("alice", 50_000, sparse=S)
+    s_credit, s_alice = w.slot(credit, (1 << depth) - 1), w.slot(alice, 0)
+    w.tree.leaves = {s_credit: credit, s_alice: alice}
+    root = w.tree.root()
+    preimage = lt.sha256(b"credit-preimage")
+    phash = lt.sha256(preimage) if hashlock else None
+
+    def voucher(src, claim, key=None):
+        msg = (lt.voucher_msg(w.tree_id, src, claim) if phash is None
+               else lt.voucher_h_msg(w.tree_id, src, claim, phash))
+        return schnorr_sign(msg, key or w.op_sk)
+
+    def head(tree, src, claim, s_src, s_claim):
+        """Witness below the voucher signature for claiming `claim` out of
+        `src` in `tree`, with s_claim presented as empty."""
+        t = lt.Tree(depth); t.leaves = dict(tree.leaves)
+        amt_new = src.amount - claim.amount
+        if amt_new > 0:
+            t.leaves[s_src] = src.with_amount_seq(amt_new, src.seq + 1)
+        else:
+            del t.leaves[s_src]
+        new_src = t.leaves[s_src].node() if s_src in t.leaves else lt.EMPTY_NODE
+        t.leaves[s_claim] = claim
+        return (list(M.pad(t.root()[1])) + M.w_levels(t.path(s_claim), lt.EMPTY_NODE, claim.node(), S) + w.pos(claim) +
+                w.pads_for(tree.root()[1]) + M.w_levels(tree.path(s_src), src.node(), new_src, S) + w.pos(src) +
+                M.w_leaf(src) + M.w_leaf(claim) + M.w_carve_extras(src, claim, amt_new=max(amt_new, 0))), t
+
+    def tail(vsig, pre=preimage):
+        return [vsig] + ([pre] if hashlock and pre is not None else [])
+
+    # the recipient redeems the cumulative voucher into its own claim leaf
+    claim = carve_of(credit, "recipient", 40_000, sparse=S)
+    s_claim = w.slot(claim, 3)
+    h0, t1 = head(w.tree, credit, claim, s_credit, s_claim)
+    r1 = t1.root()
+    check(r1[1] == root[1], f"mid: {name} conserves the sum")
+    ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+    vsig = voucher(credit, claim)
+    xsig = schnorr_sign(ctx.sighash(), sk("recipient-exit"))
+    wit = h0 + tail(vsig) + [xsig, root[0], w.m]
+    it = w.run(name, wit, ctx)
+    check(True, f"mid: {name} redeemed with the voucher and the exit-key signature")
+
+    # negatives: the exit signature
+    osig = schnorr_sign(ctx.sighash(), w.op_sk)
+    expect_fail(lambda: w.run(name, h0 + tail(vsig) + [osig, root[0], w.m], ctx),
+                f"mid: {name} exit_sig by the wrong key (the operator, who owns the leaf)")
+    expect_fail(lambda: w.run(name, h0 + tail(vsig) + [bytes(64), root[0], w.m], ctx), f"mid: {name} garbage exit_sig")
+    expect_fail(lambda: w.run(name, h0 + tail(vsig) + [root[0], w.m], ctx), f"mid: {name} missing exit_sig")
+    expect_fail(lambda: w.run("CLAIM", h0 + tail(vsig) + [xsig, root[0], w.m], ctx),
+                f"mid: plain CLAIM with the {name} witness")
+    # the voucher is still required: no voucher, or a transaction signature in its place
+    expect_fail(lambda: w.run(name, h0 + ([preimage] if hashlock else []) + [xsig, root[0], w.m], ctx),
+                f"mid: {name} without the voucher")
+    expect_fail(lambda: w.run(name, h0 + tail(osig) + [xsig, root[0], w.m], ctx),
+                f"mid: {name} with a transaction signature in place of the voucher")
+    expect_fail(lambda: w.run(name, h0 + tail(voucher(credit, claim, sk("alice-owner"))) + [xsig, root[0], w.m], ctx),
+                f"mid: {name} voucher by the wrong signer")
+    other_tid = lt.tree_id(lt.sha256(b"creation-txid"), 1)
+    expect_fail(lambda: w.run(name, h0 + [schnorr_sign(
+        lt.voucher_msg(other_tid, credit, claim) if phash is None else lt.voucher_h_msg(other_tid, credit, claim, phash),
+        w.op_sk)] + ([preimage] if hashlock else []) + [xsig, root[0], w.m], ctx),
+        f"mid: {name} voucher signed for another tree_id")
+    # over-claim
+    greedy = carve_of(credit, "greedy", credit.amount + 1, sparse=S)
+    s_g = w.slot(greedy, 3)
+    hg, tg = head(w.tree, credit, greedy, s_credit, s_g)
+    ctx_g = w.ctx([(tg.root()[1], w.spk(tg.root()))], (600, P2WPKH))
+    expect_fail(lambda: w.run(name, hg + tail(voucher(credit, greedy)) +
+                              [schnorr_sign(ctx_g.sighash(), sk("recipient-exit")), root[0], w.m], ctx_g),
+                f"mid: {name} over-claim")
+    # replay: the redeemed voucher against the advanced source
+    saved = w.tree
+    w.tree = t1
+    credit2 = t1.leaves[s_credit]
+    claim2 = carve_of(credit, "recipient2", 40_000, sparse=S)
+    s_c2 = w.slot(claim2, 6)
+    hr, tr = head(t1, credit2, claim, s_credit, s_c2)
+    ctx_r = w.ctx([(tr.root()[1], w.spk(tr.root()))], (600, P2WPKH))
+    expect_fail(lambda: w.run(name, hr + tail(vsig) + [schnorr_sign(ctx_r.sighash(), sk("recipient-exit")), r1[0], w.m], ctx_r),
+                f"mid: {name} redeemed voucher replayed against the advanced source")
+    w.tree = saved
+    # the operator cannot drain the credit leaf: its own voucher and its own
+    # transaction signature are not the exit key; the recipient's consent
+    # lets the same drain through
+    drain = carve_of(credit, "operator-drain", credit.amount, sparse=S)
+    s_drain = w.slot(drain, 6)
+    hd, td = head(w.tree, credit, drain, s_credit, s_drain)
+    ctx_d = w.ctx([(td.root()[1], w.spk(td.root()))], (600, P2WPKH))
+    dsig = voucher(credit, drain)
+    expect_fail(lambda: w.run(name, hd + tail(dsig) + [schnorr_sign(ctx_d.sighash(), w.op_sk), root[0], w.m], ctx_d),
+                f"mid: {name} the operator draining the credit leaf with a voucher to itself")
+    w.run(name, hd + tail(dsig) + [schnorr_sign(ctx_d.sighash(), sk("recipient-exit")), root[0], w.m], ctx_d)
+    check(True, f"mid: {name} the same drain with the recipient's exit-key signature")
+    if hashlock:
+        expect_fail(lambda: w.run(name, h0 + tail(vsig, lt.sha256(b"wrong")) + [xsig, root[0], w.m], ctx),
+                    f"mid: {name} wrong preimage")
+        expect_fail(lambda: w.run(name, h0 + tail(vsig, preimage[:31]) + [xsig, root[0], w.m], ctx),
+                    f"mid: {name} preimage not 32 bytes")
+        expect_fail(lambda: w.run(name, h0 + [schnorr_sign(lt.voucher_msg(w.tree_id, credit, claim), w.op_sk), preimage, xsig, root[0], w.m], ctx),
+                    f"mid: {name} plain voucher under the hash lock")
+    else:
+        hsig = schnorr_sign(lt.voucher_h_msg(w.tree_id, credit, claim, lt.sha256(preimage)), w.op_sk)
+        expect_fail(lambda: w.run(name, h0 + [hsig, preimage, xsig, root[0], w.m], ctx),
+                    f"mid: {name} with a hash-locked voucher and its preimage")
+    if verbose:
+        print(f"MID {name} {'S' if S else 'D'} D={depth}: script {len(script)} B "
+              f"(plain {len(plain)} B), witness {sum(len(x) for x in wit)} B, maxdepth {it.max_depth}")
+    return it, len(script), sum(len(x) for x in wit)
+
+
+def test_credit_topup(depth, verbose=True):
+    """MID: the dedicated credit leaf end to end (spec 7.5.3, 7.9 rules 3
+    and 7, 10.3). The tree carries UPDATE^x, CLAIM^x and REWRITE_2^x. The
+    operator (owner of the credit leaf) issues cumulative vouchers to the
+    recipient (its exit key), then tops the leaf up by an amount-only
+    REWRITE_2^x with no signature but its own; the recipient still redeems
+    the vouchers signed before the top-up with CLAIM^x, one for more than
+    the balance at issuance, and the operator can redeem none of them."""
+    w = MidWorld(depth, False)
+    w.compiled = dict(w.compiled)
+    del w.compiled["UPDATE"]                      # a tree with CLAIM^x carries UPDATE^x and REWRITE_h^x (7.9 rule 7)
+    del w.compiled["CLAIM"]                       # and CLAIM^x in place of CLAIM, or the issuer could carve the leaf
+    w.compiled["UPDATE_X"] = assemble(M.update_script(depth, w.op_pk, False, exit_consent=True), mode="c0")
+    w.compiled["CLAIM_X"] = assemble(M.claim_script(depth, TREE_ID, False, exit_consent=True), mode="c0")
+    w.compiled["REWRITE_X_2"] = assemble(M.rewrite_script(depth, 2, w.op_pk, exit_consent=True), mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    base, idx = 4, 1
+    credit = lt.Leaf(10_000, pubkey_x(sk("recipient-exit")), w.op_pk, w.op_pk, 800_000,
+                     int.from_bytes(lt.sha256(b"credit")[:4], "little"), 0)
+    old = {0: credit}
+    for i in (1, 2, 3):
+        old[i] = mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+    w.tree.leaves = {base + i: lf for i, lf in old.items()}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    s_credit = base
+    # two cumulative vouchers, the second for more than the leaf holds now
+    v1 = carve_of(credit, "holder1", 4_000)
+    v2 = carve_of(credit, "holder2", 10_100)
+    sig1 = schnorr_sign(lt.voucher_msg(TREE_ID, credit, v1), w.op_sk)
+    sig2 = schnorr_sign(lt.voucher_msg(TREE_ID, credit, v2), w.op_sk)
+    # the top-up: amount only, every other position unchanged, no owner or exit signatures
+    topped = credit.with_amount_seq(credit.amount + 500, credit.seq)
+    new = {0: topped, 1: old[1], 2: old[2], 3: old[3]}
+    t1 = w.clone(); t1.leaves[s_credit] = topped; r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], (500 + 5_000, P2WPKH))
+    body = M.w_rewrite(w.tree, depth, 2, idx, new, {}, True)
+    w.run("REWRITE_X_2", body + [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m], ctx)
+    check(True, f"mid: REWRITE_2^x D={depth}, the operator tops up the credit leaf with its signature alone")
+    # a top-up that also rotates the exit key needs the recipient
+    rotated = lt.Leaf(topped.amount, pubkey_x(sk("operator-exit")), credit.owner_key, credit.evictor_key,
+                      credit.evict_after, credit.nonce, credit.seq)
+    t_r = w.clone(); t_r.leaves[s_credit] = rotated; r_r = t_r.root()
+    ctx_r = w.ctx([(r_r[1], w.spk(r_r))], (500 + 5_000, P2WPKH))
+    new_r = dict(new); new_r[0] = rotated
+    expect_fail(lambda: w.run("REWRITE_X_2", M.w_rewrite(w.tree, depth, 2, idx, new_r, {0: [schnorr_sign(ctx_r.sighash(), w.op_sk)]}, True) +
+                              [schnorr_sign(ctx_r.sighash(), w.op_sk), root[0], w.m], ctx_r),
+                "mid: REWRITE_2^x, the operator cannot move the credit leaf's exit key without the recipient")
+    w.tree = t1
+
+    def claim_x(lf, vsig, xkey, src=topped, s_c=2):
+        t2 = w.clone()
+        amt_new = max(src.amount - lf.amount, 0)
+        if amt_new > 0:
+            t2.leaves[s_credit] = src.with_amount_seq(amt_new, src.seq + 1)
+        else:
+            del t2.leaves[s_credit]
+        new_src = t2.leaves[s_credit].node() if s_credit in t2.leaves else lt.EMPTY_NODE
+        t2.leaves[s_c] = lf
+        r2 = t2.root()
+        ctx2 = w.ctx([(r2[1], w.spk(r2))], (600, P2WPKH))
+        wit = (list(M.pad(r2[1])) + M.w_levels(t2.path(s_c), lt.EMPTY_NODE, lf.node(), False) +
+               w.pads_for(w.tree.root()[1]) + M.w_levels(w.tree.path(s_credit), src.node(), new_src, False) +
+               M.w_leaf(src) + M.w_leaf(lf) + M.w_carve_extras(src, lf, amt_new=amt_new) +
+               [vsig, schnorr_sign(ctx2.sighash(), xkey), w.tree.root()[0], w.m])
+        return wit, ctx2, t2
+
+    expect_fail(lambda: w.run("CLAIM_X", *claim_x(v1, sig1, w.op_sk)[:2]),
+                "mid: CLAIM^x, the operator cannot redeem its own voucher against the credit leaf")
+    wit, ctx2, t2 = claim_x(v2, sig2, sk("recipient-exit"))
+    expect_fail(lambda: w.run("CLAIM_X", wit[:-3] + wit[-2:], ctx2), "mid: CLAIM^x without the recipient's signature")
+    w.run("CLAIM_X", wit, ctx2)
+    check(True, "mid: CLAIM^x, the recipient redeems the latest cumulative voucher, signed before the top-up, "
+                "for more than the balance at issuance")
+    # the earlier cumulative voucher is superseded: the source's seq has advanced
+    w.tree = t2
+    expect_fail(lambda: w.run("CLAIM_X", *claim_x(v1, sig1, sk("recipient-exit"), src=t2.leaves[s_credit], s_c=3)[:2]),
+                "mid: CLAIM^x, the earlier cumulative voucher is void once the later one has redeemed")
+    if verbose:
+        print(f"mid: credit leaf D={depth}: REWRITE_2^x top-up by the operator alone, then CLAIM^x by the recipient on the pre-top-up vouchers")
+
+
+def test_detach(depth, height, verbose=True):
+    """MID DETACH_h (spec 7.10), the FULL and CCV suites' detach over MID
+    numerics: the detach succeeds and conserves the total across the two
+    tree outputs, a member's old path truncated to its lower h levels is
+    the detached tree's own path, an EXIT_1 from the detached tree succeeds
+    with it, and a voucher issued in the parent redeems in the child, which
+    inherits tree_id. 7.10 rule 3: the parent is created with CLAIM and
+    UPDATE^x on top of the reference set, so m_h is that option set at
+    depth h and differs from the reference set's, under which the detach
+    fails. Negatives: output 1 under the reference set's m_h, under the
+    parent's own taptree, under the CCV key, under the m_h of a tree with
+    another tree_id, shortchanged or overfunded, a missing operator
+    signature, output 0 keeping the subtree, an inflated subtree sum, the
+    two tree outputs swapped, a malformed sum pad, a 31-byte R_h and a
+    forged path over a non-empty subtree."""
+    name = f"DETACH_{height}"
+    tag = f"mid: {name} D={depth}"
+    w = MidWorld(depth, False)
+    opts = M.TreeOptions(w.op_pk, TREE_ID, join_heights=(0, 2), exit_ks=(1, 2), claim=True, update_x=True,
+                         detach_heights=(height,))
+    w.scripts = opts.at_depth(depth)
+    for nm, toks in w.scripts.items():
+        bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+        check(not bad, f"{tag}: {nm} opcodes outside the MID set: {sorted(bad)}")
+    w.compiled = {k: assemble(v, mode="c0") for k, v in w.scripts.items()}
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    check(name in w.compiled and "CLAIM" in w.compiled and "UPDATE_X" in w.compiled,
+          f"{tag}: the parent's option set carries DETACH_h, CLAIM and UPDATE^x")
+    m_h = opts.taptree_root(height)
+    ref_m_h = M.detached_taptree_root(height, w.op_pk, TREE_ID)
+    check(m_h != ref_m_h, f"{tag}: m_h from the parent's options differs from the reference set's m_h")
+    check(M.detached_taptree_root(height, w.op_pk, TREE_ID, opts) == m_h,
+          f"{tag}: detached_taptree_root with the parent's options is the parent's set at depth h")
+    other_tid = lt.tree_id(lt.sha256(b"creation-txid"), 1)
+    m_h_other = M.TreeOptions(w.op_pk, other_tid, join_heights=(0, 2), exit_ks=(1, 2), claim=True, update_x=True,
+                              detach_heights=(height,)).taptree_root(height)
+    check(m_h_other != m_h, f"{tag}: a child under another tree_id has another m_h (CLAIM carries the constant)")
+    n, base = 1 << height, 1 << height
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000) for i in range(n) if i % 5 != 3}
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    node = w.tree.subtree(height, 1)                      # (R_h, sum_h)
+    t1 = w.clone()
+    for p_ in cohort:
+        del t1.leaves[p_]
+    r1 = t1.root()
+    spk1 = lt.tree_spk(node[0], m_h)
+
+    def run(outs, extra=5_000, signer=None, nd=None, mutate=None, tree=None):
+        tree = tree or w.tree
+        ctx = w.ctx(outs, (extra, P2WPKH))
+        wit = M.w_detach(tree, depth, height, 1, node=nd)
+        if mutate:
+            wit = mutate(wit)
+        return w.run(name, wit + [schnorr_sign(ctx.sighash(), signer or w.op_sk), root[0], w.m], ctx)
+    outputs = [(r1[1], w.spk(r1)), (node[1], spk1), (400, P2WPKH)]
+    it = run(outputs)
+    check(True, f"{tag} detaches {len(cohort)} leaves into their own tree output")
+    check(r1[1] + node[1] == root[1], f"{tag} conserves the total across two tree outputs")
+    # negatives
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk(node[0], ref_m_h)), outputs[2]]),
+                f"{tag} output 1 under an m_h that drops the parent's options")
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk(node[0], w.m)), outputs[2]]),
+                f"{tag} output 1 under the parent's own taptree")
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk_ccv(node[0], m_h)), outputs[2]]),
+                f"{tag} output 1 under the CCV-tier key")
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk(node[0], m_h_other)), outputs[2]]),
+                f"{tag} output 1 under the m_h of a child that does not inherit tree_id")
+    expect_fail(lambda: run([outputs[0], (node[1] - 1, spk1), outputs[2]]), f"{tag} output 1 shortchanged")
+    expect_fail(lambda: run([outputs[0], (node[1] + 1, spk1), outputs[2]], extra=6_000), f"{tag} output 1 overfunded")
+    expect_fail(lambda: run(outputs, signer=sk("alice-owner")), f"{tag} without the operator signature")
+    expect_fail(lambda: run([(root[1], w.spk(root)), (node[1], spk1), outputs[2]], extra=node[1] + 5_000),
+                f"{tag} subtree not emptied in output 0 (new node not E_h)")
+    expect_fail(lambda: run([(r1[1] + 1, w.spk(r1)), (node[1], spk1), outputs[2]], extra=6_000),
+                f"{tag} the host remainder off by one")
+    expect_fail(lambda: run([outputs[0], (node[1] + 1, spk1), outputs[2]], extra=6_000, nd=(node[0], node[1] + 1)),
+                f"{tag} inflated subtree sum")
+    expect_fail(lambda: run([outputs[1], outputs[0], outputs[2]]), f"{tag} the two tree outputs swapped")
+
+    def swap_pad(wit):
+        b = list(wit); b[-2], b[-1] = b[-2] + b"\x00", b[-1][1:]
+        return b
+    expect_fail(lambda: run(outputs, mutate=swap_pad), f"{tag} malformed sum pad")
+
+    def short_root(wit):
+        b = list(wit); b[-4] = b[-4][:31]
+        return b
+    expect_fail(lambda: run(outputs, mutate=short_root), f"{tag} a 31-byte R_h")
+    forged = w.clone(); forged.leaves[0] = mk_leaf("alice", 50_001)
+    expect_fail(lambda: run(outputs, tree=forged), f"{tag} a forged path over the non-empty subtree")
+
+    # the detached tree: the same options at depth h
+    w2 = MidWorld(height, False)
+    w2.scripts = opts.at_depth(height)
+    w2.compiled = {k: assemble(v, mode="c0") for k, v in w2.scripts.items()}
+    w2.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w2.compiled.values()])
+    check(w2.m == m_h, f"{tag}: the detached tree's identifier is the parent's options compiled at depth h")
+    check(list(w2.compiled) == ["EXIT_1", "EXIT_2", "JOIN_0", "JOIN_2", "JOINK_2", "UPDATE_X", "CLAIM"],
+          f"{tag}: the detached tree carries the parent's set less the heights that do not fit")
+    w2.tree.leaves = {p_ - base: lf for p_, lf in cohort.items()}
+    check(w2.tree.root() == node, f"{tag}: the detached tree's root is the detached node")
+    victim = base + 2
+    lf = cohort[victim]
+    short = w.tree.path(victim)[:height]
+    check(lt.fold(lf.node(), short) == node, f"{tag}: old path truncated to h levels verifies in the detached tree")
+    check(short == w2.tree.path(victim - base), f"{tag}: the truncated path is the detached tree's own path")
+    t2 = w2.clone(); del t2.leaves[victim - base]; r2 = t2.root()
+    ctx2 = TxContext([(node[1], spk1), (5_000, P2WPKH)],
+                     [(r2[1], w2.spk(r2)), (lf.amount, lt.p2tr_spk(lf.exit_key))])
+    sig2 = schnorr_sign(ctx2.sighash(), sk(f"c{victim - base}-owner"))
+    it2 = w2.run("EXIT_1", list(M.pad(r2[1])) + list(M.pad(node[1])) + M.w_levels(short, lf.node(), lt.EMPTY_NODE, False) +
+                 M.w_leaf_exit(lf) + [sig2, b"", node[0], m_h], ctx2)
+    check(True, f"{tag}: EXIT_1 from the detached depth-{height} tree with the truncated path")
+    # a voucher issued while the source leaf sat in the parent redeems in
+    # the detached tree: it inherits tree_id (7.10 rule 3) and its CLAIM
+    # carries the same constant, so no reissue after a detach (9.6)
+    issuer = max(cohort)
+    src = cohort[issuer]
+    holder = mk_leaf("holder", 3_000, w.op_pk, 800_000)
+    vsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, holder), sk(f"c{issuer - base}-owner"))
+    s_holder = next(i for i in range(n) if i not in w2.tree.leaves)
+    t3 = w2.clone(); lt.apply_claim(t3, issuer - base, s_holder, holder); r3 = t3.root()
+    ctx3 = TxContext([(node[1], spk1), (600, P2WPKH)], [(r3[1], w2.spk(r3))])
+    w2.run("CLAIM", list(M.pad(r3[1])) + M.w_levels(t3.path(s_holder), lt.EMPTY_NODE, holder.node(), False) +
+           list(M.pad(node[1])) + M.w_levels(w2.tree.path(issuer - base), src.node(), t3.leaves[issuer - base].node(), False) +
+           M.w_leaf(src) + M.w_leaf(holder) + M.w_carve_extras(src, holder) + [vsig, node[0], m_h], ctx3)
+    check(True, f"{tag}: a voucher issued in the parent redeems in the detached tree")
+    wit = M.w_detach(w.tree, depth, height, 1) + [bytes(64), root[0], w.m]
+    if verbose:
+        print(f"MID {name} D={depth}: script {len(w.compiled[name])} B, witness {sum(len(x) for x in wit)} B, "
+              f"{len(wit)} elements, maxdepth {it.max_depth}; EXIT_1 from the detached tree: "
+              f"script {len(w2.compiled['EXIT_1'])} B, maxdepth {it2.max_depth}")
+    return it, len(w.compiled[name]), sum(len(x) for x in wit)
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
@@ -1458,6 +1817,12 @@ if __name__ == "__main__":
     test_voucher_topup(16)
     test_claim_h(16, False)
     test_claim_h(31, True)
+    for hl in (False, True):
+        test_claim_x(16, False, hashlock=hl)
+        test_claim_x(31, True, hashlock=hl)
+    test_credit_topup(16)
+    for d, h in ((8, 2), (16, 2), (16, 8)):
+        test_detach(d, h)
     test_split(16, False)
     test_split(31, True)
     test_carve_rules(16)
