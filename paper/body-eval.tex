@@ -10,7 +10,7 @@ Every compiled predicate runs against a reference tree with positive and
 negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
 unconserved amount, early eviction, voucher replay, and others): 1{,}154
 FULL, 466 MID, 55 MIN and 1{,}344 CCV checks, failing if a script uses an
-opcode outside its tier, plus 210 for channel leaves and 61 for the
+opcode outside its tier, plus 220 for channel leaves and 61 for the
 hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
 \texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
 against 103 golden scripts, and builds, signs and verifies every FULL
