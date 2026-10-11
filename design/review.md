@@ -667,8 +667,15 @@ identifier in the channel scripts stops matching its tree
 (`design/audit/channels.md`, B6). No attacker was found: a replay needs
 someone to fund a duplicate leaf, and C.9.1 and 5.2 carry the binding in
 practice. The audit recommends binding `tree_id`, as 7.5 does for
-vouchers, at no script cost. Status: owner decision pending: `chan_id`
-binds `m` by decision 13 of 2026-10-09; the audit recommends `tree_id`.
+vouchers, at no script cost. Status: fixed (owner decision 2026-10-10,
+`design/status.md` decision 24, Appendix C 0.5.0). `chan_id` binds
+`tree_id` in C.2.2 and C.9.1 (text, with 9.8 and 7.10 of the base spec
+following); in the Python reference (`tools/layertree_chan.py`, with the
+C.12 negatives moved from `m` to `tree_id` and a positive on two
+`CLAIM`-free trees that share `m`); in the Go `ChanParams` and `ChanOpen`,
+whose `TreeID` field now carries what its name says; and in the `chan`
+golden vectors, which derive from the golden `tree_id` rather than the D4
+root. Zero bytes of script changed.
 
 ### F36. Two Appendix C sentences a counterparty relies on were wrong
 
