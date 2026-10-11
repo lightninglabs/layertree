@@ -478,9 +478,10 @@ signing), and `h = 6` fits only while `10(p_o + p_n − u) + s ≤ 523`, that
 is a mass exit of at most 47 leaves or a rewrite of at most 24 changed
 positions. A full 64-leaf cohort is rewritten as two `REWRITE_5` spends.
 
-The MID premium over FULL is about 55% of script for the dense profile and
-80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
-level) and the per-field size checks. MIN adds the sighash reconstruction
+The MID premium over FULL is about 60% of script for the dense profile and
+83% for the sparse profile (`EXIT_1` at `D = 16` and `D = 31/32`: 3,367
+against 2,101 and 9,402 against 5,147); almost all of it is the `PADZ`
+gadgets (two per level) and the per-field size checks. MIN adds the sighash reconstruction
 (about 270 bytes) on top of MID and removes `OP_TX`. The complete table,
 including `EXIT_K`, `EVICT_SUBTREE_h`, both compression encodings and the
 `FULL`-numerics-without-splice-opcodes data point, is
@@ -3091,7 +3092,7 @@ section 4, whereas CTV-based trees need only a template opcode.
 `EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,741 of
 witness data (5,617 WU in total), i.e. a second exit in the same transaction
 costs about 2,490 WU against roughly 4,080 WU for a separate transaction;
-in the sparse profile at `D = 32` the second exit costs about 4,950 WU.
+in the sparse profile at `D = 32` the second exit costs about 4,996 WU.
 Batching `K` exits scales linearly with no per-step EC overhead; each step
 adds one signature check.
 
@@ -3116,7 +3117,8 @@ subtree's internal nodes once and checks one signature:
 | `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 | 203 | `EXIT_16`: 26,791 B script |
 | `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 | 158 | `EXIT_64`: 105,847 B script |
 
-(`D = 16`; three of every sixteen positions already empty. The witness
+(`D = 16`; every fifth position already empty, 1, 3 and 13 of 4, 16 and
+64. The witness
 column is script plus witness elements plus control block, the
 transaction column prices the whole transaction on the model above with
 one payout per leaf.) Per-leaf witness falls from about 2.5 kWU
@@ -3128,12 +3130,12 @@ subtrees with a common lease expiry: the operator can then both add a
 cohort in one constant-shape transaction and remove it in one
 transaction per cohort.
 
-The MID tier's sweep (8.7) measures 4,097 / 1,157, 7,865 / 2,417 and
-23,873 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
+The MID tier's sweep (8.7) measures 4,169 / 1,157, 7,977 / 2,417 and
+24,169 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
 same cohorts, about 1.5 times FULL's script and 1.1 to 1.2 times its
-witness: about 615 WU of witness per leaf at `h = 6` against FULL's 445.
-A full 32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about
-565 WU per leaf). The 1,000-element stack limit caps a MID sweep at
+witness: about 620 WU of witness per leaf at `h = 6` against FULL's 445.
+A full 32-leaf `EVICT_SUBTREE_5` measures 13,321 / 4,907 bytes (about
+570 WU per leaf). The 1,000-element stack limit caps a MID sweep at
 `D = 16` to 54 occupied positions (4.5), so a full 64-leaf cohort takes
 two `EVICT_SUBTREE_5` spends.
 

@@ -63,10 +63,11 @@ TREE_EXIT_VB = 2511
 # positions, spec 11's table; the serialised transactions are in
 # spec/scripts/weights.md); the operator sweeps are the measured
 # EVICT_SUBTREE_4/6/8 sizes divided by the leaves they remove (13, 51
-# and 206), spec/scripts/sizes.md, with the same model.
+# and 205: every fifth position of the measured cohorts is empty),
+# spec/scripts/sizes.md, with the same model.
 OWNER_EXITS = [(1, 1020), (2, 842)]
 REWRITE_EXITS = [(4, 364), (16, 200), (64, 162)]
-OPERATOR_SWEEPS = [(13, 203), (51, 158), (206, 147)]
+OPERATOR_SWEEPS = [(13, 203), (51, 158), (205, 147)]
 # The sweeps at D = 16 only, h = 2, 4 and 6 (3, 13 and 51 leaves swept),
 # for the cohort figure; EVICT_SUBTREE_2 is 3,889 WU of witness, 1,295 vB.
 SWEEPS_D16 = [(3, 432), (13, 203), (51, 158)]
@@ -332,7 +333,7 @@ def fig_exit_amortisation(png_dir):
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 2, 842, "842", 10, 0)
     label(ax, 13, 203, "203", -10, -9, ha="right")
-    label(ax, 206, 147, "147", 0, 12, ha="center")
+    label(ax, 205, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA)],
              ["Owner exits, measured",
@@ -643,7 +644,7 @@ def fig_batching_shapes(png_dir):
     label(ax, 64, 158, "158", 0, 12, ha="center")
     label(ax, 64, 144, "144", 10, -4)
     label(ax, 256, 762, "762", 0, 12, ha="center")
-    label(ax, 206, 147, "147", 0, 12, ha="center")
+    label(ax, 205, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
               line_handle(AQUA),
               line_handle(ORANGE, hollow=True, marker=True),
@@ -698,8 +699,8 @@ def fig_cohort_cost(png_dir):
               "path)",
               "REWRITE_2/4/6, every position exits (owners sign, no "
               "lease needed)",
-              "EVICT_SUBTREE_2/4/6, three of every sixteen positions "
-              "empty (operator, leases)"], 68)
+              "EVICT_SUBTREE_2/4/6, every fifth position empty "
+              "(operator, leases)"], 68)
     f.text(590, bottom + 36, "leaves removed in one transaction", 11,
            INK3, ha="right")
     f.text(64, top - 10, "vB per leaf", 11, INK3)

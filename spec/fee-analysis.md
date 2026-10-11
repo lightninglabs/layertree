@@ -55,8 +55,9 @@ State every number here explicitly; nothing below is looked up live.
   implementations may differ (e.g. batched unrolling, different leaf
   script sizes).
 * **EVICT_SUBTREE leaf counts.** 13 leaves for `EVICT_SUBTREE_4` and 51 for
-  `EVICT_SUBTREE_6` at `D = 16`, per section 11 (3 of every 16 positions
-  already empty in the measured tree).
+  `EVICT_SUBTREE_6` at `D = 16`, per section 11 (every fifth position
+  already empty in the measured tree, `tools/test_scripts.py`: 3 of 16
+  and 13 of 64).
 * **USD figures.** Illustrative only, at a placeholder price of
   **100,000 USD/BTC** (`1 sat = $0.001`). Not a market quote; substitute
   your own price to rescale linearly.
