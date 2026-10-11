@@ -119,6 +119,18 @@
         ]
       },
       {
+        "title": "Hypothetical floor: about 388 vB",
+        "caption": "Not a tier. If Bitcoin had one opcode that verifies a Merkle-sum path and returns the root with a leaf replaced, the whole unrolled fold would collapse into it: 252 bytes of script at any depth, about 388 vB for the exit. The repository measures this in its simulator to show where the floor is; LayerTree composes proposals that exist and does not propose this one.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "checks", "items": [
+            {"text": "Old root: one opcode folds the leaf up the path and returns the root; OP_CHECKCONTRACTVERIFY confirms the input commits to it.", "state": "ok"},
+            {"text": "Rule: OP_CHECKSIG verifies C's signature.", "state": "ok"},
+            {"text": "New root: the same opcode with the slot emptied; OP_CHECKCONTRACTVERIFY confirms output 0 commits to it.", "state": "ok"}
+          ]}
+        ]
+      },
+      {
         "title": "The same result in every tier",
         "caption": "Whichever tier the tree was created for, the exit ends the same way: C's slot is empty, the tree output holds 10 under the new root, and C is paid 6. A tree is created for one tier and stays in it.",
         "ops": [
@@ -135,7 +147,7 @@
   <h2 id="table">The four tiers</h2>
   <div class="table-wrap">
     <table>
-      <caption>Exit size at depth 16, dense profile (spec 4.5 and 11, <code>design/cost-comparison.md</code>)</caption>
+      <caption>Exit size at depth 16, dense profile (spec 4.5 and 11, <code>design/cost-comparison.md</code>). The last row is a measurement, not a tier: the opcode it assumes is not proposed.</caption>
       <thead>
         <tr><th>Tier</th><th>Opcodes beyond today's tapscript</th><th>What it supports</th><th class="num">Exit script / witness, bytes</th><th class="num">Exit, vB</th></tr>
       </thead>
@@ -144,6 +156,7 @@
         <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code>; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree)</td><td class="num">3,367 / 978</td><td class="num">1,355</td></tr>
         <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,640 / 1,175</td><td class="num">1,473</td></tr>
         <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code></td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
+        <tr><td><em>Hypothetical floor</em></td><td>CCV plus one purpose-built Merkle-sum opcode (<code>OP_MERKLESUMUPDATE</code>, not proposed; <code>design/native-opcodes.md</code>)</td><td>measured for the exit and the single join only; script size is constant in depth</td><td class="num">252 / 225</td><td class="num">388</td></tr>
       </tbody>
     </table>
   </div>
@@ -191,10 +204,16 @@
   numbers or MID's, and its exit is the smallest of the four. Its vouchers bind a
   per-tree identifier instead of the script-set root.</p>
 
-  <p>A further opcode built for Merkle-sum trees would bring the exit to about
-  388 vB, which the repository measures in its simulator. It is a measurement
-  only, kept out of every tier, because LayerTree composes existing proposals and
-  invents none.</p>
+  <h2 id="floor">The floor, measured</h2>
+  <p>One opcode built for Merkle-sum trees, verifying a path and returning the
+  root with one leaf replaced, would remove the unrolled fold that is most of
+  every script above: the exit becomes 252 bytes of script at any depth and about
+  388 vB in all, and the sparse profile stops costing more than the dense one,
+  since the proof carries one sibling per occupied level and nothing per empty
+  one. The repository measures this in its simulator (61 checks) to show where the
+  floor is and how far each tier sits from it. It is a measurement only, kept out
+  of every tier, the golden vectors and the spec, because LayerTree composes
+  existing proposals and invents none.</p>
 
   <section class="deeper" aria-labelledby="deeper">
     <h2 id="deeper">Deeper</h2>
