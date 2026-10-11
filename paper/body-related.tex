@@ -18,10 +18,9 @@ trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
 expiries and Decker-Wattenhofer factories; MATT-style
 trees~\cite{matt,bip443} replace signatures by templates.
 Table~\ref{tab:compare} (Appendix~\ref{\iffullversion app:eval\else app:compare\fi}) compares them. \emph{Beyond Bitcoin.} Plasma's forced exits~\cite{plasma} prove a
-balance against a committed root, enforced by a contract. Proofs of
-liabilities~\cite{gpol,brokensolvency} use Merkle-sum trees, where a node
-that hashes only its children's total admits the inflation that hashing
-each child's sum avoids.\iffullversion{} None of these states its guarantees as a
+balance against a committed root. Proofs of
+liabilities~\cite{gpol,brokensolvency} use Merkle-sum trees, whose
+per-child sums block the inflation a total-only node admits.\iffullversion{} None of these states its guarantees as a
 functionality; we build on the ledger model of~\cite{bmtz17} and the
 channel functionalities of~\cite{genchannels,gscn}.\fi{} \emph{Components.}
 The Merkle-sum sparse Merkle tree is Taproot Assets'~\cite{mssmt},

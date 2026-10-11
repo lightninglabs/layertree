@@ -19,8 +19,11 @@ hypothetical native Merkle-sum opcode (simulator only) takes \tr{EXIT}$_1$
 to 252 B of script at every depth.
 \else
 All activity is serialised through one output, so an honest exit's delay
-is set by policy and fees, which [C] names rather than derives; cluster
+is set by policy and fees, which [C] names; cluster
 mempool~\cite{clustermempool} raises $\kappa$ for a cooperative tree but
 shares the cluster with every descendant anyone attaches, and fee
-pinning is outside [C].
+pinning is outside [C]. The price of the one-transaction exit is one
+UTXO for all activity. Next: a Liquid prototype of MID~\cite{elements}, a
+verified compiler, a proof that channel leaves compose, and a P
+model~\cite{plang}.
 \fi
