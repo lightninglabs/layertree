@@ -132,10 +132,22 @@ func FullReferenceLeaves(depth int, operatorKey, treeID [32]byte, sparse bool,
 // depth created with opts, in the order script.FullTreeOptions.Scripts
 // emits it, so its Root is opts.TapTreeRoot(depth), the m of spec 6.2.
 func NewFullTapTree(depth int, opts script.FullTreeOptions) (*TapTree, error) {
+	return NewOptionsTapTree(depth, opts)
+}
+
+// NewOptionsTapTree compiles the taptree of a tree of the given depth
+// created with opts in the tier the option set belongs to, in the order
+// its Scripts emits, so its Root is opts.TapTreeRoot(depth), the m of spec
+// 6.2 (m_h when depth is a DETACH_h child's).
+func NewOptionsTapTree(depth int, opts Options) (*TapTree, error) {
+	r, err := optionRules(opts)
+	if err != nil {
+		return nil, err
+	}
 	scripts := opts.Scripts(depth)
 	leaves := make([]TapLeaf, 0, len(scripts))
 	for _, s := range scripts {
-		leaf, err := FullLeaf(s.Name, s.Tokens)
+		leaf, err := TierLeaf(r.tier, s.Name, s.Tokens)
 		if err != nil {
 			return nil, err
 		}
@@ -146,14 +158,18 @@ func NewFullTapTree(depth int, opts script.FullTreeOptions) (*TapTree, error) {
 
 // FullLeaf assembles a FULL-tier token list into a 0xC2 taptree leaf.
 func FullLeaf(name string, tokens []script.Token) (TapLeaf, error) {
+	return TierLeaf(Full, name, tokens)
+}
+
+// TierLeaf assembles a token list into a taptree leaf of the tier: 0xC2
+// numerics and leaf version for Full and CCV, 0xC0 for the others.
+func TierLeaf(tier Tier, name string, tokens []script.Token) (TapLeaf, error) {
 	if tokens == nil {
-		return TapLeaf{}, fmt.Errorf("txn: no FULL script %s", name)
+		return TapLeaf{}, fmt.Errorf("txn: no %s script %s", tier, name)
 	}
-	b, err := script.Assemble(tokens, script.ModeC2)
+	b, err := script.Assemble(tokens, tier.Mode())
 	if err != nil {
 		return TapLeaf{}, fmt.Errorf("txn: assemble %s: %w", name, err)
 	}
-	return TapLeaf{
-		Name: name, Script: b, Version: script.ModeC2.LeafVersion(),
-	}, nil
+	return TapLeaf{Name: name, Script: b, Version: tier.LeafVersion()}, nil
 }

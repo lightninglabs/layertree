@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -22,19 +21,21 @@ const TreeSequence uint32 = 0xfffffffd
 const DefaultTxVersion int32 = 2
 
 // TreeInput identifies the tree output being spent: its outpoint, its amount
-// (which equals the sum of the root it commits to, spec 6.3) and the state it
-// is in.
+// (which equals the sum of the root it commits to, spec 6.3), the state it
+// is in and the tier whose key binds it (Full, the zero value, unless the
+// tree was created in another tier).
 type TreeInput struct {
 	OutPoint   wire.OutPoint
 	Amount     int64
 	RootHash   [32]byte
 	MerkleRoot [32]byte
+	Tier       Tier
 }
 
 // TxOut returns the previous output of the tree input, i.e. TREE_SPK(r, m)
-// with the input's amount.
+// (TREE_SPK_CCV in the CCV tier) with the input's amount.
 func (t *TreeInput) TxOut() (*wire.TxOut, error) {
-	spk, err := tree.ScriptPubKey(t.RootHash, t.MerkleRoot)
+	spk, err := t.Tier.ScriptPubKey(t.RootHash, t.MerkleRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +134,10 @@ func (b *Builder) version() int32 {
 	return b.Version
 }
 
-// NewTreeOut returns output 0: TREE_SPK(r', m) with the new total.
+// NewTreeOut returns output 0: TREE_SPK(r', m) with the new total, under
+// the tree input's tier.
 func (b *Builder) NewTreeOut() (*wire.TxOut, error) {
-	spk, err := tree.ScriptPubKey(b.NewRoot, b.Tree.MerkleRoot)
+	spk, err := b.Tree.Tier.ScriptPubKey(b.NewRoot, b.Tree.MerkleRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -241,24 +243,11 @@ const secpOddPrefix = 0x03
 // TreeControlBlock returns the control block that reveals a transition script
 // of the tree in state rootHash: the internal key is the state key x(P) of
 // spec 6.1 and the output key is the one committed to in TREE_SPK(r, m).
+// It is Full's control block; Tier.controlBlock serves every tier.
 func TreeControlBlock(rootHash, merkleRoot [32]byte, leafVersion byte,
 	inclusionProof []byte) ([]byte, error) {
 
-	internalKey, err := tree.InternalKey(rootHash)
-	if err != nil {
-		return nil, err
-	}
-	// BIP-341 commits to the even-y lift of the internal key's x
-	// coordinate, which is what the control block carries.
-	internalKey, err = schnorr.ParsePubKey(schnorr.SerializePubKey(internalKey))
-	if err != nil {
-		return nil, err
-	}
-	outputKey, err := tree.OutputKey(rootHash, merkleRoot)
-	if err != nil {
-		return nil, err
-	}
-	return ControlBlock(internalKey, outputKey, leafVersion, inclusionProof)
+	return Full.controlBlock(rootHash, merkleRoot, leafVersion, inclusionProof)
 }
 
 // TapscriptSpend attaches a script-path witness to an input: the script's

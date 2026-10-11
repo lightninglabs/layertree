@@ -10,19 +10,16 @@ import (
 	"github.com/roasbeef/layertree/tree"
 )
 
-// This file holds the cohort transitions of spec 7.9 and 7.10, which act
-// on an aligned subtree of height h rather than on single leaves:
-// REWRITE_h (and REWRITE_h^x) rewrites every position of the subtree in
-// one spend, and DETACH_h moves the subtree into a tree output of its own.
-// Both are dense-profile scripts.
+// This file holds the cohort transitions of spec 7.7, 7.9 and 7.10, which
+// act on an aligned subtree of height h rather than on single leaves:
+// EVICT_SUBTREE_h sweeps every leaf of the subtree, REWRITE_h (and
+// REWRITE_h^x) rewrites every position of the subtree in one spend, and
+// DETACH_h moves the subtree into a tree output of its own. All three are
+// dense-profile scripts.
 
-// FullSeqFinal is SEQ_FINAL in the FULL tier (spec 5.2): the seq value of
+// FullSeqFinal is SEQ_FINAL in the 0xC2 tiers (spec 5.2): the seq value of
 // a leaf that no carve and no amount-only rewrite exemption applies to.
 const FullSeqFinal uint32 = 0xFFFFFFFF
-
-// rewriteMarker is the FULL tier's "unchanged" marker (spec 7.9): a
-// one-byte new element standing for the old element of the same position.
-var rewriteMarker = []byte{0x01}
 
 // rewriteNeedsOwner decides spec 7.9 rule 3 for one position: a position
 // whose old element is a leaf and whose new element differs needs the old
@@ -43,13 +40,38 @@ func rewriteNeedsOwner(old, new *tree.Leaf, seqFinal uint32) bool {
 	return true
 }
 
+// slot renders one position of a 0xC0 sweep or rewrite: a present leaf as
+// its elements (with evict_after for the sweep) and a presence flag, an
+// empty position as one empty element. In 0xC2 a position is the leaf
+// record or the empty element.
+func (r rules) slot(leaf *tree.Leaf, exit bool) [][]byte {
+	if leaf == nil {
+		return [][]byte{{}}
+	}
+	if !r.tier.elements() {
+		return [][]byte{leaf.Serialize()}
+	}
+	return append(r.leaf(leaf, exit), []byte{0x01})
+}
+
+// rewriteMarker is the tier's "unchanged" marker (spec 7.9): a one-byte
+// new element standing for the old element of the same position, 0x01 in
+// the 0xC2 tiers and 0x02 under 0xC0 numerics, where 0x01 is a slot's
+// presence flag.
+func (r rules) rewriteMarker() []byte {
+	if r.tier.elements() {
+		return []byte{0x02}
+	}
+	return []byte{0x01}
+}
+
 // checkSubtree validates the (height, index) of a dense cohort transition
 // against the tree.
-func (st *TreeState) checkSubtree(name string, height int, index uint64,
-	maxHeight int) error {
+func (st *TreeState) checkSubtree(r rules, name string, height int,
+	index uint64, maxHeight int) error {
 
 	switch {
-	case st.Options.Sparse:
+	case r.sparse:
 		return fmt.Errorf("txn: %s is a dense profile script", name)
 	case height < 0 || height > maxHeight:
 		return fmt.Errorf("txn: %s height %d out of range", name, height)
@@ -57,6 +79,80 @@ func (st *TreeState) checkSubtree(name string, height int, index uint64,
 		return fmt.Errorf("txn: %s index %d out of range", name, index)
 	}
 	return nil
+}
+
+// BuildEvictSubtree builds EVICT_SUBTREE_h (spec 7.7), dense profile only:
+// sweep every leaf of the aligned subtree of height h at index, each paid
+// exactly to its exit key on the next output from 1 in position order, under
+// one operator signature. Every leaf must name the operator as evictor and
+// opts.LockTime must have reached every evict_after. If the sweep empties
+// the tree, opts.Terminal is output 0 (spec 7.8).
+func BuildEvictSubtree(st *TreeState, height int, index uint64,
+	opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
+	name := fmt.Sprintf("EVICT_SUBTREE_%d", height)
+	if err := st.checkSubtree(r, name, height, index, st.Tree.Depth); err != nil {
+		return nil, nil, err
+	}
+	var lockTime uint32
+	if opts != nil {
+		lockTime = opts.LockTime
+	}
+
+	cur := st.Tree
+	next := cur.Clone()
+	base := index << uint(height)
+	leaves := make([]*tree.Leaf, 1<<uint(height))
+	var payouts []Payout
+	for off := range leaves {
+		pos := base + uint64(off)
+		leaf := cur.Leaves[pos]
+		if leaf == nil {
+			continue
+		}
+		if leaf.EvictorKey != r.operatorKey {
+			return nil, nil, fmt.Errorf("txn: the leaf at %d is not "+
+				"evictable by the operator", pos)
+		}
+		if err := checkEvictLockTime(lockTime, leaf.EvictAfter); err != nil {
+			return nil, nil, fmt.Errorf("txn: leaf at %d: %w", pos, err)
+		}
+		leaves[off] = leaf
+		payouts = append(payouts, Payout{
+			ExitKey: leaf.ExitKey, Amount: int64(leaf.Amount),
+		})
+		delete(next.Leaves, pos)
+	}
+	if len(payouts) == 0 {
+		return nil, nil, errors.New("txn: the subtree is empty")
+	}
+	if err := r.checkTotals(cur); err != nil {
+		return nil, nil, err
+	}
+
+	// Witness (spec 8.7): path (from height h), the 0xC0 node pads,
+	// leaf_{2^h-1} .. leaf_0, operator_sig.
+	in := st.input(r)
+	body := r.inputPad(uint64(in.Amount))
+	body = append(body, r.levels(
+		cur.Path(base, height), height, cur.Subtree(height, index),
+		tree.EmptyNode(height),
+	)...)
+	body = append(body, r.nodePads(height, index, cur)...)
+	for i := len(leaves) - 1; i >= 0; i-- {
+		body = append(body, r.slot(leaves[i], true)...)
+	}
+	body, sigs := operatorSlot(r, body)
+
+	spend, err := finish(st, r, next, name, payouts, body, sigs, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return spend, next, nil
 }
 
 // BuildRewrite builds REWRITE_h (spec 7.9), or REWRITE_h^x with exitConsent
@@ -76,17 +172,20 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 	after map[uint64]*tree.Leaf, exitConsent bool, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
 	name := fmt.Sprintf("REWRITE_%d", height)
 	if exitConsent {
 		name = fmt.Sprintf("REWRITE_X_%d", height)
 	}
-	if err := st.checkSubtree(name, height, index, st.Tree.Depth); err != nil {
+	if err := st.checkSubtree(r, name, height, index, st.Tree.Depth); err != nil {
 		return nil, nil, err
 	}
 	// Rule 7: a taptree with UPDATE^x or CLAIM^x carries REWRITE_h^x, not
 	// REWRITE_h, so that neither consent can be bypassed by the cohort form.
-	o := st.Options
-	if !exitConsent && (o.UpdateX || o.ClaimX || o.ClaimHX) {
+	if !exitConsent && r.exitConsent {
 		return nil, nil, errors.New("txn: a tree with UPDATE^x or CLAIM^x " +
 			"rewrites with REWRITE_h^x (spec 7.9 rule 7)")
 	}
@@ -103,13 +202,13 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 
 	next := cur.Clone()
 	var payouts []Payout
-	var blocks [][][]byte // per position, bottom..top, in position order
 	type slot struct {
 		pos  uint64
 		key  [32]byte
 		role string
 	}
-	var slots [][]slot // signature slots per position, in witness order
+	var blocks [][][]byte // per position, bottom..top, in position order
+	var slots [][]slot    // signature slots per position, in witness order
 	for off := uint64(0); off < n; off++ {
 		pos := base + off
 		old := cur.Leaves[pos]
@@ -131,7 +230,7 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 		// The block is [xsig] [sig] new old, bottom to top.
 		var block [][]byte
 		var ps []slot
-		if rewriteNeedsOwner(old, new, FullSeqFinal) {
+		if rewriteNeedsOwner(old, new, r.tier.SeqFinal()) {
 			if exitConsent {
 				block = append(block, sigPlaceholder())
 				ps = append(ps, slot{pos, old.ExitKey, "exit"})
@@ -139,46 +238,47 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 			block = append(block, sigPlaceholder())
 			ps = append(ps, slot{pos, old.OwnerKey, "owner"})
 		}
-		switch {
-		case old != nil && new != nil &&
-			bytes.Equal(old.Serialize(), new.Serialize()):
-			block = append(block, rewriteMarker)
-		case new != nil:
-			block = append(block, new.Serialize())
-		default:
-			block = append(block, []byte{})
-		}
-		if old != nil {
-			block = append(block, old.Serialize())
+		if old != nil && new != nil &&
+			bytes.Equal(old.Serialize(), new.Serialize()) {
+
+			block = append(block, r.rewriteMarker())
 		} else {
-			block = append(block, []byte{})
+			block = append(block, r.slot(new, false)...)
 		}
+		block = append(block, r.slot(old, false)...)
 		blocks = append(blocks, block)
 		slots = append(slots, ps)
 	}
 	if cur.Subtree(height, index) == next.Subtree(height, index) {
 		return nil, nil, errors.New("txn: the rewrite changes nothing")
 	}
+	if err := r.checkTotals(cur, next); err != nil {
+		return nil, nil, err
+	}
 
-	// Witness (bottom..top): path, block_{n-1} .. block_0, sig_op, r, m.
-	in := st.Input()
-	stack := DensePathWitness(cur.Path(base, height))
+	// Witness (spec 8.9): path, the 0xC0 node pads (new then old per
+	// node), block_{n-1} .. block_0, sig_op.
+	in := st.input(r)
+	body := r.inputPad(uint64(in.Amount))
+	body = append(body, r.levels(
+		cur.Path(base, height), height, cur.Subtree(height, index),
+		next.Subtree(height, index),
+	)...)
+	body = append(body, r.nodePads(height, index, next, cur)...)
 	var sigs []SigSlot
 	for i := len(blocks) - 1; i >= 0; i-- {
 		for j, s := range slots[i] {
 			sigs = append(sigs, SigSlot{
-				Index: len(stack) + j, Key: s.key,
+				Index: len(body) + j, Key: s.key,
 				Role: fmt.Sprintf("position %d %s", s.pos, s.role),
 			})
 		}
-		stack = append(stack, blocks[i]...)
+		body = append(body, blocks[i]...)
 	}
-	sigs = append(sigs, SigSlot{
-		Index: len(stack), Key: o.OperatorKey, Role: "operator",
-	})
-	stack = append(stack, sigPlaceholder(), in.RootHash[:], in.MerkleRoot[:])
+	body, opSig := operatorSlot(r, body)
+	sigs = append(sigs, opSig...)
 
-	spend, err := finish(st, next, name, payouts, stack, sigs, opts)
+	spend, err := finish(st, r, next, name, payouts, body, sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -191,21 +291,28 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 // root under m_h, the tree's own option set compiled at depth h (rule 3).
 // The operator signs. Returns the spend, the host tree after it, and the
 // detached tree as a TreeState of its own: the cohort's leaves at their
-// offsets within the subtree, the same options (so the same tree_id, which
-// is what keeps vouchers against its leaves redeemable), and output 1 of
-// the spend as its outpoint. If the host is left empty, opts.Terminal is
-// output 0.
+// offsets within the subtree, the same options (so the same tier and the
+// same tree_id, which is what keeps vouchers against its leaves
+// redeemable), and output 1 of the spend as its outpoint. If the host is
+// left empty, opts.Terminal is output 0.
 func BuildDetach(st *TreeState, height int, index uint64, opts *TxOpts) (*Spend,
 	*tree.Tree, *TreeState, error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	name := fmt.Sprintf("DETACH_%d", height)
-	if err := st.checkSubtree(name, height, index, st.Tree.Depth-1); err != nil {
+	if err := st.checkSubtree(r, name, height, index, st.Tree.Depth-1); err != nil {
 		return nil, nil, nil, err
 	}
 	cur := st.Tree
 	node := cur.Subtree(height, index)
 	if node == tree.EmptyNode(height) {
 		return nil, nil, nil, errors.New("txn: the subtree is empty")
+	}
+	if err := r.checkTotals(cur); err != nil {
+		return nil, nil, nil, err
 	}
 
 	base := index << uint(height)
@@ -220,7 +327,7 @@ func BuildDetach(st *TreeState, height int, index uint64, opts *TxOpts) (*Spend,
 
 	// Output 1 is the detached tree output; the caller's outputs follow it.
 	mH := st.Options.TapTreeRoot(height)
-	spk, err := tree.ScriptPubKey(node.Hash, mH)
+	spk, err := r.tier.ScriptPubKey(node.Hash, mH)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -231,16 +338,18 @@ func BuildDetach(st *TreeState, height int, index uint64, opts *TxOpts) (*Spend,
 	o.Outputs = append([]*wire.TxOut{wire.NewTxOut(int64(node.Sum), spk)},
 		o.Outputs...)
 
-	// Witness (bottom..top): path, R_h, le64(sum_h), sig, r, m.
-	in := st.Input()
-	stack := DensePathWitness(cur.Path(base, height))
-	stack = append(stack, node.Hash[:], tree.Le64(node.Sum))
-	sigs := []SigSlot{{
-		Index: len(stack), Key: st.Options.OperatorKey, Role: "operator",
-	}}
-	stack = append(stack, sigPlaceholder(), in.RootHash[:], in.MerkleRoot[:])
+	// Witness (spec 8.10): path, R_h, sum_h (le64, or a minimal number
+	// with its pad), sig.
+	in := st.input(r)
+	body := r.inputPad(uint64(in.Amount))
+	body = append(body, r.levels(
+		cur.Path(base, height), height, node, tree.EmptyNode(height),
+	)...)
+	body = append(body, node.Hash[:])
+	body = append(body, r.paddedSum(node.Sum)...)
+	body, sigs := operatorSlot(r, body)
 
-	spend, err := finish(st, host, name, nil, stack, sigs, &o)
+	spend, err := finish(st, r, host, name, nil, body, sigs, &o)
 	if err != nil {
 		return nil, nil, nil, err
 	}

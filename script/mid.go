@@ -933,8 +933,15 @@ func midEvictBody(height int, operatorKey [32]byte, pay []Token) []Token {
 // witness and are parked while a position's slots are reduced.
 // ---------------------------------------------------------------------------
 
-// midSeqFinal is the MID tier's SEQ_FINAL marker (spec 4.5), le32(0x7FFFFFFF).
-var midSeqFinal = []byte{0xff, 0xff, 0xff, 0x7f}
+// MidSeqFinal is SEQ_FINAL under 0xC0 numerics (spec 4.5, 5.2): the
+// largest four-byte CScriptNum, whose successor does not fit the PADZ
+// gadget, so a leaf carrying it can be neither carved nor topped up
+// without its owner.
+const MidSeqFinal uint32 = 0x7FFFFFFF
+
+// midSeqFinal is the MID tier's SEQ_FINAL marker as the scripts compare it,
+// le32(MidSeqFinal).
+var midSeqFinal = tree.Le32(MidSeqFinal)
 
 // midRewriteSame is the MID "unchanged" marker (spec 7.9): a new slot of one
 // element 0x02 (0x01 being a slot's presence flag) stands for the old slot.

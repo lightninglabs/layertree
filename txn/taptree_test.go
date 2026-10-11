@@ -35,7 +35,7 @@ func TestTapTreeGolden(t *testing.T) {
 	}
 	want := golden.TaptreeFullD4
 
-	w := newWorld(t, 4, false, "EVICT_SUBTREE_2")
+	w := newWorld(t, caseSpec{tier: Full, depth: 4, variants: []string{"EVICT_SUBTREE_2"}})
 	tt := w.st.TapTree
 	if len(tt.Leaves) != len(want.LeafHashes) {
 		t.Fatalf("taptree has %d leaves, want %d", len(tt.Leaves),
