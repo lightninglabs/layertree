@@ -98,8 +98,9 @@ and the costs above are for a tree of the occupancy that budget allows.
 
 \paragraph{Limits and execution.} Under \texttt{0xC0} every stack element
 is at most 520 bytes, including the collated settlement blob of
-$156 + 43h$ bytes, so a MID channel carries at most seven HTLC outputs
-per state; FULL has no such limit. The scripts and transactions above
+$156 + 43h$ bytes with both balances present, so a MID channel carries
+at most seven HTLC outputs per state beside two balances, or eight
+beside one; FULL has no such limit. The scripts and transactions above
 run, in both tapleaf versions, on a chain model that enforces BIP-65 and
 BIP-68 (210 checks): a leaf leaves a tree by \tr{EXIT}$_1^{=}$, a state
 signed before the exit binds to whichever funding output an exit or an
