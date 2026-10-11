@@ -80,6 +80,14 @@ with numbers.
   151 (exiting); still FULL only: MID DETACH_h and CLAIM^x outside FULL.
   (b) landed (design/audit/go.md, F37 to F45) and its fixes (G1 to G8
   partial, channel caps and G7); F45 (DUST_MIN as a Go parameter) open.
+  EXIT^t landed (merge b73120b, spec 0.12.1, Appendix C 0.5.1; 103
+  golden scripts, 48 txn cases, counts 1,154 / 466 / 55 / 1,344 / 220 /
+  61); F45 landed (DUST_MIN a Go parameter, merge e772637); paper and
+  PDFs rebuilt at 49fc278; site republished (Litbucket version 3). The
+  evening round is complete. Next: an adversarial review pass over the
+  day's changes (spec 0.11.0 to 0.12.1, Appendix C 0.4.0 to 0.5.1, the Go
+  fixes, the developer paper) before anything goes to reviewers; still
+  FULL only: MID DETACH_h and CLAIM^x outside FULL (status.md open work).
   Decided (orchestrator + Opus second opinion, Fable check on Q3):
   B6: chan_id binds tree_id (Appendix C 0.5.0; Fable rule worker
   running, owns layertree_chan.py, test_chan.py, chan Go, chan golden,
