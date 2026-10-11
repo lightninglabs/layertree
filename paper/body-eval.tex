@@ -8,13 +8,13 @@ varops, computes the real BIP-341 signature message and enforces
 \texttt{MINIMALDATA}; it models consensus limits, not standardness.
 Every compiled predicate runs against a reference tree with positive and
 negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
-unconserved amount, early eviction, voucher replay, and others): 1{,}054
-FULL, 268 MID, 55 MIN and 972 CCV checks, failing if a script uses an
+unconserved amount, early eviction, voucher replay, and others): 1{,}154
+FULL, 466 MID, 55 MIN and 1{,}344 CCV checks, failing if a script uses an
 opcode outside its tier, plus 210 for channel leaves and 61 for the
 hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
 \texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
-against 94 golden scripts, and builds, signs and verifies every FULL
-transition (45 cases); its BIP-341 signature hash equals the
+against 103 golden scripts, and builds, signs and verifies every FULL
+transition (48 cases); its BIP-341 signature hash equals the
 simulator's.
 \else
 \paragraph{Implementation.} A Python tapscript interpreter for both leaf
@@ -141,9 +141,9 @@ sigop budget.
 \paragraph{Artefact.} Every number here is regenerated from the
 repository~\cite{layertreerepo} at the revision on the title page
 (\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
-(1{,}054 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
-cohort shapes), \path{test_mid.py} (268), \path{test_min.py} (55),
-\path{test_ccv.py} (972), \path{test_chan.py} (210), \path{test_msu.py}
+(1{,}154 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
+cohort shapes), \path{test_mid.py} (466), \path{test_min.py} (55),
+\path{test_ccv.py} (1{,}344), \path{test_chan.py} (220), \path{test_msu.py}
 (61), \path{gen_listings.py} (the size table), \path{fee_analysis.py}
 (the fee model), \path{gen_golden.py} and \path{experiments/radix4.py}
 (55); by \texttt{go test ./...}; and by \texttt{lake build} in
@@ -152,7 +152,7 @@ copied from these outputs by hand.
 \else
 \paragraph{Artefact.} Every number here is regenerated from the
 repository~\cite{layertreerepo} at the revision on the title page by
-the test suites and generators under \path{tools/} (1{,}054 FULL, 268
-MID, 55 MIN, 972 CCV and 210 channel checks), by \texttt{go test} and by
+the test suites and generators under \path{tools/} (1{,}154 FULL, 466
+MID, 55 MIN, 1{,}344 CCV and 220 channel checks), by \texttt{go test} and by
 \texttt{lake build}.
 \fi

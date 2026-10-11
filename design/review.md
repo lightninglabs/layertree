@@ -785,8 +785,12 @@ to the compiled `CLAIM` constant through `NewTreeState`.
 
 The Go generators and `buildCarve` fix `DUST_MIN` at 330 where the Python
 takes `dust_min`, so a tree created with a higher floor cannot be built
-or mirrored (G9). Low, a gap rather than a bug. Status: open, queued
-behind the MID and CCV generator work in flight.
+or mirrored (G9). Low, a gap rather than a bug. Fixed: `FullTreeOptions`
+and `CCVTreeOptions` carry `DustMin` (zero means the RECOMMENDED 330),
+the MID and MIN generators take it as an argument as the Python does,
+`buildCarve` reads the tree's floor from its options, and
+`TestCarveDustMinMatchesPython` pins carve scripts at a floor of 1,000
+against the Python generator in every tier and numerics.
 
 ## 3. Things deliberately left out
 

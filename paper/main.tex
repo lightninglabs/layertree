@@ -173,7 +173,7 @@ stated assumption on how many competing spends of the shared output can
 confirm ahead of an honest one, with the tree-level lemmas mechanised in
 Lean~4. Lightning channels compose with the functionality as leaves whose
 exit key is shared, so a hub sized by exit throughput occupies one
-output. A simulator, a byte-exact Go implementation and 2{,}349
+output. A simulator, a byte-exact Go implementation and 3{,}019
 executable checks accompany the design.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and universal
 composability \and payment channels \and formal verification}
@@ -194,7 +194,7 @@ recipient, including payments received over Lightning, cost nothing
 on-chain and never expire. The design compiles to four tiers of proposed
 opcodes, the smallest needing \op{CAT} and one point-tweak opcode;
 channels live in leaves; the tree rules are mechanised in Lean~4, and a
-simulator, a byte-exact Go implementation and 2{,}349 executable checks
+simulator, a byte-exact Go implementation and 3{,}019 executable checks
 accompany it.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and vouchers \and
 payment channels \and formal verification}
@@ -228,7 +228,7 @@ output commits to. A member exits by presenting its leaf and sibling path
 to the output itself; the script recomputes the root from the proof,
 checks it against the commitment, recomputes it with the leaf removed,
 and requires the transaction to recreate the output under the new root
-with the leaf's amount paid out. The member needs nobody's signature,
+with the leaf's amount paid out. The member needs nobody else's signature,
 and a deeper tree adds bytes to the exit, not transactions. The same covenant lets the operator evict members whose lease has expired,
 graft a pre-built subtree of new members in one step, and sweep an
 expired cohort cheaply.
@@ -506,9 +506,12 @@ after the cohort is fixed, an abort-and-retry round like an Ark round or
 a coinjoin; in an operator-funded graft the operator fronts the value and
 members pay it off-chain. To exit, a member builds the transaction of
 Figure~\ref{fig:exit} with a fee input. Its signature commits to the tree
-outpoint, which every transition changes, so an exit cannot be pre-signed
-or delegated: the owner key must be online to rebuild it after a
-competing spend and to bump its fee. Transitions are final at the
+outpoint, which every transition changes, so a plain exit cannot be
+pre-signed or delegated: the owner key must be online to rebuild it after
+a competing spend and to bump its fee. The tower variant \tr{EXIT}$_K^{t}$
+(FULL, MID, CCV) replaces that signature by one over the leaf and the
+tree's identifier, checked from the stack, so a tower holding it builds,
+fees and rebuilds the exit while the owner is offline. Transitions are final at the
 member's confirmation depth. The operator keeps the full tree, assigns
 slots, signs joins and updates, and evicts or sweeps expired leaves.
 
@@ -727,7 +730,7 @@ nodes. The cases and hybrids are in \lifted{app:uc}.
 \fi
 
 \paragraph{What the theorem leaves out.} The bytecode is matched to
-$\Pred_\tau$ by 2{,}349 executable checks, not a verified compiler. Fee
+$\Pred_\tau$ by 3{,}019 executable checks, not a verified compiler. Fee
 pinning is outside the ledger model: a low-feerate transition early in
 the chain caps the feerate behind it, a descendant hung off any payout or
 change output consumes the chain's policy limit, and TRUC

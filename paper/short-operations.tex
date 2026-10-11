@@ -124,10 +124,17 @@ creation and visible in the tree's taptree root, requires the full
 amount and is what MID, MIN, CCV and channel leaves use. $1{,}020\vB$ for
 one exit, and $665\vB$ more for a second in the same transaction
 (\tr{EXIT}$_2$ is $1{,}684\vB$). The owner's signature commits to the
-tree outpoint, which every operation changes, so an exit cannot be
+tree outpoint, which every operation changes, so a plain exit cannot be
 pre-signed: the owner must be online to rebuild it after a competing
-spend. Owners first ask for a cooperative exit, which the operator can
-batch.
+spend. The tower variant \tr{EXIT}$_K^{t}$ (FULL, MID and CCV, exact
+payout) replaces that signature by one over the leaf and the tree's
+identifier, checked from the stack with \op{CHECKSIGFROMSTACK}; whoever
+holds it builds the exit with its own fee input and rebuilds it after a
+competing spend, so an owner signs once in advance and a tower does the
+rest. The authorisation is a bearer right until the leaf changes, so an
+owner who stays voids it by changing the leaf. $107$ bytes of script over
+the exact exit. Owners first ask for a cooperative exit, which the
+operator can batch, and a held authorisation makes that one message.
 
 \subsection{Being Evicted}
 
