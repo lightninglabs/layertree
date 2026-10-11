@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/roasbeef/layertree/tree"
 )
@@ -181,13 +182,17 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 	return nil
 }
 
-// VerifyMember performs the message-local checks of spec 9.2 step 3: that
-// the member's leaf folds up (via SubtreePath, or directly if it is nil) to
-// NewNode, that GraftPath folds the empty node it replaces up to the
-// pre-graft root (RootHash, Total), and that the resulting post-graft root
-// carries the expected sum Total + NewNode.Sum. It does not verify anything
-// that requires external state, such as the unsigned tx actually matching
-// the chain or any signatures.
+// VerifyMember performs the checks of spec 9.2 step 3 that the message
+// alone supports: (b) and (c), that the member's leaf folds up (via
+// SubtreePath, or directly if it is nil) to NewNode, that GraftPath folds
+// the empty node it replaces up to the pre-graft root (RootHash, Total),
+// and that the post-graft root r' carries the sum Total + NewNode.Sum,
+// every addition checked; and (d), that UnsignedTx parses and its output 0
+// is TREE_SPK(r', m) holding that sum, which is what makes a self-funding
+// member's input safe to sign (9.2 step 3(f)). Step 3(a), that input 0
+// spends an unspent TREE_SPK(RootHash, m) holding Total, needs the chain:
+// the offer carries the outpoint only inside the transaction, so the
+// caller looks it up and compares. Signatures are not checked.
 //
 // On success it returns the post-graft root.
 func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
@@ -242,6 +247,33 @@ func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
 		return tree.Node{}, fmt.Errorf("msg: new root sum %d != "+
 			"total %d + new node sum %d", newRoot.Sum, j.Total,
 			j.NewNode.Sum)
+	}
+
+	// 9.2 step 3(d): output 0 of the unsigned transaction recreates the
+	// tree under r' and m with the whole new total, so the only thing
+	// the member's input can fund is a tree that holds its leaf.
+	r := bytes.NewReader(j.UnsignedTx)
+	var tx wire.MsgTx
+	if err := tx.Deserialize(r); err != nil {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx: %w", err)
+	}
+	if r.Len() != 0 {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx has %d "+
+			"trailing bytes", r.Len())
+	}
+	if len(tx.TxIn) == 0 || len(tx.TxOut) == 0 {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx has no " +
+			"inputs or no outputs")
+	}
+	wantSPK, err := tree.ScriptPubKey(newRoot.Hash, expectedM)
+	if err != nil {
+		return tree.Node{}, err
+	}
+	out0 := tx.TxOut[0]
+	if !bytes.Equal(out0.PkScript, wantSPK) || out0.Value != int64(newRoot.Sum) {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx output 0 is "+
+			"not TREE_SPK(r', m) holding %d (spec 9.2 step 3(d))",
+			newRoot.Sum)
 	}
 
 	return newRoot, nil

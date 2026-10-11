@@ -13,8 +13,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/roasbeef/layertree/script"
 	"github.com/roasbeef/layertree/tree"
+	"github.com/roasbeef/layertree/txn"
 )
 
 // xOnlyKey returns the 32-byte x-only encoding of priv's public key.
@@ -175,18 +178,19 @@ func TestJoinOfferSingleLeaf(t *testing.T) {
 	memberLeaf := newTestLeaf(t, key, 500, 99, 0)
 	newNode := memberLeaf.Node()
 
-	var treeID [32]byte
-	copy(treeID[:], bytes.Repeat([]byte{0x11}, 32))
+	m, unsignedTx, expectedTree := builtJoin(
+		t, mainTree, 0, graftPos, map[uint64]*tree.Leaf{0: memberLeaf},
+	)
 
 	offer := &JoinOffer{
-		TreeID:      treeID,
+		TreeID:      m,
 		RootHash:    rootHash,
 		Total:       total,
 		Leaf:        *memberLeaf,
 		SubtreePath: nil,
 		GraftPath:   graftPath,
 		NewNode:     newNode,
-		UnsignedTx:  []byte("unsigned-tx-placeholder"),
+		UnsignedTx:  unsignedTx,
 	}
 
 	// TLV round trip.
@@ -206,32 +210,161 @@ func TestJoinOfferSingleLeaf(t *testing.T) {
 		t.Fatalf("expected nil subtree path after decode")
 	}
 
-	newRoot, err := decoded.VerifyMember(treeID)
+	newRoot, err := decoded.VerifyMember(m)
 	if err != nil {
 		t.Fatalf("VerifyMember: %v", err)
 	}
-
-	expectedTree := mainTree.Clone()
-	expectedTree.Leaves[graftPos] = memberLeaf
-	expectedRoot := expectedTree.Root()
-
-	if newRoot != expectedRoot {
+	if expectedRoot := expectedTree.Root(); newRoot != expectedRoot {
 		t.Fatalf("new root mismatch:\n got: %+v\nwant: %+v",
 			newRoot, expectedRoot)
 	}
 
-	// Wrong tree id must be rejected.
-	var otherID [32]byte
-	copy(otherID[:], bytes.Repeat([]byte{0x22}, 32))
-	if _, err := decoded.VerifyMember(otherID); err == nil {
-		t.Fatalf("expected VerifyMember to reject the wrong tree id")
+	// Wrong m must be rejected.
+	var otherM [32]byte
+	copy(otherM[:], bytes.Repeat([]byte{0x22}, 32))
+	if _, err := decoded.VerifyMember(otherM); err == nil {
+		t.Fatalf("expected VerifyMember to reject the wrong m")
 	}
 
 	// A tampered NewNode must be rejected.
 	tampered := decoded
 	tampered.NewNode.Sum++
-	if _, err := tampered.VerifyMember(treeID); err == nil {
+	if _, err := tampered.VerifyMember(m); err == nil {
 		t.Fatalf("expected VerifyMember to reject a wrong NewNode")
+	}
+}
+
+// builtJoin is the operator's side of a join offer: it grafts leaves (keyed
+// by their offset within the subtree of the given height at index) into
+// mainTree with txn.BuildJoin, under a taptree compiled from the reference
+// options with JOIN_0 and JOIN_2. It returns that taptree's root m, the
+// serialized unsigned transaction and the tree after the graft.
+func builtJoin(t *testing.T, mainTree *tree.Tree, height int, index uint64,
+	leaves map[uint64]*tree.Leaf) ([32]byte, []byte, *tree.Tree) {
+
+	t.Helper()
+	var treeID [32]byte
+	copy(treeID[:], bytes.Repeat([]byte{0x55}, 32))
+	opts := script.FullReferenceOptions(xOnlyKey(mustKey(t)), treeID)
+	opts.JoinHeights = []int{0, 2}
+
+	treeOut := wire.OutPoint{Hash: sha256.Sum256([]byte("tree"))}
+	st, err := txn.NewTreeState(mainTree, opts, treeOut)
+	if err != nil {
+		t.Fatalf("NewTreeState: %v", err)
+	}
+
+	// The graft is funded by one extra input (9.2 step 2) with a
+	// little to spare for the fee; its script is a placeholder P2WPKH.
+	var funding int64
+	for _, l := range leaves {
+		funding += int64(l.Amount)
+	}
+	spend, next, err := txn.BuildJoin(st, height, index, leaves, &txn.TxOpts{
+		Inputs: []txn.ExtraInput{{
+			OutPoint: wire.OutPoint{
+				Hash: sha256.Sum256([]byte("funding")), Index: 1,
+			},
+			Sequence: txn.TreeSequence,
+			PrevOut:  wire.NewTxOut(funding+1_000, p2wpkhScript()),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildJoin: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := spend.Tx.Serialize(&buf); err != nil {
+		t.Fatalf("serialize: %v", err)
+	}
+	return st.TapTree.Root(), buf.Bytes(), next
+}
+
+// p2wpkhScript is a placeholder P2WPKH output script.
+func p2wpkhScript() []byte {
+	return append([]byte{0x00, 0x14}, make([]byte, 20)...)
+}
+
+// TestVerifyMemberChecksOutput0 is the probe of design/audit/go.md G2: an
+// offer whose leaf, paths and node are all correct but whose unsigned
+// transaction pays S + new_sum to a P2WPKH instead of TREE_SPK(r', m).
+// A member who signed its funding input after a nil error would have
+// signed a plain payment to the operator; 9.2 step 3(d) is the check that
+// prevents it, and VerifyMember must make it.
+func TestVerifyMemberChecksOutput0(t *testing.T) {
+	key := xOnlyKey(mustKey(t))
+
+	const depth = 8
+	mainTree := tree.New(depth)
+	mainTree.Leaves[3] = newTestLeaf(t, key, 1_000_000, 1, 0)
+
+	const graftPos = 42
+	memberLeaf := newTestLeaf(t, key, 50_000, 99, 0)
+	m, unsignedTx, next := builtJoin(
+		t, mainTree, 0, graftPos, map[uint64]*tree.Leaf{0: memberLeaf},
+	)
+	offer := &JoinOffer{
+		TreeID:     m,
+		RootHash:   mainTree.Root().Hash,
+		Total:      mainTree.Root().Sum,
+		Leaf:       *memberLeaf,
+		GraftPath:  NewProof(mainTree.Path(graftPos, 0), depth, 0, graftPos),
+		NewNode:    memberLeaf.Node(),
+		UnsignedTx: unsignedTx,
+	}
+	if _, err := offer.VerifyMember(m); err != nil {
+		t.Fatalf("VerifyMember rejected the operator's transaction: %v",
+			err)
+	}
+
+	// The same transaction with output 0 paid to the operator's own
+	// P2WPKH, amount unchanged.
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(unsignedTx)); err != nil {
+		t.Fatal(err)
+	}
+	if tx.TxOut[0].Value != int64(next.Root().Sum) {
+		t.Fatalf("output 0 holds %d, want %d", tx.TxOut[0].Value,
+			next.Root().Sum)
+	}
+	tx.TxOut[0].PkScript = p2wpkhScript()
+	var buf bytes.Buffer
+	if err := tx.Serialize(&buf); err != nil {
+		t.Fatal(err)
+	}
+	stolen := *offer
+	stolen.UnsignedTx = buf.Bytes()
+	if _, err := stolen.VerifyMember(m); err == nil {
+		t.Fatalf("VerifyMember accepted an offer whose output 0 pays " +
+			"a P2WPKH")
+	}
+
+	// The right script with one satoshi missing, an empty field, a
+	// field that does not parse and trailing bytes are all rejected.
+	var shortTx wire.MsgTx
+	if err := shortTx.Deserialize(bytes.NewReader(unsignedTx)); err != nil {
+		t.Fatal(err)
+	}
+	shortTx.TxOut[0].Value--
+	buf.Reset()
+	if err := shortTx.Serialize(&buf); err != nil {
+		t.Fatal(err)
+	}
+	short := *offer
+	short.UnsignedTx = buf.Bytes()
+	if _, err := short.VerifyMember(m); err == nil {
+		t.Fatalf("VerifyMember accepted an output 0 one satoshi short")
+	}
+	for name, raw := range map[string][]byte{
+		"empty":    nil,
+		"garbage":  []byte("unsigned-tx-placeholder"),
+		"trailing": append(append([]byte{}, unsignedTx...), 0x00),
+	} {
+		bad := *offer
+		bad.UnsignedTx = raw
+		if _, err := bad.VerifyMember(m); err == nil {
+			t.Fatalf("VerifyMember accepted a %s unsigned tx", name)
+		}
 	}
 }
 
@@ -272,18 +405,19 @@ func TestJoinOfferSubtree(t *testing.T) {
 		subtree.Path(memberLocalPos, 0), graftHeight, 0, memberLocalPos,
 	)
 
-	var treeID [32]byte
-	copy(treeID[:], bytes.Repeat([]byte{0x33}, 32))
+	m, unsignedTx, expectedTree := builtJoin(
+		t, mainTree, graftHeight, blockIdx, subtree.Leaves,
+	)
 
 	offer := &JoinOffer{
-		TreeID:      treeID,
+		TreeID:      m,
 		RootHash:    rootHash,
 		Total:       total,
 		Leaf:        *memberLeaf,
 		SubtreePath: subtreePath,
 		GraftPath:   graftPath,
 		NewNode:     newNode,
-		UnsignedTx:  []byte("unsigned-tx-placeholder"),
+		UnsignedTx:  unsignedTx,
 	}
 
 	var buf bytes.Buffer
@@ -302,18 +436,11 @@ func TestJoinOfferSubtree(t *testing.T) {
 		t.Fatalf("expected non-nil subtree path after decode")
 	}
 
-	newRoot, err := decoded.VerifyMember(treeID)
+	newRoot, err := decoded.VerifyMember(m)
 	if err != nil {
 		t.Fatalf("VerifyMember: %v", err)
 	}
-
-	expectedTree := mainTree.Clone()
-	for localPos, leaf := range subtree.Leaves {
-		expectedTree.Leaves[graftBasePos+localPos] = leaf
-	}
-	expectedRoot := expectedTree.Root()
-
-	if newRoot != expectedRoot {
+	if expectedRoot := expectedTree.Root(); newRoot != expectedRoot {
 		t.Fatalf("new root mismatch:\n got: %+v\nwant: %+v",
 			newRoot, expectedRoot)
 	}
@@ -321,7 +448,7 @@ func TestJoinOfferSubtree(t *testing.T) {
 	// A tampered NewNode must be rejected by VerifyMember.
 	tampered := decoded
 	tampered.NewNode.Hash[0] ^= 0xff
-	if _, err := tampered.VerifyMember(treeID); err == nil {
+	if _, err := tampered.VerifyMember(m); err == nil {
 		t.Fatalf("expected VerifyMember to reject a wrong NewNode")
 	}
 }
