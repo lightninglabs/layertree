@@ -1,7 +1,6 @@
 \documentclass[runningheads]{llncs}
 %
-% LayerTree: a shared Bitcoin UTXO as an ideal functionality, and its
-% realisation with covenants. Build: make (regenerates version.tex from git),
+% LayerTree: a shared Bitcoin UTXO with an O(1) unilateral exit. Build: make (regenerates version.tex from git),
 % or latexmk -pdf main.tex. Set \anontrue for a double-blind submission.
 %
 % Two versions from one source, for two audiences. \iffullversion selects
@@ -133,7 +132,7 @@
 
 \begin{document}
 
-\title{LayerTree: A Shared Bitcoin UTXO as an Ideal Functionality,\\ and Its Realisation with Covenants}
+\title{LayerTree: A Shared Bitcoin UTXO\\ with an $O(1)$ Unilateral Exit}
 \titlerunning{LayerTree}
 \ifanon
 \author{Anonymous Submission}
@@ -149,18 +148,19 @@
 
 \begin{abstract}
 \iffullversion
-Transaction-tree constructions that let many users share one Bitcoin
-output pay at exit time: a user who leaves publishes $O(\log N)$
-transactions, the tree's interior must exist as pre-signed or
-template-committed transactions, and one unresponsive user forces the
-whole tree on-chain at expiry. In \textsc{LayerTree} a single output commits to an off-chain
+In \textsc{LayerTree} any number of users share one Bitcoin output, and
+any one of them leaves alone in \emph{one} transaction: the unilateral
+exit is $O(1)$ in transactions, whatever the number of members, and
+$O(D)$ in bytes for a tree of depth~$D$ (about 32 virtual bytes per
+level, 1{,}020 at depth~16). In transaction-tree constructions a user
+who leaves publishes $O(\log N)$ transactions, the interior must be
+pre-signed or template-committed, and one unresponsive user forces the
+whole tree on-chain at expiry. Here the output commits to an off-chain
 Merkle-sum tree of balances and tapscript covenants enforce every state
-transition. Any member exits, and the operator evicts any member whose
-lease has expired, in \emph{one} transaction of about 32 virtual bytes
-per level of depth (1{,}020 at depth~16). Adding members needs only the
-operator's signature on the covenant (a self-funded cohort still signs
-its inputs together), the shared output never expires (members hold
-leases), and a cohort is added or swept in one transaction.
+transition: the operator evicts an expired lease in one transaction too,
+adding members needs only its signature on the covenant (self-funders
+still sign their inputs), a cohort is added or swept in one transaction,
+and the shared output never expires.
 
 We state what the shared output does as an ideal functionality, give an
 abstract protocol whose covenant predicates realise it, and compile the
@@ -178,13 +178,15 @@ executable checks accompany the design.
 \keywords{Bitcoin \and covenants \and Merkle-sum trees \and universal
 composability \and payment channels \and formal verification}
 \else
-LayerTree lets many users share one Bitcoin output: the output commits
-to an off-chain Merkle-sum tree of balances, and tapscript covenants
-enforce every change to it. Any member exits alone, and the operator
-evicts a member whose lease has expired, in one transaction of about
-$1{,}020$ virtual bytes at depth~16, with no pre-signed interior and no
-expiry of the shared output; a cohort joins, settles or is swept in one
-transaction. We describe each operation in the order a member meets it,
+LayerTree lets any number of users share one Bitcoin output, and any
+one of them leaves alone in one transaction: the unilateral exit is
+$O(1)$ in transactions, whatever the number of members, and $O(D)$ in
+bytes for a tree of depth~$D$ (about $1{,}020$ virtual bytes at
+depth~16). The output commits to an off-chain Merkle-sum tree of
+balances, and tapscript covenants enforce every change to it, with no
+pre-signed interior and no expiry of the shared output; an expired lease
+is evicted, and a cohort joins, settles or is swept, in one transaction
+too. We describe each operation in the order a member meets it,
 who authorises it and what it costs, and the voucher system: a signature
 over a source leaf and a new leaf that anyone can redeem once, which an
 issuer re-signs for a running total, so repeated payments to one
@@ -201,11 +203,12 @@ payment channels \and formal verification}
 
 \section{Introduction}
 
-Payment channels~\cite{lightning} move Bitcoin activity off-chain for
-pairs; the open problem is doing it for \emph{groups}: letting $N$ users
-share one unspent transaction output (UTXO) without giving up the ability
-of each to leave alone. Most deployed or proposed approaches pay for the
-sharing when it is dissolved. In channel factories~\cite{factories},
+LayerTree lets $N$ users share one Bitcoin unspent transaction output
+(UTXO) and lets any one of them leave alone in a single transaction: the
+unilateral exit is $O(1)$ in transactions for any $N$, and $O(D)$ in
+bytes for a tree of depth~$D$. Payment channels~\cite{lightning} share
+an output between two parties; most approaches for \emph{groups} pay for
+the sharing when it is dissolved. In channel factories~\cite{factories},
 Ark~\cite{ark,clark}, timeout trees~\cite{timeouttrees,superscalar} and
 covenant trees built on \op{CHECKTEMPLATEVERIFY} (CTV)~\cite{bip119} or
 \op{CHECKCONTRACTVERIFY}~\cite{bip443,matt}, the shared output is the root
@@ -225,9 +228,8 @@ output commits to. A member exits by presenting its leaf and sibling path
 to the output itself; the script recomputes the root from the proof,
 checks it against the commitment, recomputes it with the leaf removed,
 and requires the transaction to recreate the output under the new root
-with the leaf's amount paid out. The member needs nobody's signature, and
-the exit is one transaction whose size grows with the tree's depth. The
-same covenant lets the operator evict members whose lease has expired,
+with the leaf's amount paid out. The member needs nobody's signature,
+and only the proof grows with the tree's depth. The same covenant lets the operator evict members whose lease has expired,
 graft a pre-built subtree of new members in one step, and sweep an
 expired cohort cheaply.
 
@@ -288,18 +290,16 @@ text describes revision \GitHash.
 \fi
 
 \iffullversion
-\paragraph{This version.} This is the full version. It lifts into the
-body the UC proof (\S\ref{app:uc}) and the channel-leaf scripts
-(\S\ref{app:channels}), shows the Lean statements of the tree-level
-theorems inline, and adds five sections: costs against bare UTXOs,
-Lightning and transaction trees (\S\ref{sec:cost}), the two profiles and
-the radix (\S\ref{sec:profiles}), batch shapes (\S\ref{sec:batching}),
-the trust model of grafting (\S\ref{sec:graft}) and receiving over
-Lightning (\S\ref{sec:receive}). The Lean development
-(Appendix~\ref{app:lean}) and the complete script listings
-(Appendix~\ref{app:listings}) are in this version only; the short version
-is written for developers and describes the operations and the voucher
-system without the functionality and its proof.
+\paragraph{This version.} A short version for developers walks through
+the operations, vouchers and trust model and only states what is proved.
+This full version is built around $\Ftree$: it carries the UC proof
+(\S\ref{app:uc}) and the channel-leaf scripts (\S\ref{app:channels}),
+the Lean statements inline, sections on costs against the alternatives
+(\S\ref{sec:cost}), profiles and radix (\S\ref{sec:profiles}), batch
+shapes (\S\ref{sec:batching}), grafting (\S\ref{sec:graft}) and
+receiving over Lightning (\S\ref{sec:receive}), and, as appendices, the
+Lean development (\ref{app:lean}) and the script listings
+(\ref{app:listings}).
 \fi
 
 \section{Background}\label{sec:background}
@@ -459,7 +459,7 @@ pseudocode and tapscript.
 \caption{Transition predicates. Each row is one script leaf under $m$; $\sigma_k$ is a transaction signature under key $k$ covering all outputs; steps are written old node $\to$ new node.}
 \label{tab:pred}
 \setlength{\tabcolsep}{3pt}\scriptsize
-\begin{tabular}{@{}lp{2.9cm}p{5.4cm}@{}}
+\begin{tabular}{@{}lp{2.9cm}p{5.3cm}@{}}
 \toprule
 Interface (predicate) & Steps & Authorisation and outputs \\
 \midrule
