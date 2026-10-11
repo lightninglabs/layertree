@@ -9,7 +9,7 @@ varops, computes the real BIP-341 signature message and enforces
 Every compiled predicate runs against a reference tree with positive and
 negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
 unconserved amount, early eviction, voucher replay, and others): 1{,}244
-FULL, 777 MID, 57 MIN and 1{,}841 CCV checks, failing if a script uses an
+FULL, 777 MID, 57 MIN and 2{,}328 CCV checks, failing if a script uses an
 opcode outside its tier, plus 220 for channel leaves and 61 for the
 hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
 \texttt{btcd} and \texttt{lnd} generates the same scripts, byte-exact
@@ -122,7 +122,7 @@ repository~\cite{layertreerepo} at the revision on the title page
 (\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
 (1{,}244 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
 cohort shapes), \path{test_mid.py} (777), \path{test_min.py} (57),
-\path{test_ccv.py} (1{,}841), \path{test_chan.py} (220), \path{test_msu.py}
+\path{test_ccv.py} (2{,}328), \path{test_chan.py} (220), \path{test_msu.py}
 (61), \path{gen_listings.py} (the size table), \path{fee_analysis.py}
 (the fee model), \path{gen_golden.py} and \path{experiments/radix4.py}
 (55); by \texttt{go test ./...}; and by \texttt{lake build} in

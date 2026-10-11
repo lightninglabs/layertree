@@ -15,9 +15,9 @@ unilateral path needs, mempool behaviour, leases and channel leaves.
 Section~\ref{sec:ops} serves as the per-operation card (who authorises,
 what the witness proves, what the outputs must be); the witness order of
 each tapleaf is in spec~8, the builders and signers are in the Go
-package \path{txn/} (\texttt{BuildExit}, \texttt{BuildJoin},
-\texttt{BuildClaim}, \texttt{SignVoucher}, \texttt{SignExitAuth} and the
-rest), and what a co-signer verifies before signing is spec~9.2 step~3
+package \path{txn/}, one per transition for every tier
+(\texttt{BuildExit}, \texttt{BuildClaim}, \texttt{BuildRewrite},
+\texttt{SignVoucher} and the rest, each replayed through the simulator), and what a co-signer verifies before signing is spec~9.2 step~3
 for joins, 9.5 for updates and 9.6 for vouchers.
 
 \subsection{Creating and Recognising a Tree}\label{app:impl-create}
@@ -105,7 +105,7 @@ fulfil and fail, rebind and splice).
 
 \subsection{Receiving over Lightning, Step by Step}\label{app:impl-receive}
 
-The flow of \S\ref{sec:receive-short}, in FULL or MID, with what goes
+The flow of \S\ref{sec:receive-short}, in any tier but MIN, with what goes
 wrong at each step:
 (1)~\emph{Setup.} The operator grafts a credit leaf that it owns, with
 the recipient's key as exit key, the operator as evictor and a finite

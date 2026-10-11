@@ -104,8 +104,9 @@ rewriting every balance $148\vB$ per leaf against $1{,}030\vB$ for an
 \tr{UPDATE} each; a position whose leaf does not change is published
 once, behind a one-byte marker, for about $92\vB$. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
 ($16\vB$ per signed position) and replaces \tr{REWRITE}$_h$ wherever
-\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. It exists in FULL and
-MID, whose stack limit holds a full cohort only to $h = 5$.
+\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. It exists in every
+tier but MIN; under \texttt{0xC0} the stack limit holds a full cohort
+only to $h = 5$.
 
 \subsection{Leaving}\label{sec:leaving}
 

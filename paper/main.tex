@@ -195,7 +195,7 @@ who authorises it and what it costs, and the voucher system: a signature
 over a source leaf and a new leaf that anyone can redeem once, which an
 issuer re-signs for a running total, so repeated payments to one
 recipient, including payments received over Lightning into a funded
-credit leaf (FULL or MID), cost nothing on-chain per payment. The design compiles to four tiers of proposed
+credit leaf, cost nothing on-chain per payment. The design compiles to four tiers of proposed
 opcodes, the smallest needing \op{CAT} and one point-tweak opcode;
 channels live in leaves; the tree rules are mechanised in Lean~4, and a
 simulator, a byte-exact Go implementation and 3{,}019 executable checks
@@ -535,7 +535,7 @@ on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. FULL, MID and CCV compile
 every \iffullversion predicate of Table~\ref{tab:pred}\else operation\fi,
 MIN the dense single-leaf exit
-and \tr{SPLIT}; \tr{REWRITE}$_h$ exists in FULL and MID only. Table~\ref{tab:assume}\iffullversion\else{}
+and \tr{SPLIT}. Table~\ref{tab:assume}\iffullversion\else{}
 (Appendix~\ref{app:short})\fi{} lists what each tier assumes of the
 proposals it uses, mirroring the assumptions [A-1] to [A-6] of the
 specification. MIN is the tier closest to the proposals as written: it

@@ -66,7 +66,13 @@ with numbers.
   CLAIM^x / CLAIM^hx in MID and CCV (both numerics) and DETACH_h in MID
   (no stack cap); counts 1,244 / 777 / 57 / 1,841 / 220 / 61, 117 golden
   scripts; reviewed report-only (no script findings; one test fixed).
-  Remaining tier gap: REWRITE_h under CCV; txn builders are FULL only.
+  Gaps closed after (spec 0.13.2): REWRITE_h / REWRITE_h^x under CCV in
+  both numerics (0xC0 full cohort capped at h = 5, as MID), and txn
+  builders for every transition of every tier (txn/tier.go: one builder
+  per transition, the tier picks the encoder), 287 end-to-end cases
+  replayed through the simulator with 0 failures, now a CI step. Counts
+  1,244 / 777 / 57 / 2,328 / 220 / 61; 121 golden scripts. MIN keeps
+  only EXIT_1 and SPLIT by design.
 
 - Round of 2026-10-10 (evening), owner's "execute 1-4, no GitHub pages,
   refine papers": (a) Opus paper worker in a worktree: new title for
