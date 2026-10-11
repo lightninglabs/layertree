@@ -67,13 +67,14 @@ OP_7 OP_PICK OP_EQUALVERIFY OP_DUP OP_SIZE OP_4 OP_EQUALVERIFY OP_DROP OP_1
   OP_EQUALVERIFY OP_DROP OP_6 OP_PICK OP_SIZE OP_8 OP_EQUALVERIFY OP_DROP
   OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT
 
-## CARVE_RULES   ([src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ (7.5 rule 5), and claim.amt_num >= DUST_MIN (rule 6))
+## CARVE_RULES   ([src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ and the claim's NONNEG-checked before the compare (7.5 rule 5, 10.6), and claim.amt_num >= DUST_MIN (rule 6))
 19 OP_PICK 30 OP_PICK OP_EQUALVERIFY OP_2 OP_PICK OP_TOALTSTACK
 PADZ
 OP_16 OP_PICK OP_EQUALVERIFY OP_2 OP_PICK OP_TOALTSTACK
 PADZ
 23 OP_PICK OP_EQUALVERIFY OP_FROMALTSTACK OP_FROMALTSTACK
-  OP_GREATERTHANOREQUAL OP_VERIFY 330 OP_10 OP_PICK OP_LESSTHANOREQUAL
+NONNEG
+OP_GREATERTHANOREQUAL OP_VERIFY 330 OP_10 OP_PICK OP_LESSTHANOREQUAL
   OP_VERIFY
 
 ## DRAIN_RULE   ([.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6))

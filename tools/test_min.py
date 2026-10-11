@@ -10,7 +10,7 @@ import layertree_min as N  # noqa: E402
 import test_scripts as TS  # noqa: E402
 from script_sim import Interp, ScriptError, TxContext, assemble, pubkey_x, schnorr_sign  # noqa: E402
 from test_scripts import BIP342_OPS, sk, check, expect_fail, P2WPKH  # noqa: E402
-from test_mid import carve_of, mk_leaf  # noqa: E402
+from test_mid import NEG_LEASE_EA, carve_of, mk_leaf  # noqa: E402
 
 MIN_OPCODES = BIP342_OPS | N.EXTRA_OPCODES | {"OP_BOOLOR", "OP_GREATERTHANOREQUAL"}
 
@@ -110,12 +110,13 @@ def test_split(depth, verbose=True):
     def mutate(ctx, i):
         ctx.sequences[1] = 0xfffffffd - i
 
-    def build(new, s_new, signer=None, amount=None, stale=False, base=None, sig=None):
+    def build(new, s_new, signer=None, amount=None, stale=False, base=None, sig=None, claim_ea=None):
         """Grind and sign a SPLIT of `new` off alice's leaf into s_new.
         Returns ((ctx, e31, sig), witness). `base` reuses another build's
         transaction and signature for a different witness; `sig` replaces
-        the owner's signature with one made for some other transaction.
-        The destination is always presented as empty, as a cheat would."""
+        the owner's signature with one made for some other transaction;
+        `claim_ea` is passed to w_carve_extras. The destination is always
+        presented as empty, as a cheat would."""
         spath = tree.path(s_a)
         src2 = alice.with_amount_seq(max(alice.amount - new.amount, 0), alice.seq + 1)
         t1 = lt.Tree(depth); t1.leaves = dict(tree.leaves); t1.leaves[s_a] = src2
@@ -133,7 +134,7 @@ def test_split(depth, verbose=True):
             sig = sig or schnorr_sign(ctx.sighash(), signer or sk("alice-owner"))
         else:
             ctx, e31, sig = base
-        extras = M.w_carve_extras(alice, new, amt_new=max(alice.amount - new.amount, 0))
+        extras = M.w_carve_extras(alice, new, amt_new=max(alice.amount - new.amount, 0), claim_ea=claim_ea)
         wit = (N.raw_pieces(ctx, e31, 1) + list(M.pad(r1[1])) + M.w_levels(cpath, lt.EMPTY_NODE, new.node(), False) +
                list(M.pad(root[1])) + M.w_levels(spath, alice.node(), lt.EMPTY_NODE if drained else src2.node(), False) +
                M.w_leaf(alice) + M.w_leaf(new) + extras + [sig, (r1 if stale else root)[0], m])
@@ -174,6 +175,13 @@ def test_split(depth, verbose=True):
     expect_fail(lambda: run(g[0], w_), "min: SPLIT into a leaf with another evictor key than its source")
     g, w_ = build(mk_leaf("later", 200_000, None, alice.evict_after + 1), 3)
     expect_fail(lambda: run(g[0], w_), "min: SPLIT into a leaf with a later evict_after than its source")
+    # NONNEG on the claim lease (7.5 rule 5, 10.6): `01 00 00 81` is the
+    # negative CScriptNum -16,777,217 with an empty pad, which the compare
+    # alone would accept against alice's lease of 0.
+    planted = mk_leaf("planted", 200_000, None, 0)
+    planted.evict_after = 0x81000001
+    g, w_ = build(planted, 3, claim_ea=NEG_LEASE_EA)
+    expect_fail(lambda: run(g[0], w_), "min: SPLIT into a leaf with evict_after 01 00 00 81 (a negative CScriptNum lease)")
     g, w_ = build(bob, s_o)
     expect_fail(lambda: run(g[0], w_), "min: SPLIT into an occupied position")
     _, w_ = build(bob, 3, base=good, stale=True)

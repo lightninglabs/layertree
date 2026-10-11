@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.12.1
+Version:  0.12.2
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -379,7 +379,7 @@ are interchangeable, with one numeric cap noted below.
 | Beyond BIP-342 | `OP_CAT`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT`; `OP_TX`; `OP_CHECKSIGFROMSTACK`; `OP_EC_POINT_MUL/ADD/X_COORD` | `OP_CAT`; `OP_TX` (assumed in `0xC0`, **[A-5]**); `OP_CHECKSIGFROMSTACK`; `OP_TWEAKADD` | `OP_CAT`; `OP_TWEAKADD` | `OP_CHECKCONTRACTVERIFY` (BIP-443, **[A-6]**); `OP_TX`; with `0xC2` the BIP-441 opcodes FULL uses, with `0xC0` `OP_CAT`; `OP_CHECKSIGFROMSTACK` only for `CLAIM`/`CLAIM^h`. No EC ops, no `OP_TWEAKADD` |
 | Introspection | `OP_TX` | `OP_TX` | constructive: the script rebuilds the BIP-341 sighash message and checks a generator-key signature with `OP_CHECKSIG` (section 4.4) | `OP_TX` for amounts only; scriptPubKeys and the input's state by `OP_CHECKCONTRACTVERIFY` |
 | Leaf on the stack | one 116-byte element, fields by `OP_SUBSTR` | seven field elements, rejoined by `OP_CAT` under `OP_SIZE` checks | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
-| Fixed-width numbers | `2^64 OP_ADD` | `PADZ`: witness zero pad `z`, filler `w`, `z||w = 00000000`, `size(x)+size(z) = 4`; `NONNEG` (`OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY`) on every witness-supplied number that enters a sum (a sibling sum, a leaf amount, a joined sum), since `CScriptNum` is sign-magnitude and `le32` of a value in `[2^31, 2^32)` is a negative number (10.6) | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
+| Fixed-width numbers | `2^64 OP_ADD` | `PADZ`: witness zero pad `z`, filler `w`, `z||w = 00000000`, `size(x)+size(z) = 4`; `NONNEG` (`OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY`) on every witness-supplied number that enters a sum (a sibling sum, a leaf amount, a joined sum) or a comparison with a leaf field (the claim leaf's `evict_after` in the carve rule of 7.5 rule 5), since `CScriptNum` is sign-magnitude and `le32` of a value in `[2^31, 2^32)` is a negative number (10.6) | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
 | Sum limit per tree | none (< 2^51 by leaf rule) | every sum < 2^31 sat, enforced: `NONNEG` keeps every term non-negative and `PADZ`'s four-byte bound every accumulator below 2^31 | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both | exact for both (4.6) |
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum` below `2^D` (the `D`-bit accumulator is compared with all 32 bits of `pos_lo`, whose top byte is non-zero, so `25 ≤ D ≤ 31`, with `2^(31−D)` times the grinding below `D = 31`) | as MID | as FULL (`0xC2`) or as MID (`0xC0`, `25 ≤ D ≤ 31`) |
@@ -418,9 +418,9 @@ script / witness data:
 | `JOINK_2` | 3,545 / 1,525 | 5,885 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 18,241 / 1,433 | 9,388 / 542 |
 | `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,962 / 483 |
 | `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,969 / 547 |
-| `CLAIM` | 3,874 / 1,690 | 6,526 / 1,840 | n/a | 3,487 / 1,626 | 9,968 / 688 | 18,596 / 1,551 | 9,581 / 419 |
-| `CLAIM^h` | 3,882 / 1,722 | 6,534 / 1,869 | n/a | 3,495 / 1,658 | 9,976 / 515 | 18,604 / 1,446 | 9,589 / 451 |
-| `SPLIT` | 3,765 / 1,674 | 6,367 / 1,821 | 6,651 / 2,018 | 3,378 / 1,610 | 9,859 / 483 | 18,437 / 1,420 | 9,472 / 419 |
+| `CLAIM` | 3,874 / 1,690 | 6,530 / 1,840 | n/a | 3,487 / 1,626 | 9,968 / 688 | 18,600 / 1,551 | 9,581 / 419 |
+| `CLAIM^h` | 3,882 / 1,722 | 6,538 / 1,869 | n/a | 3,495 / 1,658 | 9,976 / 515 | 18,608 / 1,446 | 9,589 / 451 |
+| `SPLIT` | 3,765 / 1,674 | 6,371 / 1,821 | 6,655 / 2,018 | 3,378 / 1,610 | 9,859 / 483 | 18,441 / 1,420 | 9,472 / 419 |
 | `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,169 / 1,157 | — | 2,340 / 987 | — | — | — |
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
@@ -431,11 +431,11 @@ script / witness data:
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
 3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,111 / 1,092, `UPDATE^x`
-3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `SPLIT`
-5,997 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
+3,115 / 1,156, `CLAIM` 6,160 / 1,773, `CLAIM^h` 6,168 / 1,805, `SPLIT`
+6,001 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
 24,057 / 7,397; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
 9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
-18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `SPLIT` 18,067 / 1,356. The CCV call saves about 360 bytes of script
+18,230 / 1,350, `CLAIM^h` 18,238 / 1,382, `SPLIT` 18,071 / 1,356. The CCV call saves about 360 bytes of script
 over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
 because the `TREE_SPK_MIN` recomputation and the spk introspection read
 drop out.
@@ -462,8 +462,9 @@ numerics and 159 under `0xC0`, in every tier: the 33-byte `tree_id` push
 is a constant of the script, and the check takes nothing but the two
 leaves and the signature from the witness, which is why the CCV tier,
 whose witness carries no `m`, runs the same check token for token. The
-carve rule of 7.5 rule 5 costs 25 bytes under `0xC2` and 60 under
-`0xC0`, where it also adds six witness elements, and the `DUST_MIN`
+carve rule of 7.5 rule 5 costs 25 bytes under `0xC2` and 64 under
+`0xC0`, where it also adds six witness elements and `NONNEG`-checks the
+claim leaf's lease number (10.6), and the `DUST_MIN`
 floor of 7.5 rule 6 a further 15 and 14 (8.6).
 
 The MID `EVICT_SUBTREE_h` (8.7) carries each occupied position as
@@ -1169,8 +1170,12 @@ could plant a `NUMS` leaf in an empty position of a cohort
 and block `EVICT_SUBTREE_h` (7.7) on that cohort for good. The rule is
 per balance, not per tree: a leaf the operator admitted as non-evictable
 can still carve leaves of the same terms into any empty position, which
-10.8 addresses. The check is two field comparisons (8.6); the Lean model
-carries it as two hypotheses of `Claim` (`claim_evictable`,
+10.8 addresses. The check is two field comparisons (8.6); under `0xC0`
+numerics the claim leaf's lease arrives as a witness number and is
+`NONNEG`-checked before the compare, since a negative `CScriptNum` would
+pass it against any source lease and plant a leaf no `OP_CHECKLOCKTIMEVERIFY`
+can ever accept (10.6). The Lean model
+carries the rule as two hypotheses of `Claim` (`claim_evictable`,
 `formal/README.md`).
 
 *(informative)* Rule 6 keeps every leaf a carve writes removable by a
@@ -1308,7 +1313,7 @@ it.
 It needs no `OP_CHECKSIGFROMSTACK`. `CLAIM` is excluded from the MIN tier
 only because that opcode is unavailable there (4.5); `SPLIT` is not, and
 is the first member-to-member transition MIN supports (8.6.2). It costs
-6,651 bytes of script at `D = 16`, about 1.8 times `EXIT_1`: the two fold
+6,655 bytes of script at `D = 16`, about 1.8 times `EXIT_1`: the two fold
 passes are MID's, and the sighash reconstruction is paid once.
 
 `owner_sig` is the only thing that binds the new leaf to its recipient: the
@@ -1920,8 +1925,12 @@ Under `0xC0` numerics the raw `le32` `evict_after` fields are not numbers,
 so, as the MID `EXIT_1` does for the lock time, the witness supplies the
 minimal `evict_after` of the source and of the claim leaf with their
 `PADZ` pads (six elements above the seven carve extras), the MID
-`CARVE_RULES` checks each pad against the leaf's own field, compares the
-two numbers, and compares the evictor-key fields by `OP_PICK`: 60 bytes
+`CARVE_RULES` checks each pad against the leaf's own field, `NONNEG`-checks
+the claim leaf's number (a field of `01 00 00 81` is the negative
+`CScriptNum` -16,777,217 with an empty pad, which the compare alone would
+accept against any source lease and `OP_CHECKLOCKTIMEVERIFY` would then
+reject for good, 10.6), compares the
+two numbers, and compares the evictor-key fields by `OP_PICK`: 64 bytes
 of script, plus 7 for the floor of rule 6, which compares the claim
 block's amount number (bound to its field by `LEAF_JOIN`) against the
 constant; `DRAIN_RULE` is the same 7 bytes as under `0xC2`. The owner key
@@ -2997,10 +3006,17 @@ rather than size every tree for the worst case in advance.
   re-encoded absolute value, so it also rejects a negative zero and every
   non-minimal encoding without relying on the `MINIMALDATA` policy.
   Accumulated sums are then non-negative, and `PADZ`'s four-byte bound
-  keeps each below `2^31`. `evict_after` and `seq` are not sums and keep
-  `PADZ` alone (`OP_CHECKLOCKTIMEVERIFY` fails on a negative operand by
-  itself, and `seq`'s `CScriptNum` reading is what 5.1 and 7.5 rule 2
-  describe).
+  keeps each below `2^31`. `NONNEG` MUST also guard a witness-supplied
+  number that is compared with a leaf field: the carve rule of 7.5 rule
+  5 compares the claim leaf's `evict_after` with the source's, and a claim
+  field of `01 00 00 81` is the negative `CScriptNum` -16,777,217 with an
+  empty `PADZ` pad, which the compare alone accepts against any source
+  lease. The leaf it plants keeps its evictor and can never be evicted,
+  since `OP_CHECKLOCKTIMEVERIFY` fails on the negative operand (8.6).
+  `evict_after` where it is only consumed by `OP_CHECKLOCKTIMEVERIFY`
+  (`EXIT_K`, `EVICT_SUBTREE_h`) and `seq` keep `PADZ` alone: there the
+  negative operand fails by itself, and `seq`'s `CScriptNum` reading is
+  what 5.1 and 7.5 rule 2 describe.
 * `PAD8` produces a 10-byte string for values of 2^64 or more, so the hash
   preimage differs from any honestly built node and the proof fails; in
   addition every sum is monotone non-decreasing up the path and the final
@@ -3535,7 +3551,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 466 and 55 checks respectively; the MID
+  operands during development), 479 and 57 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -3564,7 +3580,13 @@ exits in a batch" as `EXIT_K` (section 13).
   total the signed fold would reach, and an eviction of a leaf whose
   `evict_after` is `2^31 + 2^24` at lock time 0 (BIP-65 rejects a
   negative operand) all fail; these are the cases the byte-level audit
-  of `design/audit/script.md` found accepted. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
+  of `design/audit/script.md` found accepted. The carve rule's own
+  `NONNEG` (7.5 rule 5, 10.6): a `CLAIM` or `SPLIT` whose claim leaf's
+  `evict_after` field is `01 00 00 81` (the negative `CScriptNum`
+  -16,777,217 with an empty pad) fails, a carve at the largest valid
+  lease, 499,999,999, off a source at the same lease succeeds, and the
+  eviction of the leaf the carve would have planted fails at lock time
+  0 and at 499,999,999. The MIN checks cover `EXIT_1` and the dense `SPLIT` at
   `D = 4` and `16`: a split and a full drain succeed, and one signed by the
   operator or the recipient, an over-split, an occupied destination, a
   stale root, a recipient swapped under the owner's signature, a leaf with
@@ -3572,8 +3594,9 @@ exits in a batch" as `EXIT_K` (section 13).
   5), a split of one satoshi, of zero satoshis or one leaving a
   one-satoshi residual (7.5 rule 6; exactly `DUST_MIN` succeeds), an
   underfunded tree output, a wrong `e31`, each of the nine raw
-  introspection pieces substituted and a claim leaf of amount
-  `2^31 + 2^24` (`NONNEG`) all fail. The MID checks also cover the cohort
+  introspection pieces substituted, a claim leaf of amount
+  `2^31 + 2^24` (`NONNEG`) and a claim leaf whose `evict_after` field is
+  `01 00 00 81` (the carve rule's `NONNEG`) all fail. The MID checks also cover the cohort
   rewrite `REWRITE_2` and `REWRITE_4` with `REWRITE_4^x` at `D = 16`
   (7.9, 8.9) on the FULL suite's mixed cohort with the FULL suite's
   negatives (a changed leaf without its owner's signature, a key rotation
@@ -3722,7 +3745,7 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 1,344 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 1,353 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -3754,7 +3777,9 @@ exits in a batch" as `EXIT_K` (section 13).
   rule 5), of one satoshi, of zero satoshis or leaving a one-satoshi
   residual (7.5 rule 6; exactly `DUST_MIN` and the whole balance
   succeed), or against a stale root, all fail, and in `0xC0` a recipient
-  swapped under the owner's signature as well); the carve rule against
+  swapped under the owner's signature and a claim leaf whose
+  `evict_after` field is `01 00 00 81` (the carve rule's `NONNEG`, 10.6)
+  as well); the carve rule against
   the cohort sweep in both numerics at `D = 16`, as in the FULL suite;
   `CLAIM` and `CLAIM^h` with the
   voucher of 7.5 over `tree_id` in `0xC2` at dense `D = 4`/`16` and sparse
@@ -3763,7 +3788,9 @@ exits in a batch" as `EXIT_K` (section 13).
   source, a voucher reused for another claim leaf, an over-claim, a wrong
   signer, a voucher signed for another `tree_id`, a voucher over `m`
   (the FULL message), output 0 below `ns`, a claim leaf with another
-  evictor key or a later `evict_after` than the source (7.5 rule 5), a
+  evictor key or a later `evict_after` than the source (7.5 rule 5), in
+  `0xC0` a claim leaf whose `evict_after` field is `01 00 00 81` (the
+  carve rule's `NONNEG`, 10.6), a
   claim of one satoshi, of zero satoshis or one leaving a one-satoshi
   residual (7.5 rule 6; exactly `DUST_MIN` succeeds), and
   the cross-form, wrong, short or absent preimage cases of the FULL suite

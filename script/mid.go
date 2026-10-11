@@ -647,8 +647,10 @@ func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
 // claim(10) extras(7)]. The claim leaf's evictor_key must equal the
 // source's, and its evict_after, supplied as a minimal number with a PADZ
 // pad like the source's, must be no later: each pad is checked against the
-// leaf's own field and the two numbers compared
-// (tools/layertree_mid.py carve_rules).
+// leaf's own field, the claim's number is NONNEG-checked (a field of
+// 01 00 00 81 is a negative CScriptNum with an empty pad, which the
+// compare alone would accept and CLTV would then reject for good, 10.6),
+// and the two numbers compared (tools/layertree_mid.py carve_rules).
 func midCarveRules(dustMin uint64) []Token {
 	s := []Token{
 		Num(19), Op(txscript.OP_PICK), Num(30), Op(txscript.OP_PICK),
@@ -659,8 +661,10 @@ func midCarveRules(dustMin uint64) []Token {
 	s = append(s, Num(16), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
 		Num(2), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK)) // | cea sea
 	s = append(s, midPadz()...) // ... le32(sea)
-	return append(s, Num(23), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
-		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK), // sea cea
+	s = append(s, Num(23), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK)) // sea cea
+	s = append(s, midNonneg()...) // cea >= 0
+	return append(s,
 		Op(txscript.OP_GREATERTHANOREQUAL), Op(txscript.OP_VERIFY), // sea >= cea
 		// The claim amount is the block's amt_num, bound to the amount
 		// field by LEAF_JOIN, so the DUST_MIN floor of 7.5 rule 6 is one

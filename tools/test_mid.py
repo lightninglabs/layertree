@@ -470,6 +470,71 @@ def test_sign_rules(depth, verbose=True):
         print(f"MID sign rules D={depth}: negative sums rejected at LEVEL_MID, LEAF_JOIN and the join block; negative CLTV operand rejected")
 
 
+# le32(0x81000001) is `01 00 00 81`, the minimal CScriptNum -16,777,217: as an
+# evict_after field it passes PADZ with an empty pad (NEG_LEASE_EA is the
+# number with that pad), so only NONNEG keeps it out of the carve compare.
+NEG_LEASE = b"\x01\x00\x00\x81"
+NEG_LEASE_EA = (NEG_LEASE, b"", bytes(4))
+MAX_LEASE = 499_999_999
+
+
+def test_carve_lease_sign(depth, verbose=True):
+    """NONNEG on the carve rule's claim lease (spec 7.5 rule 5, 10.6). A
+    claim leaf whose evict_after field is `01 00 00 81` is the negative
+    CScriptNum -16,777,217 with an empty PADZ pad, so the lease compare
+    alone accepts it against any source lease, and the leaf it plants keeps
+    the operator as evictor while BIP-65 rejects its eviction for good.
+    CLAIM and SPLIT of such a leaf fail at NONNEG; a carve at the largest
+    valid height (499,999,999, 5.2) succeeds, so the check is not
+    over-tight; and the planted leaf's eviction is shown to fail at any
+    lock time."""
+    w = MidWorld(depth, False)
+    w.compiled = dict(w.compiled); w.compiled["SPLIT"] = assemble(M.split_script(depth, False), mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    alice = mk_leaf("alice", 500_000, w.op_pk, MAX_LEASE)
+    oper = mk_leaf("operator", 1_000_000)
+    s_a, s_c, s_o = 0, 3, (1 << depth) - 1
+    w.tree.leaves = {s_a: alice, s_o: oper}
+    root = w.tree.root()
+    spath = w.tree.path(s_a)
+
+    def carve(name, lf, claim_ea=None):
+        """A CLAIM or SPLIT of lf out of alice's leaf into s_c: (runner, new tree)."""
+        src2 = alice.with_amount_seq(alice.amount - lf.amount, alice.seq + 1)
+        t1 = w.clone(); t1.leaves[s_a] = src2; t1.leaves[s_c] = lf; r1 = t1.root()
+        ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+        auth = (schnorr_sign(ctx.sighash(), sk("alice-owner")) if name == "SPLIT"
+                else schnorr_sign(lt.voucher_msg(w.tree_id, alice, lf), sk("alice-owner")))
+        wit = (list(M.pad(r1[1])) + M.w_levels(t1.path(s_c), lt.EMPTY_NODE, lf.node(), False) +
+               list(M.pad(root[1])) + M.w_levels(spath, alice.node(), src2.node(), False) +
+               M.w_leaf(alice) + M.w_leaf(lf) + M.w_carve_extras(alice, lf, claim_ea=claim_ea) +
+               [auth, root[0], w.m])
+        return (lambda: w.run(name, wit, ctx)), t1
+
+    planted = big_leaf("planted", 200_000, alice.evictor_key, 0x81000001, 5)
+    assert planted.serialize()[104:108] == NEG_LEASE
+    for name in ("CLAIM", "SPLIT"):
+        run, _ = carve(name, carve_of(alice, "edge", 200_000))
+        run()
+        check(True, f"mid: {name} of a leaf with evict_after 499,999,999 off a source at the same lease succeeds")
+        run, t1 = carve(name, planted, claim_ea=NEG_LEASE_EA)
+        expect_fail(run, f"mid: {name} of a leaf with evict_after 01 00 00 81 (a negative CScriptNum lease)")
+    # The leaf such a carve would plant cannot be evicted: OP_CHECKLOCKTIMEVERIFY
+    # rejects the negative operand whatever the lock time (BIP-65).
+    w.tree = t1; root1 = t1.root()
+    t2 = w.clone(); del t2.leaves[s_c]; r2 = t2.root()
+    for lock in (0, MAX_LEASE):
+        ctx_e = w.ctx([(r2[1], w.spk(r2)), (planted.amount, lt.p2tr_spk(planted.exit_key))], (5_000, P2WPKH), locktime=lock)
+        esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
+        wit_e = (list(M.pad(r2[1])) + list(M.pad(root1[1])) + M.w_levels(t1.path(s_c), planted.node(), lt.EMPTY_NODE, False) +
+                 M.w_leaf(planted) + list(NEG_LEASE_EA) + [esig, b"\x01", root1[0], w.m])
+        expect_fail(lambda: w.run("EXIT_1", wit_e, ctx_e),
+                    f"mid: eviction of the planted leaf at lock time {lock:,} (negative CLTV operand)")
+    if verbose:
+        print(f"MID carve lease sign D={depth}: a negative claim lease rejected at NONNEG under CLAIM and SPLIT; "
+              f"its eviction would fail at any lock time")
+
+
 def test_update_x(depth, sparse, verbose=True):
     """MID UPDATE^x (spec 7.4 rule 5): UPDATE plus a signature by old.ek.
 
@@ -1229,6 +1294,7 @@ if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
     test_sign_rules(16)
+    test_carve_lease_sign(16)
     test_update_x(16, False)
     test_update_x(31, True)
     test_exit_tower(16, False)

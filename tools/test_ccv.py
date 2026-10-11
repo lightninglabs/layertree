@@ -33,6 +33,10 @@ from script_sim import (Interp, ScriptError, TxContext, assemble, pubkey_x,  # n
 FAILS = 0
 CHECKS = 0
 P2WPKH = b"\x00\x14" + bytes(20)
+# le32(0x81000001) is `01 00 00 81`, the minimal CScriptNum -16,777,217; with
+# its empty PADZ pad it is the claim lease only NONNEG keeps out of the carve
+# compare (test_mid.NEG_LEASE_EA).
+NEG_LEASE_EA = (b"\x01\x00\x00\x81", b"", bytes(4))
 
 BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ABS", "OP_ADD", "OP_1ADD",
               "OP_CHECKLOCKTIMEVERIFY", "OP_CHECKSIGVERIFY", "OP_CHECKSIG", "OP_DROP",
@@ -1120,9 +1124,9 @@ def test_split_ccv0(depth, profile):
     r1 = t1.root()
     check(r1[1] == root[1], "c0: SPLIT conserves sum")
 
-    def head(new, s_new, cnode, amt_new):
+    def head(new, s_new, cnode, amt_new, claim_ea=None):
         t = w.clone(); t.leaves[s_a] = src2; t.leaves[s_new] = new
-        ex = M.w_carve_extras(alice, new, amt_new=amt_new)
+        ex = M.w_carve_extras(alice, new, amt_new=amt_new, claim_ea=claim_ea)
         return (list(M.pad(t.root()[1])) + M.w_levels(t.path(s_new), lt.EMPTY_NODE, new.node(), S) +
                 w.pos(new) + w.pads_for(root[1]) + M.w_levels(spath, alice.node(), cnode, S) +
                 w.pos(alice) + M.w_leaf(alice) + M.w_leaf(new) + ex)
@@ -1154,6 +1158,17 @@ def test_split_ccv0(depth, profile):
         expect_fail(lambda: w.run("SPLIT", head(lf, s_e, src2.node(), alice.amount - lf.amount) +
                                   [schnorr_sign(ctx_e.sighash(), sk("alice-owner"))], ctx_e),
                     f"c0: SPLIT into a leaf with {label} than its source")
+    # NONNEG on the claim lease (7.5 rule 5, 10.6): `01 00 00 81` is a
+    # negative CScriptNum with an empty pad, which the compare alone would
+    # accept against alice's lease of 0.
+    planted = mk("planted", 200_000, alice.evictor_key, 0)
+    planted.evict_after = 0x81000001
+    s_p = w.slot(planted, 3)
+    t_p = w.clone(); t_p.leaves[s_a] = src2; t_p.leaves[s_p] = planted; r_p = t_p.root()
+    ctx_p = w.ctx([(r_p[1], w.spk(r_p))], (600, P2WPKH))
+    expect_fail(lambda: w.run("SPLIT", head(planted, s_p, src2.node(), alice.amount - planted.amount, claim_ea=NEG_LEASE_EA) +
+                              [schnorr_sign(ctx_p.sighash(), sk("alice-owner"))], ctx_p),
+                "c0: SPLIT into a leaf with evict_after 01 00 00 81 (a negative CScriptNum lease)")
     if not S:
         occ = mk("bob", 200_000, alice.evictor_key, alice.evict_after)
         expect_fail(lambda: w.run("SPLIT", head(occ, s_o, src2.node(), alice.amount - occ.amount) + [asig], ctx),
@@ -1248,9 +1263,10 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
     preimage = lt.sha256(b"payment-preimage")
     phash = lt.sha256(preimage) if hashlock else None
 
-    def head(tree, source, claim, s_src, s_claim):
+    def head(tree, source, claim, s_src, s_claim, claim_ea=None):
         """Witness below the voucher signature for claiming `claim` out of
-        `source` in `tree`, presenting s_claim as empty."""
+        `source` in `tree`, presenting s_claim as empty; claim_ea is passed
+        to w_carve_extras."""
         t = lt.Tree(depth); t.leaves = dict(tree.leaves)
         amt_new = source.amount - claim.amount
         t.leaves[s_src] = source.with_amount_seq(max(amt_new, 0), source.seq + 1)
@@ -1262,7 +1278,7 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
         cp = t.path(s_claim)
         if not c0:
             return w.path_witness(cp) + w.path_witness(sp) + [source.serialize(), claim.serialize()]
-        ex = M.w_carve_extras(source, claim, amt_new=max(amt_new, 0))
+        ex = M.w_carve_extras(source, claim, amt_new=max(amt_new, 0), claim_ea=claim_ea)
         return (list(M.pad(t.root()[1])) + M.w_levels(cp, lt.EMPTY_NODE, claim.node(), S) + w.pos(claim) +
                 w.pads_for(tree.root()[1]) + M.w_levels(sp, source.node(), new_src_node, S) + w.pos(source) +
                 M.w_leaf(source) + M.w_leaf(claim) + ex)
@@ -1318,6 +1334,19 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
         ctx_e = w.ctx([(r_e[1], w.spk(r_e))], (600, P2WPKH))
         expect_fail(lambda: w.run(name, head(w.tree, src, lf, s_o, s_e) + tail(vsig(TREE_ID, src, lf)), ctx_e),
                     f"{tag} claim of a leaf with {label} than its source")
+    if c0:
+        # NONNEG on the claim lease (7.5 rule 5, 10.6): `01 00 00 81` is a
+        # negative CScriptNum with an empty pad, which the compare alone
+        # would accept against the source's lease of 0.
+        planted = mk("planted", 40_000, src.evictor_key, 0)
+        planted.evict_after = 0x81000001
+        s_p = w.slot(planted, 3)
+        t_p = w.clone(); lt.apply_update(t_p, s_o, src.with_amount_seq(src.amount - planted.amount, src.seq + 1))
+        t_p.leaves[s_p] = planted; r_p = t_p.root()
+        ctx_p = w.ctx([(r_p[1], w.spk(r_p))], (600, P2WPKH))
+        expect_fail(lambda: w.run(name, head(w.tree, src, planted, s_o, s_p, claim_ea=NEG_LEASE_EA) +
+                                  tail(vsig(TREE_ID, src, planted)), ctx_p),
+                    f"{tag} claim of a leaf with evict_after 01 00 00 81 (a negative CScriptNum lease)")
     # 7.5 rule 6: a sub-dust claim leaf or residual fails; exactly DUST_MIN passes
     for label, amt in (("one satoshi", 1), ("zero satoshis", 0), ("a one-satoshi residual", src.amount - 1)):
         lf = mk(f"dust{amt}", amt, src.evictor_key, src.evict_after)

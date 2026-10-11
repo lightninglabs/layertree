@@ -1,4 +1,4 @@
-# CLAIM (CCV with 0xC0 numerics, in MID macros, dense, D=4): 2316 bytes
+# CLAIM (CCV with 0xC0 numerics, in MID macros, dense, D=4): 2320 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 33 OP_PICK 33 OP_PICK 33 OP_PICK 33 OP_PICK 33 OP_PICK 33 OP_PICK 33 OP_PICK
