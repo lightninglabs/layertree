@@ -62,9 +62,11 @@ with numbers.
   residual of F48, a top-up below DUST_MIN blocks (not voids) a
   whole-balance voucher; the fix is a DUST_MIN floor on 7.9 rule 3's
   amount-only increase; (b) the public repository URL for refs.bib (the
-  repo moved to lightninglabs/layertree, still private). Next: item 2,
-  MID DETACH_h and CLAIM^x / CLAIM^hx in MID and CCV (status.md open
-  work 9).
+  repo moved to lightninglabs/layertree, still private). Item 2 landed after: spec 0.13.1,
+  CLAIM^x / CLAIM^hx in MID and CCV (both numerics) and DETACH_h in MID
+  (no stack cap); counts 1,244 / 777 / 57 / 1,841 / 220 / 61, 117 golden
+  scripts; reviewed report-only (no script findings; one test fixed).
+  Remaining tier gap: REWRITE_h under CCV; txn builders are FULL only.
 
 - Round of 2026-10-10 (evening), owner's "execute 1-4, no GitHub pages,
   refine papers": (a) Opus paper worker in a worktree: new title for
