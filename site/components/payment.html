@@ -126,8 +126,11 @@
   <code>CLAIM</code> is two steps in one transaction: the source leaf shrinks by
   the claim's amount and its counter <code>seq</code> rises by one, then the claim
   leaf fills a slot proven empty after the first step. The total never changes.
-  Redemption is single-use for free, because the first step changes the source
-  leaf and the signed message names the old one. The caveat is issuance: the
+  Redemption is single-use for free, because the first step raises the source
+  leaf's counter and the signed message names the old one. The message names
+  the source leaf's keys, lease and counter but not its balance, so the
+  operator raising a leaf's amount leaves every voucher against it redeemable,
+  while any change the owner signs retires them. The caveat is issuance: the
   covenant prevents redeeming more than the source holds, but nothing prevents
   its owner from signing more vouchers than that, so a recipient treats a voucher
   as credit until it is redeemed or the issuer settles it another way. A

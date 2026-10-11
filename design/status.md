@@ -1,6 +1,6 @@
 # Status and hand-off
 
-Last updated 2026-10-10 (spec 0.12.1, Appendix C 0.5.1, paper v0.1).
+Last updated 2026-10-10 (spec 0.13.0, Appendix C 0.5.2, paper v0.1).
 
 ## Where things stand
 
@@ -10,9 +10,9 @@ Last updated 2026-10-10 (spec 0.12.1, Appendix C 0.5.1, paper v0.1).
 | Cohort transitions (0.9.0) | `CLAIM^x` and `CLAIM^hx` (7.5.3, the dedicated credit leaf of `design/receive.md`), `REWRITE_h` with its `^x` form (7.9, `design/batching.md` Shape 2 with the exit rule) and `DETACH_h` (7.10, Shape 3) are built in the FULL tier only: generator, tests, golden vectors, Go mirror, listings. Measured at `D = 16`: `REWRITE_6` 17,148 B of script, about 147 vB per changed leaf; `DETACH_8` 1,548 / 497 B, exits at 765 vB afterwards. Since 0.11.1 `REWRITE_h` and `REWRITE_h^x` also exist in MID (`REWRITE_4` 10,516 / 4,436 B on the mixed cohort; a full cohort fits the 1,000-element stack limit up to `h = 5`), since 0.12.0 an unchanged position publishes its leaf once (the one-byte marker of 7.9, 92 vB per unchanged position in FULL against 120 before), and `DETACH_h` in CCV, both numerics (`DETACH_8` 973 / 433 B under `0xC2`, 1,628 / 470 under `0xC0`; `CCVTreeOptions` compiles `m_h` from the parent's set). `DETACH_h` in MID, `CLAIM^x` in MID and CCV: not implemented; MIN: no. Lean: `rewrite_sound`, `rewrite_exit_conservation`, `detach_sound` and `detach_member_payable` in `Cohort.lean`. |
 | Appendix C channel leaves | Complete, 0.5.0: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security; 0.4.0 adds the settlement dust floor `DUST_CHAN` (C.3.4, trimmed value to the anchor) and the `beta_chan` stale-update term of the C.4.4 budget with the fee-reserve and replacement rules of C.5.5 and C.9.6 (channel audit B1, B4); 0.5.0 binds `chan_id` to `tree_id` in place of `m` (C.2.2, B6, decision 24; zero bytes of script). All C.10 recommendations adopted by the base spec. Executable (C.12): `tools/layertree_chan.py` generates `UPD_F` / `REBIND_n` / `SETTLE_n`, and `tools/test_chan.py` (220 checks) runs the state machine on a chain model with BIP-65 / BIP-68, from a tree exit through contest, settlement and HTLC sweeps, in both tapleaf versions, plus the C.4.4 / 9.6.2 deadlines as block sequences. Go mirror `script/chan.go` byte-exact against the golden `chan` section; TLV messages in `msg/chan.go`. Measured: `SETTLE_n` is 79 B under 0xC2 (80 under 0xC0), HTLC sweeps 155 / 138 vB (the old table missed the 65-byte control block), the C.4.4 bound has two blocks of margin, and a MID channel carries at most seven HTLC outputs per state beside two balances, eight beside one (520-byte collation). |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
-| Python reference and simulator | 1,154 + 466 + 55 + 1,344 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
-| Tower-delegable exit `EXIT_K^t` (0.12.1) | 7.2 rule 7, decision 26: the exact-payout exit whose owner branch checks an off-chain signature over `H_exit(tree_id \|\| leaf)` with `OP_CHECKSIGFROMSTACK`, so a tower builds and rebuilds the exit with the owner offline and a cooperative exit is one message. FULL, MID and CCV (both numerics); MIN cannot (no CSFS). Measured `EXIT_1^t` at `D = 16`: FULL 2,204 B beside `EXIT_1` 2,101 and `EXIT_1^=` 2,097; MID 3,491 beside 3,367; CCV 1,823 beside 1,716 (`0xC0` 3,126 beside 3,002). `TreeOptions` / `CCVTreeOptions` and the Go `FullTreeOptions` / `CCVTreeOptions` carry it as `tower`; `txn.BuildExit` takes the authorisation in `ExitStep.Auth` (`SignExitAuth`), replayed through the simulator. The D4 golden root did not move (variants are excluded from the reference set). Lean: `ExitBlock.authorised` stays abstract, its doc comment names both authorisations. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 103 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction, exact, tower), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 48 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
+| Python reference and simulator | 1,244 + 506 + 55 + 1,472 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
+| Tower-delegable exit `EXIT_K^t` (0.12.1) | 7.2 rule 7, decision 26: the exact-payout exit whose owner branch checks an off-chain signature over `H_exit(tree_id \|\| body(leaf))` (the leaf without its amount since 0.13.0, decision 28) with `OP_CHECKSIGFROMSTACK`, so a tower builds and rebuilds the exit with the owner offline, an amount-only top-up of the leaf does not void it, and a cooperative exit is one message. FULL, MID and CCV (both numerics); MIN cannot (no CSFS). Measured `EXIT_1^t` at `D = 16`: FULL 2,207 B beside `EXIT_1` 2,101 and `EXIT_1^=` 2,097; MID 3,488 beside 3,367; CCV 1,826 beside 1,716 (`0xC0` 3,123 beside 3,002). `TreeOptions` / `CCVTreeOptions` and the Go `FullTreeOptions` / `CCVTreeOptions` carry it as `tower`; `txn.BuildExit` takes the authorisation in `ExitStep.Auth` (`SignExitAuth`), replayed through the simulator. The D4 golden root did not move (variants are excluded from the reference set). Lean: `ExitBlock.authorised` stays abstract, its doc comment names both authorisations. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 103 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction, exact, tower, tower after an amount-only top-up), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial, draining, and after an amount-only top-up of the source), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 54 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. `tree.Leaf.Body` is what `VoucherMsg`, `VoucherHMsg` and `ExitAuthMsg` bind (0.13.0). |
 | Lean model | `formal/`: sections 5 (including sparse positions), 7 (including `EVICT_SUBTREE_h` and the terminal branch), 10.2, the encodings, and the cohort shapes `REWRITE_h` and `DETACH_h` of `design/batching.md` (`Cohort.lean`); axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, four opcode tiers FULL/MID/MIN/CCV, UC theorem, channel composition), built in two versions from one source by an `\iffullversion` switch keyed on the job name. Revised for the second review round (`paper/reviews/{crypto,protocol,systems}.md`, answered item by item in `paper/review-response.md`): the liveness bound Delta(N) is replaced by an explicit contention assumption [C] (kappa, beta; Delta(q) = Delta_L(ceil((beta+q)/kappa)+1)); the functionality is a partial tree with opaque nodes at any height, `REVEAL`, `VOUCH`, creation as a join, a protocol-aware `EXIT(p, v, f)`; Lemma 2 (`Step.sound`), a paper-only path-maintenance Lemma 3 (Lean item handed off), Claim 1 (simulation invariant, proved by case in Appendix A); Theorem 5 excludes `REWRITE_h`/`DETACH_h`, uses the ROM for same-sign taproot binding and [MIN] for the generator-key check; Theorem 6 is Conjecture 1; a deployment-assumptions table mirrors spec 4.1's [A-1] to [A-6]; prior art (TLUV, `OP_MERKLESUB`, `OP_EVICT`, Poelstra's CAT/Schnorr tricks, Plasma, proofs of liabilities) added; one stated fee model with corrected derived figures (REWRITE 359/195/158, joins and carves without a phantom payout, sparse 244 + 41k). Spec 0.10.0 rules (`tree_id` in every tier, the carve constraint, `m_h` with the parent's options) are described without sizes; `TODO(0.10.0 sizes)` marks the `CLAIM`, `CLAIM^h` and `SPLIT` figures to update. `main.pdf` (FC submission) is 35 pages, body ending on page 15 with References at the top of page 16, appendices A to E (Appendix F listings now full version only). `main-full.pdf` is 73 pages, References on page 29: the UC proof and the channel scripts lifted into the body with inline Lean signatures, the Lean development an appendix, plus the five full-only sections. Both PDFs stamped 761188b. Spec, tools, formal and design items the reviews raised are listed under "Handed off" in the response. |
@@ -227,6 +227,35 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     untouched, so the D4 golden root did not move. Cost: 107 bytes over
     `EXIT_K^=` per step under `0xC2`, 124 under `0xC0`. Counts: FULL
     1,154, MID 466, CCV 1,344; Go `txn` 48 cases.
+
+28. **Vouchers and exit authorisations bind the leaf without its
+    amount** (2026-10-10, spec 0.13.0, 7.5, 7.5.1, 7.2 rule 7; the
+    developer review's finding 1, F48). `H_voucher`, `H_voucher_h` and
+    `H_exit` sign `body(leaf)`, the 108 bytes after the amount field, in
+    place of the whole 116-byte leaf, in every tier that has them (FULL,
+    MID, CCV both numerics). Before, `REWRITE_h` rule 3's amount-only
+    exemption let the operator void every outstanding voucher and tower
+    authorisation against a leaf by topping it up one satoshi, with no
+    unilateral remedy on a credit leaf; the amount binding was not
+    load-bearing, since single use comes from `seq` and over-redemption
+    from the script's check of the claim against the current amount.
+    Now a voucher or authorisation survives a top-up (the exit pays the
+    raised amount, the voucher redeems against it) and dies on any other
+    change. Honest residual (10.3): a whole-balance voucher is blocked,
+    not voided, by a top-up below `DUST_MIN`, since the residual it
+    would leave fails 7.5 rule 6; 9.6 has issuers top up by at least
+    `DUST_MIN`. Cost: `0xC2` scripts gain 3 bytes (`108 OP_RIGHT`),
+    `0xC0` scripts lose 4 (`CLAIM`, `CLAIM^h`) or 3 (`EXIT_1^t`), one
+    pick and one cat fewer. The D4 golden root moved (`CLAIM` is in the
+    reference set) from `6dea666e…` to `aa2ba1ff…`; the `chan` section
+    did not. Lean: `Leaf.Body`, `Voucher.src : Leaf.Body`,
+    `voucher_no_replay` restated over bodies (strictly stronger),
+    `voucher_survives_topup` added with the rule 6 proviso, 61 audited
+    theorems. Tests: a top-up through a real `REWRITE_2` followed by
+    `CLAIM` and `EXIT_1^t` on pre-top-up signatures in FULL and MID,
+    state-level top-up positives and changed-field negatives in every
+    tier, Go `txn` cases `CLAIM topped` and `EXIT_1 tower topped`
+    replayed through the simulator.
 
 27. **MIN `extra_outs` stays as 8.11 describes it** (2026-10-10; the
     reviews' Q4). The MIN tier's raw extra outputs stay one witness

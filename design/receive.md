@@ -204,7 +204,13 @@ amount-only increase under `REWRITE_h^x`, which needs only the
 operator's signature (7.9 rule 3; the 0.11.0 exemption still allows it
 for any leaf whose `seq` is not `SEQ_FINAL`, which a credit leaf's is
 not), at about 122 vbytes per position when a cohort of credit leaves is
-topped up in one rewrite; or an `UPDATE^x` the recipient co-signs.
+topped up in one rewrite; or an `UPDATE^x` the recipient co-signs. Since
+spec 0.13.0 the voucher binds the credit leaf without its amount (7.5),
+so a top-up leaves the recipient's outstanding voucher redeemable
+against the raised balance and nothing has to be reissued for it; the
+operator should top up by at least `DUST_MIN`, since a smaller top-up
+leaves a whole-balance voucher a sub-dust residual and blocks it under
+7.5 rule 6 until the next top-up (10.3).
 
 Voiding is the harder one, and the spec's own answer is a race: redeem
 promptly, within the contention bound of 10.5. For the credit leaf to be

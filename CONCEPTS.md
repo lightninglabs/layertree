@@ -253,8 +253,10 @@ signs a message saying "carve this new leaf out of mine". The holder
 redeems it against the output with `CLAIM`, which is two steps in one
 transaction: shrink the source leaf, then place the new leaf in an empty
 slot. The total never changes. It is single-use for free, because the first
-step mutates the source leaf, so the signed message can never verify
-again.
+step advances the source leaf's counter, so the signed message can never
+verify again. The message names the source leaf's keys, lease and
+counter but not its balance, so a top-up of the source by the operator
+leaves a voucher redeemable; only a change the owner signs retires it.
 
 Two honest caveats. The covenant prevents over-*redemption*, not
 over-*issuance*: nothing stops someone signing more vouchers than their
