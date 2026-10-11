@@ -61,6 +61,7 @@ open LayerTree
 #print axioms chain_state
 -- Voucher
 #print axioms voucher_no_replay
+#print axioms voucher_survives_topup
 #print axioms self_voucher_fixed
 #print axioms final_never_carved
 #print axioms detach_partition

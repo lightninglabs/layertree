@@ -421,18 +421,19 @@ func TestFullSplit(t *testing.T) {
 	fullCheckScript(t, g, "FULL/D/D4/SPLIT", FullSplitScript(4, false, tree.DustMin))
 	fullCheckScript(t, g, "FULL/S/D8/SPLIT", FullSplitScript(8, true, tree.DustMin))
 
-	// Replacing the voucher message, with its 33-byte tree_id push, and
+	// Replacing the voucher message, with its 33-byte tree_id push and
+	// the 108 OP_RIGHT that takes the source leaf's body, and
 	// OP_CHECKSIGFROMSTACK with an OP_CHECKSIGVERIFY over src.owner_key
-	// saves exactly 109 bytes.
+	// saves exactly 112 bytes.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
 		claim := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
 		split := MustAssemble(FullSplitScript(tc.depth, tc.sparse, tree.DustMin), ModeC2)
-		if len(claim)-len(split) != 109 {
+		if len(claim)-len(split) != 112 {
 			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
-				"want 109", tc.depth, tc.sparse, len(claim)-len(split))
+				"want 112", tc.depth, tc.sparse, len(claim)-len(split))
 		}
 	}
 

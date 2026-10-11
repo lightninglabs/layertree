@@ -11,22 +11,39 @@ reproducing the source bytes. This module proves the argument in the
 form that is actually true, and shows where it needs hypotheses the
 script does not check.
 
-The voucher message is `H_voucher(tree_id ‖ source_leaf ‖ claim_leaf)`
-(or the hash-locked form); the model keeps the three fields and not the
-hash. `Voucher.Redeemable` is what the `CLAIM` script checks of the tree
-apart from signatures: the script's `tree_id` constant is the voucher's,
-the source leaf is in the tree byte for byte, and the carve rules hold.
+The voucher message is `H_voucher(tree_id ‖ body(source_leaf) ‖
+claim_leaf)` (or the hash-locked form), where `body` is the leaf without
+its `amount` field (5.2, 7.5): the six fields `exit_key`, `owner_key`,
+`evictor_key`, `evict_after`, `nonce`, `seq`. The model keeps the three
+fields and not the hash. `Voucher.Redeemable` is what the `CLAIM` script
+checks of the tree apart from signatures: the script's `tree_id` constant
+is the voucher's, some leaf at the source position has the voucher's body
+(the amount is the leaf's own, whatever it is now), and the carve rules
+hold against that leaf. The amount is left out of the message so that an
+amount-only increase by `REWRITE_h` rule 3 (7.9), which needs no owner
+signature, does not void a voucher; single use rests on `seq`, which the
+body carries, and over-redemption on the carve rules against the current
+amount (`voucher_survives_topup`).
 
 ## What is proved
 
-* `voucher_no_replay`: after a redemption, the source leaf never reappears
-  in any reachable tree, provided (i) the source's `(owner_key, nonce)`
-  was unique in the tree (5.2), (ii) the claim leaf is not itself a copy
-  of the source identity at or below the source's `seq`, and (iii) no
-  later join, update or rewrite admits such a copy and no later carve
-  creates one. The script checks none of (i) to (iii); they are the
-  obligations 5.2, 9.6 and 10.3 place on creators and issuers, and the
-  theorem says they are exactly what the single-use property rests on.
+* `voucher_no_replay`: after a redemption, no leaf with the source's
+  body reappears in any reachable tree, provided (i) the source's
+  `(owner_key, nonce)` was unique in the tree (5.2), (ii) the claim leaf
+  is not itself a copy of the source identity at or below the source's
+  `seq`, and (iii) no later join, update or rewrite admits such a copy and
+  no later carve creates one. The script checks none of (i) to (iii);
+  they are the obligations 5.2, 9.6 and 10.3 place on creators and
+  issuers, and the theorem says they are exactly what the single-use
+  property rests on. `voucher_no_replay_leaf` is the older, weaker form
+  (the source leaf itself never recurs).
+* `voucher_survives_topup`: a voucher redeemable against a leaf stays
+  redeemable when that leaf's amount alone is raised, as `REWRITE_h`
+  rule 3 permits without the owner, provided the raised residual still
+  satisfies 7.5 rule 6 (zero, or at least `DUST_MIN`). The proviso is
+  the one case the message cannot help: a voucher for the whole balance
+  is blocked, not voided, by a top-up below `DUST_MIN`, until the
+  residual reaches the floor.
 * `self_voucher_fixed`: the degenerate voucher whose claim leaf *is* the
   source leaf (full amount, same fields) carves the source to `E_0` and
   places the identical leaf back, so the tree is unchanged and the
@@ -47,13 +64,47 @@ the source leaf is in the tree byte for byte, and the carve rules hold.
 
 namespace LayerTree
 
+/-- The leaf body (5.2): a leaf without its `amount`, the part of a leaf
+that a voucher (7.5) and an exit authorisation (7.2 rule 7) bind. -/
+structure Leaf.Body where
+  exitKey : Nat
+  ownerKey : Nat
+  evictorKey : Nat
+  evictAfter : Nat
+  nonce : Nat
+  seq : Nat
+  deriving DecidableEq, Repr
+
+/-- The body of a leaf: every field but `amount`. -/
+def Leaf.body (l : Leaf) : Leaf.Body :=
+  ⟨l.exitKey, l.ownerKey, l.evictorKey, l.evictAfter, l.nonce, l.seq⟩
+
+/-- Changing a leaf's amount alone leaves its body unchanged. -/
+@[simp] theorem Leaf.body_amount (l : Leaf) (a : Nat) : ({ l with amount := a } : Leaf).body = l.body :=
+  rfl
+
+/-- Two leaves with the same body and the same amount are the same leaf:
+the body is the leaf's identity, the amount its balance. -/
+theorem Leaf.eq_of_body_eq {l l' : Leaf} (hb : l.body = l'.body) (ha : l.amount = l'.amount) :
+    l = l' := by
+  cases l; cases l'
+  cases hb
+  cases ha
+  rfl
+
 /-- A voucher as its message binds it: the tree's `tree_id`, the source
-leaf and the claim leaf, all by content. -/
+leaf's body and the claim leaf, all by content. The source's amount is
+not part of it. -/
 structure Voucher where
   treeId : Nat
-  src : Leaf
+  src : Leaf.Body
   claim : Leaf
   deriving DecidableEq, Repr
+
+/-- The voucher an issuer signs against the source leaf it holds: the
+leaf's body, with the amount it carried at issuance left out. -/
+def Voucher.issue (treeId : Nat) (src claim : Leaf) : Voucher :=
+  ⟨treeId, src.body, claim⟩
 
 /-- A tree output with the lineage constant its `CLAIM` scripts carry. -/
 structure TreeOutput (d : Nat) where
@@ -62,32 +113,44 @@ structure TreeOutput (d : Nat) where
 
 /-- What the `CLAIM` script checks of the tree for voucher `v` with the
 source at `p`, signatures aside: the script's `tree_id` is the voucher's,
-the source leaf is at `p` byte for byte, and the carve rules hold. The
-claim position is the redeemer's choice (any position empty after the
-source step, `claim_sound`) and is not part of the voucher. -/
+the leaf at `p` has the voucher's body (its amount is whatever the tree
+holds now), and the carve rules hold against that leaf. The claim position
+is the redeemer's choice (any position empty after the source step,
+`claim_sound`) and is not part of the voucher. -/
 def Voucher.Redeemable (π : Params) (v : Voucher) {d : Nat} (T : TreeOutput d) (p : Pos d 0) :
     Prop :=
-  v.treeId = T.treeId ∧ T.tree.get p = some v.src ∧ CarveOk π v.src v.claim
+  v.treeId = T.treeId ∧
+    ∃ l : Leaf, T.tree.get p = some l ∧ l.body = v.src ∧ CarveOk π l v.claim
+
+/-- The voucher an issuer signs against the leaf in front of it is
+redeemable there, given the carve rules. -/
+theorem Voucher.issue_redeemable {π : Params} {d : Nat} (T : TreeOutput d) (p : Pos d 0)
+    (src claim : Leaf) (hsrc : T.tree.get p = some src) (hok : CarveOk π src claim) :
+    (Voucher.issue T.treeId src claim).Redeemable π T p :=
+  ⟨rfl, src, hsrc, rfl, hok⟩
 
 /-- A redeemable voucher with an empty claim position is an accepted
-`claim` record. -/
+`claim` record over the leaf the tree holds. -/
 theorem Voucher.redeem_pre {π : Params} {d : Nat} (v : Voucher) (T : TreeOutput d) (p₁ p₂ : Pos d 0)
-    (hr : v.Redeemable π T p₁)
-    (hempty : (T.tree.set p₁ (claimedSource v.src v.claim.amount)).get p₂ = none) :
-    (Trans.claim p₁ p₂ v.src v.claim).Pre π T.tree :=
-  ⟨hr.2.1, hr.2.2, hempty⟩
+    (hr : v.Redeemable π T p₁) :
+    ∃ l : Leaf, T.tree.get p₁ = some l ∧ l.body = v.src ∧
+      ((T.tree.set p₁ (claimedSource l v.claim.amount)).get p₂ = none →
+        (Trans.claim p₁ p₂ l v.claim).Pre π T.tree) := by
+  obtain ⟨_, l, hl, hb, hok⟩ := hr
+  exact ⟨l, hl, hb, fun hempty => ⟨hl, hok, hempty⟩⟩
 
 /-! ## Non-replay -/
 
-/-- **A redeemed voucher's source leaf never recurs.** Let the voucher
+/-- **A redeemed voucher's source body never recurs.** Let the voucher
 with source `src` be redeemed at `p₁` in `t`, placing `c` at `p₂`. If the
 source identity `(owner_key, nonce)` was unique in `t`, the claim leaf
 does not carry that identity with a `seq` at or below the source's, and
 along the later trace nothing admitted or carved does either, then no
-reachable tree holds `src` at any position: the leaf with that identity,
-if present, has `seq` above `src.seq`, because the redemption advanced it
-and every later carve advances it further. The voucher's message
-therefore never verifies against the tree again. -/
+reachable tree holds a leaf with `src`'s body at any position: the leaf
+with that identity, if present, has `seq` above `src.seq`, because the
+redemption advanced it and every later carve advances it further, and the
+body carries `seq`. The voucher's message therefore never verifies against
+the tree again, whatever amount the leaf carries. -/
 theorem voucher_no_replay {π : Params} {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src c : Leaf)
     (hpre : (Trans.claim p₁ p₂ src c).Pre π t)
     (huniq : ∀ (q : Pos d 0) (l : Leaf), t.get q = some l →
@@ -97,7 +160,7 @@ theorem voucher_no_replay {π : Params} {d : Nat} (t : Tree d) (p₁ p₂ : Pos 
     (h : Reachable π ((Trans.claim p₁ p₂ src c).apply t) xs t')
     (hadm : ∀ x ∈ xs, x.Admits (Leaf.SeqAbove src.ownerKey src.nonce src.seq))
     (hcarve : ∀ x ∈ xs, x.CarveLeaf (Leaf.SeqAbove src.ownerKey src.nonce src.seq)) :
-    ∀ q : Pos d 0, t'.get q ≠ some src := by
+    ∀ (q : Pos d 0) (l : Leaf), t'.get q = some l → l.body ≠ src.body := by
   have ht₁ : ((Trans.claim p₁ p₂ src c).apply t).All (Leaf.SeqAbove src.ownerKey src.nonce src.seq) := by
     intro q l hq
     simp only [Trans.apply, carveTree] at hq
@@ -116,8 +179,56 @@ theorem voucher_no_replay {π : Params} {d : Nat} (t : Tree d) (p₁ p₂ : Pos 
         intro hk hn
         exact absurd (huniq q l hq hk hn) hq₁
   have ht' := Reachable.seqAbove _ _ _ h ht₁ hadm hcarve
-  intro q hq
-  exact Nat.lt_irrefl _ (ht' q src hq rfl rfl)
+  intro q l hq hb
+  have hk : l.ownerKey = src.ownerKey := congrArg Leaf.Body.ownerKey hb
+  have hn : l.nonce = src.nonce := congrArg Leaf.Body.nonce hb
+  have hs : l.seq = src.seq := congrArg Leaf.Body.seq hb
+  have hlt := ht' q l hq hk hn
+  rw [hs] at hlt
+  exact Nat.lt_irrefl _ hlt
+
+/-- The source leaf itself never recurs: the pre-0.13.0 statement, a
+special case of `voucher_no_replay` (a leaf is its own body). -/
+theorem voucher_no_replay_leaf {π : Params} {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (src c : Leaf)
+    (hpre : (Trans.claim p₁ p₂ src c).Pre π t)
+    (huniq : ∀ (q : Pos d 0) (l : Leaf), t.get q = some l →
+      l.ownerKey = src.ownerKey → l.nonce = src.nonce → q = p₁)
+    (hc : c.SeqAbove src.ownerKey src.nonce src.seq)
+    {xs : List (Trans d)} {t' : Tree d}
+    (h : Reachable π ((Trans.claim p₁ p₂ src c).apply t) xs t')
+    (hadm : ∀ x ∈ xs, x.Admits (Leaf.SeqAbove src.ownerKey src.nonce src.seq))
+    (hcarve : ∀ x ∈ xs, x.CarveLeaf (Leaf.SeqAbove src.ownerKey src.nonce src.seq)) :
+    ∀ q : Pos d 0, t'.get q ≠ some src :=
+  fun q hq => voucher_no_replay t p₁ p₂ src c hpre huniq hc h hadm hcarve q src hq rfl
+
+/-! ## Top-ups -/
+
+/-- **A voucher survives an amount-only increase of its source.** Let `v`
+be redeemable against the leaf `l` at `p`, and let `l'` be `l` with a
+larger amount and nothing else changed, which is what `REWRITE_h` rule 3
+(7.9) lets the operator write without the owner's signature. Then `v` is
+redeemable against the tree holding `l'` at `p`, provided the residual
+`l'.amount − v.claim.amount` still satisfies 7.5 rule 6 (it is zero, or at
+least `DUST_MIN`). The body is unchanged, so the message is; the amount
+check of the carve rules only gets easier. The proviso is the one case
+the message cannot help: a voucher for the whole balance (`residual = 0`)
+is blocked by a top-up below `DUST_MIN`, since the residual it leaves is
+then non-zero and sub-dust, until further top-ups bring the residual to
+the floor or the issuer reissues. A voucher whose residual was already at
+least `DUST_MIN` survives every top-up. -/
+theorem voucher_survives_topup {π : Params} {d : Nat} (v : Voucher) (T : TreeOutput d)
+    (p : Pos d 0) (l : Leaf) (a : Nat)
+    (hid : v.treeId = T.treeId) (hl : T.tree.get p = some l) (hb : l.body = v.src)
+    (hok : CarveOk π l v.claim) (hle : l.amount ≤ a)
+    (hres : v.claim.amount = a ∨ π.dustMin ≤ a - v.claim.amount) :
+    v.Redeemable π ⟨T.treeId, T.tree.set p (some { l with amount := a })⟩ p := by
+  refine ⟨hid, { l with amount := a }, by simp [Tree.get_set], by simpa using hb, ?_⟩
+  exact { amount_le := Nat.le_trans hok.amount_le hle,
+          seq_lt := hok.seq_lt,
+          evictorKey_eq := hok.evictorKey_eq,
+          evictAfter_le := hok.evictAfter_le,
+          claim_dust := hok.claim_dust,
+          residual_dust := hres }
 
 /-- The source rewrite drains a leaf carved for its full amount. -/
 theorem claimedSource_full (src : Leaf) : claimedSource src src.amount = none := by
@@ -156,13 +267,14 @@ theorem set_get {d : Nat} (t : Tree d) (p : Pos d 0) (l : Leaf) (h : t.get p = s
 end Tree
 
 /-- **The self-voucher is a fixed point.** A voucher whose claim leaf is
-the source leaf itself carves the full amount (the source becomes `E_0`)
-and places the identical leaf, at the now-empty source position if the
-redeemer chooses it, so the tree is unchanged and the voucher is
-redeemable again. No value moves. This is the one case in which the
-source leaf recurs at the source position after a redemption, and the
-reason `voucher_no_replay` requires the claim leaf not to carry the
-source's identity at or below the source's `seq`. -/
+the source leaf itself (`Voucher.issue tree_id src src`) carves the full
+amount (the source becomes `E_0`) and places the identical leaf, at the
+now-empty source position if the redeemer chooses it, so the tree is
+unchanged and the voucher is redeemable again. No value moves. This is
+the one case in which a leaf with the source's body recurs at the source
+position after a redemption, and the reason `voucher_no_replay` requires
+the claim leaf not to carry the source's identity at or below the
+source's `seq`. -/
 theorem self_voucher_fixed {π : Params} {d : Nat} (t : Tree d) (p : Pos d 0) (src : Leaf)
     (hpre : (Trans.claim p p src src).Pre π t) :
     (Trans.claim p p src src).apply t = t := by
@@ -223,14 +335,14 @@ theorem voucher_survives_detach {π : Params} {d h : Nat} (v : Voucher) (T : Tre
     (p : Pos d h) (q : Pos h 0) (hr : v.Redeemable π T (p.append q)) :
     v.Redeemable π (T.detachChild p) q ∧
       ¬ v.Redeemable π (T.detachParent p) (p.append q) := by
-  obtain ⟨hid, hget, hok⟩ := hr
-  refine ⟨⟨hid, ?_, hok⟩, fun h' => ?_⟩
-  · show (T.tree.getSub p).get q = some v.src
+  obtain ⟨hid, l, hget, hb, hok⟩ := hr
+  refine ⟨⟨hid, l, ?_, hb, hok⟩, fun h' => ?_⟩
+  · show (T.tree.getSub p).get q = some l
     rw [(detach_partition T.tree p).1 q |>.1]; exact hget
-  · have := h'.2.1
+  · obtain ⟨_, l', hl', _, _⟩ := h'
     show False
     rw [show (T.detachParent p).tree = T.tree.setSub p (Tree.empty h) from rfl,
-      (detach_partition T.tree p).1 q |>.2] at this
-    cases this
+      (detach_partition T.tree p).1 q |>.2] at hl'
+    cases hl'
 
 end LayerTree

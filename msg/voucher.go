@@ -20,9 +20,13 @@ const (
 )
 
 // Voucher is an off-chain voucher (spec 7.5, 9.6): the source leaf's owner
-// signs H_voucher(tree_id || source_leaf || claim_leaf), authorizing anyone
-// holding it to carve claim_leaf out of source_leaf with CLAIM. It is the
-// tuple (tree_id, source_leaf, claim_leaf, voucher_sig) of 9.6.
+// signs H_voucher(tree_id || body(source_leaf) || claim_leaf), authorizing
+// anyone holding it to carve claim_leaf out of source_leaf with CLAIM. It is
+// the tuple (tree_id, source_leaf, claim_leaf, voucher_sig) of 9.6. The
+// message binds the source leaf without its amount, so the voucher stays
+// redeemable after an amount-only REWRITE_h top-up of the source; the
+// SourceLeaf carried here is the leaf as the issuer saw it, and a redeemer
+// presents the leaf as it stands in the tree.
 type Voucher struct {
 	// TreeID is the tree's tree_id (spec 6.2), the value its CLAIM scripts
 	// carry; a recipient checks it against the published creation
@@ -41,8 +45,8 @@ type Voucher struct {
 	Sig [64]byte
 }
 
-// Msg returns H_voucher(tree_id || source_leaf || claim_leaf), the message
-// SourceLeaf.OwnerKey signs (spec 7.5).
+// Msg returns H_voucher(tree_id || body(source_leaf) || claim_leaf), the
+// message SourceLeaf.OwnerKey signs (spec 7.5).
 func (v *Voucher) Msg() [32]byte {
 	return tree.VoucherMsg(v.TreeID, &v.SourceLeaf, &v.ClaimLeaf)
 }

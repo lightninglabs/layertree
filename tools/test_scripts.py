@@ -394,6 +394,39 @@ def test_all(depth, profile, verbose=True):
     expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), osig, root[0], w.m], ctx), "voucher signed for another tree_id")
     msig = schnorr_sign(lt.voucher_msg(w.m, src, frank), sk("operator-owner"))
     expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [src.serialize()] + w.bm(cpath) + [frank.serialize(), msig, root[0], w.m], ctx), "voucher over m instead of tree_id")
+    # 7.5: the voucher binds the source leaf without its amount, so an
+    # amount-only increase of the source (what REWRITE_h rule 3 lets the
+    # operator write alone) leaves it redeemable, against the leaf's
+    # current amount; any other field change voids it.
+    topped = src.with_amount_seq(src.amount + 500, src.seq)
+    t_up = w.clone(); t_up.leaves[s_oper] = topped
+    for label, lf in (("the voucher's amount", frank),
+                      ("more than the balance at issuance", carve_of(src, "bigger", src.amount + 100))):
+        s_c = w.slot(lf, 3)
+        t_c = lt.Tree(D); t_c.leaves = dict(t_up.leaves); lt.apply_claim(t_c, s_oper, s_c, lf)
+        r_c = t_c.root()
+        ctx_c = TxContext([(t_up.root()[1], w.spk(t_up.root())), (600, P2WPKH)], [(r_c[1], w.spk(r_c))])
+        csig = schnorr_sign(lt.voucher_msg(w.tree_id, src, lf), sk("operator-owner"))
+        w.run("CLAIM", w.path_witness(t_c.path(s_c)) + w.path_witness(t_up.path(s_oper)) + w.bm(t_up.path(s_oper)) + [topped.serialize()] +
+              w.bm(t_c.path(s_c)) + [lf.serialize(), csig, t_up.root()[0], w.m], ctx_c)
+        check(True, f"CLAIM: a voucher signed before an amount-only top-up redeems {label} afterwards")
+    over = carve_of(src, "over", topped.amount + 1)
+    osig2 = schnorr_sign(lt.voucher_msg(w.tree_id, src, over), sk("operator-owner"))
+    expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(t_up.path(s_oper)) + w.bm(t_up.path(s_oper)) + [topped.serialize()] +
+                w.bm(cpath) + [over.serialize(), osig2, t_up.root()[0], w.m],
+                TxContext([(t_up.root()[1], w.spk(t_up.root())), (600, P2WPKH)], [(r5[1], w.spk(r5))])),
+                "CLAIM: over-claim against the topped-up balance")
+    for label, lf in (("exit_key", lt.Leaf(src.amount, pubkey_x(sk("other-exit")), src.owner_key, src.evictor_key, src.evict_after, src.nonce, src.seq)),
+                      ("owner_key", lt.Leaf(src.amount, src.exit_key, pubkey_x(sk("other-owner")), src.evictor_key, src.evict_after, src.nonce, src.seq)),
+                      ("evictor_key", lt.Leaf(src.amount, src.exit_key, src.owner_key, w.op_pk, src.evict_after, src.nonce, src.seq)),
+                      ("evict_after", lt.Leaf(src.amount, src.exit_key, src.owner_key, src.evictor_key, src.evict_after + 1, src.nonce, src.seq)),
+                      ("nonce", lt.Leaf(src.amount, src.exit_key, src.owner_key, src.evictor_key, src.evict_after, src.nonce + 1, src.seq)),
+                      ("seq", src.with_amount_seq(src.amount, src.seq + 1))):
+        # the voucher check runs before any path is folded, so the rest of
+        # the witness can stay as it is: the signature over the old body
+        # does not verify against the changed leaf
+        expect_fail(lambda: w.run("CLAIM", w.path_witness(cpath) + w.path_witness(spath) + w.bm(spath) + [lf.serialize()] + w.bm(cpath) + [frank.serialize(), vsig, root[0], w.m], ctx),
+                    f"CLAIM: a voucher against a source whose {label} changed")
     w.tree = t5
 
     # ---------------- EXIT_2: carol (owner) + dave (evict) ----------------
@@ -648,8 +681,10 @@ def _rewrite_plan(w, height, scenario):
     The scenarios are "mixed" (exits, an unchanged leaf, a key rotation, an
     amount-only increase, a payer, a lease renewal, a join into an empty
     position and an empty position left alone, in rotation), "update" (every
-    position occupied and every leaf's key rotated) and "exit" (every
-    position occupied and every leaf leaving).
+    position occupied and every leaf's key rotated), "exit" (every
+    position occupied and every leaf leaving) and "topup" (every position
+    occupied and every leaf's amount raised by 500, the operator's top-up
+    of a cohort under 7.9 rule 3, which needs no owner signature).
     """
     n = 1 << height
     base = 1 << height                          # subtree index 1
@@ -660,6 +695,9 @@ def _rewrite_plan(w, height, scenario):
                           lf.evict_after, lf.nonce, lf.seq)
         if scenario == "update":
             old[i], new[i] = lf, rotated
+            continue
+        if scenario == "topup":
+            old[i], new[i] = lf, lf.with_amount_seq(lf.amount + 500, lf.seq)
             continue
         if scenario == "exit":
             old[i], new[i] = lf, None
@@ -886,6 +924,106 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True):
         print(f"{name} D={depth}: {n} positions, {n_sig} owner signatures, script {len(c['script'])} B, "
               f"witness {sum(len(x) for x in wit)} B, varops {it.cost}, sigops {it.sigchecks}, maxdepth {it.max_depth}")
     return it, len(c["script"]), sum(len(x) for x in wit)
+
+
+def test_voucher_topup(depth, verbose=True):
+    """Vouchers and exit authorisations survive an amount-only REWRITE_h
+    (spec 7.5, 7.2 rule 7, 7.9 rule 3): both messages bind the source leaf
+    without its amount, so the operator's top-up of a cohort, which needs
+    no owner signature, voids neither. A tree with CLAIM, EXIT_K^t and
+    REWRITE_2: a voucher and an authorisation are signed against two
+    leaves of the cohort, the operator rewrites the cohort raising every
+    amount by 500 with its signature alone, and afterwards the voucher
+    redeems against the topped-up leaf (for its own amount, for more than
+    the balance at issuance, and for the whole balance at issuance, whose
+    residual is now the top-up) and the tower exits the other leaf for its
+    new amount on the old authorisation. An over-claim against the new
+    balance, a payout of the old amount, and a whole-balance voucher
+    after a top-up below DUST_MIN (7.5 rule 6: the residual it leaves is
+    sub-dust) all fail."""
+    opts = ls.TreeOptions(pubkey_x(sk("operator")), TREE_ID, profile="D", join_heights=(0, 2),
+                          exit_ks=(1, 2), tower=True, rewrite_heights=(2,))
+    w = World(depth, "D", scripts=opts.at_depth(depth))
+    D = depth
+    base, old, new = _rewrite_plan(w, 2, "topup")
+    w.tree.leaves = {base + i: lf for i, lf in old.items()}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << D) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    path = w.tree.path(base, height=2)
+    # signed before the rewrite, against the leaves as they stand
+    src = old[3]
+    holder = carve_of(src, "holder", 4_000)
+    vsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, holder), sk("c3-owner"))
+    auth = schnorr_sign(lt.exit_auth_msg(TREE_ID, old[1]), sk("c1-owner"))
+    # the operator's rewrite: every position an amount-only increase
+    t1 = w.clone()
+    for i, lf in new.items():
+        t1.leaves[base + i] = lf
+    r1 = t1.root()
+    delta = r1[1] - root[1]
+    ctx = w.ctx([(r1[1], w.spk(r1)), (400, P2WPKH)], extra_in=(delta + 5_000, P2WPKH))
+    sig_op = schnorr_sign(ctx.sighash(), w.op_sk)
+    wit, sigs = _rewrite_witness(w, 2, path, old, new, ctx, root, sig_op, False)
+    check(not sigs, "REWRITE_2 top-up: no owner signs (7.9 rule 3)")
+    w.run("REWRITE_2", wit, ctx)
+    check(True, f"REWRITE_2 D={depth}: the operator tops up every leaf of the cohort alone")
+    w.tree = t1
+    # the voucher redeems against the topped-up leaf
+    s_src = base + 3
+    topped = new[3]
+    check(topped.amount == src.amount + 500 and topped.body() == src.body(), "the top-up changed the amount and nothing else")
+
+    def claim_after(lf, sig, tree=None, src_leaf=None):
+        tree = tree or w.tree
+        src_leaf = src_leaf or topped
+        s_c = w.slot(lf, 2)
+        t2 = lt.Tree(D); t2.leaves = dict(tree.leaves)
+        amt_new = src_leaf.amount - lf.amount
+        if amt_new > 0:
+            t2.leaves[s_src] = src_leaf.with_amount_seq(amt_new, src_leaf.seq + 1)
+        else:
+            del t2.leaves[s_src]
+        t2.leaves[s_c] = lf
+        r2 = t2.root()
+        ctx2 = TxContext([(tree.root()[1], w.spk(tree.root())), (600, P2WPKH)], [(r2[1], w.spk(r2))])
+        return (w.path_witness(t2.path(s_c)) + w.path_witness(tree.path(s_src)) +
+                [src_leaf.serialize(), lf.serialize(), sig, tree.root()[0], w.m]), ctx2
+
+    wit2, ctx2 = claim_after(holder, vsig)
+    w.run("CLAIM", wit2, ctx2)
+    check(True, "CLAIM: a voucher signed before the top-up redeems against the topped-up leaf")
+    bigger = carve_of(src, "bigger", src.amount + 100)
+    wit3, ctx3 = claim_after(bigger, schnorr_sign(lt.voucher_msg(TREE_ID, src, bigger), sk("c3-owner")))
+    w.run("CLAIM", wit3, ctx3)
+    check(True, "CLAIM: after the top-up a voucher may draw more than the balance at issuance")
+    whole = carve_of(src, "whole", src.amount)
+    wsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, whole), sk("c3-owner"))
+    wit4, ctx4 = claim_after(whole, wsig)
+    w.run("CLAIM", wit4, ctx4)
+    check(True, "CLAIM: a whole-balance voucher redeems after a top-up of at least DUST_MIN (the residual is the top-up)")
+    over = carve_of(src, "over", topped.amount + 1)
+    expect_fail(lambda: w.run("CLAIM", *claim_after(over, schnorr_sign(lt.voucher_msg(TREE_ID, src, over), sk("c3-owner")))),
+                "CLAIM: over-claim against the topped-up balance")
+    # 7.5 rule 6 is the one check a top-up can trip: a whole-balance voucher
+    # against a leaf topped up by less than DUST_MIN leaves a sub-dust
+    # residual, so it is blocked until the residual reaches the floor
+    sub = src.with_amount_seq(src.amount + 1, src.seq)
+    t_sub = lt.Tree(D); t_sub.leaves = dict(w.tree.leaves); t_sub.leaves[s_src] = sub
+    expect_fail(lambda: w.run("CLAIM", *claim_after(whole, wsig, tree=t_sub, src_leaf=sub)),
+                "CLAIM: a whole-balance voucher after a top-up below DUST_MIN (7.5 rule 6)")
+    # the tower exits the topped-up leaf on the authorisation signed before
+    s_b = base + 1
+    up1 = new[1]
+    t5 = w.clone(); lt.apply_exit(t5, s_b); r5 = t5.root()
+    ctx5 = w.ctx([(r5[1], w.spk(r5)), (up1.amount, lt.p2tr_spk(up1.exit_key))], extra_in=(600, P2WPKH))
+    w.run("EXIT_1", w.path_witness(w.tree.path(s_b)) + [up1.serialize(), auth, b"", r1[0], w.m], ctx5)
+    check(True, "EXIT_1^t: an authorisation signed before the top-up exits the topped-up leaf for its new amount")
+    ctx6 = w.ctx([(r5[1], w.spk(r5)), (old[1].amount, lt.p2tr_spk(up1.exit_key))], extra_in=(600, P2WPKH))
+    expect_fail(lambda: w.run("EXIT_1", w.path_witness(w.tree.path(s_b)) + [up1.serialize(), auth, b"", r1[0], w.m], ctx6),
+                "EXIT_1^t: the exit after a top-up pays the amount at signing")
+    if verbose:
+        print(f"voucher top-up D={depth}: REWRITE_2 by the operator alone, then CLAIM and EXIT_1^t on the pre-top-up signatures")
 
 
 def rewrite_sizes(depth, height):
@@ -1867,6 +2005,26 @@ def test_exit_tower(depth, profile, verbose=True):
     auth2 = schnorr_sign(lt.exit_auth_msg(TREE_ID, bob2), sk("bob-owner"))
     w.run("EXIT_1", pw3 + [bob2.serialize(), auth2, b"", root3[0], w.m], ctx3)
     check(True, "EXIT_1^t: a fresh authorisation over the changed leaf")
+    # an amount-only increase (REWRITE_h rule 3, the operator alone) leaves
+    # the authorisation valid: the message binds the leaf without its
+    # amount, and the exit pays the leaf's current amount, not the old one
+    bob_up = bob.with_amount_seq(bob.amount + 500, bob.seq)
+    tree4 = lt.Tree(D); tree4.leaves = {s_alice: alice, s_bob: bob_up, s_oper: oper}
+    ctx4, pw4, root4, _ = exit_tx(tree4, bob_up, s_bob)
+    w.run("EXIT_1", pw4 + [bob_up.serialize(), auth, b"", root4[0], w.m], ctx4)
+    check(True, "EXIT_1^t: the authorisation survives an amount-only top-up of the leaf")
+    ctx4o, pw4o, root4o, _ = exit_tx(tree4, bob_up, s_bob, amount=bob.amount)
+    expect_fail(lambda: w.run("EXIT_1", pw4o + [bob_up.serialize(), auth, b"", root4o[0], w.m], ctx4o),
+                "EXIT_1^t: the exit after a top-up pays the amount at signing")
+    for label, lf in (("exit_key", lt.Leaf(bob.amount, pubkey_x(sk("other-exit")), bob.owner_key, bob.evictor_key, bob.evict_after, bob.nonce, bob.seq)),
+                      ("evictor_key", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, lt.NUMS_X, bob.evict_after, bob.nonce, bob.seq)),
+                      ("evict_after", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, bob.evictor_key, bob.evict_after + 1, bob.nonce, bob.seq)),
+                      ("nonce", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, bob.evictor_key, bob.evict_after, bob.nonce + 1, bob.seq))):
+        s_c = w.slot(lf, 5)
+        tree5 = lt.Tree(D); tree5.leaves = {s_alice: alice, s_c: lf, s_oper: oper}
+        ctx5, pw5, root5, _ = exit_tx(tree5, lf, s_c)
+        expect_fail(lambda: w.run("EXIT_1", pw5 + [lf.serialize(), auth, b"", root5[0], w.m], ctx5),
+                    f"EXIT_1^t: an authorisation for the leaf before its {label} changed")
     # the evict branch is unchanged: the evictor signs the transaction under the lock time
     ctx_e, pw_e, root_e, _ = exit_tx(tree0, bob, s_bob, locktime=800_000)
     esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
@@ -1952,6 +2110,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_split(d, prof)
     for d in (4, 16):
         test_carve_rules(d)
+        test_voucher_topup(d)
     test_audit_negatives(8)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:

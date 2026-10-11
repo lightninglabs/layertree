@@ -54,6 +54,15 @@ func TreeID(txid [32]byte, vout uint32) [32]byte {
 // LeafLen is the serialized leaf size.
 const LeafLen = 116
 
+// LeafBodyOff and LeafBodyLen delimit the leaf body (spec 5.2): the 108
+// bytes after the amount field, which vouchers (7.5) and exit
+// authorisations (7.2 rule 7) bind, so that an amount-only increase by
+// REWRITE_h rule 3 voids neither.
+const (
+	LeafBodyOff = 8
+	LeafBodyLen = LeafLen - LeafBodyOff
+)
+
 // MaxAmount bounds leaf amounts (spec 5.2).
 const MaxAmount = uint64(1) << 51
 
@@ -188,6 +197,15 @@ func (l *Leaf) Serialize() []byte {
 	return b
 }
 
+// Body returns the leaf without its amount (spec 5.2): exit_key ||
+// owner_key || evictor_key || le32(evict_after) || le32(nonce) || le32(seq),
+// 108 bytes. Vouchers and exit authorisations sign this rather than the
+// whole leaf (7.5, 7.2 rule 7), so an amount-only increase by REWRITE_h rule
+// 3 leaves them valid while any other change, seq included, voids them.
+func (l *Leaf) Body() []byte {
+	return l.Serialize()[LeafBodyOff:]
+}
+
 // ParseLeaf decodes a 116-byte record.
 func ParseLeaf(b []byte) (*Leaf, error) {
 	if len(b) != LeafLen {
@@ -262,33 +280,40 @@ func (l *Leaf) PosLoMinimal(depth int) bool {
 	return h[3]&0x80 == 0 && h[3] != 0 && posLo < uint32(1)<<uint(depth)
 }
 
-// VoucherMsg is H_voucher(tree_id || source_leaf || claim_leaf), the message
-// a CLAIM voucher signs (spec 7.5). It binds the tree's tree_id (6.2), not
-// its taptree root m: m names a rule set, which two trees can share, and a
-// detached cohort inherits tree_id, so a voucher survives a DETACH_h.
+// VoucherMsg is H_voucher(tree_id || body(source_leaf) || claim_leaf), the
+// message a CLAIM voucher signs (spec 7.5). It binds the tree's tree_id
+// (6.2), not its taptree root m: m names a rule set, which two trees can
+// share, and a detached cohort inherits tree_id, so a voucher survives a
+// DETACH_h. The source leaf enters without its amount (Leaf.Body), so an
+// amount-only increase by REWRITE_h rule 3 does not void an outstanding
+// voucher; single use comes from seq, which every redemption advances, and
+// over-redemption is stopped by the script's check of the claim against
+// the leaf's current amount. The claim leaf is bound in full.
 func VoucherMsg(treeID [32]byte, source, claim *Leaf) [32]byte {
-	return TaggedHash(TagVoucher, treeID[:], source.Serialize(), claim.Serialize())
+	return TaggedHash(TagVoucher, treeID[:], source.Body(), claim.Serialize())
 }
 
-// VoucherHMsg is H_voucher_h(tree_id || source_leaf || claim_leaf ||
+// VoucherHMsg is H_voucher_h(tree_id || body(source_leaf) || claim_leaf ||
 // payment_hash), the message a CLAIM^h voucher signs (spec 7.5.1). The
 // redeemer supplies the preimage and the script recomputes the payment hash
 // from it, so a wrong preimage fails as an invalid signature rather than as
-// a failed comparison.
+// a failed comparison. The source leaf is bound as in VoucherMsg.
 func VoucherHMsg(treeID [32]byte, source, claim *Leaf,
 	paymentHash [32]byte) [32]byte {
 
-	return TaggedHash(TagVoucherH, treeID[:], source.Serialize(),
+	return TaggedHash(TagVoucherH, treeID[:], source.Body(),
 		claim.Serialize(), paymentHash[:])
 }
 
-// ExitAuthMsg is H_exit(tree_id || leaf), the message an owner signs to
-// authorise the exact-payout exit of its leaf under EXIT_K^t (spec 7.2
-// rule 7). It names the leaf and the lineage, not a transaction, so
-// whoever holds the signature (a tower) can build the exit against any
-// later root; it is void once the leaf changes, seq included.
+// ExitAuthMsg is H_exit(tree_id || body(leaf)), the message an owner signs
+// to authorise the exact-payout exit of its leaf under EXIT_K^t (spec 7.2
+// rule 7). It names the leaf without its amount (Leaf.Body) and the
+// lineage, not a transaction, so whoever holds the signature (a tower) can
+// build the exit against any later root, and an amount-only increase by
+// REWRITE_h rule 3 leaves it valid, the exit paying the leaf's current
+// amount; any other change, seq included, voids it.
 func ExitAuthMsg(treeID [32]byte, leaf *Leaf) [32]byte {
-	return TaggedHash(TagExit, treeID[:], leaf.Serialize())
+	return TaggedHash(TagExit, treeID[:], leaf.Body())
 }
 
 // PathStep is one level of a sibling path.

@@ -48,17 +48,20 @@ type vectors struct {
 		} `json:"paths"`
 	} `json:"example_tree"`
 	TransitionExit struct {
-		Slot    uint64  `json:"slot"`
-		NewRoot vecNode `json:"new_root"`
+		Slot        uint64  `json:"slot"`
+		NewRoot     vecNode `json:"new_root"`
+		LeafBody    string  `json:"leaf_body"`
+		ExitAuthMsg string  `json:"exit_auth_msg"`
 	} `json:"transition_exit"`
 	TransitionClaim struct {
-		SourceSlot  uint64  `json:"source_slot"`
-		ClaimSlot   uint64  `json:"claim_slot"`
-		ClaimLeaf   vecLeaf `json:"claim_leaf"`
-		VoucherMsg  string  `json:"voucher_msg"`
-		Preimage    string  `json:"preimage"`
-		PaymentHash string  `json:"payment_hash"`
-		VoucherHMsg string  `json:"voucher_h_msg"`
+		SourceSlot     uint64  `json:"source_slot"`
+		ClaimSlot      uint64  `json:"claim_slot"`
+		ClaimLeaf      vecLeaf `json:"claim_leaf"`
+		SourceLeafBody string  `json:"source_leaf_body"`
+		VoucherMsg     string  `json:"voucher_msg"`
+		Preimage       string  `json:"preimage"`
+		PaymentHash    string  `json:"payment_hash"`
+		VoucherHMsg    string  `json:"voucher_h_msg"`
 	} `json:"transition_claim"`
 	SparseExample struct {
 		Depth     int               `json:"depth"`
@@ -177,12 +180,44 @@ func TestLeafAndTreeVectors(t *testing.T) {
 	if hex.EncodeToString(treeID[:]) != ex.TreeID {
 		t.Fatalf("tree_id mismatch: %x", treeID)
 	}
-	// voucher message
+	// voucher message, over the source leaf's body (spec 7.5): the 108
+	// bytes after the amount, so that an amount-only REWRITE_h top-up of
+	// the source does not void the voucher.
 	src := tr.Leaves[v.TransitionClaim.SourceSlot]
 	claim := leafFromVec(t, v.TransitionClaim.ClaimLeaf)
+	if hex.EncodeToString(src.Body()) != v.TransitionClaim.SourceLeafBody {
+		t.Fatalf("source leaf body mismatch: %x", src.Body())
+	}
+	if len(src.Body()) != LeafBodyLen {
+		t.Fatalf("leaf body is %d bytes, want %d", len(src.Body()), LeafBodyLen)
+	}
 	vm := VoucherMsg(treeID, src, claim)
 	if hex.EncodeToString(vm[:]) != v.TransitionClaim.VoucherMsg {
 		t.Fatalf("voucher msg mismatch")
+	}
+	topped := *src
+	topped.Amount++
+	if VoucherMsg(treeID, &topped, claim) != vm {
+		t.Fatalf("voucher msg changed with an amount-only increase of the source")
+	}
+	advanced := *src
+	advanced.Seq++
+	if VoucherMsg(treeID, &advanced, claim) == vm {
+		t.Fatalf("voucher msg did not change with the source's seq")
+	}
+	// exit authorisation (spec 7.2 rule 7), over the exiting leaf's body.
+	exiting := tr.Leaves[v.TransitionExit.Slot]
+	if hex.EncodeToString(exiting.Body()) != v.TransitionExit.LeafBody {
+		t.Fatalf("exit leaf body mismatch: %x", exiting.Body())
+	}
+	am := ExitAuthMsg(treeID, exiting)
+	if hex.EncodeToString(am[:]) != v.TransitionExit.ExitAuthMsg {
+		t.Fatalf("exit authorisation msg mismatch")
+	}
+	toppedExit := *exiting
+	toppedExit.Amount++
+	if ExitAuthMsg(treeID, &toppedExit) != am {
+		t.Fatalf("exit authorisation changed with an amount-only increase")
 	}
 	// hash-locked voucher message (spec 7.5.1): the payment hash in the
 	// vector must be SHA256 of the vector's preimage, and the message must

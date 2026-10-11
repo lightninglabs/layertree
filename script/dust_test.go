@@ -32,13 +32,13 @@ const dustTestFloor = 1000
 //	  ("CCV0/D/D4/CLAIM", CV._claim_script_ccv0(4, T, False, dust_min=d), "c0")]:
 //	  print(k, h.sha256(assemble(toks, mode)).hexdigest())'
 var dustPythonVectors = map[string]string{
-	"FULL/D/D4/CLAIM": "251aeabec852bed96c8a63f3b4f58d378c2e5e1deb6883eb7ac23f310feee56d",
+	"FULL/D/D4/CLAIM": "c2ac968919c8de2bdea2e5adbb1219a67eb9bce05e82b02148f2a50a40a33d83",
 	"FULL/S/D8/SPLIT": "740c93ed9f28966428d05caa07bc8a7953383082d0614e0bcfda3fb4ee170aa9",
-	"MID/D/D4/CLAIM":  "779d395220bc01b20a0bbc1bdde5e60b52aa2a5acadf36ed757e5b699ab9eb4e",
+	"MID/D/D4/CLAIM":  "37591af1ae9dcac85b49cd9e2bbfe99766949b69cc0ef3718a09801ddd9db98f",
 	"MID/S/D8/SPLIT":  "20edc091761b53846c722a9b55f5986c0371885d22cb53dd886960a1c9c39e98",
 	"MIN/D/D4/SPLIT":  "3cd51abd6b0b2e07d1847bc7057564c7e3c286df171cc4a84f8593a8ddb514e7",
-	"CCV/D/D4/CLAIM":  "40e47113b97bdc6b5154f3508e13ca0c8996f9f7e0b9cb6dd13f9ffbea9d6b5c",
-	"CCV0/D/D4/CLAIM": "d07dd7933dfccd4b9b01edac1161f6b4cadfd07720a55e33dc05c201c732716c",
+	"CCV/D/D4/CLAIM":  "9a4e0bbcd7e709b0b31e508c1de75b5b400b8fa94748cabd9ce14530572f331f",
+	"CCV0/D/D4/CLAIM": "2fd060c103f1fd76afc1b56f10b101433b3b2f47deea1a56ed6a3047cc90cab6",
 }
 
 // dustNamed returns the tokens of the named script in an option set.

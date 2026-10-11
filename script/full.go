@@ -85,6 +85,7 @@ const (
 	fullOffSeq        = 112
 	fullLenSeq        = 4
 	fullLeafLen       = tree.LeafLen
+	fullLeafBodyLen   = tree.LeafBodyLen
 )
 
 // fullCat concatenates token runs into a fresh slice.
@@ -321,18 +322,28 @@ func fullFinalOutput(depth int) []Token {
 	)
 }
 
+// fullLeafBody is [leaf] -> [body]: the 108 bytes after the amount field
+// (spec 5.2), the part of a leaf that vouchers (7.5) and exit
+// authorisations (7.2 rule 7) bind (tools/layertree_scripts.py LEAF_BODY).
+func fullLeafBody() []Token {
+	return []Token{Num(fullLeafBodyLen), Op(OP_RIGHT)}
+}
+
 // fullTowerAuth is the owner branch of EXIT_K^t (spec 7.2 rule 7), shared
 // with the CCV tier's 0xC2 scripts: [leaf sig] -> [leaf], where sig MUST
-// be a BIP-340 signature by leaf.owner_key over H_exit(tree_id || leaf),
-// checked with OP_CHECKSIGFROMSTACK. The message names the leaf and the
-// lineage, not the transaction, so whoever holds the signature assembles
-// the exit against any later root; the covenant fixes everything else.
-// tree_id is a constant of the script, as in CLAIM
-// (tools/layertree_scripts.py tower_auth).
+// be a BIP-340 signature by leaf.owner_key over H_exit(tree_id ||
+// body(leaf)), checked with OP_CHECKSIGFROMSTACK. The message names the
+// leaf without its amount (fullLeafBody) and the lineage, not the
+// transaction, so whoever holds the signature assembles the exit against
+// any later root, and an amount-only increase by REWRITE_h rule 3 leaves it
+// valid; the covenant fixes everything else. tree_id is a constant of the
+// script, as in CLAIM (tools/layertree_scripts.py tower_auth).
 func fullTowerAuth(treeID [32]byte) []Token {
-	s := []Token{
-		Op(ts.OP_OVER), Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // leaf sig (tree_id||leaf)
-	}
+	s := []Token{Op(ts.OP_OVER)}
+	s = append(s, fullLeafBody()...) // leaf sig body
+	s = append(s,
+		Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // leaf sig (tree_id||body)
+	)
 	s = append(s, fullTagged(fullExitPrefix)...) // leaf sig msg
 	return append(s,
 		Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR), // leaf sig msg owner_key
@@ -704,17 +715,23 @@ func fullDrainRule(dustMin uint64) []Token {
 // fullVoucherAuth is the voucher check of CLAIM and CLAIM^h (spec 7.5 rule
 // 1, 7.5.1 rule 1), shared with the CCV tier: [src claim vsig] -> [src
 // claim], with SHA256(preimage) parked on the altstack beforehand under
-// hashlock. The message is H_voucher(tree_id || src || claim) with tree_id
-// a constant of the script, so the check needs no copy of m
-// (tools/layertree_scripts.py voucher_auth).
+// hashlock. The message is H_voucher(tree_id || body(src) || claim) with
+// tree_id a constant of the script, so the check needs no copy of m. The
+// source leaf enters without its amount (fullLeafBody), so an amount-only
+// increase by REWRITE_h rule 3 does not void an outstanding voucher; the
+// carve body still checks the claim against the leaf's current amount, and
+// seq keeps the voucher single-use (tools/layertree_scripts.py
+// voucher_auth).
 func fullVoucherAuth(treeID [32]byte, hashlock bool) []Token {
-	s := []Token{
-		Num(2), Op(ts.OP_PICK), Num(2), Op(ts.OP_PICK), Op(OP_CAT), // src claim vsig (src||claim)
-		Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // (tree_id||src||claim)
-	}
+	s := []Token{Num(2), Op(ts.OP_PICK)}
+	s = append(s, fullLeafBody()...) // src claim vsig body
+	s = append(s,
+		Num(2), Op(ts.OP_PICK), Op(OP_CAT), // src claim vsig (body||claim)
+		Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // (tree_id||body||claim)
+	)
 	prefix := fullVoucherPrefix
 	if hashlock {
-		s = append(s, Op(ts.OP_FROMALTSTACK), Op(OP_CAT)) // (tree_id||src||claim||phash)
+		s = append(s, Op(ts.OP_FROMALTSTACK), Op(OP_CAT)) // (tree_id||body||claim||phash)
 		prefix = fullVoucherHPrefix
 	}
 	s = append(s, fullTagged(prefix)...) // src claim vsig msg

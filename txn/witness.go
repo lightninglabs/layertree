@@ -171,7 +171,10 @@ func UpdateXWitness(path [][]byte, oldLeaf, newLeaf *tree.Leaf,
 // tree.VoucherMsg(tree_id, source, claim), tree_id being the voucher
 // binding of spec 6.2 that the CLAIM script carries as a constant (not m,
 // the taptree root that ends the stack); it is checked with
-// OP_CHECKSIGFROMSTACK, so it commits to no transaction.
+// OP_CHECKSIGFROMSTACK, so it commits to no transaction. The message binds
+// the source leaf without its amount, so sourceLeaf is the leaf as it
+// stands in the tree, which may carry a larger amount than the one the
+// voucher was signed against.
 func ClaimWitness(claimPath, sourcePath [][]byte, sourceLeaf, claimLeaf *tree.Leaf,
 	voucherSig []byte, rootHash, merkleRoot [32]byte) [][]byte {
 

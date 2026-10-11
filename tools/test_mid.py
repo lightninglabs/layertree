@@ -256,6 +256,44 @@ def test_mid(depth, sparse, verbose=True):
                 "mid: voucher signed for another tree_id")
     expect_fail(lambda: w.run("CLAIM", head + [schnorr_sign(lt.voucher_msg(w.m, src, frank), sk("operator-owner")), root[0], w.m], ctx),
                 "mid: voucher over m instead of tree_id")
+    # 7.5: the voucher binds the source body, not its amount, so a voucher
+    # signed before an amount-only top-up redeems against the topped-up
+    # leaf, for its own amount or for more than the balance at issuance;
+    # an over-claim against the new balance and any other field change fail
+    topped = src.with_amount_seq(src.amount + 500, src.seq)
+    t_up = w.clone(); t_up.leaves[s_o] = topped
+    saved_tree = w.tree
+    for label, lf in (("the voucher's amount", frank),
+                      ("more than the balance at issuance", carve_of(src, "bigger", src.amount + 100, sparse=S))):
+        w.tree = t_up
+        s_c = w.slot(lf, 3)
+        t_c = w.clone(); lt.apply_claim(t_c, s_o, s_c, lf)
+        src_c = t_c.leaves[s_o]; r_c = t_c.root()
+        ctx_c = w.ctx([(r_c[1], w.spk(r_c))], (600, P2WPKH))
+        wit_c = (list(M.pad(r_c[1])) + M.w_levels(t_c.path(s_c), lt.EMPTY_NODE, lf.node(), S) + w.pos(lf) +
+                 w.pads_for(t_up.root()[1]) + M.w_levels(t_up.path(s_o), topped.node(), src_c.node(), S) + w.pos(topped) +
+                 M.w_leaf(topped) + M.w_leaf(lf) + M.w_carve_extras(topped, lf) +
+                 [schnorr_sign(lt.voucher_msg(w.tree_id, src, lf), sk("operator-owner")), t_up.root()[0], w.m])
+        w.run("CLAIM", wit_c, ctx_c)
+        check(True, f"mid: a voucher signed before an amount-only top-up redeems {label} afterwards")
+    w.tree = t_up
+    over = carve_of(src, "over", topped.amount + 1, sparse=S)
+    expect_fail(lambda: w.run("CLAIM", list(M.pad(r5[1])) + M.w_levels(cpath, lt.EMPTY_NODE, over.node(), S) + w.pos(over) +
+                w.pads_for(t_up.root()[1]) + M.w_levels(t_up.path(s_o), topped.node(), src2.node(), S) + w.pos(topped) +
+                M.w_leaf(topped) + M.w_leaf(over) + M.w_carve_extras(topped, over, amt_new=0) +
+                [schnorr_sign(lt.voucher_msg(w.tree_id, src, over), sk("operator-owner")), t_up.root()[0], w.m],
+                w.ctx([(r5[1], w.spk(r5))], (600, P2WPKH))), "mid: over-claim against the topped-up balance")
+    w.tree = saved_tree
+    for label, lf in (("exit_key", lt.Leaf(src.amount, pubkey_x(sk("other-exit")), src.owner_key, src.evictor_key, src.evict_after, src.nonce, src.seq)),
+                      ("evictor_key", lt.Leaf(src.amount, src.exit_key, src.owner_key, w.op_pk, src.evict_after, src.nonce, src.seq)),
+                      ("evict_after", lt.Leaf(src.amount, src.exit_key, src.owner_key, src.evictor_key, src.evict_after + 1, src.nonce, src.seq)),
+                      ("seq", src.with_amount_seq(src.amount, src.seq + 1))):
+        # the voucher check runs before any fold, so only the source block
+        # needs replacing: the signature over the old body does not verify
+        wit_x = (list(M.pad(r5[1])) + M.w_levels(cpath, lt.EMPTY_NODE, frank.node(), S) + w.pos(frank) +
+                 w.pads_for(root[1]) + M.w_levels(spath, src.node(), src2.node(), S) + w.pos(src) +
+                 M.w_leaf(lf) + M.w_leaf(frank) + extras + [vsig, root[0], w.m])
+        expect_fail(lambda: w.run("CLAIM", wit_x, ctx), f"mid: a voucher against a source whose {label} changed")
     w.tree = t5
 
     # ---------------- SEQ_FINAL marker (spec 5.2 / 7.5; Appendix C.6.5) ----------------
@@ -1112,6 +1150,97 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True, scenario="mixe
     return it, c["script"], wit
 
 
+def test_voucher_topup(depth, verbose=True):
+    """MID: vouchers and exit authorisations survive an amount-only
+    REWRITE_h (spec 7.5, 7.2 rule 7, 7.9 rule 3), the FULL suite's
+    test_voucher_topup over the seven-element leaf: the operator tops up a
+    cohort with its signature alone, then a voucher and a tower
+    authorisation signed before the rewrite redeem and exit against the
+    topped-up leaves, the voucher for its own amount, for more than the
+    balance at issuance and for the whole balance at issuance; an
+    over-claim against the new balance, a payout of the old amount and a
+    whole-balance voucher after a sub-dust top-up (7.5 rule 6) fail."""
+    w = MidWorld(depth, False)
+    w.compiled = dict(w.compiled)
+    w.compiled["REWRITE_2"] = assemble(M.rewrite_script(depth, 2, w.op_pk), mode="c0")
+    w.compiled["EXIT_1"] = assemble(M.exit_script(depth, 1, False, tower=True, tree_id=TREE_ID), mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    base, old, new = TS._rewrite_plan(w, 2, "topup")
+    idx = base >> 2
+    w.tree.leaves = {base + i: lf for i, lf in old.items()}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    src = old[3]
+    holder = carve_of(src, "holder", 4_000)
+    vsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, holder), sk("c3-owner"))
+    auth = schnorr_sign(lt.exit_auth_msg(TREE_ID, old[1]), sk("c1-owner"))
+    t1 = w.clone()
+    for i, lf in new.items():
+        t1.leaves[base + i] = lf
+    r1 = t1.root()
+    delta = r1[1] - root[1]
+    ctx = w.ctx([(r1[1], w.spk(r1)), (400, P2WPKH)], (delta + 5_000, P2WPKH))
+    body = M.w_rewrite(w.tree, depth, 2, idx, new, {}, True)
+    w.run("REWRITE_2", body + [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m], ctx)
+    check(True, f"mid: REWRITE_2 D={depth}, the operator tops up every leaf of the cohort alone")
+    w.tree = t1
+    s_src = base + 3
+    topped = new[3]
+    check(topped.body() == src.body() and topped.amount == src.amount + 500, "mid: the top-up changed the amount and nothing else")
+
+    def claim_after(lf, sig, tree=None, src_leaf=None):
+        tree = tree or w.tree
+        src_leaf = src_leaf or topped
+        s_c = 2
+        t2 = lt.Tree(depth); t2.leaves = dict(tree.leaves)
+        amt_new = src_leaf.amount - lf.amount
+        if amt_new > 0:
+            t2.leaves[s_src] = src_leaf.with_amount_seq(amt_new, src_leaf.seq + 1)
+        else:
+            del t2.leaves[s_src]
+        new_src = t2.leaves[s_src].node() if s_src in t2.leaves else lt.EMPTY_NODE
+        spath = tree.path(s_src)
+        t2.leaves[s_c] = lf
+        r2 = t2.root()
+        ctx2 = TxContext([(tree.root()[1], w.spk(tree.root())), (600, P2WPKH)], [(r2[1], w.spk(r2))])
+        return (list(M.pad(r2[1])) + M.w_levels(t2.path(s_c), lt.EMPTY_NODE, lf.node(), False) +
+                w.pads_for(tree.root()[1]) + M.w_levels(spath, src_leaf.node(), new_src, False) +
+                M.w_leaf(src_leaf) + M.w_leaf(lf) + M.w_carve_extras(src_leaf, lf, amt_new=max(amt_new, 0)) +
+                [sig, tree.root()[0], w.m]), ctx2
+
+    w.run("CLAIM", *claim_after(holder, vsig))
+    check(True, "mid: CLAIM, a voucher signed before the top-up redeems against the topped-up leaf")
+    bigger = carve_of(src, "bigger", src.amount + 100)
+    w.run("CLAIM", *claim_after(bigger, schnorr_sign(lt.voucher_msg(TREE_ID, src, bigger), sk("c3-owner"))))
+    check(True, "mid: CLAIM, after the top-up a voucher may draw more than the balance at issuance")
+    whole = carve_of(src, "whole", src.amount)
+    wsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, whole), sk("c3-owner"))
+    w.run("CLAIM", *claim_after(whole, wsig))
+    check(True, "mid: CLAIM, a whole-balance voucher redeems after a top-up of at least DUST_MIN")
+    over = carve_of(src, "over", topped.amount + 1)
+    expect_fail(lambda: w.run("CLAIM", *claim_after(over, schnorr_sign(lt.voucher_msg(TREE_ID, src, over), sk("c3-owner")))),
+                "mid: CLAIM, over-claim against the topped-up balance")
+    sub = src.with_amount_seq(src.amount + 1, src.seq)
+    t_sub = w.clone(); t_sub.leaves[s_src] = sub
+    expect_fail(lambda: w.run("CLAIM", *claim_after(whole, wsig, tree=t_sub, src_leaf=sub)),
+                "mid: CLAIM, a whole-balance voucher after a top-up below DUST_MIN (7.5 rule 6)")
+    s_b = base + 1
+    up1 = new[1]
+    t5 = w.clone(); del t5.leaves[s_b]; r5 = t5.root()
+    path_b = w.tree.path(s_b)
+    below = (list(M.pad(r5[1])) + w.pads_for(r1[1]) + M.w_levels(path_b, up1.node(), lt.EMPTY_NODE, False) +
+             M.w_leaf_exit(up1))
+    ctx5 = w.ctx([(r5[1], w.spk(r5)), (up1.amount, lt.p2tr_spk(up1.exit_key))], (5_000, P2WPKH))
+    w.run("EXIT_1", below + [auth, b"", r1[0], w.m], ctx5)
+    check(True, "mid: EXIT_1^t, an authorisation signed before the top-up exits the topped-up leaf for its new amount")
+    ctx6 = w.ctx([(r5[1], w.spk(r5)), (old[1].amount, lt.p2tr_spk(up1.exit_key))], (5_000, P2WPKH))
+    expect_fail(lambda: w.run("EXIT_1", below + [auth, b"", r1[0], w.m], ctx6),
+                "mid: EXIT_1^t, the exit after a top-up pays the amount at signing")
+    if verbose:
+        print(f"mid: voucher top-up D={depth}, REWRITE_2 by the operator alone, then CLAIM and EXIT_1^t on the pre-top-up signatures")
+
+
 def test_exit_tower(depth, sparse, verbose=True):
     """MID EXIT_K^t (spec 7.2 rule 7): the owner branch takes an off-chain
     signature over H_exit(tree_id || leaf), checked by
@@ -1189,6 +1318,22 @@ def test_exit_tower(depth, sparse, verbose=True):
                 "mid: EXIT_1^t, an authorisation for the leaf before it changed")
     w.run("EXIT_1", below3 + [schnorr_sign(lt.exit_auth_msg(TREE_ID, bob2), sk("bob-owner")), b"", root3[0], w.m], ctx3)
     check(True, "mid: EXIT_1^t, a fresh authorisation over the changed leaf")
+    # an amount-only top-up leaves the authorisation valid; the exit pays the new amount
+    bob_up = bob.with_amount_seq(bob.amount + 500, bob.seq)
+    up = dict(base); up[s_b] = bob_up
+    ctx4, below4, root4 = exit_tx(up, bob_up, s_b)
+    w.run("EXIT_1", below4 + [auth, b"", root4[0], w.m], ctx4)
+    check(True, "mid: EXIT_1^t, the authorisation survives an amount-only top-up of the leaf")
+    ctx4o, below4o, root4o = exit_tx(up, bob_up, s_b, amount=bob.amount)
+    expect_fail(lambda: w.run("EXIT_1", below4o + [auth, b"", root4o[0], w.m], ctx4o),
+                "mid: EXIT_1^t, the exit after a top-up pays the amount at signing")
+    for label, lf in (("exit_key", lt.Leaf(bob.amount, pubkey_x(sk("other-exit")), bob.owner_key, bob.evictor_key, bob.evict_after, bob.nonce, bob.seq)),
+                      ("evictor_key", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, lt.NUMS_X, bob.evict_after, bob.nonce, bob.seq)),
+                      ("evict_after", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, bob.evictor_key, bob.evict_after + 1, bob.nonce, bob.seq))):
+        chg = dict(base); chg[s_b] = lf
+        ctx5, below5, root5 = exit_tx(chg, lf, s_b)
+        expect_fail(lambda: w.run("EXIT_1", below5 + [auth, b"", root5[0], w.m], ctx5),
+                    f"mid: EXIT_1^t, an authorisation for the leaf before its {label} changed")
     # the evict branch is unchanged
     ctx_e, below_e, root_e = exit_tx(base, bob, s_b, locktime=800_000)
     w.run("EXIT_1", below_e + [schnorr_sign(ctx_e.sighash(), w.op_sk), b"\x01", root_e[0], w.m], ctx_e)
@@ -1233,6 +1378,7 @@ if __name__ == "__main__":
     test_update_x(31, True)
     test_exit_tower(16, False)
     test_exit_tower(31, True)
+    test_voucher_topup(16)
     test_claim_h(16, False)
     test_claim_h(31, True)
     test_split(16, False)

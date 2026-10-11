@@ -201,12 +201,14 @@ def tower_auth(tree_id):
     """The owner branch of EXIT_K^t under 0xC0 numerics (spec 7.2 rule 7),
     shared with the CCV tier's 0xC0 scripts: [leaf(10) ea_num ze we sig]
     -> [leaf(10) ea_num ze we], where sig MUST be a BIP-340 signature by
-    the leaf's owner_key over H_exit(tree_id || leaf), checked with
-    OP_CHECKSIGFROMSTACK. The leaf is rejoined from its seven field
-    elements, each 13 deep under sig, as voucher_auth does for CLAIM; ok
-    (the third field) sits 12 deep once the message replaces the copies."""
+    the leaf's owner_key over H_exit(tree_id || body(leaf)), checked with
+    OP_CHECKSIGFROMSTACK. The leaf body (the six fields after amt8, spec
+    5.2) is rejoined from its field elements, each 12 deep under sig, as
+    voucher_auth does for CLAIM; amt8 is left out, so an amount-only
+    increase by REWRITE_h rule 3 leaves the authorisation valid. ok (the
+    third field) sits 12 deep once the message replaces the copies."""
     assert len(tree_id) == 32
-    s = [13, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... sig leaf
+    s = [12, "OP_PICK"] * 6 + ["OP_CAT"] * 5                        # ... sig body
     s += [tree_id, "OP_SWAP", "OP_CAT"] + tagged(F.EXIT_PREFIX)     # ... sig msg
     return s + [12, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # leaf(10) ea_num ze we
 
@@ -335,17 +337,22 @@ def voucher_auth(tree_id, hashlock=False):
     [src(10) claim(10) extras(13) vsig] -> [src(10) claim(10) extras(13)],
     with SHA256(preimage) parked on the altstack beforehand under hashlock.
 
-    The message H_voucher(tree_id || src || claim) is assembled from the
-    seven leaf fields of each leaf block by fourteen OP_PICKs; src's fields
-    sit 33 deep under vsig, claim's 24 once src_leaf is on the stack, and
-    src.ok (the third field) 32 deep once the message replaces the copies.
+    The message H_voucher(tree_id || body(src) || claim) is assembled from
+    the leaf fields of each block by thirteen OP_PICKs: the six fields of
+    the source body (everything after amt8, spec 5.2) sit 32 deep under
+    vsig, the seven of the claim leaf 24 deep once the body is on the
+    stack, and src.ok (the third field) 32 deep once the message replaces
+    the copies. The source amount is left out of the message, so an
+    amount-only increase by REWRITE_h rule 3 does not void an outstanding
+    voucher; carve_source still checks the claim against the current
+    amount, and seq keeps the voucher single-use.
     """
     assert len(tree_id) == 32
-    s = [33, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... vsig src_leaf
-    s += [24, "OP_PICK"] * 7 + ["OP_CAT"] * 6                       # ... vsig src_leaf claim_leaf
-    s += ["OP_CAT", tree_id, "OP_SWAP", "OP_CAT"]                   # ... vsig (tree_id||src||claim)
+    s = [32, "OP_PICK"] * 6 + ["OP_CAT"] * 5                        # ... vsig src_body
+    s += [24, "OP_PICK"] * 7 + ["OP_CAT"] * 6                       # ... vsig src_body claim_leaf
+    s += ["OP_CAT", tree_id, "OP_SWAP", "OP_CAT"]                   # ... vsig (tree_id||body||claim)
     if hashlock:
-        s += ["OP_FROMALTSTACK", "OP_CAT"]                          # ... (tree_id||src||claim||phash)
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                          # ... (tree_id||body||claim||phash)
     s += tagged(F.VOUCHER_H_PREFIX if hashlock else F.VOUCHER_PREFIX)   # ... vsig msg
     return s + [32, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # src(10) claim(10) extras(13)
 
