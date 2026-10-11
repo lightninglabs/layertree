@@ -61,14 +61,19 @@ DUST_P2A = 240
 
 
 # ------------------------------------------------------- channel context --
-def chan_id(m, owner_key, nonce, p_chan, capacity, epoch, csv_delay):
+def chan_id(tree_id, owner_key, nonce, p_chan, capacity, epoch, csv_delay):
     """chan_id of C.2.2.
 
-    H_chanid(m || owner_key || le32(nonce) || x(P_chan) || le64(C)
+    H_chanid(tree_id || owner_key || le32(nonce) || x(P_chan) || le64(C)
              || le32(epoch) || le32(csv_delay)).
+
+    tree_id is the host tree's creation parameter of spec 6.2, unique per
+    lineage and inherited across DETACH_h, so the binding names the tree
+    the leaf is in rather than the rule set `m` that any tree created with
+    the same parameters shares.
     """
-    assert len(m) == len(owner_key) == len(p_chan) == 32
-    return lt.tagged_hash(TAG_CHAN_ID, m + owner_key + lt.le32(nonce) + p_chan +
+    assert len(tree_id) == len(owner_key) == len(p_chan) == 32
+    return lt.tagged_hash(TAG_CHAN_ID, tree_id + owner_key + lt.le32(nonce) + p_chan +
                           lt.le64(capacity) + lt.le32(epoch) + lt.le32(csv_delay))
 
 
@@ -213,16 +218,16 @@ class Channel:
     one x-only key both parties must cooperate to sign under).
     """
 
-    def __init__(self, m, owner_key, nonce, p_chan, capacity, epoch, csv_delay, mode="c2",
+    def __init__(self, tree_id, owner_key, nonce, p_chan, capacity, epoch, csv_delay, mode="c2",
                  dust_chan=DUST_CHAN):
-        self.m, self.owner_key, self.nonce = m, owner_key, nonce
+        self.tree_id, self.owner_key, self.nonce = tree_id, owner_key, nonce
         self.p_chan, self.capacity, self.epoch = p_chan, capacity, epoch
         self.csv_delay, self.mode = csv_delay, mode
         # dust_chan is a channel parameter like evict_after: agreed at
         # opening and not part of chan_id (C.3.4).
         assert dust_chan >= DUST_CHAN
         self.dust_chan = dust_chan
-        self.chan_id = chan_id(m, owner_key, nonce, p_chan, capacity, epoch, csv_delay)
+        self.chan_id = chan_id(tree_id, owner_key, nonce, p_chan, capacity, epoch, csv_delay)
         self.ctx_upd = ctx_upd(self.chan_id)
         self.ctx_set = ctx_set(self.chan_id)
         self.funding = TapOutput(p_chan, [upd_f_script(self.ctx_upd, p_chan)], mode)

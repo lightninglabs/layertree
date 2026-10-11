@@ -16,7 +16,10 @@ Sections:
   * uncontested close: update_n, settle_n after csv_delay, HTLC sweeps;
   * contested close: a stale update_j answered by update_n bound to U_j;
   * negatives: stale states, early settlement, cross-role signatures, other
-    chan_id (m, capacity, epoch), NUM_INPUTS (C.2.3), tampered fields;
+    chan_id (tree_id, capacity, epoch), NUM_INPUTS (C.2.3), tampered fields;
+  * tree_id binding: two CLAIM-free trees share m and differ in tree_id, so
+    the same channel parameters give different chan_ids and a state signed
+    under one tree fails against the other's funding output (C.2.2);
   * MID numerics: the same machine under tapleaf 0xC0, and the 520-byte
     element limit on the settlement collation;
   * dust floor: C.3.4's DUST_CHAN, sub-dust balances and HTLCs trimmed into
@@ -45,6 +48,7 @@ FAILS = 0
 CHECKS = 0
 P2WPKH = b"\x00\x14" + bytes(20)
 TREE_ID = lt.tree_id(lt.sha256(b"creation-txid"), 0)   # the suites' shared tree_id (spec 6.2)
+OTHER_TREE_ID = lt.tree_id(lt.sha256(b"other creation-txid"), 0)   # a second lineage
 MTP = 1_700_000_000           # median time past: any S + n lock time is final
 
 # Appendix C.7: the channel scripts use these opcodes and nothing else.
@@ -217,16 +221,23 @@ def path_witness(path):
 
 class TreeHost:
     """A FULL dense tree hosting channel leaves (C.6): EXIT_1 is the exact
-    payout variant EXIT_1^= (C.6.1) and CLAIM^h is present for 9.6.2."""
+    payout variant EXIT_1^= (C.6.1) and CLAIM^h is present for 9.6.2.
 
-    def __init__(self, chain, depth=4):
+    claim=False builds the CLAIM-free tree of C.6.5's alternative: with no
+    CLAIM script to carry tree_id, m depends on the option set alone, so
+    two such trees with different tree_ids share m (6.2)."""
+
+    def __init__(self, chain, depth=4, tree_id=TREE_ID, claim=True):
         self.chain, self.depth = chain, depth
         self.op_sk = sk("operator")
         self.op_pk = pubkey_x(self.op_sk)
-        self.tree_id = TREE_ID
+        self.tree_id = tree_id
         scripts = ls.all_scripts(depth, self.op_pk, (0,), (1,), "D", tree_id=self.tree_id)
         scripts["EXIT_1"] = ls.exit_script(depth, 1, "D", exact=True)
-        scripts["CLAIM_H"] = ls.claim_script(depth, self.tree_id, "D", hashlock=True)
+        if claim:
+            scripts["CLAIM_H"] = ls.claim_script(depth, self.tree_id, "D", hashlock=True)
+        else:
+            del scripts["CLAIM"]
         self.names = list(scripts)
         self.compiled = [assemble(s) for s in scripts.values()]
         self.m = lt.taptree_root([lt.tapleaf_hash(s) for s in self.compiled])
@@ -381,7 +392,7 @@ def test_state_machine(mode, verbose=True):
     owner_label = "alice-owner"
     p_sk = sk("P_chan")
     p_chan = pubkey_x(p_sk)
-    ch = lc.Channel(host.m, pubkey_x(sk(owner_label)), 7, p_chan, C, 0, csv, mode)
+    ch = lc.Channel(host.tree_id, pubkey_x(sk(owner_label)), 7, p_chan, C, 0, csv, mode)
     party = Party(ch, p_sk)
 
     # Script inventory (C.7) and constants (C.2.2).
@@ -558,12 +569,12 @@ def test_state_machine(mode, verbose=True):
     expect_fail(lambda: c.mine(party.update(c, n_last, fund_op, sig=y_sig)),
                 "update collation signed under ctx_set")
     # a state signed for a different chan_id
-    for label, other in (("m", lc.Channel(lt.sha256(b"other tree"), ch.owner_key, 7, p_chan, C, 0, csv, mode)),
-                         ("capacity", lc.Channel(host.m, ch.owner_key, 7, p_chan, C + 1, 0, csv, mode)),
-                         ("epoch", lc.Channel(host.m, ch.owner_key, 7, p_chan, C, 1, csv, mode)),
-                         ("nonce", lc.Channel(host.m, ch.owner_key, 8, p_chan, C, 0, csv, mode)),
-                         ("owner_key", lc.Channel(host.m, pubkey_x(sk("other-owner")), 7, p_chan, C, 0, csv, mode)),
-                         ("csv_delay", lc.Channel(host.m, ch.owner_key, 7, p_chan, C, 0, csv + 1, mode))):
+    for label, other in (("tree_id", lc.Channel(OTHER_TREE_ID, ch.owner_key, 7, p_chan, C, 0, csv, mode)),
+                         ("capacity", lc.Channel(host.tree_id, ch.owner_key, 7, p_chan, C + 1, 0, csv, mode)),
+                         ("epoch", lc.Channel(host.tree_id, ch.owner_key, 7, p_chan, C, 1, csv, mode)),
+                         ("nonce", lc.Channel(host.tree_id, ch.owner_key, 8, p_chan, C, 0, csv, mode)),
+                         ("owner_key", lc.Channel(host.tree_id, pubkey_x(sk("other-owner")), 7, p_chan, C, 0, csv, mode)),
+                         ("csv_delay", lc.Channel(host.tree_id, ch.owner_key, 7, p_chan, C, 0, csv + 1, mode))):
         check(other.chan_id != ch.chan_id, f"chan_id commits {label}")
         osig = schnorr_sign(lc.msg_upd(other.ctx_upd, ut), p_sk)
         expect_fail(lambda: c.mine(party.update(c, n_last, fund_op, sig=osig)),
@@ -629,7 +640,7 @@ def test_dust_floor():
     p_chan = pubkey_x(sk("P_chan"))
     uk, vk = pubkey_x(sk("U-payout")), pubkey_x(sk("V-payout"))
     C = 1_000_000
-    ch = lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, C, 0, 144)
+    ch = lc.Channel(TREE_ID, pubkey_x(sk("o")), 1, p_chan, C, 0, 144)
     htlc = lc.htlc_output(pubkey_x(sk("agg")), lt.sha256(b"x"), 900_000, uk, vk)
     cases = (("b_V = 0", C, 0, []),
              ("b_V = 329", C - 329, 329, []),
@@ -653,12 +664,12 @@ def test_dust_floor():
           "nothing trimmed: the anchor is the 0-value ephemeral output")
     # A channel parameter, not part of chan_id, and never below the P2TR
     # threshold.
-    ch2 = lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, C, 0, 144, dust_chan=546)
+    ch2 = lc.Channel(TREE_ID, pubkey_x(sk("o")), 1, p_chan, C, 0, 144, dust_chan=546)
     check(ch2.chan_id == ch.chan_id, "dust_chan is not committed by chan_id")
     check(ch2.settle_outputs(C - 500, 500, uk, vk)[-1] == (500, lc.P2A_SPK),
           "a higher dust_chan trims a 500-sat balance into the anchor")
     try:
-        lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, C, 0, 144, dust_chan=329)
+        lc.Channel(TREE_ID, pubkey_x(sk("o")), 1, p_chan, C, 0, 144, dust_chan=329)
         check(False, "dust_chan below the P2TR threshold refused")
     except AssertionError:
         check(True, "dust_chan below the P2TR threshold refused")
@@ -677,7 +688,7 @@ def test_mid_collation_limit():
     agg = pubkey_x(sk("htlc-agg"))
     limits = {}
     for mode in ("c2", "c0"):
-        ch = lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p_chan, 10_000_000, 0, 144, mode)
+        ch = lc.Channel(TREE_ID, pubkey_x(sk("o")), 1, p_chan, 10_000_000, 0, 144, mode)
         ok_max = None
         for h in (7, 8, 30):
             htlcs = [(1_000, lc.htlc_output(agg, lt.sha256(b"%d" % i), 900_000, uk, vk, mode))
@@ -720,7 +731,7 @@ def test_deadlines(verbose=True):
         host = TreeHost(chain)
         p_sk = sk("P_chan")
         C = 1_000_000
-        ch = lc.Channel(host.m, pubkey_x(sk("alice-owner")), 7, pubkey_x(p_sk), C, 0, csv)
+        ch = lc.Channel(host.tree_id, pubkey_x(sk("alice-owner")), 7, pubkey_x(p_sk), C, 0, csv)
         party = Party(ch, p_sk)
         s_chan, s_op = 5, 12
         op_leaf = lt.Leaf(2_000_000, pubkey_x(sk("op-exit")), pubkey_x(sk("operator-owner")),
@@ -879,7 +890,7 @@ def test_lease_and_evictor():
     host = TreeHost(chain)
     p_sk = sk("P_chan")
     C = 1_000_000
-    ch = lc.Channel(host.m, pubkey_x(sk("alice-owner")), 7, pubkey_x(p_sk), C, 0, 144)
+    ch = lc.Channel(host.tree_id, pubkey_x(sk("alice-owner")), 7, pubkey_x(p_sk), C, 0, 144)
     party = Party(ch, p_sk)
     party.sign_state(1, ch.settle_outputs(C, 0, pubkey_x(sk("U")), pubkey_x(sk("V"))))
     lease = chain.height + 100
@@ -933,8 +944,8 @@ def test_epoch_and_renewal(mode):
     p_sk = sk("P_chan")
     C, csv = 1_000_000, 144
     owner = pubkey_x(sk("alice-owner"))
-    ch0 = lc.Channel(host.m, owner, 7, pubkey_x(p_sk), C, 0, csv, mode)
-    ch1 = lc.Channel(host.m, owner, 7, pubkey_x(p_sk), C, 1, csv, mode)
+    ch0 = lc.Channel(host.tree_id, owner, 7, pubkey_x(p_sk), C, 0, csv, mode)
+    ch1 = lc.Channel(host.tree_id, owner, 7, pubkey_x(p_sk), C, 1, csv, mode)
     check(ch0.chan_id != ch1.chan_id and ch0.exit_key != ch1.exit_key,
           "a new epoch gives the channel a new chan_id and a new exit_key (C.5.2)")
     p0, p1 = Party(ch0, p_sk), Party(ch1, p_sk)
@@ -979,10 +990,51 @@ def test_epoch_and_renewal(mode):
     print(f"epochs and renewal, tapleaf {lv}: renewal keeps states, a splice retires them")
 
 
+def test_tree_id_binding(mode):
+    """C.2.2: chan_id binds tree_id (6.2), not m. Two trees created without
+    CLAIM share m, since m names a rule set, and differ only in tree_id; the
+    same channel parameters under each give different chan_ids and exit_keys,
+    and a state signed for one tree fails against the funding output the
+    other tree's leaf creates, both as the other channel's own update and as
+    this channel's update template signed under the other context."""
+    chain = Chain(800_000)
+    host_a = TreeHost(chain, tree_id=TREE_ID, claim=False)
+    host_b = TreeHost(chain, tree_id=OTHER_TREE_ID, claim=False)
+    check(host_a.m == host_b.m and host_a.tree_id != host_b.tree_id,
+          "two CLAIM-free trees with the same parameters share m and differ in tree_id (6.2)")
+    p_sk = sk("P_chan")
+    C, csv = 1_000_000, 144
+    owner = pubkey_x(sk("alice-owner"))
+    ch_a = lc.Channel(host_a.tree_id, owner, 7, pubkey_x(p_sk), C, 0, csv, mode)
+    ch_b = lc.Channel(host_b.tree_id, owner, 7, pubkey_x(p_sk), C, 0, csv, mode)
+    check(ch_a.chan_id != ch_b.chan_id and ch_a.exit_key != ch_b.exit_key,
+          "the same channel parameters under another tree_id give another chan_id and exit_key")
+    pa, pb = Party(ch_a, p_sk), Party(ch_b, p_sk)
+    uk, vk = pubkey_x(sk("U-payout")), pubkey_x(sk("V-payout"))
+    pa.sign_state(1, ch_a.settle_outputs(700_000, 300_000, uk, vk))
+    pb.sign_state(1, ch_b.settle_outputs(700_000, 300_000, uk, vk))
+    s = 5
+    host_a.tree.leaves = {s: chan_leaf(host_a, ch_a, "alice-owner")}
+    host_a.owner_sk = {s: sk("alice-owner")}
+    host_a.publish()
+    xtx, t1 = host_a.exit_tx(s)
+    chain.mine(xtx)
+    host_a.commit(xtx, t1)
+    fund_op = (xtx.txid(), 1)
+    expect_fail(lambda: chain.mine(pb.update(chain, 1, fund_op)),
+                "the other tree's channel state against this tree's funding output")
+    osig = schnorr_sign(lc.msg_upd(ch_b.ctx_upd, pa.states[1][0]), p_sk)
+    expect_fail(lambda: chain.mine(pa.update(chain, 1, fund_op, sig=osig)),
+                "this channel's update signed under the other tree_id's context")
+    chain.mine(pa.update(chain, 1, fund_op))
+    check(True, "the state signed for the leaf's own tree_id binds (C.2.2)")
+    print("tree_id binding: same m, different tree_id, different chan_id; states do not cross")
+
+
 def report_sizes():
     """Script and witness sizes (bytes) and transaction vsizes (C.5.4)."""
     p = pubkey_x(sk("P_chan"))
-    ch = lc.Channel(lt.sha256(b"m"), pubkey_x(sk("o")), 1, p, 1_000_000, 0, 144)
+    ch = lc.Channel(TREE_ID, pubkey_x(sk("o")), 1, p, 1_000_000, 0, 144)
     rows = []
     for mode in ("c2", "c0"):
         f = lc.TapOutput(p, [lc.upd_f_script(ch.ctx_upd, p)], mode)
@@ -1004,6 +1056,7 @@ if __name__ == "__main__":
     for mode in ("c2", "c0"):
         test_state_machine(mode)
         test_epoch_and_renewal(mode)
+        test_tree_id_binding(mode)
     sz = SIZES
     check(sz[("c2", "update_n (funding)")] == 153, "update_n bound to funding is 153 vB (C.5.4)")
     check(sz[("c2", "update_n (rebind)")] == 161, "update_n bound to U_j is 161 vB (C.5.4)")

@@ -133,6 +133,14 @@ func TestChanMessageValidation(t *testing.T) {
 		t.Error("ChanOpen.ChanID differs from script.ChanParams")
 	}
 
+	// C.2.2: chan_id binds the host tree's tree_id, so the same channel
+	// parameters under another lineage name another channel.
+	other := *open
+	other.TreeID[0] ^= 1
+	if other.ChanID() == open.ChanID() {
+		t.Error("chan_id does not commit tree_id")
+	}
+
 	// A state pays out at most the capacity, the remainder being the
 	// anchor's value (C.3.4).
 	st := &StateProposal{StateNum: 1, BalanceU: 500_000, BalanceV: 400_000,
