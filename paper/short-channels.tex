@@ -8,5 +8,6 @@ to; and lease zero with the counterparty as evictor, so eviction is the
 counterparty's force-close. The state machine and the budget run end to
 end on the simulator's chain model with two blocks of margin; a proof
 that channel leaves compose is open. A force-close costs about
-$1{,}681\vB$, against about $680\vB$ for a simple taproot
-channel~\cite{taprootchans}.
+$1{,}681\vB$, since its exit creates the funding output, against
+$684\vB$ for a simple taproot channel's open and force close
+together~\cite{taprootchans}.

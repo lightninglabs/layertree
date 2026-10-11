@@ -35,7 +35,8 @@ slots.
 control block ($32.25\vB$) are the same in every LayerTree row; the
 script dominates because tapscript has no loops and the levels are
 unrolled. The sparse and native-opcode rows are measured on the
-simulator's six-leaf tree.}
+simulator's six-leaf tree. The ``PR'' labels name the repository
+changes that added the CCV tier and the hypothetical opcode.}
 \label{fig:cmp-anatomy}
 \end{figure}
 
@@ -144,10 +145,14 @@ the same output, so unconfirmed transitions form a chain, and relay
 policy caps it: 25 transactions under the ancestor and descendant limits
 of Bitcoin Core before 31.0~\cite{corepolicy}, at most 64 under cluster
 mempool~\cite{clustermempool} ($\kappa$ of \S\ref{sec:liveness}). The cap
-counts transactions, not leaves, so a 51-leaf sweep is one entry. About
-25 exits a block is the worst case, strangers leaving one at a time; a
-deployment that expects more shards into several trees, each sized by
-exit throughput rather than by depth. Each batch shape is its own
+counts transactions, not leaves, so a 51-leaf sweep is one entry.
+Uncoordinated exits chain only if each exiter rebuilds on the previous
+unconfirmed exit, or a tower or the operator holding \tr{EXIT}$^{t}$
+authorisations builds them in sequence; otherwise they conflict and
+replace one another. So 25 a block is the cooperative ceiling for single
+exits, and the worst case is set by $\beta$. A deployment that expects
+more shards into several trees, each sized by exit throughput rather
+than by depth. Each batch shape is its own
 tapleaf, and each doubling of the taptree adds $8\vB$ to every spend,
 so a tree that carries the sweeps and rewrites (16 to 32 tapleaves) pays
 8 to $16\vB$ more on every exit.
@@ -159,8 +164,8 @@ and walks only the $D - h$ levels above it, so a bigger cohort is a
 cheaper transaction (Figure~\ref{fig:cmp-join}). At $D = 16$ with no
 payout output, as spec~11 prices a join, one member costs $937\vB$, a
 four-member graft $872\vB$ ($218\vB$ a member), a 256-member graft
-$679\vB$ ($2.7\vB$) and a 1{,}024-member graft about $614\vB$ (an
-estimate, $0.6\vB$), against $43\vB$ for one output in an on-chain batch
+about $679\vB$ ($2.7\vB$) and a 1{,}024-member graft about $614\vB$
+($0.6\vB$), both estimates from the measured \tr{JOIN}$_2$, against $43\vB$ for one output in an on-chain batch
 and about $154\vB$ for a channel opened in its own transaction.
 
 \begin{figure}[htbp]
@@ -223,8 +228,8 @@ how value moves & on-chain bytes \\
 bare UTXOs, one spend per payment & 111\,MvB \\
 LayerTree, one on-chain \tr{UPDATE} per payment & 1{,}030\,MvB \\
 Lightning channels, payments off-chain & 308\,kvB \\
-Ark, payments off-chain, plus a round transaction per refresh & 86\,kvB \\
-LayerTree, payments off-chain, members leave by cohort exit or sweep & about 160\,kvB \\
+Ark, payments off-chain (rounds and refreshes not priced) & 86\,kvB \\
+LayerTree, payments off-chain, cohort exit or sweep (renewals not priced) & about 160\,kvB \\
 LayerTree, payments off-chain, members never exit (balances sold by voucher) & under 1\,kvB \\
 \bottomrule
 \end{tabular}
@@ -274,7 +279,9 @@ leaves (Figure~\ref{fig:cmp-lifetime}, Table~\ref{tab:lifetime}).
 \centering
 \includegraphics[width=\linewidth]{figures/lifetime.pdf}
 \caption{Lifetime on-chain bytes per member, entry plus exit. The dense,
-Lightning, Ark and bare rows are those of Table~\ref{tab:lifetime}. The
+Lightning, Ark and bare rows are those of Table~\ref{tab:lifetime},
+except the dense batch bar, which reads 162 where the table, entry plus
+the $158\vB$ sweep, gives 161. The
 sparse bars price the join with a payout output and the exit on the
 six-leaf tree (1{,}644, 3{,}108 and 3{,}281); the table prices the join
 without one and the exit at $2^{16}$ members (1{,}601, 3{,}209 and
@@ -298,7 +305,7 @@ and no expiry: the covenant checks a proof and pays. A plain exit's
 signature commits to the tree outpoint, which every operation changes, so
 the owner has to be online to build it and to rebuild it after a
 competing spend. The tower exit \tr{EXIT}$_K^{t}$ (\S\ref{sec:ops}) lifts
-that: the owner signs the leaf and the tree's identifier once, in
+that: the owner signs the leaf without its amount and the tree's identifier once, in
 advance, and whoever holds the signature builds and rebuilds the exit
 against whatever root is current. A channel leaf gives up some of the
 rest in exchange for free payments.
@@ -317,7 +324,7 @@ transactions & 1 & 1 & 3, plus fee children & 3: commitment, anchor child, sweep
 blocks until spendable & 1 & 1 & about 146 & about 145 & 16 plus the leaf timelock \\
 timelock & none & none & CSV on the settlement & CSV on the commitment & relative lock at the leaf \\
 who must be online & the owner, to build, sign and rebuild if outbid & nobody: a tower holds a one-time authorisation & the closer; a tower can finish & a tower, for stale states & the member, before the round expires \\
-what expires & nothing; leases are optional & nothing; a changed leaf voids the authorisation & nothing & nothing & the round: refresh or forfeit \\
+what expires & nothing; a lease is the price of the cheap batch exit & nothing; a changed leaf (not a top-up) voids the authorisation & nothing & nothing & the round: refresh or forfeit \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -345,7 +352,7 @@ and with every change to the pool signed by every participant.
 \toprule
  & join & pay off-chain & settle on-chain & exit & evict & expiry \\
 \midrule
-LayerTree & operator alone, or a round among self-funders & one message (voucher), or two parties (channel) & \tr{UPDATE}: one exchange; \tr{REWRITE}$_h$: the changed owners & alone, 1 tx & operator alone, after the lease; member paid & none \\
+LayerTree & operator alone, or a round among self-funders & one message (voucher), or two parties (channel); from Lightning, via the operator & \tr{UPDATE}: one exchange; \tr{REWRITE}$_h$: the changed owners & alone, 1 tx & operator alone, after the lease; member paid & none \\
 Lightning~\cite{lightning} & two parties & two parties & two parties & alone & n/a & none \\
 Factory~\cite{factories} & all & two parties, in a channel & all, every state & $O(\log N)$ pre-signed txs & no & none \\
 Ark, pre-signed~\cite{ark} & the round, in a window & server co-signs, trusted until the next round & the next round, with everyone & $O(\log N)$ txs plus a timelock & no; the round expires & every round \\
@@ -397,8 +404,10 @@ cohort. A member
 who does leave alone pays $1{,}020\vB$, about nine times a bare spend and
 about twice a Lightning force close; the proof is the price of the shared
 output. An on-chain update is $1{,}030\vB$, so payments must be off-chain
-or batched. Everything serialises through one output, at about 25
-uncoordinated exits a block in the worst case, which bounds how many
+or batched. Renewing a lease costs $2{,}616\vB$ alone or $148\vB$ a
+member in a signed cohort rewrite. Everything serialises through one
+output, at about 25 single exits a block even when they cooperate,
+which bounds how many
 time-sensitive leaves one tree should host; fee pinning on that output is
 outside the model. The sparse profile costs 1.7 to 2.8 times the dense
 one and cannot graft or sweep. The MID tier caps a tree at $2^{31}$

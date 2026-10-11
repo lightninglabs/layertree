@@ -4,7 +4,7 @@
 
 \begin{table}[tbp]
 \centering
-\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). LayerTree rows are dense at $D = 16$ unless marked sparse. Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
+\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). LayerTree rows are dense at $D = 16$ unless marked sparse. Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which applies only to expired leases aligned per cohort; keeping a lease costs a renewal per period, $2{,}616\vB$ alone or $148\vB$ in a cohort rewrite, not included. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round. $^{*}$Nobody with \tr{EXIT}$^{t}$, whose holder rebuilds the exit.}
 \label{tab:lifetime}
 \setlength{\tabcolsep}{3pt}\scriptsize
 \begin{tabular}{@{}lrrrlll@{}}
@@ -13,9 +13,9 @@
 \cmidrule(lr){2-4}\cmidrule(l){5-7}
  & never alone & in a batch & alone & txs & blocks & online \\
 \midrule
-LayerTree, operator-funded & 3 & 162 & 1{,}023 & 1 & 1 & nobody \\
-LayerTree, self-funded & 61 & 220 & 1{,}081 & 1 & 1 & nobody \\
-LayerTree sparse, $D = 32$ & 1{,}601 & 3{,}209 & 3{,}382 & 1 & 1 & nobody \\
+LayerTree, operator-funded & 3 & 161 & 1{,}023 & 1 & 1 & owner$^{*}$ \\
+LayerTree, self-funded & 61 & 219 & 1{,}081 & 1 & 1 & owner$^{*}$ \\
+LayerTree sparse, $D = 32$ & 1{,}601 & 3{,}209 & 3{,}382 & 1 & 1 & owner$^{*}$ \\
 Lightning channel & 197 & 197 & 573 & 3 & $\approx 145$ & tower \\
 Ark, round of 256 & 86 & 86 & 1{,}354 & 9 & $8 +$ timelock & member \\
 Ark, round of 65{,}536 & 86 & 86 & 2{,}554 & 17 & $16 +$ timelock & member \\

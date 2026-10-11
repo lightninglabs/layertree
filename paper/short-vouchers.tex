@@ -8,20 +8,25 @@
 A voucher lets a member pay someone, or the operator pay a member who
 receives from Lightning, with a signature alone. Nothing reaches the
 chain when it is issued, and its holder can redeem it later without the
-issuer or the operator. Vouchers are the LayerTree counterpart of Ark's
-out-of-round payments, with one difference: a redeemed voucher is a leaf
-of the tree, which its holder can exit alone, not an output that expires
-with a round.
+issuer or the operator. Vouchers fill the place of Ark's out-of-round
+payments with a different trade. An Ark transfer is undone only if
+sender and server collude; a voucher can be voided by its issuer alone,
+or by the source's evictor once the lease passes, until its redemption
+confirms. In exchange, a redeemed voucher is a leaf its holder exits
+alone, and its eviction at the lease pays the holder on-chain, where an
+expired Ark round forfeits to the operator; and the credit leaf
+(\S\ref{sec:creditleaf}) removes the issuer's voiding for payments from
+the operator.
 
 \subsection{The Voucher and \tr{CLAIM}}\label{sec:voucher-def}
 
 A voucher is a BIP-340 signature by the owner key of a \emph{source}
 leaf over
-$H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \ell_{\mathrm{src}} \,\|\, \ell_{\mathrm{claim}})$,
-where $\ell_{\mathrm{src}}$ and $\ell_{\mathrm{claim}}$ are full
-116-byte leaves and $\mathsf{tree\_id}$ is a 32-byte constant fixed when
-the tree is created. $\ell_{\mathrm{claim}}$ is the leaf being paid: an
-amount and the recipient's keys. Anyone who holds the voucher can redeem
+$H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_{\mathrm{src}} \,\|\, \ell_{\mathrm{claim}})$,
+where $\hat\ell_{\mathrm{src}}$ is the source leaf without its amount
+(spec 0.13.0), $\ell_{\mathrm{claim}}$ is the full leaf being paid (an
+amount and the recipient's keys), and $\mathsf{tree\_id}$ is a 32-byte
+constant fixed when the tree is created (Appendix~\ref{app:impl}). Anyone who holds the voucher can redeem
 it with \tr{CLAIM}, which checks the signature with
 \op{CHECKSIGFROMSTACK} and needs no other. Like \tr{SPLIT}, it is two
 steps (Figure~\ref{fig:claim}). The first proves $\ell_{\mathrm{src}}$
@@ -62,19 +67,23 @@ block its cohort's sweeps and grafts for the life of the tree.
 \draw[arr] (a0) -- node[right] {step 1} (a1);
 \draw[arr] (e0) -- node[right] {step 2} (e1);
 \node[draw, right=4mm of e0, yshift=-7mm, align=left, inner sep=3pt]
-  {voucher, off-chain:\\ $A$'s owner signs\\ $H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, A \,\|\, V)$};
+  {voucher, off-chain:\\ $A$'s owner signs\\ $H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat A \,\|\, V)$};
 \end{tikzpicture}
-\caption{Redeeming a voucher for 3 from $A$ to $V$. \tr{CLAIM} shrinks the source and advances its $\mathsf{seq}$, then fills an empty position with the claim leaf, with no signature but the voucher's. The tree now holds $A'$, not $A$, so the signed message never matches again.}
+\caption{Redeeming a voucher for 3 from $A$ to $V$. \tr{CLAIM} shrinks the source and advances its $\mathsf{seq}$, then fills an empty position with the claim leaf, with no signature but the voucher's. $\hat A$ is $A$ without its amount; the tree now holds $A'$, whose $\mathsf{seq}$ differs, so the signed message never matches again.}
 \label{fig:claim}
 \end{figure}
 
-\paragraph{Single use.} Replay is impossible because redemption changes
-the leaf the voucher names, and $\mathsf{seq}$ keeps it changed even if
-the balance later returns to its old value. Two rules that no script
-enforces carry the rest: a leaf's $\mathsf{seq}$ only ever advances (an
-\tr{UPDATE} winding it back would revive old vouchers), and no two leaves
-share an owner key and nonce, since a voucher binds its source by
-content, not position. Binding $\mathsf{tree\_id}$ rather than the
+\paragraph{Single use.} Replay is impossible because redemption
+advances the source's $\mathsf{seq}$, which the voucher binds. The
+amount is not bound, so an amount-only top-up of the source
+(\S\ref{sec:ops}) voids nothing, and the covenant's sum check still
+stops a voucher drawing more than the source holds. Two rules that no
+script enforces carry the rest: a leaf's $\mathsf{seq}$ only ever
+advances (an \tr{UPDATE} winding it back would revive old vouchers), and
+no two leaves share an owner key and nonce, since a voucher binds its
+source by content, not position; in the dense profile an issuer checks
+that no duplicate of its source leaf exists before signing, since one
+voucher would redeem against both (spec 10.3). Binding $\mathsf{tree\_id}$ rather than the
 taptree root $m$ keeps a voucher out of other trees built with the same
 parameters, and since a detached cohort inherits $\mathsf{tree\_id}$,
 vouchers survive a \tr{DETACH}$_h$.

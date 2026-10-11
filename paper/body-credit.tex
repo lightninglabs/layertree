@@ -13,10 +13,12 @@ recipient's own redemptions carry that signature at no cost, and the
 issuer cannot carve the leaf at all, not even with a voucher it signs to
 itself. Over-issuance then has no second victim, since every voucher
 pays the same recipient, who can watch the leaf's amount. Voiding needs
-the leaf to change, and every transition that could change it needs the
-exit key: \tr{CLAIM}$^{x}$, \tr{UPDATE}$^{x}$ and \tr{REWRITE}$_h^{x}$
-by rule, while the exact exit and an eviction pay the whole balance to
-that key and so void nothing the recipient is owed. The balance can only grow or pay its recipient, whose remaining
+a field the voucher binds to change, and every transition that could
+change one needs the exit key: \tr{CLAIM}$^{x}$, \tr{UPDATE}$^{x}$ and
+\tr{REWRITE}$_h^{x}$ by rule, while the exact exit and an eviction pay
+the whole balance to that key and so void nothing the recipient is
+owed. The one change the operator makes alone, an amount-only top-up,
+touches no bound field (spec 0.13.0). The balance can only grow or pay its recipient, whose remaining
 exposure is the issuer's liveness: a provider that stops issuing.
 
 Three details keep it that way. The recipient checks from the taptree
@@ -25,7 +27,8 @@ the owner's and the operator's signatures, both the issuer's. The issuer
 funds the leaf only with credit it has issued or is about to, since any
 excess is the recipient's on every path the issuer can take alone, and
 tops it up by an amount-only increase under \tr{REWRITE}$_h^{x}$, which
-needs only the operator's signature. And the leaf has a finite lease
+needs only the operator's signature and leaves the latest voucher
+valid. And the leaf has a finite lease
 with the operator as evictor, not a $\NUMS$ evictor, which every carve
 would inherit, blocking the sweep of whatever cohort the claim leaf lands
 in. The credit is one-way: if the recipient could also spend from it, an

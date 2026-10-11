@@ -11,8 +11,10 @@ behind Figure~\ref{fig:plot} and Table~\ref{tab:tiers}.
 
 A voucher is a BIP-340 signature by the source leaf's owner over
 \[
-H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \ell_{\mathrm{src}} \,\|\, \ell_{\mathrm{claim}}),
+H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_{\mathrm{src}} \,\|\, \ell_{\mathrm{claim}}),
 \]
+where $\hat\ell_{\mathrm{src}}$ is the source leaf without its amount
+(spec~0.13.0),
 verified with \op{CHECKSIGFROMSTACK}. Under spec~0.10.0 every tier binds
 $\mathsf{tree\_id}$, a constant fixed when a tree is created and
 inherited by the cohorts detached from it, in place of $m$, which names
@@ -27,10 +29,12 @@ whose removal default policy would not relay.
 leaf's amount is reduced by the claim amount and its $\mathsf{seq}$
 advanced by one (or the position emptied if drained), then the claim leaf
 is placed at an empty position. The total is unchanged. Replay is
-impossible because the first step changes the source leaf, so the signed
-message never again matches a leaf in the tree; $\mathsf{seq}$ prevents a
-balance that later returns to an earlier value from re-enabling an old
-voucher. Because a voucher lets an owner move value with a lone
+impossible because the first step advances the source's $\mathsf{seq}$,
+which the message binds, so it never again matches a leaf in the tree.
+The amount is left out of the message so that an amount-only top-up of
+the source, which \tr{REWRITE}$_h$ allows on the operator's signature,
+voids no voucher and no \tr{EXIT}$^{t}$ authorisation; the sum check
+still stops a voucher drawing more than the source holds. Because a voucher lets an owner move value with a lone
 signature, leaves whose balance is not the owner's alone set
 $\mathsf{seq}$ to the tier's $\mathsf{SEQ\_FINAL}$ (\S\ref{sec:channels}),
 whose successor does not fit in four bytes, so the \tr{CLAIM} script

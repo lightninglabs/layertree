@@ -11,7 +11,7 @@ transitions that remove no value, so that only removals could chain, was
 declined: the first conflicting spend in a block already invalidates an
 honest exit, so the lock would cost throughput and remove nothing. The
 tower exit \tr{EXIT}$_K^{t}$ (spec 7.2 rule 7) was adopted: a signature
-over the leaf and the tree's identifier, checked from the stack, lets a
+over the leaf without its amount and the tree's identifier, checked from the stack, lets a
 tower rebuild and rebroadcast an exit with the owner offline, which takes
 the owner's liveness out of the auction without changing its price. A
 Liquid prototype of MID is the obvious next experiment; a

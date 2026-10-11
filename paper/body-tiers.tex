@@ -3,7 +3,7 @@
 
 \begin{table}[tbp]
 \centering
-\caption{The four opcode tiers. ``Shape'' says whether inputs and outputs the predicate does not constrain are free or fixed by the script. Sizes are bytes of script / witness data for \tr{EXIT}$_1$ in the dense profile at $D=16$; the last row is the transaction size on the model of \S\ref{sec:eval}. MID's sweep fits at most 54 occupied positions at $h = 6$ (stack limit). For scale, a hypothetical native Merkle-sum opcode, measured in the simulator and not a tier, would take \tr{EXIT}$_1$ to 252 bytes of script at any depth and about $388\vB$ on a six-leaf tree, about $520\vB$ in a full depth-16 tree (\S\ref{sec:discussion}).}
+\caption{The four opcode tiers. ``Shape'' says whether inputs and outputs the predicate does not constrain are free or fixed by the script. Sizes are bytes of script / witness data for \tr{EXIT}$_1$ in the dense profile at $D=16$; the last row is the transaction size on the model of \S\ref{sec:eval} and serialised with its witness length prefixes (\texttt{spec/scripts/weights.md}): MID's premium over FULL is $+33\%$ on the model and $+36\%$ serialised, MIN's $+44\%$ and $+47\%$. MID's sweep fits at most 54 occupied positions at $h = 6$ (stack limit). For scale, a hypothetical native Merkle-sum opcode, measured in the simulator and not a tier, would take \tr{EXIT}$_1$ to 252 bytes of script at any depth and about $388\vB$ on a six-leaf tree, about $520\vB$ in a full depth-16 tree (\iffullversion\S\ref{sec:discussion}\else Appendix~\ref{app:cmp-unit}\fi).}
 \label{tab:tiers}
 \setlength{\tabcolsep}{1.5pt}\scriptsize
 \begin{tabular}{@{}lcccc@{}}
@@ -19,7 +19,7 @@ Owner payout & $\le$ amount & exact & exact & exact \\
 Predicates & all & all & \tr{EXIT}$_1$, \tr{SPLIT} & all \\
 Vouchers / channels / shape & yes / yes / free & yes / yes / free & no / no / fixed & option / yes / free \\
 \tr{EXIT}$_1$ script / witness (B) & 2{,}101 / 902 & 3{,}367 / 978 & 3{,}640 / 1{,}175 & 1{,}716 / 838 \\
-\tr{EXIT}$_1$ transaction (vB) & 1{,}020 & 1{,}355 & 1{,}473 & 908 \\
+\tr{EXIT}$_1$ (vB), model / serialised & 1{,}020 / 1{,}030 & 1{,}355 / 1{,}398 & 1{,}473 / 1{,}518 & 908 / 918 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -56,7 +56,7 @@ fee bump; Appendix~\ref{app:scripts}). What is new is the use: the
 field-by-field enforcement and the signature as a tier's only
 introspection. \tr{EXIT}$_1$ costs
 $3{,}640$ bytes of script at $D = 16$ (73\% more than FULL) and
-$1{,}473\vB$ (44\% more); vouchers and channel leaves need a signature
+$1{,}473\vB$ (44\% more on the model, 47\% serialised); vouchers and channel leaves need a signature
 over stack data and are out of reach, \tr{SPLIT} is not ($6{,}651$
 bytes). Whether a 64-leaf sweep (16 kB in FULL) fits MIN is open.
 
