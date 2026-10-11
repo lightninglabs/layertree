@@ -1057,7 +1057,7 @@ func tierProfiles(tier Tier) []profile {
 }
 
 // coveredTiers are the tiers the end-to-end suite runs.
-var coveredTiers = []Tier{Full, Mid, Min}
+var coveredTiers = []Tier{Full, Mid, Min, CCV, CCV0}
 
 // allCases is every transition of every covered tier at every depth and
 // profile.
