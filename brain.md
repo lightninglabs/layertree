@@ -40,6 +40,25 @@ with numbers.
 
 ## In flight right now
 
+- Round of 2026-10-10 (evening), owner's "execute 1-4, no GitHub pages,
+  refine papers": (a) Opus paper worker in a worktree: new title for
+  both versions, "LayerTree: A Shared Bitcoin UTXO with an O(1)
+  Unilateral Exit" (owner: drop "Ideal Functionality", lean on the O(1)
+  exit), overfull boxes, numbers against 0.11.0, read-through of both
+  versions; sources only, orchestrator rebuilds PDFs. Repository URL
+  still pending (owner). (b) Fable security-auditor in a worktree: Go
+  audit of tree/, script/, txn/, msg/ to design/audit/go.md, no fixes.
+  (c) Fable rule worker in a worktree: open work 9, MID REWRITE_h, CCV
+  DETACH_h, then the one-byte unchanged marker if time; spec 0.11.1 or
+  0.12.0; golden moves (not the D4 root). (d) Opus second opinion on the
+  four decision points (B6 chan_id binds m or tree_id; P1c relative lock
+  on value-neutral transitions; P8 prevout-independent exit
+  authorisation; MIN extra_outs split per output); escalate to Fable
+  where the orchestrator and Opus disagree or confidence is low, then
+  report to the owner and execute. Merge order: (c) first (golden), then
+  (a) (paper only; reconcile REWRITE sizes if the marker landed), (b) is
+  a report. No GitHub Pages deployment (owner).
+
 - Paper restructure landed 2026-10-10 (merge of the writer's branch at
   a1a493f, PDFs in the commit after): see the Paper row above. The
   writer's corrections to the full version's receive section (settle
