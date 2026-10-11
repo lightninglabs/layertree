@@ -105,8 +105,8 @@ fulfil and fail, rebind and splice).
 
 \subsection{Receiving over Lightning, Step by Step}\label{app:impl-receive}
 
-The flow of \S\ref{sec:receive-short}, in FULL, with what goes wrong at
-each step:
+The flow of \S\ref{sec:receive-short}, in FULL or MID, with what goes
+wrong at each step:
 (1)~\emph{Setup.} The operator grafts a credit leaf that it owns, with
 the recipient's key as exit key, the operator as evictor and a finite
 lease. The recipient checks $m$ (Appendix~\ref{app:impl-create}) and its
@@ -121,7 +121,19 @@ recipient is owed nothing.
 (4)~\emph{Voucher.} Only then does the operator sign a cumulative voucher
 for the new running total and send it, store and forward if the
 recipient is offline. A provider that settles and never issues takes
-this one payment; that is the recipient's whole exposure.
+this one payment; that is the recipient's whole exposure. No order
+of the steps removes it. A voucher is a cheque against value that stays
+in the operator's leaf, so a hash lock orders the exchange without
+securing it, and the recipient-preimage order moves the risk to the
+operator with no time limit, since a credit leaf gives it no way to
+retire a voucher. A voucher that expires is not available either:
+Bitcoin enforces only lower bounds on time, so the most a script can
+give is the HTLC shape, an operator void branch after a deadline, and
+the deadline would have to sit in the leaf. Per payment that is a chain
+write per payment; shared across payments it lets the operator void
+settled vouchers too, unless the recipient redeems before each
+deadline. Atomic receive is a channel leaf, at the price of an online
+recipient or a tower.
 (5)~\emph{Top-up.} Before the running total exceeds the credit leaf's
 amount, the operator raises the amount by an amount-only
 \tr{REWRITE}$_h^{x}$, about $122\vB$ per credit leaf batched per cohort (a changed position

@@ -41,7 +41,9 @@ the HTLC failed, could never be retired, since advancing the credit
 leaf's $\mathsf{seq}$ needs the recipient's exit key. \fi
 Settling first leaves
 the recipient exposed for one payment, the one the operator has settled
-and not yet vouched for.
+and not yet vouched for. No order removes it: a voucher is a cheque,
+not escrow, so an atomic receive needs a channel leaf and an online
+recipient (\iffullversion\S\ref{sec:channels}\else Appendix~\ref{app:impl-receive}\fi).
 
 \iffullversion
 \paragraph{Settlement.} Normally the voucher is never redeemed. The

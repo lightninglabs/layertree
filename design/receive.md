@@ -63,6 +63,40 @@ below. The hash-locked form keeps its place where 9.6.2 puts it, with
 the issuer drawing the preimage and the HTLC paying the issuer, as when
 a member buys a leaf with off-chain funds (9.6.1).
 
+**Why there is no atomic swap.** A voucher cannot be one leg of an
+atomic swap, hash lock or not. It is a cheque against value that stays
+in the issuer's leaf, not value locked for the recipient, so a shared
+hash orders the exchange without securing it (9.6.1). Every order
+therefore leaves one side trusting the other, and the only choice is
+which side. Settling first puts the risk on the recipient: at most one
+payment, and nothing asked of it while receiving. The recipient-preimage
+order puts it on the operator, with no time limit, because a credit leaf
+gives the operator no way to retire a voucher. The atomic receive is a
+channel leaf (Appendix C), where both legs are HTLCs, and its price is
+an online recipient (or a tower) and channel state. So the tradeoff is
+direct: a credit leaf buys offline receive with no channel state, and
+pays for it with one payment of exposure to the operator.
+
+**An expiring voucher does not change that.** Bitcoin cannot make a
+transaction invalid after a height. A script can require `nLockTime` to
+be at least some value but not at most, since a transaction with a low
+`nLockTime` stays valid forever, and valid transactions must stay valid
+across a reorganisation. What can be built is the HTLC shape: a branch
+that lets the operator void the voucher after a deadline, racing a
+redemption that has to land before it, with the voucher's deadline set
+far enough inside the HTLC's that a late redemption still reveals the
+preimage in time. The covenant can only check a deadline it can see,
+and vouchers are off-chain, so the deadline would live in the credit
+leaf: one per leaf, not one per payment. A per-payment deadline then
+needs an on-chain write per payment. A shared rolling deadline lets the
+operator void every voucher on the leaf at each deadline, settled ones
+included, so the recipient's exposure grows from one payment to its
+whole credit unless it redeems on-chain before every deadline. Either
+way the price of atomicity is the recipient's liveness or a chain write
+per payment, which is what the credit leaf exists to avoid. It would
+also be a rule change (a deadline field and an operator-only void branch
+behind `OP_CHECKLOCKTIMEVERIFY`), not a new opcode; it is not adopted.
+
 Repeated receives do not accumulate as separate vouchers, because every
 redemption advances the source leaf's `seq` and voids the others (7.5 and
 9.6). They accumulate as one cumulative voucher that the operator
