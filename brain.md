@@ -58,6 +58,21 @@ with numbers.
   report to the owner and execute. Merge order: (c) first (golden), then
   (a) (paper only; reconcile REWRITE sizes if the marker landed), (b) is
   a report. No GitHub Pages deployment (owner).
+  (a) landed (merge 56c2a1b, PDFs in the next commit): title
+  "LayerTree: A Shared Bitcoin UTXO with an O(1) Unilateral Exit" in
+  both versions, zero overfull boxes, five figures corrected. Spec-side
+  leftovers from its audit, to fix once (c) lands (it owns spec 11):
+  spec 11's MID sweep prose says 4,097 / 7,865 / 23,873 / 13,149 B
+  where sizes.md and 4.5 say 4,169 / 7,977 / 24,169 / 13,321; the sparse
+  second exit is about 4,996 WU not 4,950; 4.5's MID premium "about 55%
+  / 80%" measures 60% / 83% on EXIT_1; spec 11, fee-analysis.md and
+  cost-comparison.md:394 describe the sweeps as "three of every sixteen
+  positions empty" but test_scripts.py empties every fifth (51 of 256),
+  so the D = 20 sweep is 205 leaves at 146 vB, not 206 at 147
+  (gen_cost_figures OPERATOR_SWEEPS carries (206, 147)). Paper rows the
+  owner may want: the lifetime table's sparse row mixes a six-leaf
+  JOIN_0 (1,601) with the 2^16 exit estimate (1,781; the join at that
+  size would be about 1,744).
   Decided (orchestrator + Opus second opinion, Fable check on Q3):
   B6: chan_id binds tree_id (Appendix C 0.5.0; Fable rule worker
   running, owns layertree_chan.py, test_chan.py, chan Go, chan golden,
