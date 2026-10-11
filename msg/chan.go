@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -82,18 +83,51 @@ const (
 	// Core's default dust relay fee, and the RECOMMENDED DUST_CHAN.
 	DustP2TR = 330
 
-	// SettleCollationBase and SettleCollationPerHtlc give the size of a
-	// settlement's SEL_CHAN_SET collation, 156 + 43h bytes for two P2TR
-	// payouts, h P2TR HTLC outputs and the anchor (C.7).
-	SettleCollationBase    = 156
-	SettleCollationPerHtlc = 43
+	// SettleCollationBase and SettleCollationPerOutput give the size of
+	// a settlement's SEL_CHAN_SET collation (C.2.1 [C-A1]): 70 bytes for
+	// the fixed fields, the spent P2TR output and the P2A anchor, plus 43
+	// bytes (le64 amount, a one-byte length and a 34-byte P2TR script)
+	// for each balance or HTLC output the settlement carries. C.7's
+	// 156 + 43h is this sum with both balance outputs present; a zero
+	// balance is an omitted output (C.3.4) and adds nothing.
+	SettleCollationBase      = 70
+	SettleCollationPerOutput = 43
 
 	// MaxSettleCollationC0 is the largest collation a MID (0xC0)
 	// SETTLE_n can verify: 520 bytes less the 32-byte context (C.7).
 	MaxSettleCollationC0 = 488
 )
 
-// encodeStream and decodeStream wrap a record list in a TLV stream.
+// Decoder caps for the channel messages (design/audit/go.md G3). Each
+// message is read through decodeLimited at its cap and each
+// variable-length record through boundedVarBytes at its own.
+const (
+	// maxChanFixedLen bounds every channel message whose records are all
+	// fixed size: the largest, ChanOpen, is 144 bytes of values and 22
+	// of headers. The remainder leaves room for unknown odd records.
+	maxChanFixedLen = 512
+
+	// maxStateHtlcs is the most HTLC outputs a settlement can carry and
+	// still be standard: settle_n is 204 + 43h vbytes with both balance
+	// outputs (C.5.4), 118 + 43h with neither, and a standard
+	// transaction is at most 100,000 vbytes (MAX_STANDARD_TX_WEIGHT).
+	// Under 0xC0 Validate allows far fewer (C.7).
+	maxStateHtlcs = (100_000 - 118) / SettleCollationPerOutput
+
+	// maxStateHtlcsLen caps TypeStateHtlcs.
+	maxStateHtlcsLen = htlcLen * maxStateHtlcs
+
+	// maxHtlcFailReasonLen caps TypeHtlcFailReason. The reason is
+	// opaque to this layer; 1,024 bytes holds a BOLT-4 failure packet
+	// (292 bytes) or a short diagnostic with room to spare.
+	maxHtlcFailReasonLen = 1_024
+
+	// outpointLen is the size of TypeRebindOutpoint: a txid and an
+	// le32 index.
+	outpointLen = 36
+)
+
+// encodeStream wraps a record list in a TLV stream.
 func encodeStream(w io.Writer, recs []tlv.Record) error {
 	s, err := tlv.NewStream(recs...)
 	if err != nil {
@@ -102,18 +136,48 @@ func encodeStream(w io.Writer, recs []tlv.Record) error {
 	return s.Encode(w)
 }
 
-func decodeStream(r io.Reader, recs []tlv.Record) error {
-	s, err := tlv.NewStream(recs...)
-	if err != nil {
+// decodeChan decodes recs from at most max bytes of r and requires every
+// record in recs except those listed in optional (design/audit/go.md G7):
+// an absent mandatory record would otherwise decode to its zero value. The
+// error names the message and the first mandatory record missing.
+// Presence is tracked by wrapping each record's decoder rather than with
+// tlv.Stream.DecodeWithParsedTypes, which buffers an unknown record at its
+// declared length.
+func decodeChan(r io.Reader, max int64, name string, recs []tlv.Record,
+	optional ...tlv.Type) error {
+
+	seen := make(map[tlv.Type]bool, len(recs))
+	wrapped := make([]tlv.Record, len(recs))
+	for i := range recs {
+		rec := &recs[i]
+		typ := rec.Type()
+		wrapped[i] = tlv.MakeDynamicRecord(typ, nil, rec.Size,
+			func(w io.Writer, _ interface{}, _ *[8]byte) error {
+				return rec.Encode(w)
+			},
+			func(r io.Reader, _ interface{}, _ *[8]byte,
+				l uint64) error {
+
+				if err := rec.Decode(r, l); err != nil {
+					return err
+				}
+				seen[typ] = true
+				return nil
+			},
+		)
+	}
+	if err := decodeLimited(r, max, wrapped); err != nil {
 		return err
 	}
-	return s.Decode(r)
-}
 
-func varBytes(typ tlv.Type, b *[]byte) tlv.Record {
-	return tlv.MakeDynamicRecord(
-		typ, b, tlv.SizeVarBytes(b), tlv.EVarBytes, tlv.DVarBytes,
-	)
+	for i := range recs {
+		typ := recs[i].Type()
+		if !seen[typ] && !slices.Contains(optional, typ) {
+			return fmt.Errorf("msg: %s is missing mandatory record "+
+				"%d", name, typ)
+		}
+	}
+	return nil
 }
 
 // ChanOpen carries the parameters both parties agree before the channel
@@ -208,7 +272,9 @@ func (c *ChanOpen) records() []tlv.Record {
 func (c *ChanOpen) Encode(w io.Writer) error { return encodeStream(w, c.records()) }
 
 // Decode deserializes a message produced by Encode.
-func (c *ChanOpen) Decode(r io.Reader) error { return decodeStream(r, c.records()) }
+func (c *ChanOpen) Decode(r io.Reader) error {
+	return decodeChan(r, maxChanFixedLen, "ChanOpen", c.records())
+}
 
 // Offerer says which party offered an HTLC.
 type Offerer uint8
@@ -296,9 +362,16 @@ func (s *StateProposal) Anchor(capacity uint64) (uint64, error) {
 }
 
 // SettleCollationLen is the size of the settlement collation the state's
-// outputs produce (C.7).
+// outputs produce (C.7): one output per nonzero balance and per HTLC. A
+// zero balance is an omitted output (C.3.4), so it is not counted.
 func (s *StateProposal) SettleCollationLen() int {
-	return SettleCollationBase + SettleCollationPerHtlc*len(s.Htlcs)
+	outputs := len(s.Htlcs)
+	for _, b := range []uint64{s.BalanceU, s.BalanceV} {
+		if b != 0 {
+			outputs++
+		}
+	}
+	return SettleCollationBase + SettleCollationPerOutput*outputs
 }
 
 // Validate checks the proposal against the channel's parameters and the
@@ -343,28 +416,29 @@ func htlcAmounts(hs []Htlc) []uint64 {
 	return out
 }
 
-// Encode serializes the message as a TLV stream.
-func (s *StateProposal) Encode(w io.Writer) error {
-	htlcs := encodeHtlcs(s.Htlcs)
-	return encodeStream(w, []tlv.Record{
+func (s *StateProposal) records(htlcs *[]byte) []tlv.Record {
+	return []tlv.Record{
 		tlv.MakePrimitiveRecord(TypeChanID, &s.ChanID),
 		tlv.MakePrimitiveRecord(TypeStateNum, &s.StateNum),
 		tlv.MakePrimitiveRecord(TypeStateBalanceU, &s.BalanceU),
 		tlv.MakePrimitiveRecord(TypeStateBalanceV, &s.BalanceV),
-		varBytes(TypeStateHtlcs, &htlcs),
-	})
+		boundedVarBytes(TypeStateHtlcs, htlcs, maxStateHtlcsLen),
+	}
+}
+
+// Encode serializes the message as a TLV stream.
+func (s *StateProposal) Encode(w io.Writer) error {
+	htlcs := encodeHtlcs(s.Htlcs)
+	return encodeStream(w, s.records(&htlcs))
 }
 
 // Decode deserializes a message produced by Encode.
 func (s *StateProposal) Decode(r io.Reader) error {
 	var htlcs []byte
-	err := decodeStream(r, []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeChanID, &s.ChanID),
-		tlv.MakePrimitiveRecord(TypeStateNum, &s.StateNum),
-		tlv.MakePrimitiveRecord(TypeStateBalanceU, &s.BalanceU),
-		tlv.MakePrimitiveRecord(TypeStateBalanceV, &s.BalanceV),
-		varBytes(TypeStateHtlcs, &htlcs),
-	})
+	err := decodeChan(
+		r, maxChanFixedLen+maxStateHtlcsLen, "StateProposal",
+		s.records(&htlcs),
+	)
 	if err != nil {
 		return err
 	}
@@ -401,7 +475,7 @@ func (s *StateSig) records(role *uint8, psig *[32]byte,
 		tlv.MakePrimitiveRecord(TypeStateNum, &s.StateNum),
 		tlv.MakePrimitiveRecord(TypeSigRole, role),
 		tlv.MakePrimitiveRecord(TypeSigPartialSig, psig),
-		varBytes(TypeSigNextNonce, nonce),
+		boundedVarBytes(TypeSigNextNonce, nonce, PubNonceLen),
 	}
 }
 
@@ -420,7 +494,10 @@ func (s *StateSig) Decode(r io.Reader) error {
 		psig  [32]byte
 		nonce []byte
 	)
-	if err := decodeStream(r, s.records(&role, &psig, &nonce)); err != nil {
+	err := decodeChan(
+		r, maxChanFixedLen, "StateSig", s.records(&role, &psig, &nonce),
+	)
+	if err != nil {
 		return err
 	}
 	if role > uint8(RoleUpdate) {
@@ -519,7 +596,8 @@ func (h *HtlcAdd) Encode(w io.Writer) error {
 // Decode deserializes a message produced by Encode.
 func (h *HtlcAdd) Decode(r io.Reader) error {
 	var o uint8
-	if err := decodeStream(r, h.records(&o)); err != nil {
+	err := decodeChan(r, maxChanFixedLen, "HtlcAdd", h.records(&o))
+	if err != nil {
 		return err
 	}
 	if o > uint8(OfferedByCounterparty) {
@@ -534,10 +612,7 @@ func (h *HtlcAdd) Decode(r io.Reader) error {
 // evict_after when that is later, since the counterparty's force-close
 // clock cannot start before the lease has passed.
 func (h *HtlcAdd) CheckDeadline(height, evictAfter, budget uint32) error {
-	start := height
-	if evictAfter > start {
-		start = evictAfter
-	}
+	start := max(height, evictAfter)
 	if uint64(h.Htlc.CltvExpiry) < uint64(start)+uint64(budget) {
 		return fmt.Errorf("msg: cltv_expiry %d leaves less than %d "+
 			"blocks above %d (C.4.4, C.6.4)", h.Htlc.CltvExpiry, budget,
@@ -565,7 +640,9 @@ func (h *HtlcFulfill) records() []tlv.Record {
 func (h *HtlcFulfill) Encode(w io.Writer) error { return encodeStream(w, h.records()) }
 
 // Decode deserializes a message produced by Encode.
-func (h *HtlcFulfill) Decode(r io.Reader) error { return decodeStream(r, h.records()) }
+func (h *HtlcFulfill) Decode(r io.Reader) error {
+	return decodeChan(r, maxChanFixedLen, "HtlcFulfill", h.records())
+}
 
 // Verify reports whether the preimage opens paymentHash: the same 32-byte
 // discipline HTLC_SUCCESS and CLAIM^h apply (C.4.1, spec 7.5.1).
@@ -580,22 +657,26 @@ type HtlcFail struct {
 	Reason []byte
 }
 
-// Encode serializes the message as a TLV stream.
-func (h *HtlcFail) Encode(w io.Writer) error {
-	return encodeStream(w, []tlv.Record{
+func (h *HtlcFail) records() []tlv.Record {
+	return []tlv.Record{
 		tlv.MakePrimitiveRecord(TypeChanID, &h.ChanID),
 		tlv.MakePrimitiveRecord(TypeHtlcID, &h.HtlcID),
-		varBytes(TypeHtlcFailReason, &h.Reason),
-	})
+		boundedVarBytes(
+			TypeHtlcFailReason, &h.Reason, maxHtlcFailReasonLen,
+		),
+	}
 }
 
-// Decode deserializes a message produced by Encode.
+// Encode serializes the message as a TLV stream.
+func (h *HtlcFail) Encode(w io.Writer) error { return encodeStream(w, h.records()) }
+
+// Decode deserializes a message produced by Encode. The reason is
+// optional.
 func (h *HtlcFail) Decode(r io.Reader) error {
-	return decodeStream(r, []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeChanID, &h.ChanID),
-		tlv.MakePrimitiveRecord(TypeHtlcID, &h.HtlcID),
-		varBytes(TypeHtlcFailReason, &h.Reason),
-	})
+	return decodeChan(
+		r, maxChanFixedLen+maxHtlcFailReasonLen, "HtlcFail",
+		h.records(), TypeHtlcFailReason,
+	)
 }
 
 // RebindAnnounce tells the counterparty, or a watchtower, that the
@@ -625,32 +706,40 @@ func encodeOutpoint(op wire.OutPoint) [36]byte {
 	return b
 }
 
+func (a *RebindAnnounce) records(op *[]byte) []tlv.Record {
+	return []tlv.Record{
+		tlv.MakePrimitiveRecord(TypeChanID, &a.ChanID),
+		boundedVarBytes(TypeRebindOutpoint, op, outpointLen),
+		tlv.MakePrimitiveRecord(TypeRebindState, &a.StateNum),
+		boundedVarBytes(TypeRebindBoundTx, &a.BoundTx, maxTxLen),
+	}
+}
+
 // Encode serializes the message as a TLV stream.
 func (a *RebindAnnounce) Encode(w io.Writer) error {
 	ob := encodeOutpoint(a.Outpoint)
 	op := ob[:]
-	return encodeStream(w, []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeChanID, &a.ChanID),
-		varBytes(TypeRebindOutpoint, &op),
-		tlv.MakePrimitiveRecord(TypeRebindState, &a.StateNum),
-		varBytes(TypeRebindBoundTx, &a.BoundTx),
-	})
+	return encodeStream(w, a.records(&op))
 }
 
-// Decode deserializes a message produced by Encode.
+// Decode deserializes a message produced by Encode. The bound transaction
+// is optional; the state number must be in 1..ChanMaxState (C.3.5) so
+// that ChanStateBase + StateNum cannot wrap.
 func (a *RebindAnnounce) Decode(r io.Reader) error {
 	var op []byte
-	err := decodeStream(r, []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeChanID, &a.ChanID),
-		varBytes(TypeRebindOutpoint, &op),
-		tlv.MakePrimitiveRecord(TypeRebindState, &a.StateNum),
-		varBytes(TypeRebindBoundTx, &a.BoundTx),
-	})
+	err := decodeChan(
+		r, maxChanFixedLen+maxTxLen, "RebindAnnounce", a.records(&op),
+		TypeRebindBoundTx,
+	)
 	if err != nil {
 		return err
 	}
-	if len(op) != 36 {
-		return fmt.Errorf("msg: outpoint is %d bytes, want 36", len(op))
+	if len(op) != outpointLen {
+		return fmt.Errorf("msg: outpoint is %d bytes, want %d", len(op),
+			outpointLen)
+	}
+	if a.StateNum == 0 || a.StateNum > script.ChanMaxState {
+		return errors.New("msg: state number out of range")
 	}
 	copy(a.Outpoint.Hash[:], op[:32])
 	a.Outpoint.Index = binary.LittleEndian.Uint32(op[32:])
@@ -703,7 +792,9 @@ func (s *SpliceProposal) records() []tlv.Record {
 func (s *SpliceProposal) Encode(w io.Writer) error { return encodeStream(w, s.records()) }
 
 // Decode deserializes a message produced by Encode.
-func (s *SpliceProposal) Decode(r io.Reader) error { return decodeStream(r, s.records()) }
+func (s *SpliceProposal) Decode(r io.Reader) error {
+	return decodeChan(r, maxChanFixedLen, "SpliceProposal", s.records())
+}
 
 // Apply checks the proposal against the current channel and returns the
 // parameters of the new epoch (C.5.2 rules 1 and 3).

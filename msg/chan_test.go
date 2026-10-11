@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
+	"math/bits"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/roasbeef/layertree/script"
 )
 
@@ -192,9 +196,11 @@ func TestChanMessageValidation(t *testing.T) {
 	}
 
 	// C.7: under 0xC0 a settlement collation must fit 488 bytes, so at
-	// most seven HTLC outputs; FULL has no such limit.
-	wide := &StateProposal{StateNum: 1, BalanceU: open.Capacity - 8_000}
-	for i := 0; i < 8; i++ {
+	// most seven HTLC outputs beside two balance outputs; FULL has no
+	// such limit.
+	wide := &StateProposal{StateNum: 1, BalanceU: open.Capacity - 9_000,
+		BalanceV: 1_000}
+	for range 8 {
 		wide.Htlcs = append(wide.Htlcs, Htlc{Amount: 1_000})
 	}
 	if n := wide.SettleCollationLen(); n != 156+43*8 {
@@ -212,6 +218,28 @@ func TestChanMessageValidation(t *testing.T) {
 	if err := wide.Validate(open, script.ModeC0); err != nil {
 		t.Errorf("state with seven HTLC outputs rejected under 0xC0: %v",
 			err)
+	}
+
+	// A zero balance is an omitted output (C.3.4), so eight HTLC outputs
+	// beside one balance collate to 70 + 43*9 = 457 bytes and fit 0xC0
+	// (design/audit/go.md G7a).
+	lone := &StateProposal{StateNum: 1, BalanceU: open.Capacity - 8_000}
+	for range 8 {
+		lone.Htlcs = append(lone.Htlcs, Htlc{Amount: 1_000})
+	}
+	if n := lone.SettleCollationLen(); n != 457 {
+		t.Errorf("collation of one balance and 8 HTLCs is %d bytes, "+
+			"want 457", n)
+	}
+	if err := lone.Validate(open, script.ModeC0); err != nil {
+		t.Errorf("single-balance state with eight HTLC outputs "+
+			"rejected under 0xC0: %v", err)
+	}
+	lone.Htlcs = append(lone.Htlcs, Htlc{Amount: 1_000})
+	lone.BalanceU -= 1_000
+	if lone.Validate(open, script.ModeC0) == nil {
+		t.Error("single-balance state with nine HTLC outputs (500 " +
+			"bytes) accepted under 0xC0")
 	}
 
 	// Fulfil checks the preimage against the payment hash.
@@ -334,5 +362,239 @@ func TestSigningRoundOrder(t *testing.T) {
 	other.StateNum = 3
 	if r.Receive(other) == nil {
 		t.Error("signature for another state accepted")
+	}
+}
+
+// chanDecoders returns a constructor for each channel message, with its
+// name.
+func chanDecoders() []struct {
+	name string
+	msg  func() chanMessage
+} {
+	return []struct {
+		name string
+		msg  func() chanMessage
+	}{
+		{"ChanOpen", func() chanMessage { return &ChanOpen{} }},
+		{"StateProposal", func() chanMessage { return &StateProposal{} }},
+		{"StateSig", func() chanMessage { return &StateSig{} }},
+		{"HtlcAdd", func() chanMessage { return &HtlcAdd{} }},
+		{"HtlcFulfill", func() chanMessage { return &HtlcFulfill{} }},
+		{"HtlcFail", func() chanMessage { return &HtlcFail{} }},
+		{"RebindAnnounce", func() chanMessage { return &RebindAnnounce{} }},
+		{"SpliceProposal", func() chanMessage { return &SpliceProposal{} }},
+	}
+}
+
+// TestChanDecodeRejectsOversizedRecords is the G3 probe of
+// design/audit/go.md for the channel messages: a stream whose one record
+// claims 2^62 or 2^31 bytes, on every variable-length record of every
+// channel message and on a record the decoder does not know, returns an
+// error without allocating anything near the claim.
+func TestChanDecodeRejectsOversizedRecords(t *testing.T) {
+	const unknownType tlv.Type = 99
+	varTypes := map[string][]tlv.Type{
+		"StateProposal":  {TypeStateHtlcs},
+		"StateSig":       {TypeSigNextNonce},
+		"HtlcFail":       {TypeHtlcFailReason},
+		"RebindAnnounce": {TypeRebindOutpoint, TypeRebindBoundTx},
+	}
+
+	const allocCeiling = 1 << 20
+	for _, d := range chanDecoders() {
+		types := append(varTypes[d.name], unknownType)
+		for _, typ := range types {
+			for _, length := range []uint64{1 << 62, 1 << 31} {
+				stream := hostileStream(t, typ, length)
+				err, allocated := decodeGuarded(func() error {
+					return d.msg().Decode(
+						bytes.NewReader(stream),
+					)
+				})
+				switch {
+				case err == nil:
+					t.Errorf("%s.Decode accepted type %d "+
+						"claiming 2^%d bytes", d.name, typ,
+						bits.Len64(length)-1)
+
+				case strings.HasPrefix(err.Error(), "panic"):
+					t.Errorf("%s.Decode type %d length 2^%d: "+
+						"%v", d.name, typ,
+						bits.Len64(length)-1, err)
+				}
+				if allocated > allocCeiling {
+					t.Errorf("%s.Decode type %d length 2^%d "+
+						"allocated %d bytes", d.name, typ,
+						bits.Len64(length)-1, allocated)
+				}
+			}
+		}
+	}
+
+	// The HTLC cap admits the most HTLC outputs a standard settlement
+	// can carry and refuses one more.
+	full := &StateProposal{ChanID: [32]byte{1}, StateNum: 1,
+		Htlcs: make([]Htlc, maxStateHtlcs)}
+	var buf bytes.Buffer
+	if err := full.Encode(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&StateProposal{}).Decode(&buf); err != nil {
+		t.Errorf("state with %d HTLCs rejected: %v", maxStateHtlcs, err)
+	}
+	full.Htlcs = append(full.Htlcs, Htlc{})
+	buf.Reset()
+	if err := full.Encode(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if (&StateProposal{}).Decode(&buf) == nil {
+		t.Errorf("state with %d HTLCs accepted", maxStateHtlcs+1)
+	}
+}
+
+// splitStream parses a TLV stream into its records in order.
+func splitStream(t *testing.T, b []byte) (types []uint64, vals [][]byte) {
+	t.Helper()
+	r := bytes.NewReader(b)
+	var scratch [8]byte
+	for r.Len() > 0 {
+		typ, err := tlv.ReadVarInt(r, &scratch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l, err := tlv.ReadVarInt(r, &scratch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := make([]byte, l)
+		if _, err := io.ReadFull(r, v); err != nil {
+			t.Fatal(err)
+		}
+		types, vals = append(types, typ), append(vals, v)
+	}
+	return types, vals
+}
+
+// TestChanDecodeRequiresMandatoryRecords is the G7c probe of
+// design/audit/go.md: an empty stream decoded to a zero message, so an
+// HtlcAdd with no amount, hash or expiry was well formed. Every channel
+// decoder now rejects the empty stream, and a valid message with any one
+// mandatory record removed, naming the record; removing an optional
+// record (the HTLC failure reason, the bound transaction) still decodes.
+func TestChanDecodeRequiresMandatoryRecords(t *testing.T) {
+	open := testOpen()
+	id := open.ChanID()
+	op := wire.OutPoint{Hash: [32]byte{0xaa}, Index: 3}
+	valid := map[string]chanMessage{
+		"ChanOpen": open,
+		"StateProposal": &StateProposal{ChanID: id, StateNum: 1,
+			BalanceU: open.Capacity},
+		"StateSig": &StateSig{ChanID: id, StateNum: 1},
+		"HtlcAdd": &HtlcAdd{ChanID: id, Htlc: Htlc{ID: 1, Amount: 1_000,
+			CltvExpiry: 800_000}},
+		"HtlcFulfill": &HtlcFulfill{ChanID: id, HtlcID: 1},
+		"HtlcFail": &HtlcFail{ChanID: id, HtlcID: 1,
+			Reason: []byte("no")},
+		"RebindAnnounce": &RebindAnnounce{ChanID: id, Outpoint: op,
+			StateNum: 1},
+		"SpliceProposal": &SpliceProposal{ChanID: id, NewEpoch: 1},
+	}
+	optional := map[string]uint64{
+		"HtlcFail":       uint64(TypeHtlcFailReason),
+		"RebindAnnounce": uint64(TypeRebindBoundTx),
+	}
+
+	for _, d := range chanDecoders() {
+		err := d.msg().Decode(bytes.NewReader(nil))
+		if err == nil || !strings.Contains(err.Error(),
+			"missing mandatory record 0") {
+
+			t.Errorf("%s.Decode(empty): %v", d.name, err)
+		}
+
+		var buf bytes.Buffer
+		if err := valid[d.name].Encode(&buf); err != nil {
+			t.Fatalf("%s: encode: %v", d.name, err)
+		}
+		types, vals := splitStream(t, buf.Bytes())
+		for skip := range types {
+			var stream bytes.Buffer
+			var scratch [8]byte
+			for i := range types {
+				if i == skip {
+					continue
+				}
+				_ = tlv.WriteVarInt(&stream, types[i], &scratch)
+				_ = tlv.WriteVarInt(
+					&stream, uint64(len(vals[i])), &scratch,
+				)
+				stream.Write(vals[i])
+			}
+			err := d.msg().Decode(&stream)
+			opt, hasOpt := optional[d.name]
+			if hasOpt && types[skip] == opt {
+				if err != nil {
+					t.Errorf("%s without optional record "+
+						"%d rejected: %v", d.name,
+						types[skip], err)
+				}
+				continue
+			}
+			want := fmt.Sprintf("missing mandatory record %d",
+				types[skip])
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s without record %d: %v", d.name,
+					types[skip], err)
+			}
+		}
+	}
+}
+
+// TestRebindAnnounceStateRange is the G7b probe of design/audit/go.md:
+// ChanStateBase + StateNum wrapped in uint32, so state 2^32 - S + 5 with
+// lock time 5 passed the update_n check. A state number outside
+// 1..ChanMaxState (C.3.5) is now refused whether or not a bound
+// transaction is attached.
+func TestRebindAnnounceStateRange(t *testing.T) {
+	op := wire.OutPoint{Hash: [32]byte{0xaa}, Index: 3}
+	boundAt := func(lockTime uint32) []byte {
+		tx := wire.NewMsgTx(script.ChanTxVersion)
+		tx.AddTxIn(wire.NewTxIn(&op, nil, nil))
+		tx.LockTime = lockTime
+		var buf bytes.Buffer
+		if err := tx.Serialize(&buf); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+
+	const wrapped = 1<<32 - script.ChanStateBase + 5
+	cases := []struct {
+		name  string
+		state uint32
+		tx    []byte
+		ok    bool
+	}{
+		{"wrapped to lock time 5", wrapped, boundAt(5), false},
+		{"wrapped, no tx", wrapped, nil, false},
+		{"state 0", 0, boundAt(script.ChanStateBase), false},
+		{"above ChanMaxState", script.ChanMaxState + 1, nil, false},
+		{"ChanMaxState", script.ChanMaxState,
+			boundAt(script.ChanStateBase + script.ChanMaxState), true},
+	}
+	for _, tc := range cases {
+		a := &RebindAnnounce{Outpoint: op, StateNum: tc.state,
+			BoundTx: tc.tx}
+		var buf bytes.Buffer
+		if err := a.Encode(&buf); err != nil {
+			t.Fatal(err)
+		}
+		err := (&RebindAnnounce{}).Decode(&buf)
+		if tc.ok && err != nil {
+			t.Errorf("%s rejected: %v", tc.name, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("%s accepted", tc.name)
+		}
 	}
 }
