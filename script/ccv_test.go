@@ -42,6 +42,12 @@ func ccvScriptFor(profile string, depth int, name string,
 			return nil, err
 		}
 		return CCVEvictSubtreeScript(depth, n, key), nil
+	case strings.HasPrefix(name, "DETACH_"):
+		if _, err := fmt.Sscanf(name, "DETACH_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCVDetachScript(depth, n, key,
+			CCVDetachedTaptreeRoot(n, CCVReferenceOptions(key, false))), nil
 	}
 	return nil, fmt.Errorf("unknown CCV script name %q", name)
 }
@@ -149,6 +155,119 @@ func TestCCVClaim(t *testing.T) {
 		ccvCheckC2(t, g, "CCV/S/D8/"+name, CCVClaimScript(8, treeID, true, hl))
 		midCheckScript(t, g, "CCV0/D/D4/"+name, CCV0ClaimScript(4, treeID, false, hl))
 		midCheckScript(t, g, "CCV0/S/D8/"+name, CCV0ClaimScript(8, treeID, true, hl))
+	}
+}
+
+// ccv0ScriptFor builds the 0xC0-numerics CCV script named by a golden
+// key's profile, depth and name.
+func ccv0ScriptFor(profile string, depth int, name string,
+	key, treeID [32]byte) ([]Token, error) {
+
+	sparse := profile == "S"
+	var n int
+	switch {
+	case name == "UPDATE":
+		return CCV0UpdateScript(depth, key, sparse), nil
+	case name == "UPDATE_X":
+		return CCV0UpdateXScript(depth, key, sparse), nil
+	case name == "SPLIT":
+		return CCV0SplitScript(depth, sparse), nil
+	case name == "CLAIM":
+		return CCV0ClaimScript(depth, treeID, sparse, false), nil
+	case name == "CLAIM_H":
+		return CCV0ClaimScript(depth, treeID, sparse, true), nil
+	case strings.HasPrefix(name, "EXIT_"):
+		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0ExitScript(depth, n, sparse), nil
+	case strings.HasPrefix(name, "JOINK_"):
+		if _, err := fmt.Sscanf(name, "JOINK_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0JoinScript(depth, 0, key, sparse, n), nil
+	case strings.HasPrefix(name, "JOIN_"):
+		if _, err := fmt.Sscanf(name, "JOIN_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0JoinScript(depth, n, key, sparse, 1), nil
+	case strings.HasPrefix(name, "EVICT_SUBTREE_"):
+		if _, err := fmt.Sscanf(name, "EVICT_SUBTREE_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0EvictSubtreeScript(depth, n, key), nil
+	case strings.HasPrefix(name, "DETACH_"):
+		if _, err := fmt.Sscanf(name, "DETACH_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0DetachScript(depth, n, key,
+			CCVDetachedTaptreeRoot(n, CCVReferenceOptions(key, true))), nil
+	}
+	return nil, fmt.Errorf("unknown CCV0 script name %q", name)
+}
+
+// TestCCV0ScriptsMatchGolden assembles every CCV0 golden vector (the CCV
+// tier under 0xC0 numerics) and checks the bytes against spec/golden.json.
+func TestCCV0ScriptsMatchGolden(t *testing.T) {
+	g, key := midLoadGolden(t)
+	treeID := midGoldenTreeID(t)
+	var checked int
+	for k := range g.Scripts {
+		if !strings.HasPrefix(k, "CCV0/") {
+			continue
+		}
+		profile, depth, name, err := parseGoldenKey(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		toks, err := ccv0ScriptFor(profile, depth, name, key, treeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		midCheckScript(t, g, k, toks)
+		checked++
+	}
+	if checked < 12 {
+		t.Fatalf("checked only %d CCV0 golden scripts", checked)
+	}
+	t.Logf("checked %d CCV0 golden scripts", checked)
+}
+
+// TestCCVDetach checks DETACH_h under CCV in both numerics (spec 7.10)
+// against the golden vectors, and that m_h is a constant the script
+// depends on. DETACH_h is a tree-creation parameter: it stays out of
+// CCVAllScripts.
+func TestCCVDetach(t *testing.T) {
+	g, key := midLoadGolden(t)
+	mH := CCVDetachedTaptreeRoot(2, CCVReferenceOptions(key, false))
+	ccvCheckC2(t, g, "CCV/D/D4/DETACH_2", CCVDetachScript(4, 2, key, mH))
+	mH0 := CCVDetachedTaptreeRoot(2, CCVReferenceOptions(key, true))
+	midCheckScript(t, g, "CCV0/D/D4/DETACH_2", CCV0DetachScript(4, 2, key, mH0))
+	if mH == mH0 {
+		t.Error("the 0xC2 and 0xC0 option sets must not share m_h")
+	}
+	other := CCVDetachScript(4, 2, key, [32]byte{1})
+	if string(MustAssemble(other, ModeC2)) ==
+		string(MustAssemble(CCVDetachScript(4, 2, key, mH), ModeC2)) {
+
+		t.Error("DETACH_2 does not depend on m_h")
+	}
+	set := CCVAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2}, []int{1, 2})
+	if _, ok := set["DETACH_2"]; ok {
+		t.Error("DETACH_2 must stay out of CCVAllScripts")
+	}
+	// The reference options compile to the same set CCVAllScripts builds,
+	// so a parent created with them detaches into the reference m_h.
+	ref := CCVReferenceOptions(key, false)
+	want := CCVAllScripts(4, key, false, ref.JoinHeights, ref.ExitKs, ref.JoinKs, ref.EvictHeights)
+	for _, sc := range ref.Scripts(4) {
+		w, ok := want[sc.Name]
+		if !ok {
+			t.Fatalf("reference options emit %s, which CCVAllScripts lacks", sc.Name)
+		}
+		if string(MustAssemble(w, ModeC2)) != string(MustAssemble(sc.Tokens, ModeC2)) {
+			t.Errorf("%s differs between CCVReferenceOptions and CCVAllScripts", sc.Name)
+		}
 	}
 }
 

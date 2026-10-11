@@ -390,7 +390,7 @@ are interchangeable, with one numeric cap noted below.
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's sweep and stack bound, 4.6) |
 | `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | not implemented |
-| `DETACH_h` (subtree detach, 7.10) | yes | not implemented | no | not implemented |
+| `DETACH_h` (subtree detach, 7.10) | yes | not implemented | no | yes, dense, both numerics (4.6) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | `0xFFFFFFFF` (`0xC2`), `0x7FFFFFFF` (`0xC0`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output | yes |
@@ -424,7 +424,7 @@ script / witness data:
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,881 / 1,754 | — | n/a | — | 9,975 / 547 | — | — |
 | `REWRITE_4` (16 positions, mixed) | 5,512 / 4,329 | 9,764 / 4,680 | — | — | n/a | n/a | n/a |
-| `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
+| `DETACH_8` | 1,548 / 497 | — | — | 973 / 433 | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
@@ -568,6 +568,21 @@ the dynamic output index, followed by the exact `OP_TX` amount read. Its
 witness is MID's minus `r` and `m` and no prologue runs, so the
 1,000-element bound of 4.5 applies with one more position to spare (55 of
 64 occupied positions at `h = 6`, `D = 16`).
+
+**`DETACH_h`.** The subtree detach of 7.10 needs a second output check,
+and it is one more CCV call: `<R_h> <1> <> <m_h> <2> CCV` asserts output
+1 is the CCV tree output (6.3) of a depth-`h` tree at root `R_h` under
+the taptree `m_h`, a 32-byte constant of the script, and deducts its
+amount from the residual that output 0 then receives; `out1.amount ==
+sum_h` is one `OP_TX` read, as every amount check in this tier is. `m_h`
+is the parent's option set compiled at depth `h` in the parent's
+numerics (7.10 rule 3; the reference generator's `CCVTreeOptions` and
+`detached_taptree_root_ccv`), so the detached tree is a CCV tree of the
+same numerics whose scriptPubKey is `TREE_SPK_CCV(R_h, m_h)`, and a
+voucher issued in the parent redeems in it since both carry `tree_id`.
+Under `0xC0` the subtree sum arrives as a minimal number with its `PADZ`
+pad, `NONNEG` keeps it non-negative before it enters the fold, and
+`le64` of it is compared with output 1's amount as bytes (8.10).
 
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
@@ -1456,7 +1471,8 @@ Rules:
    `(r, S)` with `S` equal to input 0's amount.
 2. The new node is `E_h`. Output 0 is `(S − sum_h, TREE_SPK(r', m))` per
    7.1, or unconstrained if `r' = E_D` (7.8).
-3. Output 1 MUST be `(sum_h, TREE_SPK(R_h, m_h))`, where `m_h` is a
+3. Output 1 MUST be `(sum_h, TREE_SPK(R_h, m_h))` (`TREE_SPK_CCV(R_h,
+   m_h)` in the CCV tier, 6.3), where `m_h` is a
    constant of the script: the tree identifier (6.2) of the tree of depth
    `h` created with the parent's option set, that is the same profile,
    `OPERATOR_KEY`, `tree_id`, `JOIN` heights, `EXIT_K` sizes and variants
@@ -1469,7 +1485,9 @@ Rules:
    other option-dependent guarantees survive one. The reference
    generator computes it as `detached_taptree_root(h, OPERATOR_KEY,
    tree_id, options)`, where the default options are the reference set
-   of 6.2 (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`).
+   of 6.2 (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`),
+   and for a CCV parent as `detached_taptree_root_ccv(h, OPERATOR_KEY,
+   numeric, options)` over the CCV set of the same numerics (4.6).
 4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 
 A member's proof in the detached tree is its proof in the parent truncated
@@ -2162,6 +2180,21 @@ options)`, `TreeOptions.at_depth(h)` being the parent's option set at
 depth `h`. The
 script is `JOIN_h` plus 235 bytes, almost all of them the second
 `TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
+
+**CCV tier.** The second `TREE_SPK` becomes one CCV call (4.6): after the
+operator's signature and the two size checks, `OP_OVER <1> <> <m_h> <2>
+OP_CHECKCONTRACTVERIFY` binds output 1 to the CCV tree output of `R_h`
+under `m_h` and deducts its amount, `<1> <SEL_OUT_SINGLE> OP_TX OP_DROP
+OP_OVER OP_NUMEQUALVERIFY` pins that amount to `sum_h`, and the rest is
+the CCV `JOIN_h` with the old and new node exchanged: `LEVEL × (D − h)`,
+`CHECK_OLD_CCV`, `FINAL_CCV`. The witness is `dir_{D-1} sc_{D-1} … dir_h
+sc_h R_h sum_h8 sig`, with no `r` and no `m`. The script is the CCV
+`JOIN_h` plus 45 bytes, the 32-byte `m_h` among them, against FULL's 235.
+Under `0xC0` numerics the witness is `zf wf zi wi [levels] R_h sum_num zs
+ws sig`: the sum is a minimal number with its `PADZ` pad, checked by
+`NONNEG` before it enters the fold, and its `le64` is compared with
+output 1's amount as bytes. Listings: `spec/scripts/CCV_DETACH_2_D8.txt`,
+`spec/scripts/CCV0_DETACH_2_D8.txt`.
 
 ### 8.11 MIN witness elements and standardness
 
@@ -3134,7 +3167,10 @@ skeleton's payout slot is its second tree output), and every later
 `EXIT_1` from the detached tree costs the depth-8 figure of the table
 above, 762 vB instead of 1,020, so it pays for itself at the fourth exit;
 a cohort of 256 that all leave alone saves about a quarter. Its larger
-effect is on throughput (10.5), not bytes.
+effect is on throughput (10.5), not bytes. Under CCV the same detach
+measures 973 / 433 bytes (`0xC2`) and 1,628 / 470 (`0xC0`), 621 and
+794 vB on the model, and the exits from the detached tree cost the CCV
+depth-8 figures.
 
 Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 `D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
@@ -3484,7 +3520,7 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 972 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 1,160 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -3528,7 +3564,21 @@ exits in a batch" as `EXIT_K` (section 13).
   (`test_audit_negatives_ccv` at `D = 8`: in `0xC2` output 0 over-funded
   by one sat, the tree output and the payout swapped and a payout to the
   exit key under a taptree, and in `0xC0` a `JOIN_2` whose `new_sum` is
-  `2^31 + 2^24`, the `NONNEG` case of 4.5); and one direct opcode test
+  `2^31 + 2^24`, the `NONNEG` case of 4.5); `DETACH_2` at `D = 8` and
+  `DETACH_8` at `D = 16` in both numerics (7.10, 4.6), under a parent
+  created with `CLAIM` and `UPDATE^x` on top of the reference set: the
+  detach succeeds and conserves the total across the two tree outputs,
+  `m_h` is that option set compiled at depth `h` and differs from the
+  reference set's, the detached tree carries the parent's set less the
+  heights that do not fit and its root is the detached node, a member's
+  old path truncated to its lower `h` levels is the detached tree's own
+  path and an `EXIT_1` from it with that path succeeds, in `0xC2` a
+  voucher issued while the source sat in the parent redeems in the
+  detached tree, and output 1 under the reference set's `m_h`, under the
+  parent's own taptree or under the FULL-tier key, output 1 shortchanged
+  or overfunded, a missing operator signature, output 0 keeping the
+  subtree, an inflated subtree sum, the two tree outputs swapped and, in
+  `0xC0`, a malformed sum pad all fail; and one direct opcode test
   for each BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
@@ -3546,8 +3596,12 @@ exits in a batch" as `EXIT_K` (section 13).
   The tree-creation variants have their own keys, `UPDATE_X`, `CLAIM_H` and
   `SPLIT` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4` and `MID/S/D8`,
   `EVICT_SUBTREE_1` and `EVICT_SUBTREE_2` under `MID/D/D4`, the CCV
-  tier's `0xC0` scripts under `CCV0/D/D4` (`EVICT_SUBTREE_1/2`, `SPLIT`)
-  and `CCV0/S/D8` (`SPLIT`), `CLAIM` and `CLAIM_H` under `CCV/D/D4`,
+  tier's `0xC0` scripts under `CCV0/D/D4` (the reference set `EXIT_1`,
+  `EXIT_2`, `JOIN_0`, `JOIN_2`, `JOINK_2`, `UPDATE`, with `UPDATE_X`,
+  `EVICT_SUBTREE_1/2`, `SPLIT` and `DETACH_2`) and `CCV0/S/D8` (`EXIT_1`,
+  `JOIN_0`, `JOINK_2`, `UPDATE`, `SPLIT`), `DETACH_2` under `CCV/D/D4`
+  (both detaches over the reference option set at depth 2, whose `m_h`
+  the Go `CCVTreeOptions` reproduces), `CLAIM` and `CLAIM_H` under `CCV/D/D4`,
   `CCV/S/D8`, `CCV0/D/D4` and `CCV0/S/D8` (every tier's `CLAIM` scripts
   are built over the `tree_id` vector, which fixes the RECOMMENDED
   derivation),

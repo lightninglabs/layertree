@@ -332,8 +332,9 @@ rotate keys or settle balances among themselves in one transaction. Sixty
 four owners who all leave pay 161 vB each, three more than the operator's
 sweep, and a cohort that rewrites every balance pays about 147 vB per
 leaf against 1,073 for one `UPDATE` each. `DETACH_h` (7.10) moves a
-cohort into its own tree output for about 780 vB, after which each exit
-pays the shorter path and the cohort has its own mempool chain.
+cohort into its own tree output for about 780 vB (621 under CCV), after
+which each exit pays the shorter path and the cohort has its own mempool
+chain.
 
 **Entry is almost free in bulk.** In a cohort graft each member's share is
 under one vB at a thousand members, against 43 vB for one output in an
@@ -425,7 +426,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 2,482 executable checks across four tiers (1,054 FULL, 401 MID, 55 MIN, 972 CCV), positive and negative, plus 210 for the channel leaves of Appendix C |
+| Compiled scripts | 2,670 executable checks across four tiers (1,054 FULL, 401 MID, 55 MIN, 1,160 CCV), positive and negative, plus 210 for the channel leaves of Appendix C |
 | Python against Go | 77 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 

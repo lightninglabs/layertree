@@ -381,6 +381,9 @@ open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w").write(
 open(os.path.join(OUT, "DETACH_2_D8.txt"), "w").write(
     structured("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
                F.detach_script(8, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2", FULL))
+open(os.path.join(OUT, "CCV_DETACH_2_D8.txt"), "w").write(
+    structured("DETACH_2 (CCV tier, dense, D=8): detach a 4-position subtree into its own tree output",
+               CV.detach_script_ccv(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2")), "c2", CCV))
 open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w").write(
     structured("EXIT_1 (minimal inventory, dense, D=4)", F.exit_script_min(D), "c2", FULL))
 for name, toks in M.all_scripts(D, OP_KEY, False, tree_id=TREE_ID).items():

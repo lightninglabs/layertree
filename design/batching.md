@@ -8,7 +8,9 @@ by `tools/test_scripts.py --rewrite` and `test_detach`; the earlier
 estimates they replace are kept in brackets where they were wrong. The
 figures are the FULL tier's; `REWRITE_h` also exists in MID
 (`tools/test_mid.py`, about 1.7 times the script and bounded by the
-1,000-element stack limit at `h = 5` for a full cohort, spec 4.5).
+1,000-element stack limit at `h = 5` for a full cohort, spec 4.5) and
+`DETACH_h` in CCV, both numerics (`tools/test_ccv.py`, 973 / 433 B at
+`D = 16`, `h = 8`, the second `TREE_SPK` being one CCV call, spec 4.6).
 Figures come from `tools/gen_cost_figures.py` and `spec/scripts/sizes.md`.*
 
 Every transition proves one or more leaves against the committed root
@@ -301,7 +303,7 @@ detached node. Both are small.
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
 | `EXIT_SUBTREE_h` | each exiting owner | 161 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
 | `REWRITE_h` | each changed owner, operator | 147 per changed leaf at 64 leaves (update); 120 per unchanged position | measured; spec 7.9; FULL and MID (MID: 224 per changed leaf at 32 leaves, 236 per exiting leaf) |
-| `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 780 once | measured; spec 7.10 |
+| `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 780 once | measured; spec 7.10; FULL and CCV (CCV: 621 once, 973 / 433 B) |
 
 What the two new shapes have in common is that they reuse the existing
 machinery: `REWRITE_h` is the post-order fold of `EVICT_SUBTREE_h` run
@@ -317,6 +319,9 @@ output directly rather than generalising `Step`. The one genuinely new mechanism
 the second tree output of `DETACH_h`, and it is the one with the largest
 payoff, because it is the only change here that raises the exit
 throughput of a deployment rather than lowering the bytes of an exit.
+It is also the one CCV absorbs most cheaply: the second `TREE_SPK` is
+235 bytes of EC arithmetic in FULL and a 45-byte `OP_CHECKCONTRACTVERIFY`
+call in CCV, so the CCV detach is 973 bytes against FULL's 1,548.
 
 What they do not change is the per-leaf floor. A leaf that leaves costs
 its bytes, its signature and its output, about 100 vbytes, in every

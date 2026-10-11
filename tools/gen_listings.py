@@ -220,6 +220,16 @@ for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31,
         tierp = ("CCV/" if numeric == "c2" else "CCV-c0/") + prof
         rows.append((tierp, d, "CLAIM_H" if hl else "CLAIM", sl, wl, 129, sl + wl + 129,
                      it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for numeric in ("c2", "c0"):
+    it, sl, wl = test_ccv.test_detach_ccv(16, 8, numeric)
+    rows.append(("CCV/D" if numeric == "c2" else "CCV-c0/D", 16, "DETACH_8", sl, wl, 129, sl + wl + 129,
+                 it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+with open(os.path.join(OUT, "CCV_DETACH_2_D8.txt"), "w") as f:
+    f.write(listing("DETACH_2 (CCV tier, dense, D=8): detach a 4-position subtree into its own tree output",
+                    CV.detach_script_ccv(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2"))))
+with open(os.path.join(OUT, "CCV0_DETACH_2_D8.txt"), "w") as f:
+    f.write(listing("DETACH_2 (CCV tier, 0xC0 numerics, dense, D=8): detach a 4-position subtree",
+                    CV._detach_script_ccv0(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c0"))))
 for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     with open(os.path.join(OUT, f"CCV_{nm}_D4.txt"), "w") as f:
         f.write(listing(f"{nm} (CCV tier, dense, D=4)",

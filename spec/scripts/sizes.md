@@ -170,3 +170,5 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/D | 16 | CLAIM_H | 6164 | 1805 | 129 | 8098 | n/a (0xC0) | 1 |
 | CCV-c0/S | 31 | CLAIM | 18226 | 1350 | 129 | 19705 | n/a (0xC0) | 1 |
 | CCV-c0/S | 31 | CLAIM_H | 18234 | 1382 | 129 | 19745 | n/a (0xC0) | 1 |
+| CCV/D | 16 | DETACH_8 | 973 | 433 | 129 | 1535 | 2154472 | 1 |
+| CCV-c0/D | 16 | DETACH_8 | 1628 | 470 | 129 | 2227 | n/a (0xC0) | 1 |
