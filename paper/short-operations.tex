@@ -101,11 +101,13 @@ subtree, every leaf of it published, against the root, and computes the
 new one. \emph{On chain} each emptied leaf is paid exactly its amount at
 its exit key, so the operator cannot use the rewrite to remove a leaf
 without its owner's signature and its payout. At $h = 6$ a mass exit
-costs $161\vB$ per leaf, about what a sweep costs the operator, and
-rewriting every balance $147\vB$ per leaf against $1{,}030\vB$ for an
-\tr{UPDATE} each. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
+costs $162\vB$ per leaf, about what a sweep costs the operator, and
+rewriting every balance $148\vB$ per leaf against $1{,}030\vB$ for an
+\tr{UPDATE} each; a position whose leaf does not change is published
+once, behind a one-byte marker, for about $92\vB$. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
 ($16\vB$ per signed position) and replaces \tr{REWRITE}$_h$ wherever
-\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. FULL only.
+\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. FULL and MID, where the
+stack limit holds a full cohort to $h = 5$.
 
 \subsection{Leaving}
 

@@ -46,11 +46,12 @@ the settlement step of an Ark round without a round, an expiry, or
 unchanged members online.
 
 Figure~\ref{fig:batching} plots the measured costs; \tr{REWRITE}$_6$
-is 17{,}148 bytes of script. At $h = 6$ each position costs 244 bytes of script and 234 of
-witness for its two elements; an owner signature adds $16\vB$, and an
+is 17{,}596 bytes of script. At $h = 6$ each position costs 251 bytes of script and 234 of
+witness for two leaf elements, or 118 when the new element is the one-byte
+unchanged marker; an owner signature adds $16\vB$, and an
 exit adds its 43-byte output and drops the new element, so an unchanged
-position costs about $120\vB$, a changed one $136\vB$ and an exiting one
-$150\vB$, with $16\vB$ more per signed position under the exit-consent
+position costs about $92\vB$, a changed one $138\vB$ and an exiting one
+$151\vB$, with $16\vB$ more per signed position under the exit-consent
 form. No shape lowers this per-leaf floor, and the unchanged positions'
 bytes make the rewrite a tool for cohorts that settle together. The Lean model covers it (\lean{rewrite\_sound}): the old and new subtrees
 are published, so a cohort that joins this way is grounded by
@@ -98,20 +99,20 @@ trees that carry \tr{DETACH}$_h$ or \tr{REWRITE}$_h$.
 \addlegendentry{owner exits \tr{EXIT}$_K$}
 \addplot[thick, dashed, mark=square*, mark size=1.5pt] coordinates {(13,203) (51,158) (205,146)};
 \addlegendentry{operator sweep \tr{EVICT\_SUBTREE}$_h$}
-\addplot[thick, dotted, mark=triangle*, mark size=1.8pt] coordinates {(4,362) (16,198) (64,161)};
+\addplot[thick, dotted, mark=triangle*, mark size=1.8pt] coordinates {(4,364) (16,200) (64,162)};
 \addlegendentry{owners leave, \tr{REWRITE}$_h$}
-\addplot[only marks, mark=diamond*, mark size=2pt] coordinates {(64,147)};
+\addplot[only marks, mark=diamond*, mark size=2pt] coordinates {(64,148)};
 \addlegendentry{every key rotated, \tr{REWRITE}$_6$}
 \addplot[black!50, thin, domain=0.8:320, samples=2] {111};
 \node[font=\scriptsize, anchor=south west, black!60] at (axis cs:0.85,112) {bare P2TR spend 111};
 \node[font=\scriptsize, anchor=west] at (axis cs:1.1,1020) {1{,}020};
 \node[font=\scriptsize, anchor=west] at (axis cs:2.15,842) {842};
-\node[font=\scriptsize, anchor=south] at (axis cs:4,383) {362};
+\node[font=\scriptsize, anchor=south] at (axis cs:4,385) {364};
 \node[font=\scriptsize, anchor=north east] at (axis cs:12.5,195) {203};
-\node[font=\scriptsize, anchor=north] at (axis cs:16,183) {198};
+\node[font=\scriptsize, anchor=north] at (axis cs:16,185) {200};
 \node[font=\scriptsize, anchor=south] at (axis cs:51,175) {158};
-\node[font=\scriptsize, anchor=south west] at (axis cs:72,173) {161};
-\node[font=\scriptsize, anchor=north] at (axis cs:64,131) {147};
+\node[font=\scriptsize, anchor=south west] at (axis cs:72,174) {162};
+\node[font=\scriptsize, anchor=north] at (axis cs:64,132) {148};
 \node[font=\scriptsize, anchor=north east] at (axis cs:280,132) {146 ($D{=}20$)};
 \node[font=\scriptsize, anchor=west, align=left, fill=white] at (axis cs:2.6,640) {after a $780\vB$ \tr{DETACH}$_8$, each later exit\\ from the 256-leaf cohort costs $762\vB$};
 \end{semilogxaxis}

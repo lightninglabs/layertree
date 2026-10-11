@@ -103,7 +103,7 @@ what makes the off-chain settlement safe to accept.
 | On-chain bytes per receive | 0 | 0 |
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none on what can be received; `DUST_MIN` (spec 6.2, 7.5 rule 6, 330 sat recommended) on what can be redeemed, so sub-floor amounts accumulate in the voucher until they reach it |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
-| Funding the receive capacity | none on-chain: the swap server funds the VTXO or books a ledger credit | the operator tops up each credit leaf as credit accrues, by amount-only `REWRITE_h^x`, about 120 vbytes per position batched per cohort; capacity funded ahead of the vouchers is the recipient's on every unilateral path |
+| Funding the receive capacity | none on-chain: the swap server funds the VTXO or books a ledger credit | the operator tops up each credit leaf as credit accrues, by amount-only `REWRITE_h^x`, about 122 vbytes per position batched per cohort; capacity funded ahead of the vouchers is the recipient's on every unilateral path |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
 | Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,678 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
@@ -203,7 +203,7 @@ as credit accrues rather than pre-fund an allocation. The top-up is an
 amount-only increase under `REWRITE_h^x`, which needs only the
 operator's signature (7.9 rule 3; the 0.11.0 exemption still allows it
 for any leaf whose `seq` is not `SEQ_FINAL`, which a credit leaf's is
-not), at about 120 vbytes per position when a cohort of credit leaves is
+not), at about 122 vbytes per position when a cohort of credit leaves is
 topped up in one rewrite; or an `UPDATE^x` the recipient co-signs.
 
 Voiding is the harder one, and the spec's own answer is a race: redeem

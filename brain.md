@@ -5,7 +5,7 @@ stands, what is in flight, what is next, and what is undecided. Update it
 whenever the answer to "where are we" changes. `design/status.md` is the
 formal hand-off with the decision log; this file is the informal one.
 
-Last updated 2026-10-10, after both handoff branches landed (spec 0.11.0, Appendix C 0.4.0) and the paper restructure started.
+Last updated 2026-10-10 (late), after open work 9 landed (spec 0.12.0, Appendix C 0.5.0) and the evening round's audits and fixes.
 
 ## What we are trying to do
 
@@ -29,9 +29,9 @@ with numbers.
 
 | Area | State |
 |---|---|
-| Spec | 0.11.0 on main: `NONNEG` after every `0xC0` sum, `DUST_MIN` creation parameter and 7.5 rule 6 on every carve, `REWRITE_h`'s amount-only exemption stops at `SEQ_FINAL` (7.9 rule 3), 7.9 rule 7 a MUST beside `UPDATE^x`/`CLAIM^x` (status.md decision 22); 0.10.x: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
-| Python simulator | 1,054 / 268 / 55 / 972 checks (FULL / MID / MIN / CCV), 210 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
-| Go | 79 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep, CCV both numerics incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (42 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
+| Spec | 0.12.0 on main: MID `REWRITE_h`/`REWRITE_h^x` (0.11.1), CCV `DETACH_h` in both numerics, the one-byte unchanged marker for `REWRITE_h` (0.12.0, FULL and MID; 92 vB per unchanged position); 0.11.0: `NONNEG` after every `0xC0` sum, `DUST_MIN` creation parameter and 7.5 rule 6 on every carve, `REWRITE_h`'s amount-only exemption stops at `SEQ_FINAL` (7.9 rule 3), 7.9 rule 7 a MUST beside `UPDATE^x`/`CLAIM^x` (status.md decision 22); 0.10.x: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
+| Python simulator | 1,069 / 413 / 55 / 1,160 checks (FULL / MID / MIN / CCV), 220 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
+| Go | 94 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep and REWRITE, CCV both numerics incl. DETACH and the 0xC0 ports incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (45 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
 | Lean | Builds clean, no sorry, 60 audited theorems (about 3,400 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
 | Paper | Two versions from one source, two audiences (status.md decision 23). `main.pdf` (18 pages, body ends on 15, References on 16) is the developer paper: how it works, every operation in a member's order, vouchers as a section, trust model, tiers, a short "what is proved", channels, evaluation, related work. `main-full.pdf` (74 pages, References on 29) keeps the functionality-first body and the proofs. Shared text in `paper/body-*.tex`, developer body in `paper/short-*.tex`. Open: the short version still carries the "Ideal Functionality" title (owner's call), the repository citation needs a public URL, trim the full version toward 30 body pages. |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), `design/interactivity.md` (who must be online for each operation, synchronous steps, against Ark, factories, pools and channels), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
@@ -73,6 +73,13 @@ with numbers.
   owner may want: the lifetime table's sparse row mixes a six-leaf
   JOIN_0 (1,601) with the 2^16 exit estimate (1,781; the join at that
   size would be about 1,744).
+  (c) landed (merge 611e49d): all three items, spec 0.12.0; counts FULL
+  1,069 / MID 413 / MIN 55 / CCV 1,160; golden gained MID REWRITE and
+  CCV DETACH and 0xC0 CCV keys, D4 root unmoved; per-leaf figures now
+  364 / 200 / 162 (exits), 148 (update), 92 (unchanged), 138 (changed),
+  151 (exiting); still FULL only: MID DETACH_h and CLAIM^x outside FULL.
+  (b) landed (design/audit/go.md, F37 to F45) and its fixes (G1 to G8
+  partial, channel caps and G7); F45 (DUST_MIN as a Go parameter) open.
   Decided (orchestrator + Opus second opinion, Fable check on Q3):
   B6: chan_id binds tree_id (Appendix C 0.5.0; Fable rule worker
   running, owns layertree_chan.py, test_chan.py, chan Go, chan golden,

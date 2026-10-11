@@ -529,8 +529,8 @@ on each candidate opcode is measured rather than asserted; the tree format
 and the predicates are the same in every tier. FULL, MID and CCV compile
 every \iffullversion predicate of Table~\ref{tab:pred}\else operation\fi,
 MIN the dense single-leaf exit
-and \tr{SPLIT}; \tr{CLAIM}$^{x}$, \tr{REWRITE}$_h$ and \tr{DETACH}$_h$ are
-FULL's alone. Table~\ref{tab:assume}\iffullversion\else{}
+and \tr{SPLIT}; \tr{CLAIM}$^{x}$ is FULL's alone, \tr{REWRITE}$_h$ exists
+in FULL and MID and \tr{DETACH}$_h$ in FULL and CCV. Table~\ref{tab:assume}\iffullversion\else{}
 (Appendix~\ref{app:short})\fi{} lists what each tier assumes of the
 proposals it uses, mirroring the assumptions [A-1] to [A-6] of the
 specification. MIN is the tier closest to the proposals as written: it

@@ -11,7 +11,7 @@ Last updated 2026-10-10 (spec 0.11.0, Appendix C 0.5.0, paper v0.1).
 | Appendix C channel leaves | Complete, 0.5.0: rebindable OP_TX + CSFS commitments, LN-Symmetry state machine, HTLCs and routing, lifecycle, tier analysis, comparison, security; 0.4.0 adds the settlement dust floor `DUST_CHAN` (C.3.4, trimmed value to the anchor) and the `beta_chan` stale-update term of the C.4.4 budget with the fee-reserve and replacement rules of C.5.5 and C.9.6 (channel audit B1, B4); 0.5.0 binds `chan_id` to `tree_id` in place of `m` (C.2.2, B6, decision 24; zero bytes of script). All C.10 recommendations adopted by the base spec. Executable (C.12): `tools/layertree_chan.py` generates `UPD_F` / `REBIND_n` / `SETTLE_n`, and `tools/test_chan.py` (220 checks) runs the state machine on a chain model with BIP-65 / BIP-68, from a tree exit through contest, settlement and HTLC sweeps, in both tapleaf versions, plus the C.4.4 / 9.6.2 deadlines as block sequences. Go mirror `script/chan.go` byte-exact against the golden `chan` section; TLV messages in `msg/chan.go`. Measured: `SETTLE_n` is 79 B under 0xC2 (80 under 0xC0), HTLC sweeps 155 / 138 vB (the old table missed the 65-byte control block), the C.4.4 bound has two blocks of margin, and a MID channel carries at most seven HTLC outputs per state beside two balances, eight beside one (520-byte collation). |
 | Fee analysis | `spec/fee-analysis.md` and `tools/fee_analysis.py`, 1 to 250 sat/vB. |
 | Python reference and simulator | 1,069 + 413 + 55 + 1,160 checks pass (FULL, MID, MIN, CCV), plus 61 for the hypothetical opcode outside every tier. Every script uses only its tier's allowed opcode set. |
-| Go implementation | `tree`, `script`, `txn`, `msg`; all 79 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 42 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
+| Go implementation | `tree`, `script`, `txn`, `msg`; all 94 golden scripts byte-exact; BIP-341 sighash equality with the simulator. `txn` builds, signs and verifies every FULL transition end to end against the real taptree (control block opening `TREE_SPK(r, m)`): `EXIT_1` (owner, eviction), `EXIT_2`, the terminal exit, `JOIN_0`, `JOINK_2`, `UPDATE`, `UPDATE^x`, `CLAIM` (partial and draining), `CLAIM^h` and `SPLIT` at dense D = 4, 16 and sparse D = 8, `JOIN_2` and `EVICT_SUBTREE_2/4` at dense D = 4, 16; 45 cases, each pinned to the simulator's sighash and executed once by `script_sim.Interp`. |
 | Lean model | `formal/`: sections 5 (including sparse positions), 7 (including `EVICT_SUBTREE_h` and the terminal branch), 10.2, the encodings, and the cohort shapes `REWRITE_h` and `DETACH_h` of `design/batching.md` (`Cohort.lean`); axiom audit clean; no `sorry`. |
 | P model | Design note `design/p-model.md` and GitHub issue #1. Not started. |
 | Paper | `paper/`: functionality-first LNCS paper (ideal functionality, abstract protocol, four opcode tiers FULL/MID/MIN/CCV, UC theorem, channel composition), built in two versions from one source by an `\iffullversion` switch keyed on the job name. Revised for the second review round (`paper/reviews/{crypto,protocol,systems}.md`, answered item by item in `paper/review-response.md`): the liveness bound Delta(N) is replaced by an explicit contention assumption [C] (kappa, beta; Delta(q) = Delta_L(ceil((beta+q)/kappa)+1)); the functionality is a partial tree with opaque nodes at any height, `REVEAL`, `VOUCH`, creation as a join, a protocol-aware `EXIT(p, v, f)`; Lemma 2 (`Step.sound`), a paper-only path-maintenance Lemma 3 (Lean item handed off), Claim 1 (simulation invariant, proved by case in Appendix A); Theorem 5 excludes `REWRITE_h`/`DETACH_h`, uses the ROM for same-sign taproot binding and [MIN] for the generator-key check; Theorem 6 is Conjecture 1; a deployment-assumptions table mirrors spec 4.1's [A-1] to [A-6]; prior art (TLUV, `OP_MERKLESUB`, `OP_EVICT`, Poelstra's CAT/Schnorr tricks, Plasma, proofs of liabilities) added; one stated fee model with corrected derived figures (REWRITE 359/195/158, joins and carves without a phantom payout, sparse 244 + 41k). Spec 0.10.0 rules (`tree_id` in every tier, the carve constraint, `m_h` with the parent's options) are described without sizes; `TODO(0.10.0 sizes)` marks the `CLAIM`, `CLAIM^h` and `SPLIT` figures to update. `main.pdf` (FC submission) is 35 pages, body ending on page 15 with References at the top of page 16, appendices A to E (Appendix F listings now full version only). `main-full.pdf` is 73 pages, References on page 29: the UC proof and the channel scripts lifted into the body with inline Lean signatures, the Lean development an appendix, plus the five full-only sections. Both PDFs stamped 761188b. Spec, tools, formal and design items the reviews raised are listed under "Handed off" in the response. |
@@ -194,6 +194,40 @@ re-litigated by accident. Details are in `design/review.md` (F-numbers).
     longer derive from the D4 root. No attack was found before the change;
     the fix makes the stated binding true and stable across the lineage.
     Counts: chan 220.
+
+25. **No relative lock on value-neutral transitions** (2026-10-10, P1c
+    declined). The protocol review's option (c), `OP_1
+    OP_CHECKSEQUENCEVERIFY` on `CLAIM`, `SPLIT`, `UPDATE` and `JOIN` so
+    that only removals could chain within a block, does not remove the
+    failure mode it targets: the first adversarial spend confirmed in a
+    block already invalidates the honest exit, so chaining adds no delay,
+    and descendant pinning on any free output drives `kappa` to 1 without
+    any tree transition. It would cost 3 bytes per script in every tier,
+    halve cooperative throughput of value-neutral operations and add a
+    confirmed/unconfirmed distinction to the Lean trace model. 10.5 keeps
+    [C] as a stated fee auction. Orchestrator and an Opus second opinion
+    agreed.
+26. **`EXIT^t`, a tower-delegable exit** (2026-10-10, P8 adopted as a
+    creation variant). In FULL, MID and CCV (MIN has no CSFS) the owner's
+    authorisation is a BIP-340 signature over
+    `H_tag("LayerTree/exit", tree_id || leaf)`, checked by
+    `OP_CHECKSIGFROMSTACK` in place of the transaction signature, exact
+    payout only, evict branch unchanged, one authorisation per leaf in
+    `EXIT_K`, valid in a detached child. Whoever holds it can build and
+    fee the exit at any time and rebuild it after a competing spend, so
+    an owner need not be online through contention. Rules that come with
+    it: a published authorisation is a bearer exit right until the leaf
+    changes (void it by `UPDATE` or a self-`SPLIT`); an owner MUST NOT
+    re-join with an `(owner_key, nonce, seq)` it has held before; a tower
+    refreshes after an amount-only `REWRITE_h` changes a plain leaf;
+    Appendix C: never give it to the counterparty of a leased leaf. The
+    reference set of 6.2 is untouched. Decided with an Opus second opinion
+    and a Fable check; building next.
+27. **MIN `extra_outs` stays one element** (2026-10-10). 8.11's note
+    stands: MIN is an existence proof, one change output plus an anchor
+    fits the 80-byte policy limit, and splitting the element would move
+    the MIN generator, Go mirror and vectors for a relay-policy limit on a
+    tier nobody deploys.
 
 ## Assumptions that could change the design
 
