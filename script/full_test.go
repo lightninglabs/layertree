@@ -85,15 +85,15 @@ func fullScriptFor(profile string, depth int, name string,
 	case name == "UPDATE_X":
 		return FullUpdateXScript(depth, key, sparse), nil
 	case name == "CLAIM":
-		return FullClaimScript(depth, treeID, sparse), nil
+		return FullClaimScript(depth, treeID, sparse, tree.DustMin), nil
 	case name == "CLAIM_H":
-		return FullClaimHScript(depth, treeID, sparse), nil
+		return FullClaimHScript(depth, treeID, sparse, tree.DustMin), nil
 	case name == "CLAIM_X":
-		return FullClaimXScript(depth, treeID, sparse), nil
+		return FullClaimXScript(depth, treeID, sparse, tree.DustMin), nil
 	case name == "CLAIM_HX":
-		return FullClaimHXScript(depth, treeID, sparse), nil
+		return FullClaimHXScript(depth, treeID, sparse, tree.DustMin), nil
 	case name == "SPLIT":
-		return FullSplitScript(depth, sparse), nil
+		return FullSplitScript(depth, sparse, tree.DustMin), nil
 	case name == "DETACH_2_HOST":
 		// A channel-hosting parent (exact payouts, CLAIM^h, DETACH_2):
 		// its DETACH_2 embeds that option set compiled at depth 2.
@@ -343,16 +343,16 @@ func TestFullClaimH(t *testing.T) {
 	g, key := loadGolden(t)
 	treeID := goldenTreeID(t, g)
 
-	fullCheckScript(t, g, "FULL/D/D4/CLAIM_H", FullClaimHScript(4, treeID, false))
-	fullCheckScript(t, g, "FULL/S/D8/CLAIM_H", FullClaimHScript(8, treeID, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_H", FullClaimHScript(4, treeID, false, tree.DustMin))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_H", FullClaimHScript(8, treeID, true, tree.DustMin))
 
 	// The two insertions and the tag swap cost exactly eight bytes.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		plain := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse), ModeC2)
-		hl := MustAssemble(FullClaimHScript(tc.depth, treeID, tc.sparse), ModeC2)
+		plain := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
+		hl := MustAssemble(FullClaimHScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
 		if len(hl)-len(plain) != 8 {
 			t.Errorf("depth %d sparse %v: CLAIM^h is %d bytes over CLAIM, "+
 				"want 8", tc.depth, tc.sparse, len(hl)-len(plain))
@@ -360,7 +360,7 @@ func TestFullClaimH(t *testing.T) {
 	}
 
 	if _, ok := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2},
-		[]int{2})["CLAIM_H"]; ok {
+		[]int{2}, tree.DustMin)["CLAIM_H"]; ok {
 
 		t.Error("CLAIM_H must stay out of FullAllScripts")
 	}
@@ -373,10 +373,10 @@ func TestFullClaimX(t *testing.T) {
 	g, key := loadGolden(t)
 	treeID := goldenTreeID(t, g)
 
-	fullCheckScript(t, g, "FULL/D/D4/CLAIM_X", FullClaimXScript(4, treeID, false))
-	fullCheckScript(t, g, "FULL/S/D8/CLAIM_X", FullClaimXScript(8, treeID, true))
-	fullCheckScript(t, g, "FULL/D/D4/CLAIM_HX", FullClaimHXScript(4, treeID, false))
-	fullCheckScript(t, g, "FULL/S/D8/CLAIM_HX", FullClaimHXScript(8, treeID, true))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_X", FullClaimXScript(4, treeID, false, tree.DustMin))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_X", FullClaimXScript(8, treeID, true, tree.DustMin))
+	fullCheckScript(t, g, "FULL/D/D4/CLAIM_HX", FullClaimHXScript(4, treeID, false, tree.DustMin))
+	fullCheckScript(t, g, "FULL/S/D8/CLAIM_HX", FullClaimHXScript(8, treeID, true, tree.DustMin))
 
 	// The exit-key check costs exactly seven bytes over the plain form in
 	// both the plain and the hash-locked carve, as UPDATE^x over UPDATE.
@@ -384,21 +384,21 @@ func TestFullClaimX(t *testing.T) {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		plain := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse), ModeC2)
-		x := MustAssemble(FullClaimXScript(tc.depth, treeID, tc.sparse), ModeC2)
+		plain := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
+		x := MustAssemble(FullClaimXScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
 		if len(x)-len(plain) != 7 {
 			t.Errorf("depth %d sparse %v: CLAIM^x is %d bytes over CLAIM, "+
 				"want 7", tc.depth, tc.sparse, len(x)-len(plain))
 		}
-		h := MustAssemble(FullClaimHScript(tc.depth, treeID, tc.sparse), ModeC2)
-		hx := MustAssemble(FullClaimHXScript(tc.depth, treeID, tc.sparse), ModeC2)
+		h := MustAssemble(FullClaimHScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
+		hx := MustAssemble(FullClaimHXScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
 		if len(hx)-len(h) != 7 {
 			t.Errorf("depth %d sparse %v: CLAIM^hx is %d bytes over CLAIM^h, "+
 				"want 7", tc.depth, tc.sparse, len(hx)-len(h))
 		}
 	}
 
-	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2})
+	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2}, tree.DustMin)
 	for _, name := range []string{"CLAIM_X", "CLAIM_HX"} {
 		if _, ok := set[name]; ok {
 			t.Errorf("%s must stay out of FullAllScripts", name)
@@ -413,8 +413,8 @@ func TestFullSplit(t *testing.T) {
 	g, key := loadGolden(t)
 	treeID := goldenTreeID(t, g)
 
-	fullCheckScript(t, g, "FULL/D/D4/SPLIT", FullSplitScript(4, false))
-	fullCheckScript(t, g, "FULL/S/D8/SPLIT", FullSplitScript(8, true))
+	fullCheckScript(t, g, "FULL/D/D4/SPLIT", FullSplitScript(4, false, tree.DustMin))
+	fullCheckScript(t, g, "FULL/S/D8/SPLIT", FullSplitScript(8, true, tree.DustMin))
 
 	// Replacing the voucher message, with its 33-byte tree_id push, and
 	// OP_CHECKSIGFROMSTACK with an OP_CHECKSIGVERIFY over src.owner_key
@@ -423,8 +423,8 @@ func TestFullSplit(t *testing.T) {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		claim := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse), ModeC2)
-		split := MustAssemble(FullSplitScript(tc.depth, tc.sparse), ModeC2)
+		claim := MustAssemble(FullClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC2)
+		split := MustAssemble(FullSplitScript(tc.depth, tc.sparse, tree.DustMin), ModeC2)
 		if len(claim)-len(split) != 109 {
 			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
 				"want 109", tc.depth, tc.sparse, len(claim)-len(split))
@@ -432,7 +432,7 @@ func TestFullSplit(t *testing.T) {
 	}
 
 	if _, ok := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2},
-		[]int{2})["SPLIT"]; ok {
+		[]int{2}, tree.DustMin)["SPLIT"]; ok {
 
 		t.Error("SPLIT must stay out of FullAllScripts")
 	}
@@ -462,7 +462,7 @@ func TestFullRewriteDetach(t *testing.T) {
 		t.Error("DETACH_2 does not depend on m_h")
 	}
 
-	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2})
+	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2}, tree.DustMin)
 	for _, name := range []string{"REWRITE_2", "REWRITE_X_2", "DETACH_2"} {
 		if _, ok := set[name]; ok {
 			t.Errorf("%s must stay out of FullAllScripts", name)
@@ -560,7 +560,7 @@ func TestFullAllScripts(t *testing.T) {
 	g, key := loadGolden(t)
 	treeID := goldenTreeID(t, g)
 
-	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2})
+	set := FullAllScripts(4, key, treeID, false, []int{0, 2}, []int{1, 2}, []int{2}, tree.DustMin)
 	for name, toks := range set {
 		want, ok := g.Scripts["FULL/D/D4/"+name]
 		if !ok {
@@ -574,7 +574,7 @@ func TestFullAllScripts(t *testing.T) {
 		t.Errorf("all_scripts returned %d entries, want 7", len(set))
 	}
 
-	sset := FullAllScripts(8, key, treeID, true, nil, []int{1}, []int{2})
+	sset := FullAllScripts(8, key, treeID, true, nil, []int{1}, []int{2}, tree.DustMin)
 	for name, toks := range sset {
 		want, ok := g.Scripts["FULL/S/D8/"+name]
 		if !ok {

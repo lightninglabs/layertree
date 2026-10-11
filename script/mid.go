@@ -494,8 +494,13 @@ func midUpdateScript(depth int, operatorKey [32]byte, sparse,
 // MidClaimScript is the MID-tier CLAIM script: a voucher redemption that
 // drains a source leaf into a new claim leaf. treeID is the tree's voucher
 // binding (spec 6.2), a constant of the script.
-func MidClaimScript(depth int, treeID [32]byte, sparse bool) []Token {
-	return midCarveScript(depth, treeID, sparse, authVoucher)
+// dustMin is the tree's DUST_MIN (6.2, 7.5 rule 6), zero meaning
+// tree.DustMin; CLAIM^h and SPLIT take it the same way
+// (tools/layertree_mid.py claim_script dust_min).
+func MidClaimScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return midCarveScript(depth, treeID, sparse, authVoucher, dustMin)
 }
 
 // MidClaimHScript is the MID-tier CLAIM^h script (spec 7.5.1): CLAIM with a
@@ -504,8 +509,10 @@ func MidClaimScript(depth int, treeID [32]byte, sparse bool) []Token {
 // is hashed straight into the message, so a wrong one fails as a bad
 // signature. It is a tree-creation parameter: a tree uses either CLAIM or
 // CLAIM^h, never both.
-func MidClaimHScript(depth int, treeID [32]byte, sparse bool) []Token {
-	return midCarveScript(depth, treeID, sparse, authHashlock)
+func MidClaimHScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return midCarveScript(depth, treeID, sparse, authHashlock, dustMin)
 }
 
 // MidSplitScript is the MID-tier SPLIT script (spec 7.5.2): CLAIM with the
@@ -513,8 +520,8 @@ func MidClaimHScript(depth int, treeID [32]byte, sparse bool) []Token {
 // carries no preimage and no voucher message is rebuilt. It needs no
 // OP_CHECKSIGFROMSTACK and no tree_id. Like CLAIM^h it is a tree-creation
 // parameter and stays out of MidAllScripts.
-func MidSplitScript(depth int, sparse bool) []Token {
-	return midCarveScript(depth, [32]byte{}, sparse, authOwner)
+func MidSplitScript(depth int, sparse bool, dustMin uint64) []Token {
+	return midCarveScript(depth, [32]byte{}, sparse, authOwner, dustMin)
 }
 
 // The MID carve witness holds, below the authorisation element, src(10)
@@ -556,7 +563,9 @@ func midVoucherAuth(treeID [32]byte, hashlock bool) []Token {
 
 // midCarveScript is the shared body of the MID CLAIM, CLAIM^h and SPLIT
 // scripts: auth selects the authorisation and nothing else.
-func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string) []Token {
+func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
+	dustMin uint64) []Token {
+
 	hashlock := auth == authHashlock
 	s := midPrologue() // ... extras(7) vsig [pre] | m r
 	if auth == authOwner {
@@ -576,7 +585,7 @@ func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string) []Toke
 		}
 		s = append(s, midVoucherAuth(treeID, hashlock)...)
 	}
-	s = append(s, midCarveSource(depth, sparse)...)
+	s = append(s, midCarveSource(depth, sparse, dustMin)...)
 	s = append(s, midCheckOld(sparse)...)
 	s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK))
 	s = append(s, midCarveClaim(depth, sparse)...)
@@ -590,7 +599,7 @@ func midCarveScript(depth int, treeID [32]byte, sparse bool, auth string) []Toke
 // pad like the source's, must be no later: each pad is checked against the
 // leaf's own field and the two numbers compared
 // (tools/layertree_mid.py carve_rules).
-func midCarveRules() []Token {
+func midCarveRules(dustMin uint64) []Token {
 	s := []Token{
 		Num(19), Op(txscript.OP_PICK), Num(30), Op(txscript.OP_PICK),
 		Op(txscript.OP_EQUALVERIFY),                              // claim.evk == src.evk
@@ -606,7 +615,7 @@ func midCarveRules() []Token {
 		// The claim amount is the block's amt_num, bound to the amount
 		// field by LEAF_JOIN, so the DUST_MIN floor of 7.5 rule 6 is one
 		// comparison against the constant.
-		Num(int64(tree.DustMin)), Num(10), Op(txscript.OP_PICK),
+		dustNum(dustMin), Num(10), Op(txscript.OP_PICK),
 		Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_VERIFY)) // DUST_MIN <= claim.amt_num
 }
 
@@ -614,15 +623,17 @@ func midCarveRules() []Token {
 // authorisation check. Stack on entry: src(10) claim(10) extras(13) ;
 // altstack: .. m r. On exit: T oh os nh ns over the source path ; altstack:
 // .. m claim_leaf amt_c r. The MIN tier shares it.
-func midCarveSource(depth int, sparse bool) []Token {
-	return midCarveSourceAlt(depth, sparse, true)
+func midCarveSource(depth int, sparse bool, dustMin uint64) []Token {
+	return midCarveSourceAlt(depth, sparse, true, dustMin)
 }
 
 // midCarveSourceAlt is midCarveSource with the altstack's r optional: the
 // CCV tier's 0xC0 numerics carry no r, so with altR false the altstack
 // holds .. claim_leaf amt_c on exit (layertree_mid.carve_source alt_r).
-func midCarveSourceAlt(depth int, sparse, altR bool) []Token {
-	s := midCarveRules() // src(10) claim(10) extras(7)
+func midCarveSourceAlt(depth int, sparse, altR bool,
+	dustMin uint64) []Token {
+
+	s := midCarveRules(dustMin) // src(10) claim(10) extras(7)
 	// seq consistency: le32(seq_num) == src.seq
 	s = append(s, Num(20), Op(txscript.OP_PICK), Num(7), Op(txscript.OP_PICK))
 	s = append(s, midRoll(7, 2)...)
@@ -667,7 +678,7 @@ func midCarveSourceAlt(depth int, sparse, altR bool) []Token {
 		Op(txscript.OP_CAT))
 	s = append(s, midTagged(midLeafPrefix)...)
 	s = append(s, Op(txscript.OP_SWAP))
-	s = append(s, fullDrainRule()...) // drained -> E_0, else ns >= DUST_MIN
+	s = append(s, fullDrainRule(dustMin)...) // drained -> E_0, else ns >= DUST_MIN
 	if sparse {
 		s = append(s, midRoll(7, 4)...)
 		s = append(s, midSparseSetup()...)
@@ -1051,9 +1062,10 @@ func MidRewriteScript(depth, height int, operatorKey [32]byte,
 
 // MidAllScripts builds the MID-tier script set for one profile, keyed as
 // layertree_mid.all_scripts keys them. treeID is the tree's voucher
-// binding (spec 6.2), which CLAIM carries as a constant.
+// binding (spec 6.2), which CLAIM carries as a constant, and dustMin its
+// DUST_MIN (zero meaning tree.DustMin).
 func MidAllScripts(depth int, operatorKey, treeID [32]byte, sparse bool,
-	joinHeights, exitKs, joinKs []int) map[string][]Token {
+	joinHeights, exitKs, joinKs []int, dustMin uint64) map[string][]Token {
 
 	out := make(map[string][]Token)
 	for _, k := range exitKs {
@@ -1070,7 +1082,7 @@ func MidAllScripts(depth int, operatorKey, treeID [32]byte, sparse bool,
 		out[fmt.Sprintf("JOINK_%d", k)] = MidJoinScript(depth, 0, operatorKey, sparse, k)
 	}
 	out["UPDATE"] = MidUpdateScript(depth, operatorKey, sparse)
-	out["CLAIM"] = MidClaimScript(depth, treeID, sparse)
+	out["CLAIM"] = MidClaimScript(depth, treeID, sparse, dustMin)
 	return out
 }
 

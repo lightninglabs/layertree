@@ -223,13 +223,15 @@ func CCVUpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
 // root is bound by ccvCheckOld and output 0 by ccvFinal
 // (tools/layertree_ccv.py split_script_ccv). CLAIM and CLAIM^h share the
 // body with the voucher check over tree_id (CCVClaimScript, spec 7.5).
-func CCVSplitScript(depth int, sparse bool) []Token {
+// dustMin is the tree's DUST_MIN (6.2, 7.5 rule 6), zero meaning
+// tree.DustMin; every CCV carve generator takes it the same way.
+func CCVSplitScript(depth int, sparse bool, dustMin uint64) []Token {
 	s := []Token{
 		Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32),
 		Op(OP_SUBSTR),            // src claim sig owner_key
 		Op(ts.OP_CHECKSIGVERIFY), // src claim
 	}
-	return append(s, ccvCarveBody(depth, sparse)...)
+	return append(s, ccvCarveBody(depth, sparse, dustMin)...)
 }
 
 // CCVClaimScript is CLAIM (spec 7.5), or CLAIM^h (7.5.1) with hashlock,
@@ -237,35 +239,39 @@ func CCVSplitScript(depth int, sparse bool) []Token {
 // tree_id (fullVoucherAuth) on SPLIT's body. The CCV witness carries no r
 // and no m, which is what lets the check be shared token for token
 // (tools/layertree_ccv.py claim_script_ccv).
-func CCVClaimScript(depth int, treeID [32]byte, sparse, hashlock bool) []Token {
+func CCVClaimScript(depth int, treeID [32]byte, sparse, hashlock bool,
+	dustMin uint64) []Token {
+
 	var s []Token
 	if hashlock {
 		s = append(s, Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK)) // src claim vsig | phash
 	}
 	s = append(s, fullVoucherAuth(treeID, hashlock)...) // src claim
-	return append(s, ccvCarveBody(depth, sparse)...)
+	return append(s, ccvCarveBody(depth, sparse, dustMin)...)
 }
 
 // CCV0ClaimScript is CLAIM or CLAIM^h under the CCV tier's 0xC0 numerics:
 // MID's carve witness minus r and m, with the MID tier's voucher check over
 // tree_id (midVoucherAuth) (tools/layertree_ccv.py _claim_script_ccv0).
-func CCV0ClaimScript(depth int, treeID [32]byte, sparse, hashlock bool) []Token {
+func CCV0ClaimScript(depth int, treeID [32]byte, sparse, hashlock bool,
+	dustMin uint64) []Token {
+
 	var s []Token
 	if hashlock {
 		s = append(s, Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
 			Op(ts.OP_SHA256), Op(ts.OP_TOALTSTACK))
 	}
 	s = append(s, midVoucherAuth(treeID, hashlock)...)
-	return append(s, ccv0CarveBody(depth, sparse)...)
+	return append(s, ccv0CarveBody(depth, sparse, dustMin)...)
 }
 
 // ccvCarveBody is [src claim] -> [1] after the authorisation: the FULL
 // carve body's two steps bound by CHECK_INPUT and ccvFinal
 // (tools/layertree_ccv.py _carve_body_ccv).
-func ccvCarveBody(depth int, sparse bool) []Token {
+func ccvCarveBody(depth int, sparse bool, dustMin uint64) []Token {
 	s := fullCat(
-		fullCarveLeafRules(),
+		fullCarveLeafRules(dustMin),
 		[]Token{
 			// new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq+1)
 			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_OVER), Num(8),
@@ -296,8 +302,8 @@ func ccvCarveBody(depth int, sparse bool) []Token {
 		},
 		fullLeafAcc(), // T new_src oh os
 		[]Token{Op(ts.OP_ROT)},
-		fullLeafAcc(),   // T oh os nh ns
-		fullDrainRule(), // a drained source becomes E_0, else ns >= DUST_MIN
+		fullLeafAcc(),          // T oh os nh ns
+		fullDrainRule(dustMin), // a drained source becomes E_0, else ns >= DUST_MIN
 		fullLevels(sparse, depth, 0),
 		ccvCheckOld(sparse), // T nh1 ns1 | claim
 		[]Token{
@@ -452,8 +458,8 @@ func CCV0EvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 // ccv0CarveBody is MID's two carve steps bound by CCV:
 // [src(10) claim(10) extras(7)] -> [1]. Shared by SPLIT, CLAIM and
 // CLAIM^h under 0xC0 (tools/layertree_ccv.py _carve_body_ccv0).
-func ccv0CarveBody(depth int, sparse bool) []Token {
-	s := midCarveSourceAlt(depth, sparse, false)
+func ccv0CarveBody(depth int, sparse bool, dustMin uint64) []Token {
+	s := midCarveSourceAlt(depth, sparse, false, dustMin)
 	s = append(s, ccv0CheckOld(sparse)...)
 	s = append(s, Op(ts.OP_FROMALTSTACK), Op(ts.OP_FROMALTSTACK))
 	s = append(s, midCarveClaim(depth, sparse)...)
@@ -463,9 +469,9 @@ func ccv0CarveBody(depth int, sparse bool) []Token {
 // CCV0SplitScript is SPLIT (spec 7.5.2) under the CCV tier's 0xC0
 // numerics: MID's carve witness minus r and m, authorised by src.ok's
 // transaction signature (tools/layertree_ccv.py _split_script_ccv0).
-func CCV0SplitScript(depth int, sparse bool) []Token {
+func CCV0SplitScript(depth int, sparse bool, dustMin uint64) []Token {
 	s := []Token{Num(midCarveOwnerDepth), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY)}
-	return append(s, ccv0CarveBody(depth, sparse)...)
+	return append(s, ccv0CarveBody(depth, sparse, dustMin)...)
 }
 
 // ------------------------------------------------- 0xC0 reference set --
@@ -661,7 +667,7 @@ func CCV0DetachScript(depth, height int, operatorKey [32]byte,
 
 // CCVTreeOptions are a CCV tree's creation parameters other than its depth
 // (spec 6.2, 4.6): the numerics (C0 for the MID encoding), the profile,
-// the operator key, tree_id, the JOIN heights, EXIT_K sizes, JOINK sizes
+// the operator key, tree_id, DUST_MIN, the JOIN heights, EXIT_K sizes, JOINK sizes
 // and sweep heights, and the variants a CCV taptree may carry: UPDATE^x in
 // place of UPDATE, CLAIM and CLAIM^h, SPLIT and DETACH_h. Scripts
 // compiles the set for one depth, which is what the parent's taptree is
@@ -682,6 +688,16 @@ type CCVTreeOptions struct {
 	ClaimH        bool
 	Split         bool
 	DetachHeights []int
+
+	// DustMin is the tree's DUST_MIN (spec 6.2), carried as a constant by
+	// the carve scripts (7.5 rule 6). Zero means tree.DustMin.
+	DustMin uint64
+}
+
+// DustFloor is the DUST_MIN the tree's carve scripts enforce: DustMin, or
+// tree.DustMin when it is zero.
+func (o CCVTreeOptions) DustFloor() uint64 {
+	return dustFloor(o.DustMin)
 }
 
 // CCVReferenceOptions are the set CCVAllScripts builds by default: EXIT_1,
@@ -763,16 +779,16 @@ func (o CCVTreeOptions) Scripts(depth int) []FullNamedScript {
 			continue
 		}
 		if o.C0 {
-			add(c.name, CCV0ClaimScript(depth, o.TreeID, o.Sparse, c.hl))
+			add(c.name, CCV0ClaimScript(depth, o.TreeID, o.Sparse, c.hl, o.DustMin))
 		} else {
-			add(c.name, CCVClaimScript(depth, o.TreeID, o.Sparse, c.hl))
+			add(c.name, CCVClaimScript(depth, o.TreeID, o.Sparse, c.hl, o.DustMin))
 		}
 	}
 	if o.Split {
 		if o.C0 {
-			add("SPLIT", CCV0SplitScript(depth, o.Sparse))
+			add("SPLIT", CCV0SplitScript(depth, o.Sparse, o.DustMin))
 		} else {
-			add("SPLIT", CCVSplitScript(depth, o.Sparse))
+			add("SPLIT", CCVSplitScript(depth, o.Sparse, o.DustMin))
 		}
 	}
 	if !o.Sparse {

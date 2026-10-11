@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -100,6 +101,7 @@ func newWorld(t *testing.T, depth int, sparse bool, variants ...string) *world {
 	treeID := suiteTreeID()
 	leaves, err := FullReferenceLeaves(
 		depth, opKey, treeID, sparse, []int{0, 2}, []int{1, 2}, []int{2},
+		tree.DustMin,
 	)
 	if err != nil {
 		t.Fatalf("FullReferenceLeaves: %v", err)
@@ -110,9 +112,9 @@ func newWorld(t *testing.T, depth int, sparse bool, variants ...string) *world {
 		case "UPDATE_X":
 			toks = script.FullUpdateXScript(depth, opKey, sparse)
 		case "CLAIM_H":
-			toks = script.FullClaimHScript(depth, treeID, sparse)
+			toks = script.FullClaimHScript(depth, treeID, sparse, tree.DustMin)
 		case "SPLIT":
-			toks = script.FullSplitScript(depth, sparse)
+			toks = script.FullSplitScript(depth, sparse, tree.DustMin)
 		case "EVICT_SUBTREE_2":
 			toks = script.FullEvictSubtreeScript(depth, 2, opKey)
 		case "EVICT_SUBTREE_4":
@@ -1140,4 +1142,67 @@ func TestBuilderRejects(t *testing.T) {
 			t.Log(err)
 		})
 	}
+}
+
+// TestBuildClaimDustMinFloor checks that buildCarve enforces the tree's own
+// DUST_MIN (spec 6.2, 7.5 rule 6), read from TreeState.Options, rather than
+// the RECOMMENDED constant: a 500 sat claim is refused in a tree created
+// with a floor of 1,000, whose CLAIM script would reject it, and built in
+// one created with 330 (design/audit/go.md G9).
+func TestBuildClaimDustMinFloor(t *testing.T) {
+	const claimAmt = 500
+
+	build := func(t *testing.T, dustMin uint64) (*world, *Spend,
+		*tree.Tree, error) {
+
+		t.Helper()
+		op := sk("operator")
+		opts := suiteOptions(xonly(op), suiteTreeID(), false)
+		opts.DustMin = dustMin
+		st, err := NewTreeState(tree.New(4), opts, prevOutPoint(0))
+		if err != nil {
+			t.Fatalf("NewTreeState: %v", err)
+		}
+		w := &world{
+			t: t, depth: 4, op: op, keys: []*btcec.PrivateKey{op},
+			st: st,
+		}
+		_, _, oper, _, _, sOper := w.base()
+		claim := w.carveOf(oper, "frank", claimAmt)
+		vsig, err := SignVoucher(
+			sk("operator-owner"), st.Options.TreeID, oper, claim,
+		)
+		if err != nil {
+			t.Fatalf("SignVoucher: %v", err)
+		}
+		spend, next, err := BuildClaim(st, sOper, 3, claim, vsig,
+			&TxOpts{Inputs: w.fee(600)})
+		return w, spend, next, err
+	}
+
+	t.Run("floor 1000 rejects", func(t *testing.T) {
+		w, _, _, err := build(t, 1_000)
+		if err == nil {
+			t.Fatal("a 500 sat claim was built in a tree whose " +
+				"DUST_MIN is 1,000")
+		}
+		if !strings.Contains(err.Error(), "below DUST_MIN 1000") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// The tree's taptree is compiled at its own floor, so its m
+		// is not the 330 tree's.
+		def := w.st.Options
+		def.DustMin = 0
+		if w.st.TapTree.Root() == def.TapTreeRoot(4) {
+			t.Fatal("the 1,000 floor tree has the 330 tree's m")
+		}
+	})
+	t.Run("floor 330 accepts", func(t *testing.T) {
+		w, spend, next, err := build(t, tree.DustMin)
+		if err != nil {
+			t.Fatalf("BuildClaim: %v", err)
+		}
+		before := w.st.Tree
+		checkSpend(t, w, before, spend, next)
+	})
 }

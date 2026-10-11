@@ -531,8 +531,13 @@ const (
 // FullClaimScript is CLAIM (spec 8.6):
 // witness = [claim path] [source path] src_leaf claim_leaf voucher_sig root m.
 // treeID is the tree's voucher binding (spec 6.2), a constant of the script.
-func FullClaimScript(depth int, treeID [32]byte, sparse bool) []Token {
-	return fullCarveScript(depth, treeID, sparse, authVoucher, false)
+// dustMin is the tree's DUST_MIN (6.2), the floor of 7.5 rule 6 that every
+// carve script carries as a constant; zero means tree.DustMin. The other
+// carve generators (CLAIM^x, CLAIM^h, CLAIM^hx, SPLIT) take it the same way.
+func FullClaimScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return fullCarveScript(depth, treeID, sparse, authVoucher, false, dustMin)
 }
 
 // FullClaimXScript is CLAIM^x, the exit-consent variant of CLAIM (spec
@@ -542,15 +547,19 @@ func FullClaimScript(depth int, treeID [32]byte, sparse bool) []Token {
 // UPDATE^x adds to UPDATE. It is a tree-creation parameter: it makes a
 // dedicated credit leaf trust-free (10.3) because the issuer, who owns the
 // leaf, cannot carve it without the holder of its exit key.
-func FullClaimXScript(depth int, treeID [32]byte, sparse bool) []Token {
-	return fullCarveScript(depth, treeID, sparse, authVoucher, true)
+func FullClaimXScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return fullCarveScript(depth, treeID, sparse, authVoucher, true, dustMin)
 }
 
 // FullClaimHXScript is CLAIM^hx, the hash-locked voucher with exit-key
 // consent (spec 7.5.3): CLAIM^h's witness with exit_sig between the preimage
 // and root.
-func FullClaimHXScript(depth int, treeID [32]byte, sparse bool) []Token {
-	return fullCarveScript(depth, treeID, sparse, authHashlock, true)
+func FullClaimHXScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return fullCarveScript(depth, treeID, sparse, authHashlock, true, dustMin)
 }
 
 // FullClaimHScript is CLAIM^h, the hash-locked voucher variant of CLAIM
@@ -561,8 +570,10 @@ func FullClaimHXScript(depth int, treeID [32]byte, sparse bool) []Token {
 // copy; it computes it from the preimage and feeds it to the message, so a
 // wrong preimage fails as a bad signature. It is a tree-creation parameter: a
 // tree uses either CLAIM or CLAIM^h, never both.
-func FullClaimHScript(depth int, treeID [32]byte, sparse bool) []Token {
-	return fullCarveScript(depth, treeID, sparse, authHashlock, false)
+func FullClaimHScript(depth int, treeID [32]byte, sparse bool,
+	dustMin uint64) []Token {
+
+	return fullCarveScript(depth, treeID, sparse, authHashlock, false, dustMin)
 }
 
 // FullSplitScript is SPLIT (spec 7.5.2): CLAIM authorised by the owner's
@@ -572,8 +583,23 @@ func FullClaimHScript(depth int, treeID [32]byte, sparse bool) []Token {
 // CLAIM's; only the authorisation differs, which is why it shares CLAIM's
 // body. Like CLAIM^h it is a tree-creation parameter and stays out of the
 // reference taptree. It carries no tree_id: nothing in it signs a message.
-func FullSplitScript(depth int, sparse bool) []Token {
-	return fullCarveScript(depth, [32]byte{}, sparse, authOwner, false)
+func FullSplitScript(depth int, sparse bool, dustMin uint64) []Token {
+	return fullCarveScript(depth, [32]byte{}, sparse, authOwner, false, dustMin)
+}
+
+// dustFloor resolves a DUST_MIN creation parameter (spec 6.2): zero means
+// the RECOMMENDED tree.DustMin, so no carve script is ever compiled with a
+// floor of zero.
+func dustFloor(dustMin uint64) uint64 {
+	if dustMin == 0 {
+		return tree.DustMin
+	}
+	return dustMin
+}
+
+// dustNum is the DUST_MIN constant a carve script carries (7.5 rule 6).
+func dustNum(dustMin uint64) Token {
+	return Num(int64(dustFloor(dustMin)))
 }
 
 // fullCarveLeafRules opens every carve body: [src claim] -> [src claim],
@@ -583,7 +609,7 @@ func FullSplitScript(depth int, sparse bool) []Token {
 // (7.5 rule 6), since a leaf below the dust threshold can be removed only
 // by a transaction no default node relays. Shared with the CCV tier
 // (tools/layertree_scripts.py carve_leaf_rules).
-func fullCarveLeafRules() []Token {
+func fullCarveLeafRules(dustMin uint64) []Token {
 	return []Token{
 		Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
 		Op(ts.OP_SWAP), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
@@ -594,7 +620,7 @@ func fullCarveLeafRules() []Token {
 		Op(ts.OP_2DUP), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
 		Op(ts.OP_SWAP), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
 		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // claim.evict_after <= src.evict_after
-		Num(int64(tree.DustMin)), Op(ts.OP_OVER), Num(8), Op(OP_LEFT),
+		dustNum(dustMin), Op(ts.OP_OVER), Num(8), Op(OP_LEFT),
 		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // DUST_MIN <= claim.amount
 	}
 }
@@ -604,11 +630,11 @@ func fullCarveLeafRules() []Token {
 // zero makes the new node E_0, any other residual is at least DUST_MIN. The
 // tokens are numerics-neutral (ns is a number in every tier), so the MID,
 // MIN and CCV carves share them (tools/layertree_scripts.py drain_rule).
-func fullDrainRule() []Token {
+func fullDrainRule(dustMin uint64) []Token {
 	return []Token{
 		Op(ts.OP_DUP), Op(ts.OP_NOT), Op(ts.OP_IF), Op(ts.OP_SWAP),
 		Op(ts.OP_DROP), Data(fullEmptyLeafHash), Op(ts.OP_SWAP),
-		Op(ts.OP_ELSE), Num(int64(tree.DustMin)), Op(ts.OP_OVER),
+		Op(ts.OP_ELSE), dustNum(dustMin), Op(ts.OP_OVER),
 		Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), Op(ts.OP_ENDIF),
 	}
 }
@@ -643,7 +669,7 @@ func fullVoucherAuth(treeID [32]byte, hashlock bool) []Token {
 // src_leaf.exit_key, so every stack depth below is as in the plain form.
 // Seven bytes over the plain script, as UPDATE^x over UPDATE.
 func fullCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
-	exitConsent bool) []Token {
+	exitConsent bool, dustMin uint64) []Token {
 
 	hashlock := auth == authHashlock
 	s := fullPrologue() // src claim sig [pre] [xsig] | m r
@@ -680,7 +706,7 @@ func fullCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
 	// Everything below is the shared carve body: both steps and FINAL.
 	// Stack on entry: src claim ; altstack: m r.
 	s = fullCat(s,
-		fullCarveLeafRules(),
+		fullCarveLeafRules(dustMin),
 		[]Token{
 			// new_src = le64(src.amt - claim.amt) || src[8:112] || le32(src.seq+1)
 			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_OVER), Num(8),
@@ -713,8 +739,8 @@ func fullCarveScript(depth int, treeID [32]byte, sparse bool, auth string,
 		},
 		fullLeafAcc(), // T new_src oh os
 		[]Token{Op(ts.OP_ROT)},
-		fullLeafAcc(),   // T oh os nh ns
-		fullDrainRule(), // a drained source becomes E_0, else ns >= DUST_MIN
+		fullLeafAcc(),          // T oh os nh ns
+		fullDrainRule(dustMin), // a drained source becomes E_0, else ns >= DUST_MIN
 		fullLevels(sparse, depth, 0),
 		fullCheckOldRootFromAlt(sparse), // T nh1 ns1 | m claim
 		[]Token{
@@ -1015,8 +1041,8 @@ func FullRewriteScript(depth, height int, operatorKey [32]byte,
 }
 
 // FullTreeOptions are a tree's creation parameters other than its depth
-// (spec 6.2): the profile, operator key, tree_id, the JOIN heights, EXIT_K
-// sizes and JOINK sizes, and the variants a taptree may carry (7.6): exact
+// (spec 6.2): the profile, operator key, tree_id, DUST_MIN, the JOIN heights,
+// EXIT_K sizes and JOINK sizes, and the variants a taptree may carry (7.6): exact
 // payouts (7.2 rule 6, in place of EXIT_K), UPDATE^x (7.4 rule 5, in place
 // of UPDATE), the four CLAIM forms, SPLIT, EVICT_SUBTREE_h, REWRITE_h and
 // its ^x form, and DETACH_h. Scripts compiles the set for one depth, which
@@ -1042,6 +1068,17 @@ type FullTreeOptions struct {
 	RewriteHeights []int
 	RewriteX       bool
 	DetachHeights  []int
+
+	// DustMin is the tree's DUST_MIN (spec 6.2), the floor the carve
+	// scripts carry as a constant (7.5 rule 6). Zero means tree.DustMin,
+	// the RECOMMENDED 330.
+	DustMin uint64
+}
+
+// DustFloor is the DUST_MIN the tree's carve scripts enforce: DustMin, or
+// tree.DustMin when it is zero.
+func (o FullTreeOptions) DustFloor() uint64 {
+	return dustFloor(o.DustMin)
 }
 
 // FullReferenceOptions are the reference set of 6.2 at the heights and
@@ -1093,19 +1130,19 @@ func (o FullTreeOptions) Scripts(depth int) []FullNamedScript {
 		add("UPDATE", FullUpdateScript(depth, o.OperatorKey, o.Sparse))
 	}
 	if o.Claim {
-		add("CLAIM", FullClaimScript(depth, o.TreeID, o.Sparse))
+		add("CLAIM", FullClaimScript(depth, o.TreeID, o.Sparse, o.DustMin))
 	}
 	if o.ClaimH {
-		add("CLAIM_H", FullClaimHScript(depth, o.TreeID, o.Sparse))
+		add("CLAIM_H", FullClaimHScript(depth, o.TreeID, o.Sparse, o.DustMin))
 	}
 	if o.ClaimX {
-		add("CLAIM_X", FullClaimXScript(depth, o.TreeID, o.Sparse))
+		add("CLAIM_X", FullClaimXScript(depth, o.TreeID, o.Sparse, o.DustMin))
 	}
 	if o.ClaimHX {
-		add("CLAIM_HX", FullClaimHXScript(depth, o.TreeID, o.Sparse))
+		add("CLAIM_HX", FullClaimHXScript(depth, o.TreeID, o.Sparse, o.DustMin))
 	}
 	if o.Split {
-		add("SPLIT", FullSplitScript(depth, o.Sparse))
+		add("SPLIT", FullSplitScript(depth, o.Sparse, o.DustMin))
 	}
 	if o.Sparse {
 		return out
@@ -1191,10 +1228,11 @@ func FullDetachScript(depth, height int, operatorKey [32]byte,
 // FullAllScripts returns the FULL-tier taptree script set for a tree, keyed
 // exactly as tools/layertree_scripts.py's all_scripts: "EXIT_%d", "JOIN_%d",
 // "JOINK_%d", "UPDATE" and "CLAIM". treeID is the tree's voucher binding
-// (spec 6.2), which CLAIM carries as a constant. In the sparse profile only
-// height 0 joins exist, so joinHeights is ignored there.
+// (spec 6.2), which CLAIM carries as a constant, and dustMin its DUST_MIN
+// (zero meaning tree.DustMin). In the sparse profile only height 0 joins
+// exist, so joinHeights is ignored there.
 func FullAllScripts(depth int, operatorKey, treeID [32]byte, sparse bool,
-	joinHeights, exitKs, joinKs []int) map[string][]Token {
+	joinHeights, exitKs, joinKs []int, dustMin uint64) map[string][]Token {
 
 	out := make(map[string][]Token)
 	for _, k := range exitKs {
@@ -1215,6 +1253,6 @@ func FullAllScripts(depth int, operatorKey, treeID [32]byte, sparse bool,
 		)
 	}
 	out["UPDATE"] = FullUpdateScript(depth, operatorKey, sparse)
-	out["CLAIM"] = FullClaimScript(depth, treeID, sparse)
+	out["CLAIM"] = FullClaimScript(depth, treeID, sparse, dustMin)
 	return out
 }

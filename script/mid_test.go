@@ -102,7 +102,7 @@ func midCheckScript(t *testing.T, g *midGolden, key string, toks []Token) {
 
 func TestMidScriptsDenseD4(t *testing.T) {
 	g, key := midLoadGolden(t)
-	all := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1}, []int{2})
+	all := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1}, []int{2}, tree.DustMin)
 	for _, name := range []string{"EXIT_1", "JOIN_0", "JOIN_2", "JOINK_2",
 		"UPDATE", "CLAIM"} {
 
@@ -116,7 +116,7 @@ func TestMidScriptsDenseD4(t *testing.T) {
 
 func TestMidScriptsSparseD8(t *testing.T) {
 	g, key := midLoadGolden(t)
-	all := MidAllScripts(8, key, midGoldenTreeID(t), true, []int{0, 2}, []int{1}, []int{2})
+	all := MidAllScripts(8, key, midGoldenTreeID(t), true, []int{0, 2}, []int{1}, []int{2}, tree.DustMin)
 	if _, ok := all["JOIN_2"]; ok {
 		t.Fatalf("sparse profile must only emit JOIN_0")
 	}
@@ -137,7 +137,7 @@ func TestMidDirectGenerators(t *testing.T) {
 	midCheckScript(t, g, "MID/D/D4/JOIN_2", MidJoinScript(4, 2, key, false, 1))
 	midCheckScript(t, g, "MID/D/D4/JOINK_2", MidJoinScript(4, 0, key, false, 2))
 	midCheckScript(t, g, "MID/D/D4/UPDATE", MidUpdateScript(4, key, false))
-	midCheckScript(t, g, "MID/D/D4/CLAIM", MidClaimScript(4, midGoldenTreeID(t), false))
+	midCheckScript(t, g, "MID/D/D4/CLAIM", MidClaimScript(4, midGoldenTreeID(t), false, tree.DustMin))
 	midCheckScript(t, g, "MID/S/D8/EXIT_1", MidExitScript(8, 1, true))
 	midCheckScript(t, g, "MID/S/D8/UPDATE", MidUpdateScript(8, key, true))
 }
@@ -157,16 +157,16 @@ func TestMidUpdateX(t *testing.T) {
 func TestMidClaimH(t *testing.T) {
 	g, key := midLoadGolden(t)
 	treeID := midGoldenTreeID(t)
-	midCheckScript(t, g, "MID/D/D4/CLAIM_H", MidClaimHScript(4, treeID, false))
-	midCheckScript(t, g, "MID/S/D8/CLAIM_H", MidClaimHScript(8, treeID, true))
+	midCheckScript(t, g, "MID/D/D4/CLAIM_H", MidClaimHScript(4, treeID, false, tree.DustMin))
+	midCheckScript(t, g, "MID/S/D8/CLAIM_H", MidClaimHScript(8, treeID, true, tree.DustMin))
 
 	// The two insertions and the tag swap cost exactly eight bytes.
 	for _, tc := range []struct {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		plain := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse), ModeC0)
-		hl := MustAssemble(MidClaimHScript(tc.depth, treeID, tc.sparse), ModeC0)
+		plain := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
+		hl := MustAssemble(MidClaimHScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
 		if len(hl)-len(plain) != 8 {
 			t.Errorf("depth %d sparse %v: CLAIM^h is %d bytes over CLAIM, "+
 				"want 8", tc.depth, tc.sparse, len(hl)-len(plain))
@@ -174,7 +174,7 @@ func TestMidClaimH(t *testing.T) {
 	}
 
 	if _, ok := MidAllScripts(4, key, treeID, false, []int{0, 2}, []int{1},
-		[]int{2})["CLAIM_H"]; ok {
+		[]int{2}, tree.DustMin)["CLAIM_H"]; ok {
 
 		t.Error("CLAIM_H must stay out of MidAllScripts")
 	}
@@ -185,8 +185,8 @@ func TestMidClaimH(t *testing.T) {
 // tree-creation parameter and stays out of MidAllScripts.
 func TestMidSplit(t *testing.T) {
 	g, key := midLoadGolden(t)
-	midCheckScript(t, g, "MID/D/D4/SPLIT", MidSplitScript(4, false))
-	midCheckScript(t, g, "MID/S/D8/SPLIT", MidSplitScript(8, true))
+	midCheckScript(t, g, "MID/D/D4/SPLIT", MidSplitScript(4, false, tree.DustMin))
+	midCheckScript(t, g, "MID/S/D8/SPLIT", MidSplitScript(8, true, tree.DustMin))
 
 	// Dropping the voucher message reconstruction, with its 33-byte
 	// tree_id push, and the OP_CHECKSIGFROMSTACK saves exactly 159 bytes.
@@ -195,8 +195,8 @@ func TestMidSplit(t *testing.T) {
 		depth  int
 		sparse bool
 	}{{4, false}, {8, true}} {
-		claim := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse), ModeC0)
-		split := MustAssemble(MidSplitScript(tc.depth, tc.sparse), ModeC0)
+		claim := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
+		split := MustAssemble(MidSplitScript(tc.depth, tc.sparse, tree.DustMin), ModeC0)
 		if len(claim)-len(split) != 159 {
 			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
 				"want 159", tc.depth, tc.sparse, len(claim)-len(split))
@@ -204,7 +204,7 @@ func TestMidSplit(t *testing.T) {
 	}
 
 	if _, ok := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1},
-		[]int{2})["SPLIT"]; ok {
+		[]int{2}, tree.DustMin)["SPLIT"]; ok {
 
 		t.Error("SPLIT must stay out of MidAllScripts")
 	}
@@ -220,7 +220,7 @@ func TestMidEvictSubtree(t *testing.T) {
 		MidEvictSubtreeScript(4, 2, key))
 
 	if _, ok := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1},
-		[]int{2})["EVICT_SUBTREE_2"]; ok {
+		[]int{2}, tree.DustMin)["EVICT_SUBTREE_2"]; ok {
 
 		t.Error("EVICT_SUBTREE_2 must stay out of MidAllScripts")
 	}
@@ -233,7 +233,7 @@ func TestMidRewrite(t *testing.T) {
 	g, key := midLoadGolden(t)
 	midCheckScript(t, g, "MID/D/D4/REWRITE_2", MidRewriteScript(4, 2, key, false))
 	midCheckScript(t, g, "MID/D/D4/REWRITE_X_2", MidRewriteScript(4, 2, key, true))
-	all := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1}, []int{2})
+	all := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1}, []int{2}, tree.DustMin)
 	for _, name := range []string{"REWRITE_2", "REWRITE_X_2"} {
 		if _, ok := all[name]; ok {
 			t.Errorf("%s must stay out of MidAllScripts", name)
@@ -249,8 +249,8 @@ func TestCCV0Scripts(t *testing.T) {
 		CCV0EvictSubtreeScript(4, 1, key))
 	midCheckScript(t, g, "CCV0/D/D4/EVICT_SUBTREE_2",
 		CCV0EvictSubtreeScript(4, 2, key))
-	midCheckScript(t, g, "CCV0/D/D4/SPLIT", CCV0SplitScript(4, false))
-	midCheckScript(t, g, "CCV0/S/D8/SPLIT", CCV0SplitScript(8, true))
+	midCheckScript(t, g, "CCV0/D/D4/SPLIT", CCV0SplitScript(4, false, tree.DustMin))
+	midCheckScript(t, g, "CCV0/S/D8/SPLIT", CCV0SplitScript(8, true, tree.DustMin))
 }
 
 func midHex(t *testing.T, s string) []byte {

@@ -133,7 +133,9 @@ func minSighashTail() []Token {
 //	src(10) new(10) seq_num zq0 wq0 zq1 wq1 zs2 ws2 osig r m
 //
 // Outputs are [tree', <raw extra outputs>].
-func MinSplitScript(depth int) []Token {
+// dustMin is the tree's DUST_MIN (6.2, 7.5 rule 6), zero meaning
+// tree.DustMin (tools/layertree_min.py split_script dust_min).
+func MinSplitScript(depth int, dustMin uint64) []Token {
 	s := []Token{Op(txscript.OP_2DUP)}
 	s = append(s, midTreeSpkMin()...)
 	s = append(s, Op(txscript.OP_TOALTSTACK),
@@ -141,7 +143,7 @@ func MinSplitScript(depth int) []Token {
 		Op(txscript.OP_SWAP), Op(txscript.OP_TOALTSTACK),
 		Op(txscript.OP_DROP), Num(midCarveOwnerDepth), Op(txscript.OP_PICK),
 		Op(txscript.OP_CHECKSIGVERIFY))
-	s = append(s, midCarveSource(depth, false)...)
+	s = append(s, midCarveSource(depth, false, dustMin)...)
 	// As MID check_old, but the input amount is kept for the message.
 	s = append(s, Op(txscript.OP_2SWAP))
 	s = append(s, minRoll(6, 2)...)
