@@ -812,7 +812,11 @@ such lease, so the hole was in the scripts only. 10.6's sentence that
 was true for eviction and false for the comparison. Fix: `NONNEG` on the
 claim leaf's lease number before the compare (4 bytes), in every `0xC0`
 carve and the Go mirror, with the negative in each suite and 10.6 and 4.5
-amended. Status: fix in flight (spec 0.12.2).
+amended. Fixed (spec 0.12.2: `NONNEG` on the claim lease in `carve_rules`
+and `midCarveRules`, 13 golden entries moved by 4 bytes, the D4 root did
+not; `test_carve_lease_sign` and the `0x81000001` negatives in the MID,
+MIN and CCV suites; the source lease is not checked, since with the claim
+checked no carve can write a negative one, 7.8).
 
 ### F47. The Go join verification did not check the subtree path's height
 
@@ -826,7 +830,8 @@ the depth every transition consumes, so it can never leave the tree
 member who ran 9.2 step 3 as written; the operator gains nothing. Fix: the
 verifier requires a nil subtree path only at height 0 and otherwise a
 subtree path of exactly `h` levels, with a negative test; 9.2 step 3(c)
-says the same. Status: fix in flight.
+says the same. Fixed (`VerifyMember` checks the heights before any fold,
+two negatives in `TestJoinOfferSubtree`).
 
 The same review found six low items, all text or test tightening: 7.2
 rule 7's voiding remedy must name a leaf that differs (a byte-identical
@@ -837,6 +842,27 @@ code does; the `h = 6` MID rewrite negatives should assert the stack-limit
 message; `Voucher.Verify` verifies over the voucher's own `tree_id`; and
 the channel `StateProposal` carries post-trim outputs where the Python
 `settle_outputs` trims. All in the same fix.
+
+### F48. An amount-only top-up by the operator voided every voucher and tower authorisation
+
+Vouchers (7.5) and `EXIT_K^t` authorisations (7.2 rule 7) bound the full
+116 bytes of the source leaf, and 7.9 rule 3 lets the operator raise a
+leaf's amount with no other signature, so a one-satoshi `REWRITE_h`
+top-up voided every outstanding voucher and authorisation against the
+leaf. On a credit leaf the issuer is the operator and the recipient holds
+the exit key, not the owner key, so the operator could void its own
+liabilities and leave the recipient with no unilateral path; 10.3's
+"every transition that could change it needs the exit key" was false
+(`paper/reviews/developer.md`, finding 1, blocking). Reachable by the
+operator alone at the cost of one rewrite position. The amount binding
+was never load-bearing: single use comes from `seq`, which every
+redemption advances, and over-redemption from the script's check of the
+claim against the leaf's current amount. Fix (owner's decision
+2026-10-10, after the options were weighed against the interaction they
+would add): the three messages bind the source leaf without its amount,
+in every tier, with the Lean non-replay theorems restated over the
+narrower message; spec 0.13.0, the D4 golden root moves (`CLAIM` is in
+the reference set). Status: fix in flight.
 
 ## 3. Things deliberately left out
 
