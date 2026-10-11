@@ -269,7 +269,7 @@ member leaves.
 
 | vbytes per member, enters in a batch | Never exits alone | Exits in a batch | Exits alone |
 |---|---|---|---|
-| LayerTree dense `D = 16` | 3 | 162 | 1,023 |
+| LayerTree dense `D = 16` | 3 | 161 | 1,023 |
 | LayerTree sparse `D = 32` | 1,644 | 3,108 | 3,281 |
 | Lightning channel | 197 | 197 | 573 |
 | Ark round tree `D = 16` | 86 | 86 | 2,554 |

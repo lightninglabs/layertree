@@ -357,7 +357,7 @@ depends on how the member leaves:
 
 | vB per member, entering in a batch | Never exits alone | Exits in a batch | Exits alone |
 |---|---|---|---|
-| LayerTree, dense | 3 | 162 | 1,023 |
+| LayerTree, dense | 3 | 161 | 1,023 |
 | Lightning channel | 197 | 197 | 283 |
 | Ark round tree | 86 | 86 | 2,554 |
 | Bare UTXO | 154 | 154 | 154 |

@@ -100,7 +100,7 @@ LN_OPEN_VB = 154
 # on-chain.
 LIFETIME_GROUPS = [
     ("Enters in a batch, never exits alone", [3, 1644, 197, 86, 154]),
-    ("Enters in a batch, exits in a batch", [162, 3108, 197, 86, 154]),
+    ("Enters in a batch, exits in a batch", [161, 3108, 197, 86, 154]),
     ("Enters in a batch, exits alone", [1023, 3281, 573, 2554, 154]),
 ]
 

@@ -164,8 +164,8 @@ z
    </g>
    <g id="patch_8">
     <path d="M 28.8 190.08 
-L 50.128457 190.08 
-L 50.128457 201.6 
+L 49.9968 190.08 
+L 49.9968 201.6 
 L 28.8 201.6 
 z
 " clip-path="url(#pbfba968cba)" style="fill: #2a78d6"/>
@@ -269,7 +269,7 @@ L 28.8 86.4
     <text style="font-weight: 600; font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="28.8" y="184.32" transform="rotate(-0 28.8 184.32)">Enters in a batch, exits in a batch</text>
    </g>
    <g id="text_16">
-    <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="54.128457" y="197.887444" transform="rotate(-0 54.128457 197.887444)">162</text>
+    <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="53.9968" y="197.887444" transform="rotate(-0 53.9968 197.887444)">161</text>
    </g>
    <g id="text_17">
     <text style="font-size: 7.92px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="441.9904" y="210.847444" transform="rotate(-0 441.9904 210.847444)">3,108</text>
