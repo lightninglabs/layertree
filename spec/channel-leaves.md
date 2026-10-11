@@ -1012,9 +1012,10 @@ under `0xC0` (C.3.3). The state operands `S + n + 1` are four bytes in both.
 
 Under `0xC0` every stack element is limited to 520 bytes, and that includes
 the `OP_TX` collation and `ctx || collation` after `OP_CAT`. A settlement
-collation is `156 + 43h` bytes for two P2TR payouts, `h` P2TR HTLC outputs and
-the anchor, so a MID channel can carry at most seven HTLC outputs in one
-state. A MID implementation MUST NOT sign a state whose settlement
+collation is `70 + 43k` bytes for `k` P2TR outputs beside the anchor (`156 +
+43h` with both balances present and `h` HTLC outputs; a trimmed or zero
+balance is an omitted output, C.3.4), so a MID channel can carry at most
+seven HTLC outputs beside two balances, or eight beside one, in one state. A MID implementation MUST NOT sign a state whose settlement
 collation exceeds 488 bytes: its `SETTLE_n` could never succeed, and the
 state's funds would be recoverable only by the cooperative key path. FULL has
 no such limit. The tier of the

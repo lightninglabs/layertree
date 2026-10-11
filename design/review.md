@@ -726,9 +726,11 @@ failing (G3). Reachable by any peer that sends a message. Fixed:
 `boundedVarBytes` rejects a declared length over its cap before
 allocating, `decodeLimited` wraps each message in an `io.LimitReader`,
 and `JoinOffer.Decode` no longer uses `DecodeWithParsedTypes`, which
-allocated for unknown types too. `msg/chan.go` still uses the unbounded
-helpers: open, with G7, for the channel follow-up. Regression test
-`TestDecodeRejectsOversizedRecords`.
+allocated for unknown types too; the channel decoders followed through
+`decodeChan`, with caps per record and a 2,322-HTLC ceiling from the
+100,000-vB standardness limit. Regression tests
+`TestDecodeRejectsOversizedRecords` and
+`TestChanDecodeRejectsOversizedRecords`.
 
 ### F40. The Go exit builder accepted a fee in an exact-payout tree
 
@@ -761,8 +763,15 @@ Fixed: `PosLoMinimal(depth)`, pinned against the Python rule.
 `SettleCollationLen` counts both balances when one is trimmed, so a valid
 eight-HTLC single-balance state is refused under `0xC0`;
 `RebindAnnounce.Decode` lets the state number wrap past `ChanStateBase`;
-no decoder requires its mandatory fields (G7). Low. Status: open, queued
-for the channel follow-up with the F39 caps for `msg/chan.go`.
+no decoder requires its mandatory fields (G7). Low. Fixed:
+`SettleCollationLen` counts `70 + 43` per output the settlement carries
+(C.7's `156 + 43h` is the two-balance case; an eight-HTLC single-balance
+state is 457 bytes and accepted under `0xC0`), `RebindAnnounce.Decode`
+rejects a state outside `1..ChanMaxState`, and every channel decoder
+names the first mandatory record it lacks. Tests
+`TestChanDecodeRequiresMandatoryRecords`, `TestRebindAnnounceStateRange`
+and the eight- and nine-HTLC single-balance cases in
+`TestChanMessageValidation`.
 
 ### F44. One Go field named two identifiers
 
