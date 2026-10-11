@@ -12,7 +12,7 @@ import (
 
 // TLV types for JoinOffer (spec 9.2).
 const (
-	TypeJoinTreeID      tlv.Type = 0
+	TypeJoinTaptreeRoot tlv.Type = 0
 	TypeJoinRootHash    tlv.Type = 1
 	TypeJoinTotal       tlv.Type = 2
 	TypeJoinLeaf        tlv.Type = 3
@@ -26,9 +26,13 @@ const (
 // operator sends the unsigned tx, the member's leaf, the member's path
 // within the grafted subtree, the path of the graft point, r and m".
 type JoinOffer struct {
-	// TreeID is m, the tree identifier committed into leaf and voucher
-	// hashes.
-	TreeID [32]byte
+	// TaptreeRoot is m, the taptree root of the tree's script set (spec
+	// 6.3), which names the rules the member is joining under and is
+	// what TREE_SPK(r, m) commits to. It is not tree_id (6.2), the
+	// voucher binding the CLAIM scripts carry: the offer does not carry
+	// that, and a member learns it from the published creation
+	// parameters (9.6).
+	TaptreeRoot [32]byte
 
 	// RootHash is the current (pre-graft) tree root's hash.
 	RootHash [32]byte
@@ -71,13 +75,13 @@ func encodeEmbeddedProof(p *Proof) ([]byte, error) {
 // GraftPath are embedded as nested TLV blobs; a nil SubtreePath is simply
 // omitted (spec: "nil for a single-leaf join").
 func (j *JoinOffer) Encode(w io.Writer) error {
-	treeID, rootHash := j.TreeID, j.RootHash
+	taptreeRoot, rootHash := j.TaptreeRoot, j.RootHash
 	total := j.Total
 	newNode := j.NewNode
 	unsignedTx := j.UnsignedTx
 
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeJoinTreeID, &treeID),
+		tlv.MakePrimitiveRecord(TypeJoinTaptreeRoot, &taptreeRoot),
 		tlv.MakePrimitiveRecord(TypeJoinRootHash, &rootHash),
 		tlv.MakePrimitiveRecord(TypeJoinTotal, &total),
 		leafRecord(TypeJoinLeaf, &j.Leaf),
@@ -112,7 +116,7 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 		boundedVarBytes(TypeJoinUnsignedTx, &unsignedTx, maxTxLen),
 	)
 
-	// TypeJoinTreeID..TypeJoinUnsignedTx are strictly increasing whether
+	// TypeJoinTaptreeRoot..TypeJoinUnsignedTx are strictly increasing whether
 	// or not the optional SubtreePath/GraftPath records are present, so
 	// records is already canonically ordered.
 	stream, err := tlv.NewStream(records...)
@@ -134,14 +138,14 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 // decoder must not make.
 func (j *JoinOffer) Decode(r io.Reader) error {
 	var (
-		treeID, rootHash                     [32]byte
+		taptreeRoot, rootHash                [32]byte
 		total                                uint64
 		newNode                              tree.Node
 		subtreeBytes, graftBytes, unsignedTx []byte
 	)
 
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeJoinTreeID, &treeID),
+		tlv.MakePrimitiveRecord(TypeJoinTaptreeRoot, &taptreeRoot),
 		tlv.MakePrimitiveRecord(TypeJoinRootHash, &rootHash),
 		tlv.MakePrimitiveRecord(TypeJoinTotal, &total),
 		leafRecord(TypeJoinLeaf, &j.Leaf),
@@ -155,7 +159,7 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 		return err
 	}
 
-	j.TreeID = treeID
+	j.TaptreeRoot = taptreeRoot
 	j.RootHash = rootHash
 	j.Total = total
 	j.NewNode = newNode
@@ -196,9 +200,9 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 //
 // On success it returns the post-graft root.
 func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
-	if j.TreeID != expectedM {
-		return tree.Node{}, fmt.Errorf("msg: join offer tree id " +
-			"does not match the expected tree")
+	if j.TaptreeRoot != expectedM {
+		return tree.Node{}, fmt.Errorf("msg: join offer's taptree root " +
+			"is not the expected m")
 	}
 	if j.GraftPath == nil {
 		return tree.Node{}, fmt.Errorf("msg: join offer is missing " +

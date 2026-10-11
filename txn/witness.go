@@ -168,7 +168,9 @@ func UpdateXWitness(path [][]byte, oldLeaf, newLeaf *tree.Leaf,
 // folded first to r1, and the claim path is folded over that.
 //
 // voucher_sig is a BIP-340 signature by the source leaf's owner key over
-// tree.VoucherMsg(m, source, claim); it is checked with
+// tree.VoucherMsg(tree_id, source, claim), tree_id being the voucher
+// binding of spec 6.2 that the CLAIM script carries as a constant (not m,
+// the taptree root that ends the stack); it is checked with
 // OP_CHECKSIGFROMSTACK, so it commits to no transaction.
 func ClaimWitness(claimPath, sourcePath [][]byte, sourceLeaf, claimLeaf *tree.Leaf,
 	voucherSig []byte, rootHash, merkleRoot [32]byte) [][]byte {

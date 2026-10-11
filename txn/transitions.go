@@ -490,8 +490,9 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 
 // SignVoucher is the source owner's voucher for a CLAIM (spec 7.5): a
 // BIP-340 signature over H_voucher(tree_id || source || claim), treeID being
-// the tree's TreeState.TreeID. It commits to no transaction, so it is made
-// off-chain, before any CLAIM is built.
+// the tree's TreeState.Options.TreeID, the constant its CLAIM scripts were
+// compiled with. It commits to no transaction, so it is made off-chain,
+// before any CLAIM is built.
 func SignVoucher(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf) ([]byte, error) {
 

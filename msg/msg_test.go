@@ -183,7 +183,7 @@ func TestJoinOfferSingleLeaf(t *testing.T) {
 	)
 
 	offer := &JoinOffer{
-		TreeID:      m,
+		TaptreeRoot: m,
 		RootHash:    rootHash,
 		Total:       total,
 		Leaf:        *memberLeaf,
@@ -304,13 +304,13 @@ func TestVerifyMemberChecksOutput0(t *testing.T) {
 		t, mainTree, 0, graftPos, map[uint64]*tree.Leaf{0: memberLeaf},
 	)
 	offer := &JoinOffer{
-		TreeID:     m,
-		RootHash:   mainTree.Root().Hash,
-		Total:      mainTree.Root().Sum,
-		Leaf:       *memberLeaf,
-		GraftPath:  NewProof(mainTree.Path(graftPos, 0), depth, 0, graftPos),
-		NewNode:    memberLeaf.Node(),
-		UnsignedTx: unsignedTx,
+		TaptreeRoot: m,
+		RootHash:    mainTree.Root().Hash,
+		Total:       mainTree.Root().Sum,
+		Leaf:        *memberLeaf,
+		GraftPath:   NewProof(mainTree.Path(graftPos, 0), depth, 0, graftPos),
+		NewNode:     memberLeaf.Node(),
+		UnsignedTx:  unsignedTx,
 	}
 	if _, err := offer.VerifyMember(m); err != nil {
 		t.Fatalf("VerifyMember rejected the operator's transaction: %v",
@@ -410,7 +410,7 @@ func TestJoinOfferSubtree(t *testing.T) {
 	)
 
 	offer := &JoinOffer{
-		TreeID:      m,
+		TaptreeRoot: m,
 		RootHash:    rootHash,
 		Total:       total,
 		Leaf:        *memberLeaf,
@@ -498,7 +498,7 @@ func wrappedSubtreeOffer(t *testing.T) (*JoinOffer, [32]byte, *Proof,
 	var m [32]byte
 	copy(m[:], bytes.Repeat([]byte{0x44}, 32))
 	offer := &JoinOffer{
-		TreeID:      m,
+		TaptreeRoot: m,
 		RootHash:    rootHash,
 		Total:       total,
 		Leaf:        *member,
