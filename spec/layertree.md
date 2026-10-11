@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.13.1
+Version:  0.13.2
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -392,7 +392,7 @@ are interchangeable, with one numeric cap noted below.
 | `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | yes (8.6.3) | no (no `CLAIM`) | yes, both numerics (8.6.3) |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's sweep and stack bound, 4.6) |
-| `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | not implemented |
+| `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's machine and stack bound, 4.6) |
 | `DETACH_h` (subtree detach, 7.10) | yes | yes, dense (8.10) | no | yes, dense, both numerics (4.6) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | `0xFFFFFFFF` (`0xC2`), `0x7FFFFFFF` (`0xC0`) |
@@ -427,7 +427,7 @@ script / witness data:
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,884 / 1,754 | 6,530 / 1,901 | n/a | 3,497 / 1,690 | 9,978 / 547 | 18,600 / 1,483 | 9,591 / 483 |
-| `REWRITE_4` (16 positions, mixed) | 5,624 / 4,099 | 10,516 / 4,436 | — | — | n/a | n/a | n/a |
+| `REWRITE_4` (16 positions, mixed) | 5,624 / 4,099 | 10,516 / 4,436 | — | 5,303 / 4,035 | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | 2,174 / 534 | — | 973 / 433 | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
@@ -436,7 +436,8 @@ encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
 3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `CLAIM^x`
 6,160 / 1,837, `CLAIM^hx` 6,168 / 1,869, `SPLIT`
 6,001 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
-24,057 / 7,397, `DETACH_8` 1,628 / 470; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
+24,057 / 7,397, `REWRITE_4` (16 positions, mixed) 10,212 / 4,372,
+`DETACH_8` 1,628 / 470; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
 9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
 18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `CLAIM^x` 18,230 / 1,419,
 `CLAIM^hx` 18,238 / 1,451, `SPLIT` 18,071 / 1,356. The CCV call saves about 360 bytes of script
@@ -510,6 +511,12 @@ rewrite with every position occupied before and after and every owner
 signing), and `h = 6` fits only while `10(p_o + p_n − u) + s ≤ 523`, that
 is a mass exit of at most 47 leaves or a rewrite of at most 24 changed
 positions. A full 64-leaf cohort is rewritten as two `REWRITE_5` spends.
+Under the CCV tier's `0xC0` numerics (4.6) the witness is two elements
+shorter (no `r`, no `m`) and no prologue runs, so the bound at `h = 6` is
+`10(p_o + p_n − u) + s ≤ 525` (a mass exit of at most 47 leaves, or 25
+changed positions) and `h ≤ 5` fits at any occupancy (964 at the peak of
+the full 32-position rewrite); `h = 6` at any full occupancy is rejected
+by the limit, as the suite checks.
 
 The MID premium over FULL is about 60% of script for the dense profile and
 83% for the sparse profile (`EXIT_1` at `D = 16` and `D = 31/32`: 3,367
@@ -625,6 +632,32 @@ voucher issued in the parent redeems in it since both carry `tree_id`.
 Under `0xC0` the subtree sum arrives as a minimal number with its `PADZ`
 pad, `NONNEG` keeps it non-negative before it enters the fold, and
 `le64` of it is compared with output 1's amount as bytes (8.10).
+
+**`REWRITE_h`.** The cohort rewrite of 7.9 and its `^x` form exist in
+both numerics (8.9). Under `0xC2` the machine is FULL's `POSTORDER2(h)`
+and under `0xC0` MID's element-based pre-pass and hash pass, each with
+the two tree bindings replaced as in every CCV transition and the exit
+payout of 7.9 rule 5 replaced by one `CHECK_OUTPUT|DEDUCT` call on the
+old leaf's exit key at the dynamic output index, followed by the exact
+`OP_TX` amount read, as the sweep's payout is. Every other rule of 7.9
+(the per-position signatures, the amount-only exemption and its
+`SEQ_FINAL` stop, the unchanged marker, conservation) is decided by the
+numerics' own `REWRITE_STEP`, token for token, so the `0xC2` form keeps
+FULL's `SEQ_FINAL` and the `0xC0` form MID's. The witness is FULL's
+(`0xC2`) or MID's (`0xC0`) minus `r` and `m`, and no prologue runs. At
+`D = 16` on the mixed 16-position cohort `REWRITE_4` measures 5,303 /
+4,035 bytes of script / witness data under `0xC2` beside FULL's 5,624 /
+4,099, and 10,212 / 4,372 under `0xC0` beside MID's 10,516 / 4,436: the
+CCV payout is 4 bytes longer than either tier's P2TR compare, so the
+saving is the fixed part alone (`PROLOGUE` and the key arithmetic of
+`FINAL` gone, `CHECK_INPUT` in), 385 bytes under `0xC2` and 368 under
+`0xC0`, less 4 per position, and the witness loses the 64 bytes of `r`
+and `m`. Per leaf the rewrite therefore costs what it costs in FULL and
+MID to within a few vB (11).
+Under `0xC0` the 1,000-element bound of 4.5 applies with the two
+elements `r` and `m` and the prologue's three pushes to spare: `h ≤ 5`
+fits at any occupancy and a full 64-leaf cohort is rewritten as two
+`REWRITE_5` spends, as in MID.
 
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
@@ -1590,7 +1623,11 @@ covenant, and the operator cannot use the script to remove a leaf without
 paying it, since removal needs that owner's signature and that payout. A
 leaf nobody signs for passes through unchanged, so a cohort settles with
 only the members whose leaves change taking part. The script has no lease
-check: eviction remains `EVICT_SUBTREE_h`'s job.
+check: eviction remains `EVICT_SUBTREE_h`'s job. Every tier but MIN
+carries the rewrite: FULL and MID as 8.9 lists them, and CCV in both
+numerics (4.6), where rule 5's payout is one `CHECK_OUTPUT|DEDUCT` call
+and the rest of the step is the numerics' own; the `0xC0` forms share
+MID's 1,000-element stack bound (4.5).
 
 The old and new subtrees are both published, so a cohort join by
 `REWRITE_h` is grounded by construction where `JOIN_h` (7.3 rule 4) trusts
@@ -2371,6 +2408,32 @@ are what pins `seq` to four bytes for the `SEQ_FINAL` comparison and
 would be an unknown key type that `OP_CHECKSIGVERIFY` accepts. The
 witness layout and the stack bound are in 4.5. Listing:
 `spec/scripts/MID_REWRITE_2_D4.txt`.
+
+**CCV tier.** Under `0xC2` numerics the rewrite is this section's
+machine with `PROLOGUE` dropped (no `r`, no `m`), `CHECK_OLD` and `FINAL`
+the CCV tier's (4.6) and the exit payout of `REWRITE_STEP` one
+`CHECK_OUTPUT|DEDUCT` call in place of the P2TR compare:
+
+```
+OP_FROMALTSTACK OP_DUP OP_1ADD OP_TOALTSTACK   # old new idx          | … idx+1
+OP_DUP OP_TOALTSTACK                           # old new idx          | … idx+1 idx
+<> OP_SWAP OP_3 OP_PICK OP_8 32 OP_SUBSTR      # old new <> idx ek
+<> OP_2 OP_CHECKCONTRACTVERIFY                 # old new              (DEDUCT payout)
+OP_FROMALTSTACK <SEL_OUT_SINGLE> OP_TX OP_DROP # old new amt
+OP_2 OP_PICK OP_8 OP_LEFT OP_NUMEQUALVERIFY    # old new              (exact payout)
+```
+
+The `OWNER_AUTH`, `ELEM_NODE` and `HASH_STEP2` macros and every roll
+depth are unchanged, so the `0xC2` `REWRITE_STEP` is FULL's plus 4
+bytes. Under `0xC0` numerics the rewrite is the MID machine above with
+the same two bindings replaced and `REWRITE_PAY` as a `DEDUCT` call on
+the old slot's exit-key element (five deep once the empty data operand
+and the index are in place) followed by the byte equality of the `OP_TX`
+amount with `amt8` (4 bytes over MID's). Both forms are tree-creation
+parameters of `CCVTreeOptions` (`rewrite_heights`, `rewrite_x`), ordered
+after `SPLIT` and before `DETACH_h` in the taptree, and a detached child
+keeps the heights that fit it (7.10 rule 3). Listings:
+`spec/scripts/CCV_REWRITE_2_D8.txt`, `spec/scripts/CCV0_REWRITE_2_D4.txt`.
 
 ### 8.10 DETACH_h
 
@@ -3492,6 +3555,24 @@ model above, 248 vB per leaf against FULL's 200 at `h = 4` and 162 at
 `h = 6`) and a rewrite of every balance 18,442 / 10,787 (7,533 vB, 235
 per changed leaf against FULL's 148 at `h = 6`).
 
+The CCV tier's rewrite (4.6, 8.9) is each numerics' machine with the
+exit payout as one `CHECK_OUTPUT|DEDUCT` call, 4 bytes longer than the
+P2TR compare it replaces, and the fixed part 385 bytes shorter under
+`0xC2` and 368 under `0xC0` (`PROLOGUE` and the key arithmetic of
+`FINAL` gone), with `r` and `m` gone from the witness. Under `0xC2`
+`REWRITE_2/4/6` measure 2,434 / 1,464, 5,303 / 4,035 and 17,467 /
+14,040 bytes on the mixed cohorts (`REWRITE_X_4` 5,601 / 4,611), and the
+per-leaf figures are FULL's to within a few vB: 337, 194 and 162 vB per
+exiting leaf at `h = 2, 4, 6` (1,346, 3,099 and 10,344 vB), 148 per
+changed leaf for a rewrite of every balance at `h = 6` (9,448 vB), 167
+per changed leaf and 133 per position on the mixed cohort (8,490 vB).
+Under `0xC0` it is MID's rewrite less the same: `REWRITE_2/4` 4,435 /
+1,578 and 10,212 / 4,372 (`REWRITE_X_4` 10,372 / 4,948), and at `h =
+5`, the largest height a full cohort fits under the stack limit here as
+in MID (4.5), a 32-leaf mass exit 18,202 / 6,787 (7,849 vB, 245 per
+leaf against MID's 248) and a rewrite of every balance 18,202 / 10,723
+(7,457 vB, 233 per changed leaf against MID's 235).
+
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
 `D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness,
 2,174 WU with the control block and 780 vB on the model above (the
@@ -3945,7 +4026,7 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 1,841 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 2,328 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -4016,7 +4097,39 @@ exits in a batch" as `EXIT_K` (section 13).
   parent's own taptree or under the FULL-tier key, output 1 shortchanged
   or overfunded, a missing operator signature, output 0 keeping the
   subtree, an inflated subtree sum, the two tree outputs swapped and, in
-  `0xC0`, a malformed sum pad all fail; and one direct opcode test
+  `0xC0`, a malformed sum pad all fail; the cohort rewrite `REWRITE_h`
+  of 7.9 in both numerics (4.6, 8.9: `h = 2` at `D = 4` and `h = 2`
+  and `4` at `D = 16`, with `REWRITE_4^x`, on the FULL suite's mixed
+  cohort, compiled through `CCVTreeOptions`; the rewrite succeeds with
+  signatures only from the owners rule 3 names, the unchanged leaf is
+  supplied once as the marker or twice in full, and a changed leaf
+  without its owner's signature, a key rotation disguised as an amount
+  increase, an amount decrease or an exit-key change by the operator
+  alone, a `SEQ_FINAL` leaf raised by one satoshi without its owner
+  (the same raise signed succeeds, and the other numerics' `SEQ_FINAL`
+  is an ordinary `seq` here), a spurious signature, a shortchanged exit,
+  an exit paid to the wrong key or to the exit key under a taptree, an
+  exit without its owner, a missing operator signature, output 0 off by
+  one either way or under a wrong taptree or the FULL-tier key, a stale
+  path, a forged old leaf, an occupied position presented as empty, the
+  marker as an old element or in place of a changed leaf, in `0xC2` a
+  2-byte new element and in `0xC0` a leaf whose amount field and number
+  disagree, a malformed node pad and a joined leaf of `2^31 + 2^24` sat
+  supplied as a negative number with every accumulator encoded the same
+  signed way (the `NONNEG` on the new slot) all fail, and under `^x` a
+  missing or wrongly keyed exit signature fails; under `0xC2` the full
+  64-position `REWRITE_6` as a mass exit and as a rewrite of every
+  balance, and under `0xC0` the full 32-position `REWRITE_5` in both
+  shapes with `REWRITE_6` at full occupancy rejected by the
+  1,000-element stack limit, 4.5), the amount-only top-up of a cohort by
+  the operator alone in both numerics (a `CLAIM` and an `EXIT_1^t` on a
+  voucher and an authorisation signed before it redeem and exit
+  afterwards, including a whole-balance voucher whose residual is the
+  top-up; an over-claim, a payout of the old amount and a whole-balance
+  voucher after a sub-dust top-up fail) and the credit leaf of 10.3 in
+  both numerics (`REWRITE_2^x` by the operator alone, then `CLAIM^x` by
+  the recipient on the vouchers signed before it; the operator's own
+  redemption and exit-key move fail); and one direct opcode test
   for each BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
@@ -4052,7 +4165,8 @@ exits in a batch" as `EXIT_K` (section 13).
   `REWRITE_2`, `REWRITE_X_2`, `DETACH_2`, `EXIT_1_EXACT` (7.2 rule 6)
   and `DETACH_2_HOST` (the `DETACH_2` of a parent created with exact
   payouts, `CLAIM^h` and `DETACH_2`, whose `m_h` is that option set at
-  depth 2) under `FULL/D/D4`, and
+  depth 2) under `FULL/D/D4`, `REWRITE_2` and `REWRITE_X_2` under
+  `CCV/D/D4` and `CCV0/D/D4` (7.9 in both CCV numerics), and
   `UPDATE_X` and `SPLIT` under `CCV/D/D4` and `CCV/S/D8`, and `SPLIT`
   under `MIN/D/D4`; being parameters rather than members of the
   reference script set, all are

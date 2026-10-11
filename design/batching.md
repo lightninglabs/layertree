@@ -8,7 +8,12 @@ by `tools/test_scripts.py --rewrite` and `test_detach`; the earlier
 estimates they replace are kept in brackets where they were wrong. The
 figures are the FULL tier's; `REWRITE_h` also exists in MID
 (`tools/test_mid.py`, about 1.7 times the script and bounded by the
-1,000-element stack limit at `h = 5` for a full cohort, spec 4.5) and
+1,000-element stack limit at `h = 5` for a full cohort, spec 4.5) and in
+CCV, both numerics (`tools/test_ccv.py`: `REWRITE_4` on the mixed cohort
+5,303 / 4,035 B under `0xC2` against FULL's 5,624 / 4,099, and 10,212 /
+4,372 under `0xC0` against MID's 10,516 / 4,436, the exit payout being
+one `CHECK_OUTPUT|DEDUCT` call and the `0xC0` form sharing MID's stack
+bound, spec 4.6), and
 `DETACH_h` in CCV, both numerics (`tools/test_ccv.py`, 973 / 433 B at
 `D = 16`, `h = 8`, the second `TREE_SPK` being one CCV call, spec 4.6)
 and in MID (`tools/test_mid.py`, 2,174 / 534 B, the second `TREE_SPK`
@@ -309,7 +314,7 @@ detached node. Both are small.
 | `EXIT_K` | each owner | 842 average at `K = 2` | measured |
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
 | `EXIT_SUBTREE_h` | each exiting owner | 162 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
-| `REWRITE_h` | each changed owner, operator | 148 per changed leaf at 64 leaves (update); 92 per unchanged position | measured; spec 7.9; FULL and MID (MID: 235 per changed leaf at 32 leaves, 248 per exiting leaf) |
+| `REWRITE_h` | each changed owner, operator | 148 per changed leaf at 64 leaves (update); 92 per unchanged position | measured; spec 7.9; FULL, MID and CCV (MID: 235 per changed leaf at 32 leaves, 248 per exiting leaf; CCV `0xC2`: FULL's figures to within a few vB, 148 and 162 at 64 leaves; CCV `0xC0`: 233 and 245 at 32 leaves) |
 | `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 780 once | measured; spec 7.10; FULL, MID and CCV (CCV: 621 once, 973 / 433 B; MID: 946 once, 2,174 / 534 B) |
 
 What the two new shapes have in common is that they reuse the existing
