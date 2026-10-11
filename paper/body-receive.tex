@@ -28,7 +28,7 @@ $\mathsf{seq}$, which needs the recipient's exit key, so the voucher
 stays redeemable for a payment that never arrived. \else
 \paragraph{The flow.} A user receives a Lightning payment into a credit
 leaf that the operator owns and that names the user's key as exit key
-(FULL only, for \tr{CLAIM}$^{x}$). The operator draws the preimage, so
+(FULL or MID, for \tr{CLAIM}$^{x}$ and its top-up). The operator draws the preimage, so
 the payer's receipt proves that the operator was paid; the HTLC reaches
 the operator, which settles it \emph{first} and only then signs the user
 a cumulative voucher for the new running total. Nothing reaches the
