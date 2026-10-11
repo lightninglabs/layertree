@@ -78,8 +78,8 @@ creation options, so a detached channel leaf keeps exact payouts and the
 other parameters the composition conditions of \S\ref{sec:channels}
 need; vouchers bind the lineage's $\mathsf{tree\_id}$, which the detached
 tree inherits, so they survive a detach; and channel leaves need
-nothing, as their $\mathsf{chan\_id}$ fixes $m$ at creation and a detach
-leaves every leaf's bytes unchanged. Theorem~\ref{thm:uc} does not cover
+nothing, as their $\mathsf{chan\_id}$ binds the inherited
+$\mathsf{tree\_id}$ and a detach leaves every leaf's bytes unchanged. Theorem~\ref{thm:uc} does not cover
 trees that carry \tr{DETACH}$_h$ or \tr{REWRITE}$_h$.
 
 \begin{figure}[tbp]

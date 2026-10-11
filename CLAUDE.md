@@ -85,11 +85,13 @@ section 7 are right; the tests show the *scripts* implement the rules.
    `taptree_full_d4.merkle_root` vector must not change unless the
    reference script *set* changes**; tree-creation variants (`UPDATE_X`,
    exact-payout `EXIT`) are excluded from it on purpose. It has moved
-   once, at spec 0.10.0, when `CLAIM` (a member of the set) changed: its
-   voucher message was rebound from `m` to `tree_id` and the carve rule
-   of 7.5 rule 5 was added. The root went from
+   twice, each time because `CLAIM` (a member of the set) changed: at
+   spec 0.10.0 its voucher message was rebound from `m` to `tree_id` and
+   the carve rule of 7.5 rule 5 was added, taking the root from
    `4c41f0a6ee029f07e34656dd8030f5bcfdbff3533e508bc4e52406b64b4a9265` to
-   `eff4a173a4c87afe72b378ef18e8e9ee4ffeb3e3118dd1881cf9c075fef86305`.
+   `eff4a173a4c87afe72b378ef18e8e9ee4ffeb3e3118dd1881cf9c075fef86305`;
+   at 0.11.0 the `DUST_MIN` floor of 7.5 rule 6 took it to
+   `6dea666e4180a52b0284feddc07098789a8736c685191abdb08ef604b2b9a717`.
    The `sighash_vector` and `tree_spk_vector` entries derive from it and
    move with it. The `chan` entries derive from the golden `tree_id`
    (Appendix C 0.5.0: `chan_id` binds `tree_id`, not `m`) and move only

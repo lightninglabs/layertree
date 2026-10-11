@@ -7,7 +7,7 @@ input's sequence, number of outputs, all output amounts and scripts, and
 lock time; $\mathsf{SEL\_CHAN\_SET}$ adds the current input's amount and
 scriptPubKey. The per-channel context is
 \begin{multline*}
-\mathsf{chan\_id} = H_{\mathsf{chanid}}(m \,\|\, \mathsf{owner\_key} \,\|\, \mathsf{le}_{32}(\mathsf{nonce}) \,\|\, x(P_{\mathsf{chan}}) \\
+\mathsf{chan\_id} = H_{\mathsf{chanid}}(\mathsf{tree\_id} \,\|\, \mathsf{owner\_key} \,\|\, \mathsf{le}_{32}(\mathsf{nonce}) \,\|\, x(P_{\mathsf{chan}}) \\
 \,\|\, \lesf(C) \,\|\, \mathsf{le}_{32}(\mathsf{epoch}) \,\|\, \mathsf{le}_{32}(\mathsf{csv\_delay})),
 \end{multline*}
 with $\mathsf{ctx}_{\mathsf{upd}}$ and $\mathsf{ctx}_{\mathsf{set}}$ two

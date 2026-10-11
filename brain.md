@@ -407,7 +407,7 @@ unmerged work. Both were killed by the session spend limit, not by errors.
    Then: the repository citation in refs.bib needs a public URL; trim
    the full version toward 30 body pages. Owner decisions outstanding:
    relative lock on value-neutral transitions (P1c),
-   outpoint-independent exit authorisation (P8), B6 `chan_id` binds `m`
+   outpoint-independent exit authorisation (P8, now building as EXIT^t), B6 (done: `chan_id` binds `tree_id`)
    or `tree_id`, MIN `extra_outs` split per output (8.11).
 2. Next audit round: a Go/`txn` builder audit; re-run the protocol and
    script audits against 0.11.0 (A1 to A8 and the script findings are
@@ -425,7 +425,9 @@ unmerged work. Both were killed by the session spend limit, not by errors.
 ## Decided 2026-10-09 (owner), recorded in status.md 11 to 16
 
 - `REWRITE_h` subsumes `EXIT_SUBTREE_h` via the leaf-to-`E_0` payout rule.
-- `DETACH_h` is operator-authorised. `chan_id` keeps `m`: a detach does
+- `DETACH_h` is operator-authorised. `chan_id` kept `m` until 2026-10-10,
+  when it was rebound to `tree_id` (Appendix C 0.5.0, status.md decision
+  24); the original reasoning: a detach does
   not invalidate channel states, because `chan_id` is a constant in the
   channel scripts behind `exit_key`, not re-derived from the spent tree.
   Vouchers survive a detach too since 0.10.0 (`tree_id` is inherited).
