@@ -226,6 +226,21 @@ func TestMidEvictSubtree(t *testing.T) {
 	}
 }
 
+// TestMidRewrite checks the MID REWRITE_h port and its ^x form (spec 7.9,
+// 8.9) against the golden vectors. Both are tree-creation parameters and
+// stay out of MidAllScripts.
+func TestMidRewrite(t *testing.T) {
+	g, key := midLoadGolden(t)
+	midCheckScript(t, g, "MID/D/D4/REWRITE_2", MidRewriteScript(4, 2, key, false))
+	midCheckScript(t, g, "MID/D/D4/REWRITE_X_2", MidRewriteScript(4, 2, key, true))
+	all := MidAllScripts(4, key, midGoldenTreeID(t), false, []int{0, 2}, []int{1}, []int{2})
+	for _, name := range []string{"REWRITE_2", "REWRITE_X_2"} {
+		if _, ok := all[name]; ok {
+			t.Errorf("%s must stay out of MidAllScripts", name)
+		}
+	}
+}
+
 // TestCCV0Scripts checks the CCV tier's 0xC0-numerics scripts, which reuse
 // the MID machinery, against their CCV0 golden keys.
 func TestCCV0Scripts(t *testing.T) {

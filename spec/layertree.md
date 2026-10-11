@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.11.0
+Version:  0.11.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -389,7 +389,7 @@ are interchangeable, with one numeric cap noted below.
 | `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | not implemented | no (no `CLAIM`) | not implemented |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's sweep and stack bound, 4.6) |
-| `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | not implemented | no | not implemented |
+| `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | not implemented |
 | `DETACH_h` (subtree detach, 7.10) | yes | not implemented | no | not implemented |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | `0xFFFFFFFF` (`0xC2`), `0x7FFFFFFF` (`0xC0`) |
@@ -423,7 +423,7 @@ script / witness data:
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,881 / 1,754 | — | n/a | — | 9,975 / 547 | — | — |
-| `REWRITE_4` (16 positions, mixed) | 5,512 / 4,329 | — | — | — | n/a | n/a | n/a |
+| `REWRITE_4` (16 positions, mixed) | 5,512 / 4,329 | 9,764 / 4,680 | — | — | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | — | — | — | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
@@ -462,6 +462,20 @@ fits with at most 54 of its 64 positions occupied (990 at the peak). A
 full 64-leaf cohort is swept as two `EVICT_SUBTREE_5` spends. The sums
 stay within the tier's 2^31 cap, so the numeric limit binds nothing here.
 FULL has no such bound: BIP-441 raises the element limit.
+
+The MID `REWRITE_h` (8.9) carries each position as two slots, the old and
+the new element, a slot being the ten elements of a MID leaf plus a
+presence flag or one empty element, and two `PADZ` pad pairs per internal
+node below the subtree root (the old and the new sum). With `p_o` of the
+`2^h` positions occupied before the rewrite, `p_n` after it and `s` owner
+signatures (`2s` under `^x`), its witness is `10(p_o + p_n) + 2^(h+1) + s
++ 4(2^h − 2) + 9(D − h) + 7` elements, and the pre-pass peaks four above
+it, so the same 1,000-element limit bounds the rewrite: at `D = 16`, `h ≤
+5` fits at any occupancy (966 at the peak of a 32-position rewrite with
+every position occupied before and after and every owner signing), and
+`h = 6` fits only while `10(p_o + p_n) + s ≤ 523`, that is a mass exit of
+at most 47 leaves or a rewrite of at most 24 occupied positions. A full
+64-leaf cohort is rewritten as two `REWRITE_5` spends.
 
 The MID premium over FULL is about 55% of script for the dense profile and
 80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
@@ -2095,6 +2109,33 @@ is the tier's marker and nothing comes from the witness; it is 11 bytes
 per position. Listing: `spec/scripts/REWRITE_2_D8.txt`. Measured sizes
 are in 11.
 
+**MID tier.** Under `0xC0` numerics the rewrite is built like the MID
+sweep (8.7): a pre-pass at the top of the stack reduces every position in
+order and parks its two nodes on the altstack, and a hash pass folds them
+in mirrored post-order, running `HASH_STEP` twice per internal node (the
+old pair first, each taking its `PADZ` pad pair from directly below `T`).
+Each position is two slots, the old element and the new element, a slot
+being `leaf(10) 0x01` or one empty element, with `sig_i` (and `xsig_i`)
+below them as in FULL. `REWRITE_STEP` has no `OP_SUBSTR`, so it decides
+rules 3 and 5 from the leaf's fields before they are re-joined: the old
+slot is reduced to `[amt8 rest ek ok fin amt]` and the new slot to
+`[amt8 rest amt]`, where `rest` is the six fields after the amount
+joined by `OP_CAT` (`leaf[8:]`), `fin` is `seq == SEQ_FINAL`
+(`0x7FFFFFFF`, compared as bytes) and `amt` is the amount as a
+`NONNEG`-checked number bound to `amt8` by `PADZ`. "Unchanged" is `rest`
+and `amt8` equal, the amount-only exemption is `rest` equal, `amt_old ≤
+amt_new` and not `fin`, the signature check takes `ok`, and the exit
+payout takes `ek` and `amt8`. The `TAG_LEAF` prefix and `E_0`'s 41-byte
+node are hoisted as in FULL: they travel with the output index as `[idx L
+Z]` on top of the remaining witness, are parked on the altstack while a
+position's slots are reduced, and are picked by the node conversion.
+The seven field-size checks run on both slots of every position; they
+are what pins `seq` to four bytes for the `SEQ_FINAL` comparison and
+`ok` and `ek` to 32 bytes for the signature checks, since a 31-byte key
+would be an unknown key type that `OP_CHECKSIGVERIFY` accepts. The
+witness layout and the stack bound are in 4.5. Listing:
+`spec/scripts/MID_REWRITE_2_D4.txt`.
+
 ### 8.10 DETACH_h
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  R_h  sum_h8  sig  r  m`. The
@@ -3074,6 +3115,18 @@ without a payout). `REWRITE_h^x` adds the 65-byte exit-key signature,
 16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,810 / 4,905
 bytes).
 
+The MID tier's rewrite (8.9) measures 4,599 / 1,764 and 9,764 / 4,680
+bytes of script / witness data for `REWRITE_2` and `REWRITE_4` on the
+same mixed cohorts (`REWRITE_X_4`: 9,924 / 5,256), about 1.7 times
+FULL's script and 1.1 times its witness: each position costs about 430
+bytes of script, most of it the two slot joins with their fourteen
+field-size checks, and about 246 bytes of witness for its two
+eleven-element slots. At `h = 5`, the largest height a full cohort fits
+under the stack limit (4.5), a 32-leaf mass exit measures 16,938 / 6,851
+(7,549 vB on the model above, 236 vB per leaf against FULL's 198 at
+`h = 4` and 161 at `h = 6`) and a rewrite of every balance 16,938 /
+10,787 (7,157 vB, 224 per changed leaf against FULL's 147 at `h = 6`).
+
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
 `D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness,
 2,174 WU with the control block and 780 vB on the model above (the
@@ -3266,7 +3319,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 268 and 55 checks respectively; the MID
+  operands during development), 401 and 55 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -3302,7 +3355,25 @@ exits in a batch" as `EXIT_K` (section 13).
   one-satoshi residual (7.5 rule 6; exactly `DUST_MIN` succeeds), an
   underfunded tree output, a wrong `e31`, each of the nine raw
   introspection pieces substituted and a claim leaf of amount
-  `2^31 + 2^24` (`NONNEG`) all fail.
+  `2^31 + 2^24` (`NONNEG`) all fail. The MID checks also cover the cohort
+  rewrite `REWRITE_2` and `REWRITE_4` with `REWRITE_4^x` at `D = 16`
+  (7.9, 8.9) on the FULL suite's mixed cohort with the FULL suite's
+  negatives (a changed leaf without its owner's signature, a key rotation
+  disguised as an amount increase, a `SEQ_FINAL` leaf, `0x7FFFFFFF` here,
+  raised by one satoshi without its owner's signature while the same
+  raise signed succeeds and a leaf with `seq = 0xFFFFFFFF`, which is not
+  MID's marker, keeps the exemption, a shortchanged exit payout, an exit
+  paid to the wrong key, a missing operator signature, output 0 off by
+  one in either direction, a stale path, a forged old leaf and, under
+  `^x`, a missing or wrongly keyed exit signature) plus an amount
+  decrease, an exit-key change and an exit each without the owner's
+  signature, a spurious signature where none is due, an old leaf whose
+  amount field and number disagree, a malformed node pad, a wrong `m` and
+  an occupied position presented as empty, all rejected; a 32-position
+  `REWRITE_5` with every position occupied before and after the rewrite
+  (every key rotated, 32 signatures, 966 elements at the peak) and one in
+  which all 32 leave succeed, and `REWRITE_6` on the mixed cohort and as
+  a 64-leaf mass exit are rejected by the stack limit (4.5).
 * `tools/layertree_ccv.py` — the CCV-tier generators (section 4.6) for
   both profiles; `tools/test_ccv.py` executes them end to end (see its
   bullet below).

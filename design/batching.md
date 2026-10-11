@@ -5,7 +5,10 @@ many leaves, what the spec already provides, and three shapes that
 provide more. Two of the three, `REWRITE_h` and `DETACH_h`, are now built
 (spec 7.9, 7.10, 8.9, 8.10) and the figures for them below are measured
 by `tools/test_scripts.py --rewrite` and `test_detach`; the earlier
-estimates they replace are kept in brackets where they were wrong.
+estimates they replace are kept in brackets where they were wrong. The
+figures are the FULL tier's; `REWRITE_h` also exists in MID
+(`tools/test_mid.py`, about 1.7 times the script and bounded by the
+1,000-element stack limit at `h = 5` for a full cohort, spec 4.5).
 Figures come from `tools/gen_cost_figures.py` and `spec/scripts/sizes.md`.*
 
 Every transition proves one or more leaves against the committed root
@@ -297,7 +300,7 @@ detached node. Both are small.
 | `EXIT_K` | each owner | 842 average at `K = 2` | measured |
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
 | `EXIT_SUBTREE_h` | each exiting owner | 161 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
-| `REWRITE_h` | each changed owner, operator | 147 per changed leaf at 64 leaves (update); 120 per unchanged position | measured; spec 7.9 |
+| `REWRITE_h` | each changed owner, operator | 147 per changed leaf at 64 leaves (update); 120 per unchanged position | measured; spec 7.9; FULL and MID (MID: 224 per changed leaf at 32 leaves, 236 per exiting leaf) |
 | `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 780 once | measured; spec 7.10 |
 
 What the two new shapes have in common is that they reuse the existing

@@ -114,6 +114,11 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7977 | 2417 | 129 | 10523 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24169 | 7461 | 129 | 31759 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13321 | 4907 | 129 | 18357 | n/a (0xC0) | 1 |
+| MID/D | 16 | REWRITE_2 (4 positions, mixed) | 4599 | 1764 | 129 | 6492 | n/a (0xC0) | 3 |
+| MID/D | 16 | REWRITE_4 (16 positions, mixed) | 9764 | 4680 | 129 | 14573 | n/a (0xC0) | 10 |
+| MID/D | 16 | REWRITE_X_4 (16 positions, mixed) | 9924 | 5256 | 129 | 15309 | n/a (0xC0) | 19 |
+| MID/D | 16 | REWRITE_5 (32 positions, update) | 16938 | 10787 | 129 | 27854 | n/a (0xC0) | 33 |
+| MID/D | 16 | REWRITE_5 (32 positions, exit) | 16938 | 6851 | 129 | 23918 | n/a (0xC0) | 33 |
 | MIN/D | 16 | EXIT_1 (owner) | 3640 | 1175 | 129 | 4944 | n/a (0xC0) | 2 |
 | MIN/D | 16 | SPLIT | 6651 | 2018 | 129 | 8798 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |

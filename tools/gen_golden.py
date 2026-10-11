@@ -96,6 +96,8 @@ add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, TREE_ID, "D", hashlock=True, e
 add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, TREE_ID, "S", hashlock=True, exit_consent=True), "c2")
 add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
+add("MID", "D", 4, "REWRITE_2", M.rewrite_script(4, 2, OP_KEY), "c0")
+add("MID", "D", 4, "REWRITE_X_2", M.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c0")
 add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2")
 # EXIT_1^= (7.2 rule 6) and the DETACH_2 of a channel-hosting parent (exact
 # payouts, CLAIM^h, DETACH_2): its m_h is that option set compiled at depth

@@ -152,6 +152,11 @@ for h, full in ((2, False), (4, False), (6, False), (5, True)):
     occ = "all occupied" if full else "every fifth exited"
     rows.append(("MID/D", 16, f"EVICT_SUBTREE_{h} ({n} positions, {occ})", len(script), sum(len(x) for x in wit), 129,
                  len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
+for h, x, scenario in ((2, False, "mixed"), (4, False, "mixed"), (4, True, "mixed"), (5, False, "update"), (5, False, "exit")):
+    it, script, wit = test_mid.test_rewrite(16, h, exit_consent=x, verbose=False, scenario=scenario)
+    nm = f"REWRITE_X_{h}" if x else f"REWRITE_{h}"
+    rows.append(("MID/D", 16, f"{nm} ({1 << h} positions, {scenario})", len(script), sum(len(x) for x in wit), 129,
+                 len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
@@ -164,6 +169,9 @@ for name, toks in LM.all_scripts(4, OP_KEY, False, join_heights=(0, 2), exit_ks=
 with open(os.path.join(OUT, "MID_EVICT_SUBTREE_2_D4.txt"), "w") as f:
     f.write(listing("EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D=4)",
                     LM.evict_subtree_script(4, 2, OP_KEY)))
+with open(os.path.join(OUT, "MID_REWRITE_2_D4.txt"), "w") as f:
+    f.write(listing("REWRITE_2 (MID tier, cohort rewrite of a 4-position subtree, dense, D=4)",
+                    LM.rewrite_script(4, 2, OP_KEY)))
 with open(os.path.join(OUT, "MID_UPDATE_X_D4.txt"), "w") as f:
     f.write(listing("UPDATE_X (MID tier, dense, D=4)",
                     LM.update_script(4, OP_KEY, False, exit_consent=True)))
