@@ -45,11 +45,8 @@ sum conserved, with only the members whose leaves change taking part:
 the settlement step of an Ark round without a round, an expiry, or
 unchanged members online.
 
-Figure~\ref{fig:batching} gives the measured costs at $D = 16$: with
-every owner leaving, \tr{REWRITE}$_6$ costs the operator's sweep per
-leaf, and rotating all 64 keys costs $147\vB$ per leaf against
-$1{,}030\vB$ for an \tr{UPDATE} each. \tr{REWRITE}$_6$ is 17{,}148 bytes
-of script. At $h = 6$ each position costs 244 bytes of script and 234 of
+Figure~\ref{fig:batching} plots the measured costs; \tr{REWRITE}$_6$
+is 17{,}148 bytes of script. At $h = 6$ each position costs 244 bytes of script and 234 of
 witness for its two elements; an owner signature adds $16\vB$, and an
 exit adds its 43-byte output and drops the new element, so an unchanged
 position costs about $120\vB$, a changed one $136\vB$ and an exiting one
@@ -71,7 +68,7 @@ members' paths truncated to the lower $h$ levels are their new proofs
 (\lean{detach\_sound}, \lean{detach\_member\_payable}). At $D = 16$,
 $h = 8$ it is 1{,}548 bytes of script and 497 of witness, about
 $780\vB$, and every later exit from the detached tree costs the depth-8
-figure, $765\vB$ instead of $1{,}020\vB$, so it pays for itself at the
+figure, $762\vB$ instead of $1{,}020\vB$, so it pays for itself at the
 fourth exit; a cohort of 256 that all leave alone saves about a quarter.
 The larger effect is throughput: the cohort's exits form their own chain
 of unconfirmed spends, so assumption [C] applies to it separately, and the
@@ -99,7 +96,7 @@ trees that carry \tr{DETACH}$_h$ or \tr{REWRITE}$_h$.
 ]
 \addplot[thick, mark=*, mark size=1.5pt] coordinates {(1,1020) (2,842)};
 \addlegendentry{owner exits \tr{EXIT}$_K$}
-\addplot[thick, dashed, mark=square*, mark size=1.5pt] coordinates {(13,203) (51,158) (206,147)};
+\addplot[thick, dashed, mark=square*, mark size=1.5pt] coordinates {(13,203) (51,158) (205,146)};
 \addlegendentry{operator sweep \tr{EVICT\_SUBTREE}$_h$}
 \addplot[thick, dotted, mark=triangle*, mark size=1.8pt] coordinates {(4,362) (16,198) (64,161)};
 \addlegendentry{owners leave, \tr{REWRITE}$_h$}
@@ -115,10 +112,10 @@ trees that carry \tr{DETACH}$_h$ or \tr{REWRITE}$_h$.
 \node[font=\scriptsize, anchor=south] at (axis cs:51,175) {158};
 \node[font=\scriptsize, anchor=south west] at (axis cs:72,173) {161};
 \node[font=\scriptsize, anchor=north] at (axis cs:64,131) {147};
-\node[font=\scriptsize, anchor=north east] at (axis cs:280,132) {147 ($D{=}20$)};
-\node[font=\scriptsize, anchor=west, align=left, fill=white] at (axis cs:2.6,640) {after a $780\vB$ \tr{DETACH}$_8$, each later exit\\ from the 256-leaf cohort costs $765\vB$};
+\node[font=\scriptsize, anchor=north east] at (axis cs:280,132) {146 ($D{=}20$)};
+\node[font=\scriptsize, anchor=west, align=left, fill=white] at (axis cs:2.6,640) {after a $780\vB$ \tr{DETACH}$_8$, each later exit\\ from the 256-leaf cohort costs $762\vB$};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Batch shapes on the model of \S\ref{sec:eval}, all measured at $D = 16$ except the 206-leaf sweep (\tr{EVICT\_SUBTREE}$_8$), measured at $D = 20$: vbytes per leaf that leaves or changes against the leaves one transaction handles. The detach is noted in the plot, not plotted, since its cost is per later exit.}
+\caption{Batch shapes on the model of \S\ref{sec:eval}, all measured at $D = 16$ except the 205-leaf sweep (\tr{EVICT\_SUBTREE}$_8$), measured at $D = 20$: vbytes per leaf that leaves or changes against the leaves one transaction handles. The detach is noted in the plot, not plotted, since its cost is per later exit.}
 \label{fig:batching}
 \end{figure}

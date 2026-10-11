@@ -101,7 +101,7 @@ is at most 520 bytes, including the collated settlement blob of
 $156 + 43h$ bytes, so a MID channel carries at most seven HTLC outputs
 per state; FULL has no such limit. The scripts and transactions above
 run, in both tapleaf versions, on a chain model that enforces BIP-65 and
-BIP-68 (149 checks): a leaf leaves a tree by \tr{EXIT}$_1^{=}$, a state
+BIP-68 (210 checks): a leaf leaves a tree by \tr{EXIT}$_1^{=}$, a state
 signed before the exit binds to whichever funding output an exit or an
 eviction creates, a stale update is answered in the last block of its
 window, and both HTLC sweeps confirm at their deadlines. Counted as

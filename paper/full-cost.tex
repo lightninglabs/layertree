@@ -48,8 +48,9 @@ measured sizes for scripts or populations not measured directly.
 
 \paragraph{Exit.} Figure~\ref{fig:anatomy} decomposes exits; taking the
 fee from the payout brings the FULL exit at $D = 16$ to $921\vB$. The
-hypothetical native opcode's $388\vB$ is measured on the six-leaf tree,
-whose compressed proof is $56\vB$ of witness; with $2^{16}$ members the
+hypothetical native opcode's $388\vB$ is measured on a six-leaf tree,
+where the whole witness (leaf, signature and compressed proof) is
+$56\vB$; with $2^{16}$ members the
 proof grows by about 14 non-empty siblings to roughly $530\vB$, the
 better estimate of the floor for a design that publishes a proof in
 script. The transaction-tree model (Table~\ref{tab:ark}) ignores the
@@ -103,6 +104,4 @@ bare UTXO & 154 & 154 & 154 & 1 & 1 & nobody \\
 exit. The dense tree wins outright for a member who never exits alone or
 who is swept, and loses to Lightning and to a bare UTXO for a member who
 exits alone, though it beats an Ark unroll there; the sparse profile is
-the most expensive design in every column. A LayerTree exit has no
-pre-signed transaction to lose, no counterparty and no timelock, and the
-shared output does not expire, though the member's lease does.
+the most expensive design in every column.
