@@ -792,6 +792,52 @@ the MID and MIN generators take it as an argument as the Python does,
 `TestCarveDustMinMatchesPython` pins carve scripts at a floor of 1,000
 against the Python generator in every tier and numerics.
 
+### F46. The `0xC0` carve rule compared leases as signed numbers
+
+7.5 rule 5's lease check in the `0xC0` tiers (`carve_rules` in
+`tools/layertree_mid.py`, shared by MID `CLAIM`/`CLAIM^h`/`SPLIT`, MIN
+`SPLIT` and both CCV `0xC0` carves, and its Go mirror) bound each
+`evict_after` to a minimal number with `PADZ` and compared them with
+`OP_GREATERTHANOREQUAL`, a signed comparison, so a claim leaf whose field
+is `01 00 00 81` (a negative `CScriptNum`, a valid pad) passed against any
+source lease. The leaf keeps the operator as evictor but can never be
+evicted: the evict branches run `OP_CHECKLOCKTIMEVERIFY` on that number
+and CLTV fails on a negative operand (the adversarial review of
+2026-10-10, probe at `D = 16` under MID `SPLIT`). Reachable by any member
+of a `0xC0` tree with a carve, at the cost of one `SPLIT`; it is the squat
+7.5 rule 5 was added to prevent (F19). FULL compares unsigned 4-byte
+numbers and is unaffected; the Python `Leaf` and the Lean model admit no
+such lease, so the hole was in the scripts only. 10.6's sentence that
+`evict_after` needs no `NONNEG` because CLTV fails on a negative operand
+was true for eviction and false for the comparison. Fix: `NONNEG` on the
+claim leaf's lease number before the compare (4 bytes), in every `0xC0`
+carve and the Go mirror, with the negative in each suite and 10.6 and 4.5
+amended. Status: fix in flight (spec 0.12.2).
+
+### F47. The Go join verification did not check the subtree path's height
+
+`msg.JoinOffer.VerifyMember` folded the member's leaf through its subtree
+path and the graft path without requiring the subtree path to have the
+graft's height, so an operator could offer a bare leaf grafted at height
+2 over a real `E_2`: `JOIN_2` accepts it (the script checks the slot and
+the sum, not the node's shape) and the leaf then sits two levels short of
+the depth every transition consumes, so it can never leave the tree
+(review of 2026-10-10, Go probe at depth 8). Griefing of a self-funding
+member who ran 9.2 step 3 as written; the operator gains nothing. Fix: the
+verifier requires a nil subtree path only at height 0 and otherwise a
+subtree path of exactly `h` levels, with a negative test; 9.2 step 3(c)
+says the same. Status: fix in flight.
+
+The same review found six low items, all text or test tightening: 7.2
+rule 7's voiding remedy must name a leaf that differs (a byte-identical
+self-`SPLIT` revives the authorisation) and a `SEQ_FINAL` leaf's owner
+can only exit; 4.1 should state `OP_RIGHT` keeps the last `n` bytes; 7.9
+and 8.9 should say any one-byte new element is the FULL marker, as the
+code does; the `h = 6` MID rewrite negatives should assert the stack-limit
+message; `Voucher.Verify` verifies over the voucher's own `tree_id`; and
+the channel `StateProposal` carries post-trim outputs where the Python
+`settle_outputs` trims. All in the same fix.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):
