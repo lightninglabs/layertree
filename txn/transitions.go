@@ -22,7 +22,9 @@ import (
 // Options is what the builders consult about the rules: the profile, the
 // operator key the JOIN, UPDATE and sweep scripts check, the tree_id of
 // spec 6.2 that the CLAIM scripts carry as a constant and SignVoucher signs
-// over, and whether the exits are the exact-payout EXIT_K^= of 7.2 rule 6.
+// over, and whether the exits are the exact-payout EXIT_K^= of 7.2 rule 6
+// or the tower-delegable EXIT_K^t of rule 7, whose owner steps take an
+// authorisation from SignExitAuth in place of a transaction signature.
 // NewTreeState compiles TapTree from Options, so the two agree by
 // construction. A TreeState assembled by hand must keep them consistent:
 // Options has to describe the scripts in TapTree, or the builders will
@@ -207,9 +209,20 @@ type ExitStep struct {
 
 	// Fee is the part of the leaf's amount an owner exit leaves to the
 	// transaction (7.2 rule 3). BuildExit rejects a non-zero fee on an
-	// eviction and in a tree whose Options.Exact is set, since EXIT_K^=
-	// (7.2 rule 6) pays the whole leaf.
+	// eviction and in a tree whose Options.Exact or Options.Tower is set,
+	// since EXIT_K^= (7.2 rule 6) and EXIT_K^t (rule 7) pay the whole
+	// leaf.
 	Fee int64
+
+	// Auth is the owner's exit authorisation of spec 7.2 rule 7, a
+	// signature from SignExitAuth, for an owner exit in a tree whose
+	// Options.Tower is set: EXIT_K^t takes it in the signature slot in
+	// place of a transaction signature, so the step has no slot to sign
+	// and whoever holds the authorisation (a tower) builds the exit with
+	// its own fee input. BuildExit requires it for an owner exit in such a
+	// tree, rejects it elsewhere, and verifies it against the leaf's owner
+	// key before anything is built, as it does a voucher.
+	Auth []byte
 }
 
 // BuildExit builds EXIT_K for K = len(steps): step i removes its leaf and
@@ -241,16 +254,23 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 			return nil, nil, fmt.Errorf("txn: exit step %d: fee "+
 				"%d out of range", i+1, step.Fee)
 		}
-		if step.Fee != 0 && st.Options.Exact {
+		if step.Fee != 0 && (st.Options.Exact || st.Options.Tower) {
 			return nil, nil, fmt.Errorf("txn: exit step %d: the "+
 				"tree's EXIT_K^= scripts pay out exactly (spec 7.2 "+
 				"rule 6)", i+1)
 		}
 		keys[i] = leaf.OwnerKey
-		if step.Evict {
+		sig := sigPlaceholder()
+		switch {
+		case step.Evict:
 			if step.Fee != 0 {
 				return nil, nil, fmt.Errorf("txn: exit step "+
 					"%d: an eviction pays out exactly", i+1)
+			}
+			if step.Auth != nil {
+				return nil, nil, fmt.Errorf("txn: exit step %d: an "+
+					"eviction signs the transaction; it takes no "+
+					"authorisation", i+1)
 			}
 			err := checkEvictLockTime(lockTime, leaf.EvictAfter)
 			if err != nil {
@@ -258,9 +278,29 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 					i+1, err)
 			}
 			keys[i] = leaf.EvictorKey
+
+		case st.Options.Tower:
+			// EXIT_K^t (spec 7.2 rule 7): the owner branch takes the
+			// off-chain authorisation, so there is no slot to sign.
+			if step.Auth == nil {
+				return nil, nil, fmt.Errorf("txn: exit step %d: the "+
+					"tree's EXIT_K^t scripts take the owner's exit "+
+					"authorisation (spec 7.2 rule 7)", i+1)
+			}
+			msg := tree.ExitAuthMsg(st.Options.TreeID, leaf)
+			if err := VerifySchnorr(leaf.OwnerKey, msg[:], step.Auth); err != nil {
+				return nil, nil, fmt.Errorf("txn: exit step %d: "+
+					"authorisation: %w", i+1, err)
+			}
+			sig = step.Auth
+
+		case step.Auth != nil:
+			return nil, nil, fmt.Errorf("txn: exit step %d: an exit "+
+				"authorisation needs a tree created with EXIT_K^t "+
+				"(spec 7.2 rule 7)", i+1)
 		}
 		path := st.pathWitness(cur.Path(step.Pos, 0), 0)
-		blocks[i] = ExitBlock(path, leaf, sigPlaceholder(), step.Evict)
+		blocks[i] = ExitBlock(path, leaf, sig, step.Evict)
 		payouts[i] = Payout{
 			ExitKey: leaf.ExitKey,
 			Amount:  int64(leaf.Amount) - step.Fee,
@@ -269,7 +309,9 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 	}
 
 	// Block K is deepest, block 1 nearest the top (spec 8.3); each
-	// block's signature sits two elements from its end.
+	// block's signature sits two elements from its end. An owner step
+	// under EXIT_K^t carries its authorisation there already and has no
+	// slot.
 	var sigs []SigSlot
 	n := 0
 	for i := len(blocks) - 1; i >= 0; i-- {
@@ -277,6 +319,8 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 		role := "owner"
 		if steps[i].Evict {
 			role = "evictor"
+		} else if st.Options.Tower {
+			continue
 		}
 		sigs = append(sigs, SigSlot{
 			Index: n - 2, Key: keys[i],
@@ -506,6 +550,20 @@ func SignVoucherH(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf, paymentHash [32]byte) ([]byte, error) {
 
 	msg := tree.VoucherHMsg(treeID, source, claim, paymentHash)
+	return SignSchnorr(ownerKey, msg[:])
+}
+
+// SignExitAuth is the owner's exit authorisation for EXIT_K^t (spec 7.2
+// rule 7): a BIP-340 signature over H_exit(tree_id || leaf), treeID being
+// the tree's TreeState.Options.TreeID, the constant its EXIT_K^t scripts
+// were compiled with. It commits to no transaction, so it is made
+// off-chain, once, and handed to whoever will build the exit (a tower);
+// it stays valid against every later root of the lineage until the leaf
+// changes, which is how an owner voids it.
+func SignExitAuth(ownerKey *btcec.PrivateKey, treeID [32]byte,
+	leaf *tree.Leaf) ([]byte, error) {
+
+	msg := tree.ExitAuthMsg(treeID, leaf)
 	return SignSchnorr(ownerKey, msg[:])
 }
 

@@ -112,19 +112,14 @@ func ccvFinal(depth int) []Token {
 // (after the levels). The payout scriptPubKey check is the CCV DEDUCT
 // call; the amount comparison is exact (spec 7.2 rule 6; the tier's only
 // payout mode).
-func ccvExitBlock(sparse bool, depth, outIndex int) []Token {
-	s := []Token{
-		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // | ... is_evict
-		Op(ts.OP_IF),
-		Op(ts.OP_OVER), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
-		Op(ts.OP_CHECKLOCKTIMEVERIFY), Op(ts.OP_DROP),
-		Op(ts.OP_OVER), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
-		Op(ts.OP_ELSE),
-		Op(ts.OP_OVER), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
-		Op(ts.OP_ENDIF),
-		Op(ts.OP_CHECKSIGVERIFY), // leaf
-		Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
-	}
+func ccvExitBlock(sparse bool, depth, outIndex int, tower bool,
+	treeID [32]byte) []Token {
+
+	// The authorisation is FULL's (fullExitAuth); with tower set it is
+	// the EXIT_K^t one of spec 7.2 rule 7 over treeID, the tier's second
+	// OP_CHECKSIGFROMSTACK user after CLAIM.
+	s := fullExitAuth(tower, treeID) // leaf
+	s = append(s, Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY))
 	s = append(s, ccvPayoutFixed(outIndex)...)
 	s = append(s,
 		// amount comparison: OP_TX SelOutSingle pushes [amount, spk];
@@ -150,11 +145,24 @@ func ccvExitBlock(sparse bool, depth, outIndex int) []Token {
 // root and no m (spec 4.6); block_i = [dir sc]*D (dense) or [sc]*D
 // (sparse), then leaf_i sig_i is_evict_i.
 func CCVExitScript(depth, k int, sparse bool) []Token {
-	s := fullCat(ccvExitBlock(sparse, depth, 1), ccvCheckOld(sparse))
+	return ccvExitScript(depth, k, sparse, false, [32]byte{})
+}
+
+// CCVExitTowerScript is EXIT_K^t under the CCV tier (spec 7.2 rule 7):
+// EXIT_K whose owner branch takes the off-chain authorisation over
+// treeID, a constant of the script, in place of a transaction signature.
+// A tree-creation parameter that replaces EXIT_K (tools/layertree_ccv.py
+// exit_script_ccv tower=True).
+func CCVExitTowerScript(depth, k int, treeID [32]byte, sparse bool) []Token {
+	return ccvExitScript(depth, k, sparse, true, treeID)
+}
+
+func ccvExitScript(depth, k int, sparse, tower bool, treeID [32]byte) []Token {
+	s := fullCat(ccvExitBlock(sparse, depth, 1, tower, treeID), ccvCheckOld(sparse))
 	for i := 2; i <= k; i++ {
 		s = fullCat(s,
 			[]Token{Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), Op(ts.OP_TOALTSTACK), Op(ts.OP_DROP)},
-			ccvExitBlock(sparse, depth, i),
+			ccvExitBlock(sparse, depth, i, tower, treeID),
 			fullCheckPrevRootFromAlt(sparse),
 		)
 	}
@@ -495,19 +503,12 @@ func ccv0Pay(outIndex int) []Token {
 
 // ccv0ExitBlock is MID's exit block with the payout check replaced by
 // ccv0Pay (tools/layertree_ccv.py _exit_block_ccv0).
-func ccv0ExitBlock(sparse bool, depth, outIndex int) []Token {
-	s := []Token{
-		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), Op(ts.OP_IF),
-		Num(3), Op(ts.OP_PICK), Op(ts.OP_CHECKLOCKTIMEVERIFY), Op(ts.OP_DROP),
-		Num(10), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY),
-	}
-	s = append(s, midPadz()...)
-	s = append(s,
-		Num(6), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY),
-		Op(ts.OP_ELSE), Num(11), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY),
-		Op(ts.OP_2DROP), Op(ts.OP_DROP),
-		Op(ts.OP_ENDIF),
-	)
+func ccv0ExitBlock(sparse bool, depth, outIndex int, tower bool,
+	treeID [32]byte) []Token {
+
+	// MID's authorisation (midExitAuth); with tower set it is the
+	// EXIT_K^t one of spec 7.2 rule 7 over treeID.
+	s := midExitAuth(tower, treeID)
 	s = append(s, ccv0Pay(outIndex)...)
 	s = append(s, midLeafJoin()...)
 	s = append(s, midTagged(midLeafPrefix)...)
@@ -525,12 +526,23 @@ func ccv0ExitBlock(sparse bool, depth, outIndex int) []Token {
 // chained blocks bound by CHECK_INPUT and the assign-mode output check.
 // Witness: MID's minus r and m.
 func CCV0ExitScript(depth, k int, sparse bool) []Token {
-	s := ccv0ExitBlock(sparse, depth, 1)
+	return ccv0ExitScript(depth, k, sparse, false, [32]byte{})
+}
+
+// CCV0ExitTowerScript is EXIT_K^t under the CCV tier's 0xC0 numerics
+// (spec 7.2 rule 7), with MID's authorisation over treeID
+// (tools/layertree_ccv.py _exit_script_ccv0 tower=True).
+func CCV0ExitTowerScript(depth, k int, treeID [32]byte, sparse bool) []Token {
+	return ccv0ExitScript(depth, k, sparse, true, treeID)
+}
+
+func ccv0ExitScript(depth, k int, sparse, tower bool, treeID [32]byte) []Token {
+	s := ccv0ExitBlock(sparse, depth, 1, tower, treeID)
 	s = append(s, ccv0CheckOld(sparse)...)
 	for i := 2; i <= k; i++ {
 		s = append(s, Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), Op(ts.OP_TOALTSTACK),
 			Op(ts.OP_DROP))
-		s = append(s, ccv0ExitBlock(sparse, depth, i)...)
+		s = append(s, ccv0ExitBlock(sparse, depth, i, tower, treeID)...)
 		s = append(s, midCheckPrev(sparse)...)
 	}
 	return append(s, ccv0Final(depth)...)
@@ -662,8 +674,9 @@ func CCV0DetachScript(depth, height int, operatorKey [32]byte,
 // CCVTreeOptions are a CCV tree's creation parameters other than its depth
 // (spec 6.2, 4.6): the numerics (C0 for the MID encoding), the profile,
 // the operator key, tree_id, the JOIN heights, EXIT_K sizes, JOINK sizes
-// and sweep heights, and the variants a CCV taptree may carry: UPDATE^x in
-// place of UPDATE, CLAIM and CLAIM^h, SPLIT and DETACH_h. Scripts
+// and sweep heights, and the variants a CCV taptree may carry: the
+// tower-delegable exit EXIT_K^t (7.2 rule 7) in place of EXIT_K, UPDATE^x
+// in place of UPDATE, CLAIM and CLAIM^h, SPLIT and DETACH_h. Scripts
 // compiles the set for one depth, which is what the parent's taptree is
 // built from and what a DETACH_h child MUST be built from at depth h
 // (7.10 rule 3; tools/layertree_ccv.py CCVTreeOptions).
@@ -677,6 +690,7 @@ type CCVTreeOptions struct {
 	JoinKs       []int
 	EvictHeights []int
 
+	Tower         bool
 	UpdateX       bool
 	Claim         bool
 	ClaimH        bool
@@ -706,9 +720,9 @@ func (o CCVTreeOptions) Scripts(depth int) []FullNamedScript {
 	}
 	for _, k := range o.ExitKs {
 		if o.C0 {
-			add(itoa("EXIT_", k), CCV0ExitScript(depth, k, o.Sparse))
+			add(itoa("EXIT_", k), ccv0ExitScript(depth, k, o.Sparse, o.Tower, o.TreeID))
 		} else {
-			add(itoa("EXIT_", k), CCVExitScript(depth, k, o.Sparse))
+			add(itoa("EXIT_", k), ccvExitScript(depth, k, o.Sparse, o.Tower, o.TreeID))
 		}
 	}
 	heights := o.JoinHeights

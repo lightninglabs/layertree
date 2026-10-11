@@ -28,6 +28,11 @@ const (
 	// voucher, or replay a hash-locked one without the preimage.
 	TagVoucherH = "LayerTree/voucher-hashlock"
 
+	// TagExit tags the exit authorisation of EXIT_K^t (spec 7.2 rule 7).
+	// It is distinct from the voucher tags so that an authorisation can
+	// never be redeemed as a voucher nor a voucher spent as an exit.
+	TagExit = "LayerTree/exit"
+
 	// TagTreeID tags the RECOMMENDED tree_id derivation (spec 6.2).
 	TagTreeID = "LayerTree/tree-id"
 )
@@ -273,6 +278,15 @@ func VoucherHMsg(treeID [32]byte, source, claim *Leaf,
 
 	return TaggedHash(TagVoucherH, treeID[:], source.Serialize(),
 		claim.Serialize(), paymentHash[:])
+}
+
+// ExitAuthMsg is H_exit(tree_id || leaf), the message an owner signs to
+// authorise the exact-payout exit of its leaf under EXIT_K^t (spec 7.2
+// rule 7). It names the leaf and the lineage, not a transaction, so
+// whoever holds the signature (a tower) can build the exit against any
+// later root; it is void once the leaf changes, seq included.
+func ExitAuthMsg(treeID [32]byte, leaf *Leaf) [32]byte {
+	return TaggedHash(TagExit, treeID[:], leaf.Serialize())
 }
 
 // PathStep is one level of a sibling path.

@@ -42,6 +42,7 @@ var (
 	fullStatePrefix    = fullTagPrefix(tree.TagState)
 	fullVoucherPrefix  = fullTagPrefix(tree.TagVoucher)
 	fullVoucherHPrefix = fullTagPrefix(tree.TagVoucherH)
+	fullExitPrefix     = fullTagPrefix(tree.TagExit)
 	fullPosPrefix      = fullTagPrefix(tree.TagPos)
 	fullTapTweakPrefix = fullTagPrefix("TapTweak")
 
@@ -320,21 +321,67 @@ func fullFinalOutput(depth int) []Token {
 	)
 }
 
-// fullExitBlock is one exit:
-// [path] leaf sig is_evict | ... -> T oh os nh ns (after the levels).
-// exact is the EXIT_K^= variant (spec 7.2 rule 6): the payout must equal
-// leaf.amount for owner exits as well as evictions.
-func fullExitBlock(sparse bool, depth, outIndex int, exact bool) []Token {
+// fullTowerAuth is the owner branch of EXIT_K^t (spec 7.2 rule 7), shared
+// with the CCV tier's 0xC2 scripts: [leaf sig] -> [leaf], where sig MUST
+// be a BIP-340 signature by leaf.owner_key over H_exit(tree_id || leaf),
+// checked with OP_CHECKSIGFROMSTACK. The message names the leaf and the
+// lineage, not the transaction, so whoever holds the signature assembles
+// the exit against any later root; the covenant fixes everything else.
+// tree_id is a constant of the script, as in CLAIM
+// (tools/layertree_scripts.py tower_auth).
+func fullTowerAuth(treeID [32]byte) []Token {
+	s := []Token{
+		Op(ts.OP_OVER), Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // leaf sig (tree_id||leaf)
+	}
+	s = append(s, fullTagged(fullExitPrefix)...) // leaf sig msg
+	return append(s,
+		Num(2), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR), // leaf sig msg owner_key
+		Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // leaf
+	)
+}
+
+// fullExitAuth is the authorisation of one exit block:
+// [leaf sig is_evict] -> [leaf]. The eviction branch checks a transaction
+// signature by evictor_key under the lock time; the owner branch checks a
+// transaction signature by owner_key or, with tower set (EXIT_K^t, spec
+// 7.2 rule 7), the off-chain authorisation of fullTowerAuth. The plain
+// form is byte for byte the one every tier shipped before 0.12.1
+// (tools/layertree_scripts.py exit_auth).
+func fullExitAuth(tower bool, treeID [32]byte) []Token {
 	s := []Token{
 		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // | ... is_evict
 		Op(ts.OP_IF),
 		Op(ts.OP_OVER), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
 		Op(ts.OP_CHECKLOCKTIMEVERIFY), Op(ts.OP_DROP),
 		Op(ts.OP_OVER), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
+	}
+	if tower {
+		s = append(s, Op(ts.OP_CHECKSIGVERIFY), Op(ts.OP_ELSE)) // leaf
+		s = append(s, fullTowerAuth(treeID)...)
+		return append(s, Op(ts.OP_ENDIF)) // leaf
+	}
+	return append(s,
 		Op(ts.OP_ELSE),
 		Op(ts.OP_OVER), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
 		Op(ts.OP_ENDIF),
 		Op(ts.OP_CHECKSIGVERIFY), // leaf
+	)
+}
+
+// fullExitBlock is one exit:
+// [path] leaf sig is_evict | ... -> T oh os nh ns (after the levels).
+// exact is the EXIT_K^= variant (spec 7.2 rule 6): the payout must equal
+// leaf.amount for owner exits as well as evictions. tower is EXIT_K^t
+// (7.2 rule 7): the owner branch takes the off-chain authorisation over
+// treeID, and the payout is exact (the variant implies it).
+func fullExitBlock(sparse bool, depth, outIndex int, exact, tower bool,
+	treeID [32]byte) []Token {
+
+	if tower {
+		exact = true
+	}
+	s := fullExitAuth(tower, treeID) // leaf
+	s = append(s,
 		Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY),
 		Num(int64(outIndex)), Num(SelOutSingle), Op(OP_TX), // leaf out_amt out_spk
 		Data(fullP2TRPrefix), Num(3), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32),
@@ -342,7 +389,7 @@ func fullExitBlock(sparse bool, depth, outIndex int, exact bool) []Token {
 		Op(ts.OP_EQUALVERIFY),               // leaf out_amt
 		Op(ts.OP_OVER), Num(8), Op(OP_LEFT), // leaf out_amt leaf_amt
 		Op(ts.OP_FROMALTSTACK), // ... is_evict
-	}
+	)
 	if exact {
 		s = append(s, Op(ts.OP_DROP), Op(ts.OP_NUMEQUALVERIFY)) // exact for both
 	} else {
@@ -370,7 +417,7 @@ func fullExitBlock(sparse bool, depth, outIndex int, exact bool) []Token {
 // block_i = [dir sc]*D (dense) or [sc]*D (sparse), then leaf_i sig_i
 // is_evict_i.
 func FullExitScript(depth, k int, sparse bool) []Token {
-	return fullExitScript(depth, k, sparse, false)
+	return fullExitScript(depth, k, sparse, false, false, [32]byte{})
 }
 
 // FullExitExactScript is EXIT_K^=, the exact-payout variant of EXIT_K
@@ -379,13 +426,28 @@ func FullExitScript(depth, k int, sparse bool) []Token {
 // (Appendix C.6.1) and is a tree-creation parameter
 // (tools/layertree_scripts.py exit_script exact=True).
 func FullExitExactScript(depth, k int, sparse bool) []Token {
-	return fullExitScript(depth, k, sparse, true)
+	return fullExitScript(depth, k, sparse, true, false, [32]byte{})
 }
 
-func fullExitScript(depth, k int, sparse, exact bool) []Token {
+// FullExitTowerScript is EXIT_K^t, the tower-delegable exit (spec 7.2
+// rule 7): the exact-payout exit whose owner branch takes a BIP-340
+// signature over H_exit(tree_id || leaf), checked with
+// OP_CHECKSIGFROMSTACK, in place of a transaction signature. One
+// authorisation per block, so anyone holding K of them assembles the
+// transaction; the evict branch is unchanged. treeID is the tree's
+// tree_id of 6.2, a constant of the script as in CLAIM. It replaces
+// EXIT_K and is a tree-creation parameter (tools/layertree_scripts.py
+// exit_script tower=True).
+func FullExitTowerScript(depth, k int, treeID [32]byte, sparse bool) []Token {
+	return fullExitScript(depth, k, sparse, true, true, treeID)
+}
+
+func fullExitScript(depth, k int, sparse, exact, tower bool,
+	treeID [32]byte) []Token {
+
 	s := fullCat(
 		fullPrologue(),
-		fullExitBlock(sparse, depth, 1, exact),
+		fullExitBlock(sparse, depth, 1, exact, tower, treeID),
 		fullCheckOldRootFromAlt(sparse), // T nh ns | m
 	)
 	for i := 2; i <= k; i++ {
@@ -394,7 +456,7 @@ func fullExitScript(depth, k int, sparse, exact bool) []Token {
 				Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), Op(ts.OP_TOALTSTACK),
 				Op(ts.OP_DROP), // | m nh ns
 			},
-			fullExitBlock(sparse, depth, i, exact),
+			fullExitBlock(sparse, depth, i, exact, tower, treeID),
 			fullCheckPrevRootFromAlt(sparse),
 		)
 	}
@@ -1017,7 +1079,9 @@ func FullRewriteScript(depth, height int, operatorKey [32]byte,
 // FullTreeOptions are a tree's creation parameters other than its depth
 // (spec 6.2): the profile, operator key, tree_id, the JOIN heights, EXIT_K
 // sizes and JOINK sizes, and the variants a taptree may carry (7.6): exact
-// payouts (7.2 rule 6, in place of EXIT_K), UPDATE^x (7.4 rule 5, in place
+// payouts (7.2 rule 6, in place of EXIT_K), the tower-delegable exit
+// EXIT_K^t (7.2 rule 7, in place of EXIT_K; it implies exact payouts),
+// UPDATE^x (7.4 rule 5, in place
 // of UPDATE), the four CLAIM forms, SPLIT, EVICT_SUBTREE_h, REWRITE_h and
 // its ^x form, and DETACH_h. Scripts compiles the set for one depth, which
 // is what the parent's taptree is built from and what a DETACH_h child
@@ -1032,6 +1096,7 @@ type FullTreeOptions struct {
 	JoinKs      []int
 
 	Exact          bool
+	Tower          bool
 	UpdateX        bool
 	Claim          bool
 	ClaimH         bool
@@ -1073,7 +1138,8 @@ func (o FullTreeOptions) Scripts(depth int) []FullNamedScript {
 		out = append(out, FullNamedScript{Name: name, Tokens: toks})
 	}
 	for _, k := range o.ExitKs {
-		add(fmt.Sprintf("EXIT_%d", k), fullExitScript(depth, k, o.Sparse, o.Exact))
+		add(fmt.Sprintf("EXIT_%d", k),
+			fullExitScript(depth, k, o.Sparse, o.Exact || o.Tower, o.Tower, o.TreeID))
 	}
 	heights := o.JoinHeights
 	if o.Sparse {

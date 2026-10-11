@@ -104,6 +104,11 @@ func fullScriptFor(profile string, depth int, name string,
 			return nil, err
 		}
 		return FullExitExactScript(depth, n, sparse), nil
+	case strings.HasSuffix(name, "_TOWER"):
+		if _, err := fmt.Sscanf(name, "EXIT_%d_TOWER", &n); err != nil {
+			return nil, err
+		}
+		return FullExitTowerScript(depth, n, treeID, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err
@@ -528,6 +533,29 @@ func TestFullTreeOptions(t *testing.T) {
 	fullCheckScript(t, g, "FULL/D/D4/EXIT_1_EXACT", FullExitExactScript(4, 1, false))
 	fullCheckScript(t, g, "FULL/D/D4/DETACH_2_HOST",
 		FullDetachScript(4, 2, key, FullDetachedTaptreeRoot(2, fullHostOptions(key, treeID))))
+
+	// EXIT_K^t (7.2 rule 7): the golden keys in both profiles, and the
+	// option that compiles it in EXIT_K's place, implies exact payouts and
+	// is kept by a detached child (7.10 rule 3).
+	fullCheckScript(t, g, "FULL/D/D4/EXIT_1_TOWER", FullExitTowerScript(4, 1, treeID, false))
+	fullCheckScript(t, g, "FULL/D/D4/EXIT_2_TOWER", FullExitTowerScript(4, 2, treeID, false))
+	fullCheckScript(t, g, "FULL/S/D8/EXIT_1_TOWER", FullExitTowerScript(8, 1, treeID, true))
+	tower := FullReferenceOptions(key, treeID)
+	tower.Tower = true
+	for _, depth := range []int{4, 2} {
+		for i, k := range []int{1, 2} {
+			s := tower.Scripts(depth)[i]
+			if s.Name != fmt.Sprintf("EXIT_%d", k) {
+				t.Fatalf("tower set leaf %d is %s", i, s.Name)
+			}
+			if string(MustAssemble(s.Tokens, ModeC2)) != string(MustAssemble(FullExitTowerScript(depth, k, treeID, false), ModeC2)) {
+				t.Fatalf("depth %d: the tower options do not compile EXIT_%d^t", depth, k)
+			}
+		}
+	}
+	if tower.TapTreeRoot(4) == FullReferenceOptions(key, treeID).TapTreeRoot(4) {
+		t.Fatal("the tower options compile to the reference m")
+	}
 
 	host := fullHostOptions(key, treeID)
 	if host.TapTreeRoot(2) == FullReferenceOptions(key, treeID).TapTreeRoot(2) {

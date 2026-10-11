@@ -151,6 +151,17 @@ func TestMidUpdateX(t *testing.T) {
 	midCheckScript(t, g, "MID/S/D8/UPDATE_X", MidUpdateXScript(8, key, true))
 }
 
+// TestMidExitTower checks EXIT_K^t (spec 7.2 rule 7) in both profiles
+// against its golden keys, built over the golden tree_id. Like UPDATE^x it
+// is a tree-creation parameter that replaces EXIT_K, so it stays out of
+// MidAllScripts.
+func TestMidExitTower(t *testing.T) {
+	g, _ := midLoadGolden(t)
+	treeID := midGoldenTreeID(t)
+	midCheckScript(t, g, "MID/D/D4/EXIT_1_TOWER", MidExitTowerScript(4, 1, treeID, false))
+	midCheckScript(t, g, "MID/S/D8/EXIT_1_TOWER", MidExitTowerScript(8, 1, treeID, true))
+}
+
 // TestMidClaimH checks the hash-locked voucher variant CLAIM^h (spec 7.5.1)
 // in both profiles. Like UPDATE^x it is not part of MidAllScripts: a tree is
 // created with either CLAIM or CLAIM^h, so it stays out of the taptree.
