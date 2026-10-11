@@ -119,8 +119,8 @@ removal & leaves & tx & per leaf & addition or change & leaves & tx & per leaf \
 
 \paragraph{Batching and joins.} A second exit in the same transaction
 adds $665\vB$ (its marginal weight rounded up on its own, one more than
-$1{,}684 - 1{,}020$). Owners leaving together by \tr{REWRITE}$_6$ pay
-what the operator pays to sweep them (Table~\ref{tab:batch}). A graft
+$1{,}684 - 1{,}020$), against $158$ to $161\vB$ per leaf for a sweep or
+a rewrite (Table~\ref{tab:batch}). A graft
 costs the operator under $3\vB$ per member, so a self-funded member's own
 input dominates its entry. Off-chain, a member follows every spend of the
 tree output (about 1\,kB of witness each), and the operator stores the

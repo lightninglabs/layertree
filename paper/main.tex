@@ -222,14 +222,14 @@ means publishing everything. Payment-pool opcode proposals
 \op{MERKLESUB}~\cite{coinpool}, \op{EVICT}~\cite{opevict}) target
 one-transaction withdrawal instead, with purpose-built opcodes.
 
-This paper takes a different route. The tree stays off-chain and is a
+LayerTree takes a different route. The tree stays off-chain and is a
 tree of \emph{data}: a binary Merkle-sum tree of balances whose root one
 output commits to. A member exits by presenting its leaf and sibling path
 to the output itself; the script recomputes the root from the proof,
 checks it against the commitment, recomputes it with the leaf removed,
 and requires the transaction to recreate the output under the new root
 with the leaf's amount paid out. The member needs nobody's signature,
-and only the proof grows with the tree's depth. The same covenant lets the operator evict members whose lease has expired,
+and a deeper tree adds bytes to the exit, not transactions. The same covenant lets the operator evict members whose lease has expired,
 graft a pre-built subtree of new members in one step, and sweep an
 expired cohort cheaply.
 
@@ -297,9 +297,9 @@ This full version is built around $\Ftree$: it carries the UC proof
 the Lean statements inline, sections on costs against the alternatives
 (\S\ref{sec:cost}), profiles and radix (\S\ref{sec:profiles}), batch
 shapes (\S\ref{sec:batching}), grafting (\S\ref{sec:graft}) and
-receiving over Lightning (\S\ref{sec:receive}), and, as appendices, the
-Lean development (\ref{app:lean}) and the script listings
-(\ref{app:listings}).
+receiving over Lightning (\S\ref{sec:receive}), and the Lean
+development and script listings (Appendices~\ref{app:lean}
+and~\ref{app:listings}).
 \fi
 
 \section{Background}\label{sec:background}
