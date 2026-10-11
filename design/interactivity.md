@@ -38,9 +38,12 @@ needs the member for nothing; a voucher holder redeeming needs neither
 the issuer nor the operator. Zero synchronous steps. The only liveness
 these demand is the actor's own, and 10.5's rule that an exit must be
 rebuilt if a competing spend confirms first: the owner's signature
-commits to the tree outpoint, which every transition changes, so an exit
-cannot be pre-signed and left with a tower (the paper's P8 proposes an
-authorisation that could be; it is not built).
+commits to the tree outpoint, which every transition changes, so a plain
+exit cannot be pre-signed and left with a tower. A tree created with
+`EXIT_K^t` (spec 7.2 rule 7, the paper's P8) changes that: the owner
+signs `(tree_id, leaf)` once, off-chain, and whoever holds the signature
+builds the exact-payout exit against whatever root is current, and
+rebuilds it when outbid, with the owner offline.
 
 **Two parties, one exchange.** `UPDATE` (and `UPDATE^x`) carries two
 plain Schnorr signatures over the same transaction, the owner's and the
@@ -106,6 +109,7 @@ exchange of its own, and the operator's `JOIN` signature follows once.
 | Operation | Who signs | Synchronous steps | Who must be online at the same time | If a party is away |
 |---|---|---|---|---|
 | `EXIT_K` | the owner (each owner, for `K > 1`) | 0 (one exchange among the `K` owners for a joint exit) | the exiter | nothing changes; the leaf waits |
+| `EXIT_K^t` (7.2 rule 7) | the owner, once, in advance (one off-chain signature per leaf) | 0 | nobody; the holder of the authorisation builds, and anyone may assemble `K` of them | a tower exits and rebuilds for the owner; the owner voids a stale authorisation by changing the leaf |
 | Eviction by `EXIT` | the evictor | 0 | the evictor, after the lease | the member is paid in full without acting |
 | `EVICT_SUBTREE_h` | the operator | 0 | the operator, after every lease in the cohort | members are paid in full; one unexpired lease delays the sweep (9.4) |
 | `DETACH_h` | the operator | 0 | the operator | members need no new data; their old path cut to `h` levels is their proof |
@@ -187,7 +191,7 @@ exit's own confirmation time (C.4.4).
 | | LayerTree leaf | LayerTree channel leaf | Lightning channel | Ark VTXO |
 |---|---|---|---|---|
 | To receive | online for nothing; a voucher arrives as one message | online for the HTLC | online for the HTLC | online for the round, or trust the server's out-of-round payment until the next round |
-| To exit | online once, to build and sign | online once to exit, then the pre-signed update chain, a tower can finish | a tower can publish the commitment | online before the round expires, then `O(log N)` transactions |
+| To exit | online once, to build and sign; under `EXIT_K^t` online once to sign in advance, a tower builds and rebuilds | online once to exit, then the pre-signed update chain, a tower can finish; under `EXIT_K^t` the tower can also start it | a tower can publish the commitment | online before the round expires, then `O(log N)` transactions |
 | Before an expiry | nothing; the lease ends with the member paid | nothing | nothing | refresh every round or lose the funds to the server |
 | For other members' operations | never | never | n/a | in every round that includes you |
 
@@ -260,11 +264,13 @@ subtree and would give Ark-style round updates for a whole cohort; they
 would also make every cohort update an interactive nonce round among the
 cohort, and they are deliberately out of the base protocol. Adaptor
 signatures for swaps and channels are an off-chain concern of Appendix C
-and `notes.md`, not of the tree. The pre-signable exit (P8) and a
-relative lock on value-neutral transitions (P1c) are open proposals
-from the paper's reviews; the first would move the exit from "online
-once" to "a tower can do it", and it is the one change on this page that
-would alter a row of the lifetime table.
+and `notes.md`, not of the tree. The pre-signable exit (P8) was a
+proposal from the paper's reviews; it landed as `EXIT_K^t` (spec 7.2
+rule 7, 0.12.1) and moved the exit from "online once" to "a tower can do
+it", the one change on this page that altered a row of the lifetime
+table. A relative lock on value-neutral transitions (P1c) was declined:
+the first adversarial spend per block already invalidates an honest exit,
+so the lock would remove nothing and cost throughput.
 
 ## Pointers
 

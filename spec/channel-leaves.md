@@ -3,8 +3,8 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.5.0
-Requires: spec/layertree.md 0.11.0, FULL or MID tier (section C.7)
+Version:  0.5.1
+Requires: spec/layertree.md 0.12.1, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
 
@@ -926,6 +926,20 @@ funding output, so it costs the user only the off-chain position and the fee
 of its own update chain, and it costs the operator an on-chain fee and the
 loss of a customer.
 
+The same reading bounds the tower-delegable exit of 7.2 rule 7. In a tree
+created with `EXIT_K^t` the owner's exit authorisation is a bearer right to
+publish the leaf's exact-payout exit, so the owner of a channel leaf whose
+`evict_after` is in the future MUST NOT give it to the counterparty: the
+counterparty could then force the funding output on-chain before the lease
+ends, which is exactly what `evict_after` denies it, and could do so at
+any later root since the authorisation names no transaction. For a
+routing leaf with `evict_after = 0` the counterparty already evicts at
+will, so handing it the authorisation grants nothing new (an eviction and
+an owner exit pay the same output). The owner SHOULD give the
+authorisation only to the tower that holds its latest state (C.9.3), and
+MUST void it by changing the leaf (an `UPDATE`) if it wants to stay after
+an exit built on it has been published, as 7.2 rule 7 requires.
+
 ### C.6.5 `seq`: channel leaves MUST NOT be voucher-claimable
 
 A `CLAIM` (7.5) against a leaf is authorised by a signature of
@@ -1114,6 +1128,20 @@ It is updated with one constant-size message per state and needs to keep only
 the latest. It cannot steal: the transactions it holds pay the same outputs
 whoever broadcasts them. A tower SHOULD also be given a fee policy and a
 funded UTXO, since C.5.5 makes anchor children mandatory.
+
+In a tree created with `EXIT_K^t` (7.2 rule 7) the same tower MAY also
+hold the leaf's exit authorisation, the owner's signature over
+`H_exit(tree_id || leaf)`, together with the leaf, its sibling path and
+the tree's `m`. The tower can then start a unilateral close with the owner
+offline, not only finish one: it builds the exact-payout exit from its
+funded UTXO, rebuilds it against the new root if a competing spend
+confirms first (9.7), and follows with `update_n` and `settle_n` on the
+funding output the exit creates. The authorisation is a bearer exit
+right (7.2 rule 7), so it SHOULD go to this tower and nobody else, and
+never to the counterparty of a leased leaf (C.6.4); it is void after a
+splice or lease renewal (`UPDATE` changes the leaf), so the owner hands
+the tower a fresh one with each new `(update_n, settle_n)` that follows
+one.
 
 ### C.9.4 Eviction griefing
 

@@ -231,6 +231,14 @@ structure ExitBlock (H : Type) where
   path : List (Bool × Node H)
   payout : Payout
   isEvict : Bool
+  /-- The block's authorisation, abstract here. For an owner exit it is
+  either a signature by `leaf.owner_key` over the transaction (7.2 rule 3)
+  or, in the tower-delegable variant `EXIT_K^t` (7.2 rule 7), a signature
+  by the same key over `H_exit(tree_id || leaf)`, which names the leaf and
+  the lineage but no transaction; for an eviction it is the evictor's
+  transaction signature under the lock time (rule 4). The conservation and
+  payout theorems below hold for both forms, since neither says anything
+  about what the authorisation signs. -/
   authorised : Prop
 
 /-- The step an exit block performs: the leaf becomes `E_0`. -/

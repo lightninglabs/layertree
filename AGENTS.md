@@ -211,10 +211,10 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (1,069 checks)
-python3 tools/test_mid.py          # MID tier (413 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (1,154 checks)
+python3 tools/test_mid.py          # MID tier (466 checks)
 python3 tools/test_min.py          # MIN tier (55 checks)
-python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (1,160 checks)
+python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (1,344 checks)
 python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (220 checks)
 python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (61 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
