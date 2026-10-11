@@ -317,9 +317,13 @@ func ccvOptions(opKey, treeID [32]byte, c0, sparse, tower bool,
 	return o
 }
 
-// opKey and treeID are the world's operator key and tree_id, as the
-// builders read them off the option set.
-func (w *world) opKey() [32]byte  { return w.r.operatorKey }
+// opKey is the world's operator key, the evictor the suite's leaves name.
+// It is the option set's OPERATOR_KEY in every tier but MIN, whose option
+// set has none: the MIN scripts check the evictor key out of the leaf.
+func (w *world) opKey() [32]byte { return xonly(w.op) }
+
+// treeID is the world's tree_id, as the builders read it off the option
+// set.
 func (w *world) treeID() [32]byte { return w.r.treeID }
 
 // fixNonce grinds a leaf's nonce, in a 0xC0 sparse world, until its pos_lo
@@ -1053,7 +1057,7 @@ func tierProfiles(tier Tier) []profile {
 }
 
 // coveredTiers are the tiers the end-to-end suite runs.
-var coveredTiers = []Tier{Full, Mid}
+var coveredTiers = []Tier{Full, Mid, Min}
 
 // allCases is every transition of every covered tier at every depth and
 // profile.

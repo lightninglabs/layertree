@@ -140,4 +140,12 @@ var pythonSighash = map[string]string{
 	"MID/S/D31/SPLIT":                "d35048a2ea6f7bb54466d1bec6b8bd908780370a43dc5ca17db935879cc96cca",
 	"MID/S/D31/UPDATE":               "e38b286b1f789cfbb5aa61709f7784e0b1305795bf0194fed90c9eabf23ae510",
 	"MID/S/D31/UPDATE_X":             "602a5ef3390282791340025b40f8e852588b8c9228c9fff55e7f4f9a7dbe6e43",
+	"MIN/D/D16/EXIT_1 evict":         "81ae7baac944c81029aff2cb59f59315ace98ccfdc213c7e107099de66577e2e",
+	"MIN/D/D16/EXIT_1 owner":         "d91d3ccef2606e9de8357791583af977dbfd6c6721bfb1a897557d1502b5f57a",
+	"MIN/D/D16/SPLIT":                "7faa99289b4b05eda5d69568d0dac84f22cdd65a2e1a2b0b8aefa6dce16cae30",
+	"MIN/D/D16/SPLIT drain":          "e96c72036db20feeb4a3ed5ee61f9067c8ec4377232410bd482ee08cf3eb23c7",
+	"MIN/D/D4/EXIT_1 evict":          "3c4786a464cc96738d9b1b391f4386109b7151a1847fea45c3fc65b272b2d4d2",
+	"MIN/D/D4/EXIT_1 owner":          "a5f14da640566da6281a00b43e16a35538b5cc9f3e3fcddf7c4432e023456752",
+	"MIN/D/D4/SPLIT":                 "7e453b1b154348ddec388e3c0b34b93652a73e3ddd3f8f13b4f7dc583f07df08",
+	"MIN/D/D4/SPLIT drain":           "eacb61e240de327b75e06c72ff37c863ea72c03d27c15fcc49b4a5114e1a7996",
 }
