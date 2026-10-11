@@ -61,6 +61,9 @@ with open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w") as f:
 with open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w") as f:
     f.write(listing(f"CLAIM_X (exit-key consent, dense, D={D})",
                     ls.claim_script(D, TREE_ID, "D", exit_consent=True)))
+with open(os.path.join(OUT, f"EXIT_1_TOWER_D{D}.txt"), "w") as f:
+    f.write(listing(f"EXIT_1_TOWER (tower-delegable exit, dense, D={D})",
+                    ls.exit_script(D, 1, "D", tower=True, tree_id=TREE_ID)))
 with open(os.path.join(OUT, "LEVEL.txt"), "w") as f:
     f.write(listing("LEVEL (dense): one merkle-sum level, both accumulators", ls.level_dense()))
     f.write("\n")
@@ -88,6 +91,9 @@ for prof, d in (("D", 16), ("S", 32)):
     for hl, name in ((False, "CLAIM_X"), (True, "CLAIM_HX")):
         it, sl, wl = test_scripts.test_claim_x(d, prof, hashlock=hl, verbose=False)
         rows.append((prof, d, name, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+for prof, d in (("D", 16), ("S", 32)):
+    it, sl, wl = test_scripts.test_exit_tower(d, prof, verbose=False)
+    rows.append((prof, d, "EXIT_1_TOWER", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 ls.COMPRESSION["S"] = "bitmap"
 for d in (32, 64):
     costs, w = test_scripts.test_all(d, "S", verbose=False)
@@ -146,6 +152,10 @@ for d, sparse in ((16, False), (31, True)):
     it, sl, wl = test_mid.test_split(d, sparse, verbose=False)
     rows.append(("MID/" + ("S" if sparse else "D"), d, "SPLIT", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for d, sparse in ((16, False), (31, True)):
+    it, sl, wl = test_mid.test_exit_tower(d, sparse, verbose=False)
+    rows.append(("MID/" + ("S" if sparse else "D"), d, "EXIT_1_TOWER", sl, wl, 129,
+                 sl + wl + 129, "n/a (0xC0)", it.sigchecks))
 for h, full in ((2, False), (4, False), (6, False), (5, True)):
     it, script, wit = test_mid.test_evict_subtree(16, h, verbose=False, full=full)
     n = 1 << h
@@ -181,6 +191,9 @@ with open(os.path.join(OUT, "MID_CLAIM_H_D4.txt"), "w") as f:
 with open(os.path.join(OUT, "MID_SPLIT_D4.txt"), "w") as f:
     f.write(listing("SPLIT (MID tier, owner-authorised carve, dense, D=4)",
                     LM.split_script(4, False)))
+with open(os.path.join(OUT, "MID_EXIT_1_TOWER_D4.txt"), "w") as f:
+    f.write(listing("EXIT_1_TOWER (MID tier, tower-delegable exit, dense, D=4)",
+                    LM.exit_script(4, 1, False, tower=True, tree_id=TREE_ID)))
 with open(os.path.join(OUT, "MIN_EXIT_1_D4.txt"), "w") as f:
     f.write(listing("EXIT_1 (MIN tier, dense, D=4)", LN.exit_script(4)))
 with open(os.path.join(OUT, "MIN_SPLIT_D4.txt"), "w") as f:
@@ -224,6 +237,16 @@ for numeric in ("c2", "c0"):
     it, sl, wl = test_ccv.test_detach_ccv(16, 8, numeric)
     rows.append(("CCV/D" if numeric == "c2" else "CCV-c0/D", 16, "DETACH_8", sl, wl, 129, sl + wl + 129,
                  it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31, "S", "c0")):
+    it, sl, wl = test_ccv.test_exit_tower_ccv(d, prof, numeric)
+    rows.append((("CCV/" if numeric == "c2" else "CCV-c0/") + prof, d, "EXIT_1_TOWER", sl, wl, 129, sl + wl + 129,
+                 it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+with open(os.path.join(OUT, "CCV_EXIT_1_TOWER_D4.txt"), "w") as f:
+    f.write(listing("EXIT_1_TOWER (CCV tier, tower-delegable exit, dense, D=4)",
+                    CV.exit_script_ccv(4, 1, "D", tower=True, tree_id=TREE_ID)))
+with open(os.path.join(OUT, "CCV0_EXIT_1_TOWER_D4.txt"), "w") as f:
+    f.write(listing("EXIT_1_TOWER (CCV tier, 0xC0 numerics, tower-delegable exit, dense, D=4)",
+                    CV._exit_script_ccv0(4, 1, False, tower=True, tree_id=TREE_ID)))
 with open(os.path.join(OUT, "CCV_DETACH_2_D8.txt"), "w") as f:
     f.write(listing("DETACH_2 (CCV tier, dense, D=8): detach a 4-position subtree into its own tree output",
                     CV.detach_script_ccv(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2"))))

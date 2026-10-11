@@ -159,12 +159,13 @@ func suiteOptions(opKey, treeID [32]byte, sparse bool) script.FullTreeOptions {
 
 // newExactWorld is newWorld for a tree created with exact payouts (spec 7.2
 // rule 6): the same keys and members, compiled through NewTreeState with
-// Exact set, so the exits are EXIT_K^=.
-func newExactWorld(t *testing.T, depth int, sparse bool) *world {
+// Exact set, so the exits are EXIT_K^=. With tower set the tree is created
+// with EXIT_K^t instead (rule 7), which implies exact payouts.
+func newExactWorld(t *testing.T, depth int, sparse, tower bool) *world {
 	t.Helper()
 	op := sk("operator")
 	opts := suiteOptions(xonly(op), suiteTreeID(), sparse)
-	opts.Exact = true
+	opts.Exact, opts.Tower = true, tower
 	st, err := NewTreeState(tree.New(depth), opts, prevOutPoint(0))
 	if err != nil {
 		t.Fatalf("NewTreeState: %v", err)
@@ -271,15 +272,16 @@ type txCase struct {
 	depth    int
 	sparse   bool
 	exact    bool
+	tower    bool
 	variants []string
 	build    func(w *world) (*Spend, *tree.Tree, error)
 }
 
 // world returns the case's world: the suite's reference taptree, or the
-// exact-payout one compiled through NewTreeState.
+// exact-payout or tower-delegable one compiled through NewTreeState.
 func (c *txCase) world(t *testing.T) *world {
-	if c.exact {
-		return newExactWorld(t, c.depth, c.sparse)
+	if c.exact || c.tower {
+		return newExactWorld(t, c.depth, c.sparse, c.tower)
 	}
 	return newWorld(t, c.depth, c.sparse, c.variants...)
 }
@@ -314,6 +316,26 @@ func exitCases(depth int, sparse bool) []txCase {
 			_, _, _, _, sBob, _ := w.base()
 			return BuildExit(w.st, []ExitStep{{Pos: sBob}},
 				&TxOpts{Inputs: w.fee(5_000)})
+		},
+	}, {
+		// A tower's exit under EXIT_1^t (spec 7.2 rule 7): the owner
+		// signed the authorisation off-chain, before the transaction
+		// existed; the tower builds the exit with its own fee input and
+		// signs nothing on the tree input.
+		name: "EXIT_1 tower", depth: depth, sparse: sparse, tower: true,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			_, bob, _, _, sBob, _ := w.base()
+			auth, err := SignExitAuth(sk("bob-owner"), w.st.Options.TreeID, bob)
+			if err != nil {
+				return nil, nil, err
+			}
+			spend, next, err := BuildExit(w.st, []ExitStep{{Pos: sBob, Auth: auth}},
+				&TxOpts{Inputs: w.fee(5_000)})
+			if err == nil && len(spend.Sigs) != 0 {
+				return nil, nil, fmt.Errorf("a tower exit has %d "+
+					"signature slots, want none", len(spend.Sigs))
+			}
+			return spend, next, err
 		},
 	}, {
 		name: "EXIT_1 evict", depth: depth, sparse: sparse,
@@ -598,6 +620,7 @@ var pythonSighash = map[string]string{
 	"FULL/D/D16/EVICT_SUBTREE_4":    "f82b9245bb52c87d6956fab817a52e3f1e26502f579d9aec7fc86c1a65e02137",
 	"FULL/D/D16/EXIT_1 evict":       "29d028b4580f662f56ff5fe46645eff034a77df9f577ee4617e498bdca350c8b",
 	"FULL/D/D16/EXIT_1 exact":       "e45b6b2e4ede704658e5bbd66b451855e6b030b846e49dc75a8c6d6afcd2f3f6",
+	"FULL/D/D16/EXIT_1 tower":       "c5d4487347bb374e4f8e8125d4b06089c1b0cd77690a47da9fd39684a15e386a",
 	"FULL/D/D16/EXIT_1 owner":       "f42dbba5a5f59d300b7405014e59fd3802270c429a4aa3b35126f3810fdcfba4",
 	"FULL/D/D16/EXIT_1 terminal":    "60d208a09f18ec2b1e5161ee3b70f452b2173370e7c5b6766b1df88437dce826",
 	"FULL/D/D16/EXIT_2 owner+evict": "14f39cc331096a30cc23d77b20ab4059c54d4d687583db3832d204f4a011505f",
@@ -614,6 +637,7 @@ var pythonSighash = map[string]string{
 	"FULL/D/D4/EVICT_SUBTREE_4":     "c5ea2fe56ec4745af217858b7fa48cc70d0894ff512d24b85d3c68f8e9e4cb52",
 	"FULL/D/D4/EXIT_1 evict":        "8f4fa7815ec3f20de47d04b036b236fc925dd74a58864c3c0772f14df54edfca",
 	"FULL/D/D4/EXIT_1 exact":        "62394321c20cc8bf28f81a8b2c91c5e13e0fdb85c06bdc9fc2f65a48cc7bf35f",
+	"FULL/D/D4/EXIT_1 tower":        "49fd5d6df32d83d3688bd4a8442bd8d561501a91aabf43e481934034a831749c",
 	"FULL/D/D4/EXIT_1 owner":        "2da79fd6c9fa2a7da03b091e4c3d2f62655fae5beb6bf08a7b1bfea92db446e9",
 	"FULL/D/D4/EXIT_1 terminal":     "5b0d36c4beab9386a7bac57041a362fa1dc6663b48bb3d7dc71f1152ef9213ff",
 	"FULL/D/D4/EXIT_2 owner+evict":  "73f44f06344f483e3f368529d357518f504fca1bb50b1247602c92cff3c3072b",
@@ -628,6 +652,7 @@ var pythonSighash = map[string]string{
 	"FULL/S/D8/CLAIM_H":             "69f5d4708e4a1962cb959a4d9fe21f668d6e381f52fa5200816786bb8cb027b9",
 	"FULL/S/D8/EXIT_1 evict":        "590c70f75a01deba293abf21334501670adfb0de838219c29b540998e77d3b27",
 	"FULL/S/D8/EXIT_1 exact":        "a226b12d5c108f6c1cc07e1ebe3e9972a1f6ce95b9bf9d73149d4ac842104b9c",
+	"FULL/S/D8/EXIT_1 tower":        "30b9453cc43253a14577079e7e3a55115acb4f75638e0520c8ce2b97f1f3dcf4",
 	"FULL/S/D8/EXIT_1 owner":        "44fb950ba3ce933f8f3660cd0709918c8da0d257a93dbe254687f6bed051fed9",
 	"FULL/S/D8/EXIT_1 terminal":     "5d1511a29eff07af42dc57373e8f9a9ec9c343a7ebb6164ee9d1c2d86f62a257",
 	"FULL/S/D8/EXIT_2 owner+evict":  "58728f5705a9b6d8b9b3db346a37fdfb788a2860639549815736ddccbe45b7dd",
@@ -858,6 +883,7 @@ func TestBuilderRejects(t *testing.T) {
 		name     string
 		sparse   bool
 		exact    bool
+		tower    bool
 		variants []string
 		build    func(w *world) error
 	}{{
@@ -869,6 +895,57 @@ func TestBuilderRejects(t *testing.T) {
 			_, _, err := BuildExit(w.st, []ExitStep{{
 				Pos: sBob, Fee: 1_000,
 			}}, &TxOpts{Inputs: w.fee(50_000)})
+			return err
+		},
+	}, {
+		// EXIT_1^t (spec 7.2 rule 7) takes the owner's authorisation;
+		// without it there is nothing to put in the owner branch.
+		name: "owner exit without an authorisation in a tower tree", tower: true,
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildExit(w.st, []ExitStep{{Pos: sBob}},
+				&TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// An authorisation over another leaf (alice's) presented for bob
+		// fails the owner-key check before anything is built.
+		name: "authorisation for another leaf in a tower tree", tower: true,
+		build: func(w *world) error {
+			alice, _, _, _, sBob, _ := w.base()
+			auth, err := SignExitAuth(sk("alice-owner"), w.st.Options.TreeID, alice)
+			if err != nil {
+				return nil
+			}
+			_, _, err = BuildExit(w.st, []ExitStep{{Pos: sBob, Auth: auth}},
+				&TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// An eviction signs the transaction under EXIT_1^t too.
+		name: "eviction with an authorisation in a tower tree", tower: true,
+		build: func(w *world) error {
+			_, bob, _, _, sBob, _ := w.base()
+			auth, err := SignExitAuth(sk("bob-owner"), w.st.Options.TreeID, bob)
+			if err != nil {
+				return nil
+			}
+			_, _, err = BuildExit(w.st, []ExitStep{{Pos: sBob, Evict: true, Auth: auth}},
+				&TxOpts{LockTime: 800_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// The reference EXIT_1 checks a transaction signature; an
+		// authorisation in its slot is a witness the script rejects.
+		name: "authorisation in a tree without EXIT_K^t",
+		build: func(w *world) error {
+			_, bob, _, _, sBob, _ := w.base()
+			auth, err := SignExitAuth(sk("bob-owner"), w.st.Options.TreeID, bob)
+			if err != nil {
+				return nil
+			}
+			_, _, err = BuildExit(w.st, []ExitStep{{Pos: sBob, Auth: auth}},
+				&TxOpts{Inputs: w.fee(5_000)})
 			return err
 		},
 	}, {
@@ -1130,8 +1207,8 @@ func TestBuilderRejects(t *testing.T) {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			w := newWorld(t, 4, c.sparse, c.variants...)
-			if c.exact {
-				w = newExactWorld(t, 4, c.sparse)
+			if c.exact || c.tower {
+				w = newExactWorld(t, 4, c.sparse, c.tower)
 			}
 			err := c.build(w)
 			if err == nil {

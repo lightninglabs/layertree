@@ -73,6 +73,8 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | D | 16 | CLAIM_HX | 3889 | 1786 | 129 | 5804 | 3340951 | 2 |
 | S | 32 | CLAIM_X | 9975 | 547 | 129 | 10651 | 4518036 | 2 |
 | S | 32 | CLAIM_HX | 9983 | 579 | 129 | 10691 | 4522222 | 2 |
+| D | 16 | EXIT_1_TOWER | 2204 | 902 | 129 | 3235 | 2496725 | 1 |
+| S | 32 | EXIT_1_TOWER | 5250 | 326 | 129 | 5705 | 3087022 | 1 |
 | S/bitmap | 32 | EXIT_1 (owner) | 5423 | 330 | 129 | 5882 | 3080946 | 1 |
 | S/bitmap | 32 | JOIN_0 | 5407 | 371 | 129 | 5907 | 3079436 | 1 |
 | S/bitmap | 64 | EXIT_1 (owner) | 10063 | 334 | 129 | 10526 | 3979013 | 1 |
@@ -110,6 +112,8 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | CLAIM_H | 18604 | 1446 | 129 | 20179 | n/a (0xC0) | 1 |
 | MID/D | 16 | SPLIT | 6367 | 1821 | 129 | 8317 | n/a (0xC0) | 1 |
 | MID/S | 31 | SPLIT | 18437 | 1420 | 129 | 19986 | n/a (0xC0) | 1 |
+| MID/D | 16 | EXIT_1_TOWER | 3491 | 978 | 129 | 4598 | n/a (0xC0) | 1 |
+| MID/S | 31 | EXIT_1_TOWER | 9526 | 796 | 129 | 10451 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 4169 | 1157 | 129 | 5455 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7977 | 2417 | 129 | 10523 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24169 | 7461 | 129 | 31759 | n/a (0xC0) | 1 |
@@ -172,3 +176,7 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/S | 31 | CLAIM_H | 18234 | 1382 | 129 | 19745 | n/a (0xC0) | 1 |
 | CCV/D | 16 | DETACH_8 | 973 | 433 | 129 | 1535 | 2154472 | 1 |
 | CCV-c0/D | 16 | DETACH_8 | 1628 | 470 | 129 | 2227 | n/a (0xC0) | 1 |
+| CCV/D | 16 | EXIT_1_TOWER | 1823 | 838 | 129 | 2790 | 2331357 | 1 |
+| CCV/S | 32 | EXIT_1_TOWER | 4869 | 262 | 129 | 5260 | 2921654 | 1 |
+| CCV-c0/D | 16 | EXIT_1_TOWER | 3126 | 914 | 129 | 4169 | n/a (0xC0) | 1 |
+| CCV-c0/S | 31 | EXIT_1_TOWER | 9161 | 732 | 129 | 10022 | n/a (0xC0) | 1 |

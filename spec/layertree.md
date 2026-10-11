@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.12.0
+Version:  0.12.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -383,6 +383,7 @@ are interchangeable, with one numeric cap noted below.
 | Sum limit per tree | none (< 2^51 by leaf rule) | every sum < 2^31 sat, enforced: `NONNEG` keeps every term non-negative and `PADZ`'s four-byte bound every accumulator below 2^31 | as MID | as FULL (`0xC2`) or as MID (`0xC0`) |
 | Payout amount | owner: ≤ leaf amount; evictor: exact | exact for both | exact for both | exact for both (4.6) |
 | Sparse positions | bit `k` of `H_pos` by `OP_DOWNSHIFT`/`OP_AND`; `D ≤ 64` typical | witness `dir` bits folded into an accumulator compared with `pos_lo` (first 4 bytes of `H_pos`, supplied split as `pos_lo || pos_hi`); `nonce` chosen so `pos_lo` is a minimal positive `CScriptNum` below `2^D` (the `D`-bit accumulator is compared with all 32 bits of `pos_lo`, whose top byte is non-zero, so `25 ≤ D ≤ 31`, with `2^(31−D)` times the grinding below `D = 31`) | as MID | as FULL (`0xC2`) or as MID (`0xC0`, `25 ≤ D ≤ 31`) |
+| `EXIT_K^t` (tower-delegable exit, 7.2 rule 7) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK` |
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK` |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | yes, both numerics, as `CLAIM` |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes, both numerics |
@@ -412,6 +413,7 @@ script / witness data:
 | transition | FULL D | MID D | MIN D | CCV D | FULL S (32) | MID S (31) | CCV S (32) |
 |---|---|---|---|---|---|---|---|
 | `EXIT_1` | 2,101 / 902 | 3,367 / 978 | 3,640 / 1,175 | 1,716 / 838 | 5,147 / 326 | 9,402 / 796 | 4,762 / 262 |
+| `EXIT_1^t` (7.2 rule 7) | 2,204 / 902 | 3,491 / 978 | — | 1,823 / 838 | 5,250 / 326 | 9,526 / 796 | 4,869 / 262 |
 | `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,884 / 794 | — | 1,456 / 679 | 5,131 / 367 | 9,382 / 783 | 4,746 / 303 |
 | `JOINK_2` | 3,545 / 1,525 | 5,885 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 18,241 / 1,433 | 9,388 / 542 |
 | `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,962 / 483 |
@@ -437,6 +439,21 @@ encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
 over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
 because the `TREE_SPK_MIN` recomputation and the spk introspection read
 drop out.
+
+The tower-delegable exit `EXIT_1^t` (7.2 rule 7) costs its tier's
+`OP_CHECKSIGFROMSTACK` check over the tagged message in place of a
+transaction signature check: 107 bytes of script over the exact-payout
+`EXIT_1^=` under `0xC2` numerics (the 33-byte `tree_id` push, the 65-byte
+tag prefix, the message assembly and the key pick) and 124 under `0xC0`,
+where the leaf is rejoined from its seven field elements first. At
+`D = 16` (dense) that is 2,204 bytes in FULL beside `EXIT_1` at 2,101 and
+`EXIT_1^=` at 2,097, 3,491 in MID beside 3,367 (MID exits are exact
+already), 1,823 in CCV beside 1,716 and 3,126 under the CCV tier's `0xC0`
+numerics beside 3,002; sparse, 5,250 in FULL (`D = 32`), 9,526 in MID
+(`D = 31`), 4,869 in CCV (`D = 32`) and 9,161 under CCV `0xC0` (`D = 31`).
+The witness is unchanged: the authorisation occupies the signature's
+element. Every tier that has `OP_CHECKSIGFROMSTACK` carries the variant in
+both profiles; MIN cannot.
 
 At `D = 4` (dense) and `D = 8` (sparse) the `0xC2` `CLAIM` measures
 1,375 / 630 and 3,071 / 419, `CLAIM^h` 1,383 / 662 and 3,079 / 451. The
@@ -478,9 +495,10 @@ signing), and `h = 6` fits only while `10(p_o + p_n − u) + s ≤ 523`, that
 is a mass exit of at most 47 leaves or a rewrite of at most 24 changed
 positions. A full 64-leaf cohort is rewritten as two `REWRITE_5` spends.
 
-The MID premium over FULL is about 55% of script for the dense profile and
-80% for the sparse profile; almost all of it is the `PADZ` gadgets (two per
-level) and the per-field size checks. MIN adds the sighash reconstruction
+The MID premium over FULL is about 60% of script for the dense profile and
+83% for the sparse profile (`EXIT_1` at `D = 16` and `D = 31/32`: 3,367
+against 2,101 and 9,402 against 5,147); almost all of it is the `PADZ`
+gadgets (two per level) and the per-field size checks. MIN adds the sighash reconstruction
 (about 270 bytes) on top of MID and removes `OP_TX`. The complete table,
 including `EXIT_K`, `EVICT_SUBTREE_h`, both compression encodings and the
 `FULL`-numerics-without-splice-opcodes data point, is
@@ -540,7 +558,9 @@ exogenous, as in MID and MIN.
 **Vouchers.** `CLAIM` and `CLAIM^h` check the voucher of 7.5 over the
 tree's `tree_id` (6.2) exactly as the other tiers do, token for token
 (8.6.2): the message never names `m`, so the CCV witness's lack of `m`
-costs the tier nothing. `CLAIM` and `CLAIM^h` are the only CCV scripts
+costs the tier nothing. `CLAIM`, `CLAIM^h` and the tower-delegable exit
+`EXIT_K^t` (7.2 rule 7, whose authorisation is checked the same way over
+the same `tree_id`) are the only CCV scripts
 that use `OP_CHECKSIGFROMSTACK`; a CCV tree that omits them does not
 depend on it, which is why they are tree-creation parameters in this
 tier, like `SPLIT` and `UPDATE^x`, rather than members of the default
@@ -622,6 +642,7 @@ K-payout transition) is compatible with all scripts in this document.
 | `TAG_STATE` | `"LayerTree/state"` |
 | `TAG_VOUCHER` | `"LayerTree/voucher"` |
 | `TAG_VOUCHER_H` | `"LayerTree/voucher-hashlock"` (hash-locked vouchers, 7.5.1) |
+| `TAG_EXIT` | `"LayerTree/exit"` (the exit authorisation of `EXIT_K^t`, 7.2 rule 7; distinct from the voucher tags so that neither message can serve as the other) |
 | `TAG_POS` | `"LayerTree/pos"` (sparse profile positions) |
 | `TAG_TREE_ID` | `"LayerTree/tree-id"` (the RECOMMENDED `tree_id` derivation, 6.2) |
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
@@ -630,8 +651,8 @@ K-payout transition) is compatible with all scripts in this document.
 | `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID, MIN): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
 | `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/update"`, `"LayerTree/chan/settle"` (Appendix C) |
 
-`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_pos` denote
-`H_tag` with the
+`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_exit`,
+`H_pos` denote `H_tag` with the
 corresponding tag. The 64-byte tagged-hash prefixes are given in
 `spec/test-vectors.json` under `tags`.
 
@@ -969,6 +990,60 @@ Rules:
    always exact (4.5). A tree that hosts channel leaves SHOULD use the
    exact variant (Appendix C.6.1). The reference generator exposes it as
    `exit_script(…, exact=True)`; it is four bytes shorter than `EXIT_K`.
+7. **Tower-delegable variant `EXIT_K^t`.** A tree MAY be created with
+   `EXIT_K` scripts in which the owner branch of rule 3 checks, with
+   `OP_CHECKSIGFROMSTACK`, a BIP-340 signature by `leaf.owner_key` over
+
+   ```
+   H_exit( tree_id || leaf )
+   ```
+
+   in place of the signature over `tx`. `tree_id` is the tree's creation
+   parameter of 6.2, a constant of the script as in `CLAIM`; `H_exit`
+   uses `TAG_EXIT` (5.1), a tag of its own, so that an exit authorisation
+   can never be redeemed as a voucher nor a voucher spent as an exit. The
+   variant is exact-payout only: output `i`'s amount MUST equal
+   `leaf.amount` for owner exits as well as evictions, since no
+   transaction signature exists by which the owner could consent to a
+   shortfall (the fee-from-payout option of rule 3 is unavailable; fees
+   are exogenous). The evict branch (rule 4) is unchanged. In `EXIT_K`
+   each owner step carries its own authorisation, and anyone holding
+   `K` of them MAY assemble the transaction. Everything else the
+   predicate already fixes (the leaf proven against the root, output 0
+   under the new root, output `i` as `P2TR(leaf.exit_key)` of exactly
+   `leaf.amount`), which is why the signature need not cover the
+   transaction. The variant is a tree-creation parameter that replaces
+   `EXIT_K` (so it implies `EXIT_K^=`); it changes `m`, and a `DETACH_h`
+   child keeps it (7.10 rule 3). `tree_id` is inherited by a detached
+   child (6.2), so an authorisation stays valid there, which is intended.
+   MIN cannot carry it (no `OP_CHECKSIGFROMSTACK`, 4.5). The reference
+   generator exposes it as `exit_script(…, tower=True, tree_id=…)`; it
+   is 107 bytes longer than `EXIT_K^=` per step under `0xC2` numerics and
+   124 under `0xC0` (8.3, 11).
+
+   Consequences, which hold for whoever holds an authorisation:
+
+   * A published authorisation is a **bearer exit right** on the leaf
+     until the leaf changes. It names no transaction, so once an exit
+     built on it is outbid (10.5), its holder, or anyone who saw it in
+     the exit's witness, can rebuild the exit against the next root. An
+     owner who stays in the tree after an outbid exit MUST void the
+     authorisation by changing the leaf: an `UPDATE`, or a `SPLIT` of the
+     whole balance to itself (9.4 describes the same move for a lease).
+     The harm a stale authorisation can do is bounded, since the exit
+     pays `P2TR(leaf.exit_key)` in full: a forced exit of the owner's own
+     funds at a time of the holder's choosing and at the holder's fee,
+     which still ends a lease or a channel leaf the owner wanted to keep.
+   * An identical leaf grafted again later would revive an old
+     authorisation, so 9.2 forbids re-joining with an `(owner_key,
+     nonce, seq)` the lineage has held before.
+   * `REWRITE_h`'s amount-only exemption (7.9 rule 3) changes a plain
+     leaf without its owner's signature and so voids the authorisation
+     the owner's tower holds; 9.7 has the tower refresh it.
+   * A cooperative exit (9.3) becomes one message: an operator holding
+     the authorisation folds the leaf's exit into any later `EXIT_K^t`
+     it builds, as one of its `K` steps, with nothing further from the
+     owner.
 
 ### 7.3 JOIN
 
@@ -1745,6 +1820,32 @@ step adds `~118 + 88·D` (dense) or `~130 + 135·D` (sparse) bytes of script
 and `~230 + 42·D` (dense) or `~250 + 41·log2 N` (sparse) bytes of witness
 data.
 
+**`EXIT_K^t`** (7.2 rule 7) replaces the authorisation at the head of
+`EXIT_BLOCK(i)` with one whose owner branch checks the off-chain
+authorisation; the rest of the block is `EXIT_K^=`'s:
+
+```
+OP_DUP OP_TOALTSTACK                               #                       | … is_evict
+OP_IF                                              # -- eviction --
+  OP_OVER 104 OP_4 OP_SUBSTR OP_CHECKLOCKTIMEVERIFY OP_DROP
+  OP_OVER 72 32 OP_SUBSTR OP_CHECKSIGVERIFY        # leaf
+OP_ELSE                                            # -- owner exit, TOWER_AUTH --
+  OP_OVER <tree_id> OP_SWAP OP_CAT                 # leaf sig (tree_id||leaf)
+  <TAG_EXIT> OP_SWAP OP_CAT OP_SHA256              # leaf sig msg
+  OP_2 OP_PICK 40 32 OP_SUBSTR                     # leaf sig msg owner_key
+  OP_CHECKSIGFROMSTACK OP_VERIFY                   # leaf
+OP_ENDIF
+```
+
+`<tree_id>` is the 32-byte creation parameter of 6.2 and `<TAG_EXIT>` the
+64-byte prefix of `H_exit` (5.1). Under `0xC0` numerics the leaf is first
+rejoined from its seven field elements, each thirteen deep under `sig`,
+as `VOUCHER_AUTH` does in 8.6.2 (`TOWER_AUTH_MID`,
+`spec/scripts/structured/MACROS_MID.txt`). Size of `EXIT_1^t`: `796 +
+88·D` bytes dense (1,148 at `D = 4`; 2,204 at `D = 16`), 107 bytes over
+`EXIT_1^=` per step; the witness is `EXIT_1`'s, with the authorisation in
+the signature's element.
+
 ### 8.4 JOIN_h and JOINK_K
 
 Witness: `block_K … block_1  sig  r  m`, with `block_i` =
@@ -2275,6 +2376,17 @@ spend `U`'s input is one whose output 0 commits to a root containing `U`'s
 leaf. `U` SHOULD retain the leaf, both paths, `r`, `r'` and the transaction
 id (section 9.7).
 
+A member re-joining a tree it has left, or any tree of the same lineage
+(7.10), MUST NOT do so with an `(owner_key, nonce, seq)` it has held
+there before, and a fresh `nonce` is RECOMMENDED on every join. In a tree
+created with `EXIT_K^t` (7.2 rule 7) an exit authorisation binds
+`tree_id` and the leaf bytes and nothing else, so a leaf identical to an
+earlier one revives every authorisation ever published for it: whoever
+kept one could then force the member out again, at the holder's fee and
+time, with the member's funds paid to its own `exit_key`. The rule costs
+nothing and holds in every tier, so a member need not know which variant
+the tree carries.
+
 *(informative)* A self-funded `JOIN_h` is a signing round among the
 joiners. Every member signs the same transaction, and its output 0
 commits to the subtree holding every new leaf, so the cohort must be
@@ -2319,6 +2431,17 @@ no other coins.
 Owners SHOULD first request a cooperative exit from the operator, who can
 fold it into its next transition at lower marginal cost; a unilateral
 `EXIT_1` conflicts with any pending operator transaction (section 10.5).
+
+In a tree created with `EXIT_K^t` (7.2 rule 7) the owner's part of an
+exit is one off-chain signature over `H_exit(tree_id || leaf)`, made once
+and in advance. Whoever holds it, a watchtower or the operator, builds the
+exact-payout exit with its own fee input and rebuilds it against the new
+root if a competing spend confirms first (10.5); the owner need not be
+online. A cooperative exit is then one message: the owner hands the
+operator the authorisation, and the operator includes the leaf as a step
+of the next `EXIT_K^t` it builds. The authorisation stays valid until the
+leaf changes, and 7.2 rule 7 says what the owner MUST do when an exit it
+no longer wants has been published.
 
 ### 9.4 Eviction
 
@@ -2538,6 +2661,17 @@ verify it against the on-chain root). Participants that fall behind can
 always catch up from the chain: no data outside the blockchain and their own
 join-time proof is required to construct a valid `EXIT_1`.
 
+A tower holding an exit authorisation (7.2 rule 7) maintains the leaf's
+path the same way and needs nothing from the owner to rebuild the exit
+against a new root. The leaf itself can change without the owner's
+signature in one case: `REWRITE_h`'s amount-only exemption (7.9 rule 3)
+raises a plain leaf's `amount` and advances nothing else, and the
+authorisation, which binds the leaf bytes, is void from that spend on. A
+tower SHOULD therefore watch for changes to the leaf it holds an
+authorisation for and SHOULD obtain a fresh one from the owner when the
+leaf changes; an owner whose leaf is at `SEQ_FINAL` (5.2) is exempt, since
+no transition changes such a leaf without its signature.
+
 Operators SHOULD serve the full tree to participants on request.
 
 ### 9.8 Channel leaves
@@ -2565,7 +2699,11 @@ security considerations. Rules from Appendix C that bind the tree layer:
   it MUST be exact: the owner MUST NOT use the FULL-tier fee-from-payout
   option of 7.2 rule 3, and a tree that hosts channel leaves SHOULD be
   created with the exact-payout `EXIT_K^=` variant (7.2 rule 6) so that
-  the rule is enforced by script and visible in `m`;
+  the rule is enforced by script and visible in `m`; in a tree created
+  with `EXIT_K^t` (7.2 rule 7) the owner MUST NOT give the exit
+  authorisation of a leaf whose `evict_after` is in the future to the
+  counterparty, which would bypass the lease (C.6.4), and SHOULD give it
+  only to the tower that holds its latest channel state (C.9.3);
 * a channel leaf MUST have `seq = SEQ_FINAL` (5.2), so that no voucher can
   be redeemed against the capacity its signed states commit to;
 * `evictor_key` SHALL be the counterparty's tree key, so eviction is the
@@ -2784,7 +2922,9 @@ leaf: a `SPLIT` of its balance back and forth between two positions, or a
 voucher to itself redeemed by `CLAIM`; a corrupt operator can do the same
 with a `JOIN` and `EXIT` of a leaf it funds. Each confirmed spend
 invalidates a pending honest transition, which must be rebuilt against the
-new root (9.7). This document therefore states the exit-latency bound as
+new root (9.7); under `EXIT_K^t` (7.2 rule 7) anyone holding the owner's
+authorisation can do the rebuilding, so the owner's liveness is not what
+the bound below measures. This document therefore states the exit-latency bound as
 a policy assumption with two parameters it does not derive:
 
 **[C] (contention).** At most `kappa >= 1` spends of one tree output
@@ -3048,8 +3188,9 @@ dependency. The `r` and `m` witness elements are gone entirely. Each CCV
 call charges one sigcheck-equivalent (500,000 varops, [A-6]); an
 `EXIT_1` makes two calls, within the same budget headroom as the FULL
 tier's two `TREE_SPK` recomputations. A CCV `CLAIM` at `D = 16` (dense)
-measures 3,487 / 1,626 bytes against FULL's 3,874 / 1,690; it is the one
-CCV script that needs `OP_CHECKSIGFROMSTACK` (4.6).
+measures 3,487 / 1,626 bytes against FULL's 3,874 / 1,690; with `CLAIM^h`
+and the tower-delegable `EXIT_K^t` (7.2 rule 7; 1,823 / 838 at `D = 16`)
+it is one of the three CCV scripts that need `OP_CHECKSIGFROMSTACK` (4.6).
 
 The transaction weight column adds the 946 WU skeleton of the model
 above. In the dense profile each level costs 129 WU regardless of
@@ -3091,7 +3232,7 @@ section 4, whereas CTV-based trees need only a template opcode.
 `EXIT_2` at `D = 16` (dense) uses 3,747 bytes of script and 1,741 of
 witness data (5,617 WU in total), i.e. a second exit in the same transaction
 costs about 2,490 WU against roughly 4,080 WU for a separate transaction;
-in the sparse profile at `D = 32` the second exit costs about 4,950 WU.
+in the sparse profile at `D = 32` the second exit costs about 4,996 WU.
 Batching `K` exits scales linearly with no per-step EC overhead; each step
 adds one signature check.
 
@@ -3116,7 +3257,8 @@ subtree's internal nodes once and checks one signature:
 | `EVICT_SUBTREE_4` | 16 | 13 | 5,281 | 2,129 | ≈ 580 | 203 | `EXIT_16`: 26,791 B script |
 | `EVICT_SUBTREE_6` | 64 | 51 | 16,097 | 6,455 | ≈ 445 | 158 | `EXIT_64`: 105,847 B script |
 
-(`D = 16`; three of every sixteen positions already empty. The witness
+(`D = 16`; every fifth position already empty, 1, 3 and 13 of 4, 16 and
+64. The witness
 column is script plus witness elements plus control block, the
 transaction column prices the whole transaction on the model above with
 one payout per leaf.) Per-leaf witness falls from about 2.5 kWU
@@ -3128,12 +3270,12 @@ subtrees with a common lease expiry: the operator can then both add a
 cohort in one constant-shape transaction and remove it in one
 transaction per cohort.
 
-The MID tier's sweep (8.7) measures 4,097 / 1,157, 7,865 / 2,417 and
-23,873 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
+The MID tier's sweep (8.7) measures 4,169 / 1,157, 7,977 / 2,417 and
+24,169 / 7,461 bytes of script / witness data for `h = 2, 4, 6` on the
 same cohorts, about 1.5 times FULL's script and 1.1 to 1.2 times its
-witness: about 615 WU of witness per leaf at `h = 6` against FULL's 445.
-A full 32-leaf `EVICT_SUBTREE_5` measures 13,149 / 4,907 bytes (about
-565 WU per leaf). The 1,000-element stack limit caps a MID sweep at
+witness: about 620 WU of witness per leaf at `h = 6` against FULL's 445.
+A full 32-leaf `EVICT_SUBTREE_5` measures 13,321 / 4,907 bytes (about
+570 WU per leaf). The 1,000-element stack limit caps a MID sweep at
 `D = 16` to 54 occupied positions (4.5), so a full 64-leaf cohort takes
 two `EVICT_SUBTREE_5` spends.
 
@@ -3392,13 +3534,15 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 413 and 55 checks respectively; the MID
+  operands during development), 466 and 55 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
-  another `tree_id` and a voucher over `m` all fail), and the
+  another `tree_id` and a voucher over `m` all fail), the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
-  7.5.2 in both profiles, the dense `JOIN_2` negatives (occupied slot,
+  7.5.2 in both profiles, the tower-delegable `EXIT_K^t` of 7.2 rule 7
+  (dense at `D = 16`, sparse at `D = 31`, with the FULL suite's cases
+  over the seven-element leaf), the dense `JOIN_2` negatives (occupied slot,
   no operator signature), a stale `JOINK_2` second path, and the MID
   `SPLIT` with the negatives of the FULL suite below, the carve rule of
   7.5 rule 5 (another evictor key or a later `evict_after` fails under
@@ -3472,7 +3616,20 @@ exits in a batch" as `EXIT_K` (section 13).
   well, together with the channel-leaf rules (a `CLAIM` against
   `seq = SEQ_FINAL` fails while the two neighbouring values succeed; the
   exact-payout `EXIT_1^=` variant rejects an owner shortfall and accepts an
-  exact owner exit and an eviction) and the exit-consent `UPDATE^x` variant
+  exact owner exit and an eviction), the tower-delegable `EXIT_K^t`
+  variant of 7.2 rule 7 (dense at `D = 4` and `16`, sparse at `D = 8`: a
+  tower exits the leaf on the owner's off-chain authorisation with its own
+  fee input, the same authorisation is rebuilt against a new root after a
+  competing spend, a fresh one over a changed leaf succeeds, and an
+  authorisation under the voucher tag, for another `tree_id`, by another
+  owner, for the leaf before its `seq` advanced, a transaction signature
+  or an empty element in the owner branch, a payout below or above the
+  amount, a stack authorisation in the evict branch and an early eviction
+  all fail; the evict branch still works; `EXIT_2^t` runs on two
+  authorisations and on one authorisation plus an eviction, and rejects
+  one owner's authorisation presented for the other; `TreeOptions
+  tower=True` compiles the variant in `EXIT_K`'s place, implies exact
+  payouts and keeps it in a detached child) and the exit-consent `UPDATE^x` variant
   of 7.4 rule 5 (dense at `D = 4` and `16`, sparse at `D = 8`: a spend
   carrying all three signatures succeeds, and one whose `exit_sig` is by the
   wrong key, is garbage, is absent, or that drops the owner signature,
@@ -3559,12 +3716,12 @@ exits in a batch" as `EXIT_K` (section 13).
   element,
   and for `EVICT_SUBTREE_2` an occupied position presented as empty,
   swapped positions, payouts out of order and an empty position supplied
-  as 116 zero bytes, all rejected), 1,069 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  as 116 zero bytes, all rejected), 1,154 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 1,160 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 1,344 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -3582,7 +3739,12 @@ exits in a batch" as `EXIT_K` (section 13).
   missing operator or owner signatures, stale second paths); two tree
   inputs carrying one state, which cannot share output 0 or deduct one
   payout twice (4.6); the `UPDATE^x` variant in both numerics (exit
-  signature by the wrong key, garbage or absent, owner signature absent)
+  signature by the wrong key, garbage or absent, owner signature absent),
+  the tower-delegable `EXIT_K^t` of 7.2 rule 7 in both numerics (`0xC2`
+  at dense `D = 4`/`16` and sparse `D = 8`, `0xC0` at dense `D = 4`/`16`
+  and sparse `D = 31`, with the FULL suite's cases, `CCVTreeOptions
+  tower=True` compiling it in `EXIT_K`'s place and a detached child
+  keeping it)
   and `SPLIT` in `0xC2` at dense `D = 4`/`16` and sparse `D = 8` and in
   `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (signed
   by the operator, by the recipient, with garbage or a voucher signature,

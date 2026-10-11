@@ -58,7 +58,7 @@ subtree, as a leaf or an empty marker. The script folds the subtree in
 post order from the published leaves, which both recomputes its root
 and checks each leaf's lease and evictor key, then folds that root and
 the empty node up the shared path. Measured at `D = 16`: 203 vbytes per
-leaf for 13 leaves, 158 for 51, about 147 for 200. It is the operator's
+leaf for 13 leaves, 158 for 51, about 147 for 205. It is the operator's
 tool and it requires a lease on every leaf it sweeps.
 
 `JOIN_h` grafts a subtree of any size for the cost of the levels above
@@ -114,9 +114,9 @@ three rewrite points as a fixed part plus a per-leaf part gives about
 height the taptree carries is cheaper per leaf than any `EXIT_K`. At
 the same height the operator's sweep costs more per leaf than the
 rewrite (432 against 364 at `h = 2`, 203 against 200 at `h = 4`),
-because the measured sweeps leave three of every sixteen positions empty
-and still publish them, so a sweep of a given height removes fewer
-leaves. Plotted against leaves removed, the two lines cross near eight
+because the measured sweeps leave every fifth position empty (1, 3 and
+13 of 4, 16 and 64) and still publish them, so a sweep of a given height
+removes fewer leaves. Plotted against leaves removed, the two lines cross near eight
 leaves at about 270 vbytes per leaf: below that the rewrite is cheaper,
 above it the sweep is a few vbytes cheaper per leaf for the same count,
 and at `h = 6` the two nearly meet (158 against 162). Neither reaches a bare spend's 111:

@@ -13,11 +13,21 @@
 ## TAGGED(VOUCHER)
 <TAG_VOUCHER> OP_SWAP OP_CAT OP_SHA256
 
+## TAGGED(EXIT)
+<TAG_EXIT> OP_SWAP OP_CAT OP_SHA256
+
 ## TAGGED(POS)
 <TAG_POS> OP_SWAP OP_CAT OP_SHA256
 
 ## TAGGED(TAPTWEAK)
 <TAG_TAPTWEAK> OP_SWAP OP_CAT OP_SHA256
+
+## TOWER_AUTH_MID   ([leaf(10) ea_num ze we sig] -> [leaf(10) ea_num ze we]: sig is a BIP-340 signature by ok over H_exit(tree_id || leaf), the leaf rejoined from its seven fields, checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7))
+OP_13 OP_PICK OP_13 OP_PICK OP_13 OP_PICK OP_13 OP_PICK OP_13 OP_PICK OP_13
+  OP_PICK OP_13 OP_PICK OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT <TREE_ID>
+  OP_SWAP OP_CAT
+TAGGED(EXIT)
+OP_12 OP_PICK OP_CHECKSIGFROMSTACK OP_VERIFY
 
 ## NONNEG   ([x] -> [x]: x == |x|, a minimal non-negative CScriptNum (rejects a negative, a negative zero and a non-minimal encoding))
 OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY

@@ -75,7 +75,7 @@ carries its own full path, so the second leaf of an `EXIT_2` costs 665
 vbytes and the average is 842. The operator can sweep an aligned subtree
 of expired leaves with `EVICT_SUBTREE_h` for far less, because the sweep
 publishes the subtree's leaves once and shares the path above it: 203
-vbytes per leaf for 13 leaves, 158 for 51, and about 147 for the 200-odd
+vbytes per leaf for 13 leaves, 158 for 51, and about 147 for the 205
 leaves of a height-8 subtree. The sweep is the cheapest removal in the
 system and it is within a factor of 1.4 of a bare spend.
 
@@ -392,7 +392,8 @@ A transaction's weight is the script, witness data and control block from
 one change output, the tree output and one P2TR payout. Each extra payout
 adds 172 weight units. Vbytes are weight divided by four, rounded up. The
 sweep rows use the leaf counts the measured witnesses imply (13, 51 and
-206). The cohort rewrite rows are the measured `REWRITE_h` sizes of
+205: every fifth position of the measured cohorts is empty). The cohort
+rewrite rows are the measured `REWRITE_h` sizes of
 spec 11. The CCV and native-opcode rows come from the size tables of
 spec 4.5 and `design/native-opcodes.md`.
 

@@ -76,6 +76,10 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 			// Parametrised by tree_id; checked in TestCCVClaim.
 			continue
 		}
+		if strings.HasSuffix(k, "_TOWER") {
+			// EXIT_K^t is parametrised by tree_id too; TestCCVExitTower.
+			continue
+		}
 		k, want := k, want
 		t.Run(strings.ReplaceAll(k, "/", "_"), func(t *testing.T) {
 			profile, depth, name, err := parseGoldenKey(k)
@@ -176,6 +180,11 @@ func ccv0ScriptFor(profile string, depth int, name string,
 		return CCV0ClaimScript(depth, treeID, sparse, false), nil
 	case name == "CLAIM_H":
 		return CCV0ClaimScript(depth, treeID, sparse, true), nil
+	case strings.HasSuffix(name, "_TOWER"):
+		if _, err := fmt.Sscanf(name, "EXIT_%d_TOWER", &n); err != nil {
+			return nil, err
+		}
+		return CCV0ExitTowerScript(depth, n, treeID, sparse), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err
@@ -231,6 +240,47 @@ func TestCCV0ScriptsMatchGolden(t *testing.T) {
 		t.Fatalf("checked only %d CCV0 golden scripts", checked)
 	}
 	t.Logf("checked %d CCV0 golden scripts", checked)
+}
+
+// TestCCVExitTower checks EXIT_K^t (spec 7.2 rule 7) under CCV in both
+// numerics against its golden keys, built over the tree_id vector every
+// tier's golden CLAIM shares, and that CCVTreeOptions with Tower set
+// compiles it in EXIT_K's place and keeps it in a detached child (7.10
+// rule 3). Like CLAIM it is a tree-creation parameter and stays out of
+// CCVAllScripts.
+func TestCCVExitTower(t *testing.T) {
+	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
+	fullCheckScript(t, g, "CCV/D/D4/EXIT_1_TOWER", CCVExitTowerScript(4, 1, treeID, false))
+	fullCheckScript(t, g, "CCV/S/D8/EXIT_1_TOWER", CCVExitTowerScript(8, 1, treeID, true))
+	gm, _ := midLoadGolden(t)
+	midCheckScript(t, gm, "CCV0/D/D4/EXIT_1_TOWER", CCV0ExitTowerScript(4, 1, treeID, false))
+	midCheckScript(t, gm, "CCV0/S/D8/EXIT_1_TOWER", CCV0ExitTowerScript(8, 1, treeID, true))
+
+	for _, c0 := range []bool{false, true} {
+		opts := CCVReferenceOptions(key, c0)
+		opts.TreeID, opts.Tower = treeID, true
+		mode := ModeC2
+		if c0 {
+			mode = ModeC0
+		}
+		for _, depth := range []int{4, 2} {
+			got := opts.Scripts(depth)[0]
+			want := CCVExitTowerScript(depth, 1, treeID, false)
+			if c0 {
+				want = CCV0ExitTowerScript(depth, 1, treeID, false)
+			}
+			if got.Name != "EXIT_1" {
+				t.Fatalf("c0=%v: first leaf is %s, want EXIT_1", c0, got.Name)
+			}
+			if string(MustAssemble(got.Tokens, mode)) != string(MustAssemble(want, mode)) {
+				t.Fatalf("c0=%v depth %d: Scripts does not emit EXIT_1^t", c0, depth)
+			}
+		}
+		if opts.TapTreeRoot(4) == CCVReferenceOptions(key, c0).TapTreeRoot(4) {
+			t.Fatalf("c0=%v: the tower options compile to the reference m", c0)
+		}
+	}
 }
 
 // TestCCVDetach checks DETACH_h under CCV in both numerics (spec 7.10)

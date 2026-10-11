@@ -197,15 +197,44 @@ def leaf_join():
     return s + ["OP_CAT"] * 6
 
 
-def exit_block_full(sparse, depth, out_index):
-    """Complete exit block: -> T oh os nh ns after levels.
-    Exit leaf witness: leaf(10) ea_num ze we sig is_evict  (ea_num: minimal evict_after)."""
+def tower_auth(tree_id):
+    """The owner branch of EXIT_K^t under 0xC0 numerics (spec 7.2 rule 7),
+    shared with the CCV tier's 0xC0 scripts: [leaf(10) ea_num ze we sig]
+    -> [leaf(10) ea_num ze we], where sig MUST be a BIP-340 signature by
+    the leaf's owner_key over H_exit(tree_id || leaf), checked with
+    OP_CHECKSIGFROMSTACK. The leaf is rejoined from its seven field
+    elements, each 13 deep under sig, as voucher_auth does for CLAIM; ok
+    (the third field) sits 12 deep once the message replaces the copies."""
+    assert len(tree_id) == 32
+    s = [13, "OP_PICK"] * 7 + ["OP_CAT"] * 6                        # ... sig leaf
+    s += [tree_id, "OP_SWAP", "OP_CAT"] + tagged(F.EXIT_PREFIX)     # ... sig msg
+    return s + [12, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]  # leaf(10) ea_num ze we
+
+
+def exit_auth(tower=False, tree_id=None):
+    """The authorisation of one MID exit block:
+    [leaf(10) ea_num ze we sig is_evict] -> [leaf(10)], with is_evict
+    parked on the altstack. Eviction: a transaction signature by evk under
+    the lock time, ea_num checked against the ea field by PADZ. Owner: a
+    transaction signature by ok, or with tower=True (EXIT_K^t, spec 7.2
+    rule 7) the off-chain authorisation of tower_auth."""
     s = ["OP_DUP", "OP_TOALTSTACK", "OP_IF",
          3, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",      # ea_num is a minimal number
          10, "OP_PICK", "OP_CHECKSIGVERIFY"] + padz() + [        # leaf(10) le32(ea_num)
          6, "OP_PICK", "OP_EQUALVERIFY",                        # le32(ea_num) == ea field
-         "OP_ELSE", 11, "OP_PICK", "OP_CHECKSIGVERIFY", "OP_2DROP", "OP_DROP",
-         "OP_ENDIF",                                            # leaf(10)
+         "OP_ELSE"]
+    if tower:
+        s += tower_auth(tree_id)                                # leaf(10) ea_num ze we
+    else:
+        s += [11, "OP_PICK", "OP_CHECKSIGVERIFY"]               # leaf(10) ea_num ze we
+    return s + ["OP_2DROP", "OP_DROP", "OP_ENDIF"]              # leaf(10)
+
+
+def exit_block_full(sparse, depth, out_index, tower=False, tree_id=None):
+    """Complete exit block: -> T oh os nh ns after levels.
+    Exit leaf witness: leaf(10) ea_num ze we sig is_evict  (ea_num: minimal evict_after).
+    tower=True is EXIT_K^t (spec 7.2 rule 7); MID payouts are exact already."""
+    s = exit_auth(tower, tree_id) + [                           # leaf(10)
          out_index, SEL_OUT_SINGLE, "OP_TX",
          F.P2TR_PREFIX, 11, "OP_PICK", "OP_CAT", "OP_EQUALVERIFY",
          10, "OP_PICK", "OP_EQUALVERIFY",
@@ -217,12 +246,16 @@ def exit_block_full(sparse, depth, out_index):
     return s + levels(sparse, depth)
 
 
-def exit_script(depth, k=1, sparse=False):
+def exit_script(depth, k=1, sparse=False, tower=False, tree_id=None):
+    """EXIT_K under MID; tower=True is EXIT_K^t (spec 7.2 rule 7), whose
+    owner branch takes the off-chain authorisation over tree_id, a
+    constant of the script, in place of a transaction signature."""
+    assert not tower or tree_id is not None
     s = prologue()
-    s += exit_block_full(sparse, depth, 1) + check_old(sparse)
+    s += exit_block_full(sparse, depth, 1, tower, tree_id) + check_old(sparse)
     for i in range(2, k + 1):
         s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]
-        s += exit_block_full(sparse, depth, i) + check_prev(sparse)
+        s += exit_block_full(sparse, depth, i, tower, tree_id) + check_prev(sparse)
     return s + final(depth)
 
 

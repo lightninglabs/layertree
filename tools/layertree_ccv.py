@@ -171,22 +171,18 @@ def final_ccv(depth):
 
 # ----------------------------------------------------------- transitions --
 
-def exit_block_ccv(profile, depth, out_index, exact=False):
+def exit_block_ccv(profile, depth, out_index, exact=False, tower=False, tree_id=None):
     """One exit. Stack: [path] leaf sig is_evict -> T oh os nh ns (fold done).
 
-    Authorization and fold are F.exit_block's; the payout scriptPubKey
-    check is the CCV DEDUCT call (ccv_payout_fixed), the amount comparison
-    remains one OP_TX read.
+    Authorization and fold are F.exit_block's (F.exit_auth, with
+    tower=True the EXIT_K^t authorisation of 7.2 rule 7 over tree_id, the
+    tier's second OP_CHECKSIGFROMSTACK user after CLAIM); the payout
+    scriptPubKey check is the CCV DEDUCT call (ccv_payout_fixed), the
+    amount comparison remains one OP_TX read.
     """
-    s = ["OP_DUP", "OP_TOALTSTACK",         # | ... is_evict
-         "OP_IF",
-         "OP_OVER", F.OFF_EVICT_AFTER, F.LEN_EVICT_AFTER, "OP_SUBSTR",
-         "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
-         "OP_OVER", F.OFF_EVICTOR_KEY, 32, "OP_SUBSTR",
-         "OP_ELSE",
-         "OP_OVER", F.OFF_OWNER_KEY, 32, "OP_SUBSTR",
-         "OP_ENDIF",
-         "OP_CHECKSIGVERIFY",               # leaf
+    if tower:
+        exact = True
+    s = F.exit_auth(tower, tree_id) + [     # leaf
          "OP_SIZE", F.LEAF_LEN, "OP_EQUALVERIFY",
          ] + ccv_payout_fixed(out_index) + [
          # amount comparison: OP_TX SEL_OUT_SINGLE pushes [amount, spk]
@@ -207,7 +203,7 @@ def exit_block_ccv(profile, depth, out_index, exact=False):
     return s + F.levels(profile, depth)
 
 
-def exit_script_ccv(depth, k=1, profile="D", exact=True):
+def exit_script_ccv(depth, k=1, profile="D", exact=True, tower=False, tree_id=None):
     """EXIT_K under CCV. witness (bottom..top) = [block_K] ... [block_1],
     block_i = per-level items then leaf_i sig_i is_evict_i. No r, no m.
 
@@ -215,13 +211,16 @@ def exit_script_ccv(depth, k=1, profile="D", exact=True):
     the only mode): with output 0 under the assign mode, a payout short of
     the leaf amount would strand the difference in the residual and force
     output 0 above ns, breaking rule 5's equality. Fees are exogenous, as
-    in the MID and MIN tiers.
+    in the MID and MIN tiers. tower=True is EXIT_K^t (spec 7.2 rule 7):
+    the owner branch takes the off-chain authorisation over tree_id, a
+    constant of the script, in place of a transaction signature.
     """
+    assert not tower or tree_id is not None
     s = prologue_ccv()
-    s += exit_block_ccv(profile, depth, 1, exact) + check_old_ccv(profile)
+    s += exit_block_ccv(profile, depth, 1, exact, tower, tree_id) + check_old_ccv(profile)
     for i in range(2, k + 1):
         s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]
-        s += exit_block_ccv(profile, depth, i, exact) + F.check_prev_root_from_alt(profile)
+        s += exit_block_ccv(profile, depth, i, exact, tower, tree_id) + F.check_prev_root_from_alt(profile)
     return s + final_ccv(depth)
 
 
@@ -445,15 +444,11 @@ def _pay_ccv0(out_index):
             "OP_FROMALTSTACK", "OP_DROP"]                     # leaf10 (is_evict gone)
 
 
-def _exit_block_ccv0(sparse, depth, out_index):
+def _exit_block_ccv0(sparse, depth, out_index, tower=False, tree_id=None):
     """MID's exit block with the payout spk check replaced by _pay_ccv0.
-    Exact payouts only, as in the whole tier."""
-    s = ["OP_DUP", "OP_TOALTSTACK", "OP_IF",
-         3, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
-         10, "OP_PICK", "OP_CHECKSIGVERIFY"] + M.padz() + [
-         6, "OP_PICK", "OP_EQUALVERIFY",
-         "OP_ELSE", 11, "OP_PICK", "OP_CHECKSIGVERIFY", "OP_2DROP", "OP_DROP",
-         "OP_ENDIF"]                                          # leaf(10)
+    Exact payouts only, as in the whole tier. tower=True is EXIT_K^t (spec
+    7.2 rule 7) with MID's tower_auth."""
+    s = M.exit_auth(tower, tree_id)                           # leaf(10)
     s += _pay_ccv0(out_index)                                 # leaf(10)
     s += M.leaf_join() + M.tagged(F.LEAF_PREFIX) + ["OP_FROMALTSTACK"]  # oh os
     if sparse:
@@ -462,18 +457,20 @@ def _exit_block_ccv0(sparse, depth, out_index):
     return s + M.levels(sparse, depth)
 
 
-def _exit_script_ccv0(depth, k=1, sparse=False):
+def _exit_script_ccv0(depth, k=1, sparse=False, tower=False, tree_id=None):
     """EXIT_K under c0: MID's chained-block structure, first block checked
     by _check_old_ccv0, chained blocks by M.check_prev, then _final_ccv0.
 
     Witness layout: MID's minus r and m, i.e. bottom..top
     [zf wf] + [chained blocks: levels + leaf10 + ea_num ze we sig is_evict]
     + [first block: zi wi + levels + leaf10 + ea_num ze we sig is_evict].
+    tower=True is EXIT_K^t (spec 7.2 rule 7) over tree_id.
     """
-    s = _exit_block_ccv0(sparse, depth, 1) + _check_old_ccv0(sparse)
+    assert not tower or tree_id is not None
+    s = _exit_block_ccv0(sparse, depth, 1, tower, tree_id) + _check_old_ccv0(sparse)
     for i in range(2, k + 1):
         s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]
-        s += _exit_block_ccv0(sparse, depth, i) + M.check_prev(sparse)
+        s += _exit_block_ccv0(sparse, depth, i, tower, tree_id) + M.check_prev(sparse)
     return s + _final_ccv0(depth)
 
 
@@ -621,7 +618,9 @@ class CCVTreeOptions:
     4.6), as F.TreeOptions is for FULL: the numerics ("c2" or "c0"), the
     profile, OPERATOR_KEY, tree_id, DUST_MIN, the JOIN heights, EXIT_K
     sizes, JOINK sizes and sweep heights, and the variants a CCV taptree
-    may carry: UPDATE^x (in place of UPDATE), CLAIM and CLAIM^h (which
+    may carry: the tower-delegable exit EXIT_K^t (7.2 rule 7, in place of
+    EXIT_K; it needs tree_id), UPDATE^x (in place of UPDATE), CLAIM and
+    CLAIM^h (which
     need tree_id), SPLIT and DETACH_h. at_depth(D) compiles the set for a
     tree of depth D, which is what the parent's taptree is built from and
     what a DETACH_h child MUST be built from at depth h (7.10 rule 3).
@@ -630,12 +629,13 @@ class CCVTreeOptions:
     heights 1 and 2."""
 
     def __init__(self, operator_key, numeric="c2", profile="D", tree_id=None, join_heights=(0,),
-                 exit_ks=(1,), join_ks=(2,), evict_heights=(1, 2), update_x=False, claim=False,
+                 exit_ks=(1,), join_ks=(2,), evict_heights=(1, 2), tower=False, update_x=False, claim=False,
                  claim_h=False, split=False, detach_heights=(), dust_min=lt.DUST_MIN):
         assert numeric in ("c2", "c0")
+        assert not tower or tree_id is not None
         self.operator_key, self.numeric, self.profile, self.tree_id = operator_key, numeric, profile, tree_id
         self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
-        self.evict_heights, self.update_x = tuple(evict_heights), update_x
+        self.evict_heights, self.tower, self.update_x = tuple(evict_heights), tower, update_x
         self.claim, self.claim_h, self.split = claim, claim_h, split
         self.detach_heights, self.dust_min = tuple(detach_heights), dust_min
 
@@ -647,6 +647,11 @@ class CCVTreeOptions:
         sparse = prof == "S"
         out = all_scripts_ccv(depth, op, self.join_heights, self.exit_ks, prof, self.join_ks,
                               self.numeric, self.evict_heights)
+        if self.tower:
+            # EXIT_K^t replaces EXIT_K in place, so the set keeps its order.
+            for k in self.exit_ks:
+                out[f"EXIT_{k}"] = (_exit_script_ccv0(depth, k, sparse, tower=True, tree_id=self.tree_id) if c0
+                                    else exit_script_ccv(depth, k, prof, tower=True, tree_id=self.tree_id))
         if self.update_x:
             upd_x = (_update_script_ccv0(depth, op, sparse, exit_consent=True) if c0
                      else update_script_ccv(depth, op, prof, exit_consent=True))

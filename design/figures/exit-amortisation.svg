@@ -235,7 +235,7 @@ z
    <g id="line2d_33">
     <path d="M 216.38762 231.896291 
 L 307.145532 238.906473 
-L 399.840557 240.620073 
+L 399.517451 240.620073 
 " clip-path="url(#pd9cad47e11)" style="fill: none; stroke: #1baf7a; stroke-width: 1.44; stroke-linecap: round"/>
    </g>
    <g id="line2d_34">
@@ -253,7 +253,7 @@ L 92.103617 132.351709
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #0b0b0b" x="206.38762" y="243.129866" transform="rotate(-0 206.38762 243.129866)">203</text>
    </g>
    <g id="text_22">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="399.840557" y="230.853648" transform="rotate(-0 399.840557 230.853648)">147</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="399.517451" y="230.853648" transform="rotate(-0 399.517451 230.853648)">147</text>
    </g>
    <g id="line2d_35">
     <defs>
@@ -272,7 +272,7 @@ z
     <g>
      <use xlink:href="#m87397ed6df" x="216.38762" y="231.896291" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.44"/>
      <use xlink:href="#m87397ed6df" x="307.145532" y="238.906473" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.44"/>
-     <use xlink:href="#m87397ed6df" x="399.840557" y="240.620073" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.44"/>
+     <use xlink:href="#m87397ed6df" x="399.517451" y="240.620073" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="line2d_36">

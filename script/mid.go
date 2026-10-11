@@ -38,6 +38,7 @@ var (
 	midStatePrefix    = midTagPrefix(tree.TagState)
 	midVoucherPrefix  = midTagPrefix(tree.TagVoucher)
 	midVoucherHPrefix = midTagPrefix(tree.TagVoucherH)
+	midExitPrefix     = midTagPrefix(tree.TagExit)
 	midPosPrefix      = midTagPrefix(tree.TagPos)
 	midTaptweakPrefix = midTagPrefix("TapTweak")
 
@@ -355,7 +356,31 @@ func midLeafJoin() []Token {
 
 // midExitBlockFull is one complete exit: authorisation, payout check, leaf
 // reassembly and the proof levels.
-func midExitBlockFull(sparse bool, depth, outIndex int) []Token {
+// midTowerAuth is the owner branch of EXIT_K^t under 0xC0 numerics (spec
+// 7.2 rule 7), shared with the CCV tier's 0xC0 scripts:
+// [leaf(10) ea_num ze we sig] -> [leaf(10) ea_num ze we], where sig MUST
+// be a BIP-340 signature by the leaf's owner key over
+// H_exit(tree_id || leaf), checked with OP_CHECKSIGFROMSTACK. The leaf is
+// rejoined from its seven field elements, each 13 deep under sig, as
+// midVoucherAuth does for CLAIM; ok sits 12 deep once the message
+// replaces the copies (tools/layertree_mid.py tower_auth).
+func midTowerAuth(treeID [32]byte) []Token {
+	s := midRepeat([]Token{Num(13), Op(txscript.OP_PICK)}, 7)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+	s = append(s, Data(treeID[:]), Op(txscript.OP_SWAP), Op(txscript.OP_CAT))
+	s = append(s, midTagged(midExitPrefix)...)
+	return append(s, Num(12), Op(txscript.OP_PICK), Op(OP_CHECKSIGFROMSTACK),
+		Op(txscript.OP_VERIFY))
+}
+
+// midExitAuth is the authorisation of one MID exit block:
+// [leaf(10) ea_num ze we sig is_evict] -> [leaf(10)], is_evict parked on
+// the altstack. Eviction: a transaction signature by evk under the lock
+// time, ea_num checked against the ea field by PADZ. Owner: a transaction
+// signature by ok, or with tower set (EXIT_K^t, spec 7.2 rule 7) the
+// off-chain authorisation of midTowerAuth (tools/layertree_mid.py
+// exit_auth).
+func midExitAuth(tower bool, treeID [32]byte) []Token {
 	s := []Token{
 		Op(txscript.OP_DUP), Op(txscript.OP_TOALTSTACK), Op(txscript.OP_IF),
 		Num(3), Op(txscript.OP_PICK), Op(txscript.OP_CHECKLOCKTIMEVERIFY),
@@ -363,12 +388,24 @@ func midExitBlockFull(sparse bool, depth, outIndex int) []Token {
 		Num(10), Op(txscript.OP_PICK), Op(txscript.OP_CHECKSIGVERIFY),
 	}
 	s = append(s, midPadz()...)
+	s = append(s, Num(6), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+		Op(txscript.OP_ELSE))
+	if tower {
+		s = append(s, midTowerAuth(treeID)...)
+	} else {
+		s = append(s, Num(11), Op(txscript.OP_PICK), Op(txscript.OP_CHECKSIGVERIFY))
+	}
+	return append(s, Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
+		Op(txscript.OP_ENDIF))
+}
+
+// midExitBlockFull is one MID exit block, -> T oh os nh ns after the
+// levels. tower is EXIT_K^t (spec 7.2 rule 7).
+func midExitBlockFull(sparse bool, depth, outIndex int, tower bool,
+	treeID [32]byte) []Token {
+
+	s := midExitAuth(tower, treeID)
 	s = append(s, []Token{
-		Num(6), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
-		Op(txscript.OP_ELSE), Num(11), Op(txscript.OP_PICK),
-		Op(txscript.OP_CHECKSIGVERIFY), Op(txscript.OP_2DROP),
-		Op(txscript.OP_DROP),
-		Op(txscript.OP_ENDIF),
 		Num(int64(outIndex)), Num(SelOutSingle), Op(OP_TX),
 		Data(midP2TRPrefix), Num(11), Op(txscript.OP_PICK),
 		Op(txscript.OP_CAT), Op(txscript.OP_EQUALVERIFY),
@@ -389,13 +426,26 @@ func midExitBlockFull(sparse bool, depth, outIndex int) []Token {
 
 // MidExitScript is the MID-tier EXIT_k script for a tree of the given depth.
 func MidExitScript(depth, k int, sparse bool) []Token {
+	return midExitScript(depth, k, sparse, false, [32]byte{})
+}
+
+// MidExitTowerScript is EXIT_K^t under MID (spec 7.2 rule 7): EXIT_K whose
+// owner branch takes the off-chain authorisation over treeID, a constant
+// of the script, in place of a transaction signature. A tree-creation
+// parameter that replaces EXIT_K (tools/layertree_mid.py exit_script
+// tower=True).
+func MidExitTowerScript(depth, k int, treeID [32]byte, sparse bool) []Token {
+	return midExitScript(depth, k, sparse, true, treeID)
+}
+
+func midExitScript(depth, k int, sparse, tower bool, treeID [32]byte) []Token {
 	s := midPrologue()
-	s = append(s, midExitBlockFull(sparse, depth, 1)...)
+	s = append(s, midExitBlockFull(sparse, depth, 1, tower, treeID)...)
 	s = append(s, midCheckOld(sparse)...)
 	for i := 2; i <= k; i++ {
 		s = append(s, Op(txscript.OP_SWAP), Op(txscript.OP_TOALTSTACK),
 			Op(txscript.OP_TOALTSTACK), Op(txscript.OP_DROP))
-		s = append(s, midExitBlockFull(sparse, depth, i)...)
+		s = append(s, midExitBlockFull(sparse, depth, i, tower, treeID)...)
 		s = append(s, midCheckPrev(sparse)...)
 	}
 	return append(s, midFinal(depth)...)

@@ -1630,6 +1630,146 @@ def test_audit_negatives_ccv(depth):
     expect_fail(lambda: w0.run("JOIN_2", wit, ctx), "c0: JOIN_2 with new_sum = 2^31 + 2^24 (a negative CScriptNum)")
 
 
+def test_exit_tower_ccv(depth, profile, numeric="c2"):
+    """EXIT_K^t (spec 7.2 rule 7) under CCV in either numerics: the owner
+    branch takes an off-chain signature over H_exit(tree_id || leaf),
+    checked by OP_CHECKSIGFROMSTACK (the tier's second CSFS user after
+    CLAIM), in place of a transaction signature. The FULL suite's
+    scenario: a tower exits on the authorisation with its own fee input,
+    rebuilds it against a new root after a competing spend, and the voucher
+    tag, another tree_id, a changed leaf, a transaction signature, an empty
+    element and an inexact payout all fail; the evict branch is unchanged;
+    EXIT_2^t runs on two authorisations, or one and an eviction. Swapped
+    into the taptree as EXIT_1 and EXIT_2 through CCVTreeOptions
+    (tower=True), a tree-creation parameter kept by a detached child."""
+    S = profile == "S"
+    c0 = numeric == "c0"
+    tag = f"{numeric} {profile}/{depth}: EXIT^t"
+    opts = C.CCVTreeOptions(pubkey_x(sk("operator")), numeric, profile, TREE_ID, (0, 2), (1, 2), (2,), (1, 2),
+                            tower=True)
+    scripts = opts.at_depth(depth)
+    if c0:
+        w = WorldC0(depth, profile)
+        gen = lambda k: C._exit_script_ccv0(depth, k, S, tower=True, tree_id=TREE_ID)  # noqa: E731
+        allowed, mode, lv = C0_OPCODES | CSFS_OPS, "c0", 0xc0
+    else:
+        w = World(depth, profile)
+        gen = lambda k: C.exit_script_ccv(depth, k, profile, tower=True, tree_id=TREE_ID)  # noqa: E731
+        allowed, mode, lv = ALLOWED | CSFS_OPS, "c2", 0xc2
+    w.compiled = dict(w.compiled)
+    for k in (1, 2):
+        toks = scripts[f"EXIT_{k}"]
+        bad = {t for t in toks if isinstance(t, str)} - allowed
+        check(not bad, f"{tag}: EXIT_{k}^t opcodes outside the CCV set plus CSFS: {sorted(bad)}")
+        check(assemble(toks, mode=mode) == assemble(gen(k), mode=mode), f"{tag}: CCVTreeOptions compiles EXIT_{k}^t")
+        w.compiled[f"EXIT_{k}"] = assemble(toks, mode=mode)
+    check("OP_CHECKSIGFROMSTACK" in scripts["EXIT_1"], f"{tag}: the authorisation is checked with OP_CHECKSIGFROMSTACK")
+    check(w.compiled["EXIT_1"] != assemble(C.all_scripts_ccv(depth, w.op_pk, (0, 2), (1, 2), profile, (2,), numeric)["EXIT_1"], mode=mode),
+          f"{tag}: EXIT_1^t differs from EXIT_1")
+    if not S and depth > 2:
+        check(assemble(opts.at_depth(2)["EXIT_1"], mode=mode) == assemble(
+            C._exit_script_ccv0(2, 1, False, tower=True, tree_id=TREE_ID) if c0
+            else C.exit_script_ccv(2, 1, "D", tower=True, tree_id=TREE_ID), mode=mode),
+            f"{tag}: a detached child keeps EXIT_1^t (7.10 rule 3)")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    script = w.compiled["EXIT_1"]
+
+    def mk(label, amount, evictor=None, evict_after=0):
+        lf = mk_leaf(label, amount, evictor, evict_after)
+        while c0 and S and not M.pos_ok(lf):
+            lf.nonce = (lf.nonce + 1) & 0xffffffff
+        return lf
+    alice = mk("alice", 50_000)
+    bob = mk("bob", 125_000, w.op_pk, 800_000)
+    oper = mk("operator", 1_000_000)
+    s_a, s_b, s_o = w.slot(alice, 0), w.slot(bob, 5), w.slot(oper, (1 << depth) - 1)
+    base = {s_a: alice, s_b: bob, s_o: oper}
+    auth = schnorr_sign(lt.exit_auth_msg(TREE_ID, bob), sk("bob-owner"))
+    other_tid = lt.tree_id(lt.sha256(b"another-tree"), 0)
+
+    def block(path, leaf, sig, is_evict, root=None, new_total=None, first=True):
+        """One exit block for `leaf`; under c0 the first block carries the
+        input-amount pad and the whole witness starts with the output pad."""
+        if not c0:
+            return w.path_witness(path) + [leaf.serialize(), sig, is_evict]
+        items = M.w_levels(path, leaf.node(), lt.EMPTY_NODE, S) + w.pos(leaf) + M.w_leaf_exit(leaf) + [sig, is_evict]
+        return (w.pads_for(root[1]) if first else []) + items
+
+    def exit_tx(leaves, leaf, slot, amount=None, locktime=0):
+        """The tower's exit of `leaf`: the context (a fee input of the
+        tower's own, an exact payout unless `amount` says otherwise), the
+        witness prefix and suffix around the authorisation, and the root."""
+        w.tree = lt.Tree(depth); w.tree.leaves = dict(leaves)
+        root = w.tree.root()
+        path = w.tree.path(slot)
+        t1 = w.clone(); del t1.leaves[slot]; r1 = t1.root()
+        pay = leaf.amount if amount is None else amount
+        outs = [(r1[1], w.spk(r1)), (pay, lt.p2tr_spk(leaf.exit_key))]
+        ctx = w.ctx(outs, (5_000, P2WPKH), locktime=locktime)
+        head = list(M.pad(r1[1])) if c0 else []
+
+        def wit(sig, is_evict=b""):
+            return head + block(path, leaf, sig, is_evict, root, r1[1])
+        return ctx, wit, root
+
+    ctx, wit, root = exit_tx(base, bob, s_b)
+    it = w.run("EXIT_1", wit(auth), ctx)
+    check(True, f"{tag}: a tower exits the leaf on the owner's authorisation")
+    sizes = (it, len(script), sum(len(x) for x in wit(auth)))
+    expect_fail(lambda: w.run("EXIT_1", wit(schnorr_sign(ctx.sighash(), sk("bob-owner"))), ctx),
+                f"{tag}: a transaction signature is not an authorisation")
+    expect_fail(lambda: w.run("EXIT_1", wit(b""), ctx), f"{tag}: empty authorisation")
+    voucher_tagged = schnorr_sign(lt.tagged_hash(lt.TAG_VOUCHER, TREE_ID + bob.serialize()), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", wit(voucher_tagged), ctx), f"{tag}: an authorisation under the voucher tag")
+    expect_fail(lambda: w.run("EXIT_1", wit(schnorr_sign(lt.exit_auth_msg(other_tid, bob), sk("bob-owner"))), ctx),
+                f"{tag}: an authorisation for another tree_id")
+    expect_fail(lambda: w.run("EXIT_1", wit(schnorr_sign(lt.exit_auth_msg(TREE_ID, bob), sk("alice-owner"))), ctx),
+                f"{tag}: an authorisation by another owner")
+    ctx_lo, wit_lo, _ = exit_tx(base, bob, s_b, amount=bob.amount - 1)
+    expect_fail(lambda: w.run("EXIT_1", wit_lo(auth), ctx_lo), f"{tag}: payout below the amount")
+    ctx_hi, wit_hi, _ = exit_tx(base, bob, s_b, amount=bob.amount + 1)
+    expect_fail(lambda: w.run("EXIT_1", wit_hi(auth), ctx_hi), f"{tag}: payout above the amount")
+    after = dict(base); del after[s_a]
+    ctx2, wit2, _ = exit_tx(after, bob, s_b)
+    w.run("EXIT_1", wit2(auth), ctx2)
+    check(True, f"{tag}: the authorisation is rebuilt against a new root after a competing spend")
+    bob2 = bob.with_amount_seq(bob.amount, 1)
+    changed = dict(base); changed[s_b] = bob2
+    ctx3, wit3, _ = exit_tx(changed, bob2, s_b)
+    expect_fail(lambda: w.run("EXIT_1", wit3(auth), ctx3), f"{tag}: an authorisation for the leaf before it changed")
+    w.run("EXIT_1", wit3(schnorr_sign(lt.exit_auth_msg(TREE_ID, bob2), sk("bob-owner"))), ctx3)
+    check(True, f"{tag}: a fresh authorisation over the changed leaf")
+    ctx_e, wit_e, _ = exit_tx(base, bob, s_b, locktime=800_000)
+    w.run("EXIT_1", wit_e(schnorr_sign(ctx_e.sighash(), w.op_sk), b"\x01"), ctx_e)
+    check(True, f"{tag}: eviction")
+    expect_fail(lambda: w.run("EXIT_1", wit_e(auth, b"\x01"), ctx_e), f"{tag}: a stack authorisation in the evict branch")
+    ctx_early, wit_early, _ = exit_tx(base, bob, s_b, locktime=799_999)
+    expect_fail(lambda: w.run("EXIT_1", wit_early(schnorr_sign(ctx_early.sighash(), w.op_sk), b"\x01"), ctx_early),
+                f"{tag}: eviction before the lease")
+    # EXIT_2^t: two authorisations, then one authorisation and an eviction
+    w.tree = lt.Tree(depth); w.tree.leaves = dict(base)
+    root = w.tree.root()
+    t7 = w.clone()
+    path_a = t7.path(s_a); del t7.leaves[s_a]
+    path_b = t7.path(s_b); del t7.leaves[s_b]
+    r7 = t7.root()
+    auth_a = schnorr_sign(lt.exit_auth_msg(TREE_ID, alice), sk("alice-owner"))
+    outs = [(r7[1], w.spk(r7)), (alice.amount, lt.p2tr_spk(alice.exit_key)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+    head = list(M.pad(r7[1])) if c0 else []
+    b1 = block(path_a, alice, auth_a, b"", root, r7[1], first=True)
+
+    def two(sig_b, is_evict_b=b""):
+        return head + block(path_b, bob, sig_b, is_evict_b, root, r7[1], first=False) + b1
+    ctx7 = w.ctx(outs, (5_000, P2WPKH))
+    w.run("EXIT_2", two(auth), ctx7)
+    check(True, f"{tag}: EXIT_2^t, two authorisations")
+    expect_fail(lambda: w.run("EXIT_2", two(auth_a), ctx7), f"{tag}: EXIT_2^t, alice's authorisation presented for bob")
+    ctx8 = w.ctx(outs, (5_000, P2WPKH), locktime=800_000)
+    w.run("EXIT_2", two(schnorr_sign(ctx8.sighash(), w.op_sk), b"\x01"), ctx8)
+    check(True, f"{tag}: EXIT_2^t, one authorisation and one eviction")
+    return sizes
+
+
 def main():
     global FAILS, CHECKS
     print("CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY)")
@@ -1646,6 +1786,13 @@ def main():
         test_update_x_ccv(depth, profile)
         test_split_ccv(depth, profile)
         print(f"  {profile}/{depth} (c2) UPDATE^x, SPLIT: {CHECKS - before} checks")
+    # EXIT_K^t (spec 7.2 rule 7) in both numerics.
+    for numeric, cases in (("c2", ((4, "D"), (16, "D"), (8, "S"))),
+                           ("c0", ((4, "D"), (16, "D"), (31, "S")))):
+        for depth, profile in cases:
+            before = CHECKS
+            test_exit_tower_ccv(depth, profile, numeric)
+            print(f"  {profile}/{depth} ({numeric}) EXIT^t: {CHECKS - before} checks")
     # EVICT_SUBTREE_h with real cohorts in both numerics (spec 7.7).
     for numeric in ("c2", "c0"):
         before = CHECKS

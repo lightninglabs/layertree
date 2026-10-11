@@ -95,6 +95,9 @@ TAG_NODE = "LayerTree/node"
 TAG_STATE = "LayerTree/state"
 TAG_VOUCHER = "LayerTree/voucher"
 TAG_VOUCHER_H = "LayerTree/voucher-hashlock"
+# The exit authorisation of EXIT_K^t (spec 7.2 rule 7): a tag of its own,
+# so an authorisation can never serve as a voucher nor a voucher as one.
+TAG_EXIT = "LayerTree/exit"
 TAG_POS = "LayerTree/pos"
 TAG_TREE_ID = "LayerTree/tree-id"
 TAG_TAPTWEAK = "TapTweak"
@@ -431,6 +434,16 @@ def voucher_h_msg(tree_id, source_leaf, claim_leaf, payment_hash):
                        tree_id + source_leaf.serialize() + claim_leaf.serialize() + payment_hash)
 
 
+def exit_auth_msg(tree_id, leaf):
+    """Exit authorisation message (spec 7.2 rule 7): H_tag("LayerTree/exit",
+    tree_id || leaf). An owner signs it once, off-chain; anyone holding the
+    signature can build the exact-payout exit of that leaf against any
+    later root of the lineage, since the message names no transaction. It
+    is void once the leaf changes (any field, seq included)."""
+    assert len(tree_id) == 32
+    return tagged_hash(TAG_EXIT, tree_id + leaf.serialize())
+
+
 def apply_claim(tree, source_slot, claim_slot, claim_leaf):
     """A carve (spec 7.5 rules 2, 3 and 5): the claim leaf keeps the
     source's evictor and a lease no longer than the source's."""
@@ -472,7 +485,7 @@ def det_key(label):
 def build_vectors():
     vec = {"description": "LayerTree reference test vectors; see spec/layertree.md",
            "tags": {t: hx(tag_prefix(t)) for t in (TAG_LEAF, TAG_NODE, TAG_STATE, TAG_VOUCHER, TAG_VOUCHER_H,
-                                                    TAG_TREE_ID)},
+                                                    TAG_EXIT, TAG_TREE_ID)},
            "nums_x": hx(NUMS_X), "nums_compressed": hx(compress(NUMS)),
            "empty_leaf_hash": hx(EMPTY_LEAF_HASH),
            "empty_nodes": [node_json(empty_node(h)) for h in range(0, 33)]}
