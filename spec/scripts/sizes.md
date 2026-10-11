@@ -189,6 +189,17 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/S | 31 | CLAIM_HX | 18238 | 1451 | 129 | 19818 | n/a (0xC0) | 2 |
 | CCV/D | 16 | DETACH_8 | 973 | 433 | 129 | 1535 | 2154472 | 1 |
 | CCV-c0/D | 16 | DETACH_8 | 1628 | 470 | 129 | 2227 | n/a (0xC0) | 1 |
+| CCV/D | 16 | REWRITE_2 (4 positions, mixed) | 2434 | 1464 | 129 | 4027 | 3413319 | 3 |
+| CCV/D | 16 | REWRITE_4 (16 positions, mixed) | 5303 | 4035 | 129 | 9467 | 7861935 | 10 |
+| CCV/D | 16 | REWRITE_X_4 (16 positions, mixed) | 5601 | 4611 | 129 | 10341 | 12371547 | 19 |
+| CCV/D | 16 | REWRITE_6 (64 positions, mixed) | 17467 | 14040 | 129 | 31636 | 26775461 | 37 |
+| CCV/D | 16 | REWRITE_6 (64 positions, update) | 17467 | 19419 | 129 | 37015 | 36572967 | 65 |
+| CCV/D | 16 | REWRITE_6 (64 positions, exit) | 17467 | 11995 | 129 | 29591 | 67828013 | 65 |
+| CCV-c0/D | 16 | REWRITE_2 (4 positions, mixed) | 4435 | 1578 | 129 | 6142 | n/a (0xC0) | 3 |
+| CCV-c0/D | 16 | REWRITE_4 (16 positions, mixed) | 10212 | 4372 | 129 | 14713 | n/a (0xC0) | 10 |
+| CCV-c0/D | 16 | REWRITE_X_4 (16 positions, mixed) | 10372 | 4948 | 129 | 15449 | n/a (0xC0) | 19 |
+| CCV-c0/D | 16 | REWRITE_5 (32 positions, update) | 18202 | 10723 | 129 | 29054 | n/a (0xC0) | 33 |
+| CCV-c0/D | 16 | REWRITE_5 (32 positions, exit) | 18202 | 6787 | 129 | 25118 | n/a (0xC0) | 33 |
 | CCV/D | 16 | EXIT_1_TOWER | 1826 | 838 | 129 | 2793 | 2331249 | 1 |
 | CCV/S | 32 | EXIT_1_TOWER | 4872 | 262 | 129 | 5263 | 2921546 | 1 |
 | CCV-c0/D | 16 | EXIT_1_TOWER | 3123 | 914 | 129 | 4166 | n/a (0xC0) | 1 |

@@ -256,6 +256,25 @@ for numeric in ("c2", "c0"):
     it, sl, wl = test_ccv.test_detach_ccv(16, 8, numeric)
     rows.append(("CCV/D" if numeric == "c2" else "CCV-c0/D", 16, "DETACH_8", sl, wl, 129, sl + wl + 129,
                  it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+# ---- the cohort rewrite under CCV (7.9), both numerics, on the same cohorts as
+# the FULL and MID rows: one positive run per shape, no negatives.
+for numeric in ("c2", "c0"):
+    tierp = "CCV/D" if numeric == "c2" else "CCV-c0/D"
+    shapes = [(2, False, "mixed"), (4, False, "mixed"), (4, True, "mixed")]
+    shapes += [(6, False, "mixed"), (6, False, "update"), (6, False, "exit")] if numeric == "c2" else \
+              [(5, False, "update"), (5, False, "exit")]
+    for h, x, scenario in shapes:
+        c = test_ccv.rewrite_case_ccv(16, h, numeric, scenario, x)
+        it = c["w"].run(c["name"], c["wit"], c["ctx"])
+        sl, wl = len(c["script"]), sum(len(e) for e in c["wit"])
+        rows.append((tierp, 16, f"{c['name']} ({1 << h} positions, {scenario})", sl, wl, 129, sl + wl + 129,
+                     it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+with open(os.path.join(OUT, "CCV_REWRITE_2_D8.txt"), "w") as f:
+    f.write(listing("REWRITE_2 (CCV tier, dense, D=8): cohort rewrite of a 4-position subtree",
+                    CV.rewrite_script_ccv(8, 2, OP_KEY)))
+with open(os.path.join(OUT, "CCV0_REWRITE_2_D4.txt"), "w") as f:
+    f.write(listing("REWRITE_2 (CCV tier, 0xC0 numerics, cohort rewrite of a 4-position subtree, dense, D=4)",
+                    CV._rewrite_script_ccv0(4, 2, OP_KEY)))
 for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31, "S", "c0")):
     it, sl, wl = test_ccv.test_exit_tower_ccv(d, prof, numeric)
     rows.append((("CCV/" if numeric == "c2" else "CCV-c0/") + prof, d, "EXIT_1_TOWER", sl, wl, 129, sl + wl + 129,

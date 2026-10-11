@@ -728,15 +728,121 @@ func CCV0DetachScript(depth, height int, operatorKey [32]byte,
 	return append(s, ccv0Final(depth)...)
 }
 
+// ------------------------------------------------------ REWRITE_h (7.9) --
+// The cohort rewrite under CCV: FULL's post-order machine (8.9) under 0xC2
+// numerics and MID's element-based pre-pass under 0xC0, each with the two
+// tree bindings replaced as in every CCV transition and the exit payout of
+// 7.9 rule 5 replaced by one CHECK_OUTPUT|DEDUCT call on the old leaf's
+// exit key at the dynamic output index. The rules of 7.9 are decided by
+// the tier's own REWRITE_STEP, token for token; only the payout differs.
+
+// ccvRewritePay is the exit payout of REWRITE_STEP under CCV (0xC2):
+// [old new] | .. idx -> [old new] | .. idx+1. The index advances on the
+// altstack with a copy parked for the OP_TX read; the CCV call takes data
+// empty, the index, old.exit_key (old is three deep once the empty data
+// operand is in place), taptree empty and the DEDUCT mode
+// (tools/layertree_ccv.py _rewrite_pay_ccv).
+func ccvRewritePay() []Token {
+	return []Token{
+		Op(ts.OP_FROMALTSTACK), Op(ts.OP_DUP), Op(ts.OP_1ADD), Op(ts.OP_TOALTSTACK), // old new idx
+		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // old new idx | .. idx+1 idx
+		Data(ccvEmpty), Op(ts.OP_SWAP), // old new "" idx
+		Num(3), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32), Op(OP_SUBSTR), // old new "" idx ek
+		Data(ccvEmpty), Num(ccvModeDeductOut), Op(OP_CHECKCONTRACTVERIFY), // old new
+		Op(ts.OP_FROMALTSTACK), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP), // old new amt
+		Num(2), Op(ts.OP_PICK), Num(8), Op(OP_LEFT), Op(ts.OP_NUMEQUALVERIFY), // old new
+	}
+}
+
+// CCVRewriteScript is REWRITE_h (spec 7.9), or REWRITE_h^x with exitConsent,
+// under the CCV tier (0xC2): FULL's POSTORDER2(h) with ccvRewritePay as the
+// exit payout, then CHECK_INPUT and the assign-mode output check
+// (tools/layertree_ccv.py rewrite_script_ccv). A tree-creation parameter,
+// out of CCVAllScripts.
+//
+// witness (bottom..top) = [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op,
+// block_i = [xsig_i] [sig_i] new_i old_i as in FULL: FULL's witness minus
+// r and m.
+func CCVRewriteScript(depth, height int, operatorKey [32]byte,
+	exitConsent bool) []Token {
+
+	s := []Token{
+		Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY), // ...blocks
+		Op(ts.OP_1), Op(ts.OP_TOALTSTACK), // | idx
+		Data(fullEmptyLeafHash), Data(fullLeafPrefix), Data(fullNodePrefix), // Z L T
+	}
+	pay := ccvRewritePay()
+	d := 0
+	var gen func(h int)
+	gen = func(h int) {
+		if h == 0 {
+			s = append(s, fullRewriteStepWith(d, exitConsent, pay)...)
+			d += 4
+			return
+		}
+		gen(h - 1)
+		gen(h - 1)
+		s = append(s, fullHashStep2(d)...)
+		d -= 4
+	}
+	gen(height) // Z L T oh os nh ns | idx
+
+	return fullCat(s,
+		[]Token{
+			Op(ts.OP_FROMALTSTACK), Op(ts.OP_DROP), // drop idx
+			Num(6), Op(ts.OP_ROLL), Op(ts.OP_DROP), Num(5), Op(ts.OP_ROLL),
+			Op(ts.OP_DROP), // T oh os nh ns (drop Z, L)
+		},
+		fullLevels(false, depth, height),
+		ccvCheckOld(false),
+		ccvFinal(depth),
+	)
+}
+
+// ccv0RewritePay is the exit payout of MID's REWRITE_STEP under the CCV
+// tier's 0xC0 numerics, in place of midRewritePay: [C_new(3) C_old(6)] |
+// .. idx -> [C_new(3) C_old(6)] | .. idx+1. The old slot's canonical form
+// keeps its exit-key element (five deep once the empty data operand and
+// the index are in place) and its amount field (six deep under the OP_TX
+// amount), so the DEDUCT call takes ek as its key and the amount compare
+// is one byte equality (tools/layertree_ccv.py _rewrite_pay_ccv0).
+func ccv0RewritePay() []Token {
+	return []Token{
+		Op(ts.OP_FROMALTSTACK), Op(ts.OP_DUP), Op(ts.OP_1ADD), Op(ts.OP_TOALTSTACK), // C_new C_old idx
+		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // | .. idx+1 idx
+		Data(ccvEmpty), Op(ts.OP_SWAP), // C_new C_old "" idx
+		Num(5), Op(ts.OP_PICK), // C_new C_old "" idx ek
+		Data(ccvEmpty), Num(ccvModeDeductOut), Op(OP_CHECKCONTRACTVERIFY), // C_new C_old
+		Op(ts.OP_FROMALTSTACK), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP), // C_new C_old amt
+		Num(6), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY), // C_new C_old (amt == amt8_o)
+	}
+}
+
+// CCV0RewriteScript is REWRITE_h (spec 7.9), or REWRITE_h^x with
+// exitConsent, under the CCV tier's 0xC0 numerics: MID's rewrite body with
+// ccv0RewritePay as the exit payout, then CHECK_INPUT and the assign-mode
+// output check (tools/layertree_ccv.py _rewrite_script_ccv0). Witness:
+// MID's (8.9) minus r and m.
+func CCV0RewriteScript(depth, height int, operatorKey [32]byte,
+	exitConsent bool) []Token {
+
+	s := []Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)}
+	s = append(s, midRewriteBody(height, exitConsent, ccv0RewritePay())...)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, ccv0CheckOld(false)...)
+	return append(s, ccv0Final(depth)...)
+}
+
 // CCVTreeOptions are a CCV tree's creation parameters other than its depth
 // (spec 6.2, 4.6): the numerics (C0 for the MID encoding), the profile,
 // the operator key, tree_id, DUST_MIN, the JOIN heights, EXIT_K sizes, JOINK
 // sizes and sweep heights, and the variants a CCV taptree may carry: the
 // tower-delegable exit EXIT_K^t (7.2 rule 7) in place of EXIT_K, UPDATE^x
-// in place of UPDATE, the four CLAIM forms, SPLIT and DETACH_h. Scripts
-// compiles the set for one depth, which is what the parent's taptree is
-// built from and what a DETACH_h child MUST be built from at depth h
-// (7.10 rule 3; tools/layertree_ccv.py CCVTreeOptions).
+// in place of UPDATE, the four CLAIM forms, SPLIT, REWRITE_h with its ^x
+// form (7.9) and DETACH_h. Scripts compiles the set for one depth, which is
+// what the parent's taptree is built from and what a DETACH_h child MUST be
+// built from at depth h (7.10 rule 3; tools/layertree_ccv.py
+// CCVTreeOptions).
 type CCVTreeOptions struct {
 	OperatorKey  [32]byte
 	TreeID       [32]byte
@@ -747,14 +853,16 @@ type CCVTreeOptions struct {
 	JoinKs       []int
 	EvictHeights []int
 
-	Tower         bool
-	UpdateX       bool
-	Claim         bool
-	ClaimH        bool
-	ClaimX        bool
-	ClaimHX       bool
-	Split         bool
-	DetachHeights []int
+	Tower          bool
+	UpdateX        bool
+	Claim          bool
+	ClaimH         bool
+	ClaimX         bool
+	ClaimHX        bool
+	Split          bool
+	RewriteHeights []int
+	RewriteX       bool
+	DetachHeights  []int
 
 	// DustMin is the tree's DUST_MIN (spec 6.2), carried as a constant by
 	// the carve scripts (7.5 rule 6). Zero means tree.DustMin.
@@ -862,6 +970,24 @@ func (o CCVTreeOptions) Scripts(depth int) []FullNamedScript {
 		}
 	}
 	if !o.Sparse {
+		for _, h := range o.RewriteHeights {
+			if h > depth {
+				continue
+			}
+			if o.C0 {
+				add(itoa("REWRITE_", h), CCV0RewriteScript(depth, h, o.OperatorKey, false))
+			} else {
+				add(itoa("REWRITE_", h), CCVRewriteScript(depth, h, o.OperatorKey, false))
+			}
+			if !o.RewriteX {
+				continue
+			}
+			if o.C0 {
+				add(itoa("REWRITE_X_", h), CCV0RewriteScript(depth, h, o.OperatorKey, true))
+			} else {
+				add(itoa("REWRITE_X_", h), CCVRewriteScript(depth, h, o.OperatorKey, true))
+			}
+		}
 		for _, h := range o.DetachHeights {
 			if h >= depth {
 				continue

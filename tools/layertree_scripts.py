@@ -821,11 +821,26 @@ def _owner_auth(k, exit_consent):
     return s
 
 
-def _rewrite_step(d, exit_consent):
+def _rewrite_pay():
+    """The exit payout of _rewrite_step (7.9 rule 5): [old new] | .. idx ->
+    [old new] | .. idx+1, output idx pays exactly old.amount to
+    P2TR(old.exit_key). The CCV tier substitutes a CHECK_OUTPUT|DEDUCT
+    call here (layertree_ccv._rewrite_pay_ccv)."""
+    return ["OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",   # old new idx   | .. idx+1
+            SEL_OUT_SINGLE, "OP_TX",                                    # old new amt spk
+            P2TR_PREFIX, 4, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
+            "OP_EQUALVERIFY",                                           # old new amt
+            2, "OP_PICK", 8, "OP_LEFT", "OP_NUMEQUALVERIFY"]            # old new   (exact payout)
+
+
+def _rewrite_step(d, exit_consent, pay=None):
     """[Z L T ...] with old, new and any signatures below Z  ->  [Z L T ... oh os nh ns]
     | .. m r idx  ->  | .. m r idx'.  `d` is the number of machine elements
     above T; Z (E_0's hash) and L (the TAG_LEAF prefix) sit directly below T,
-    so the next witness element is at depth d+3."""
+    so the next witness element is at depth d+3. `pay` is the exit payout
+    check, _rewrite_pay's by default; the CCV tier passes its own."""
+    if pay is None:
+        pay = _rewrite_pay()
     return ([d + 3, "OP_ROLL", d + 4, "OP_ROLL",            # T ... old new
              "OP_SIZE", "OP_1", "OP_EQUAL",                  # old new (new is the one-byte marker?)
              "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF",       # old new   (marker: new := old)
@@ -843,12 +858,7 @@ def _rewrite_step(d, exit_consent):
              "OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_BOOLAND",
              "OP_ELSE", "OP_0", "OP_ENDIF",                  # old new exempt
              "OP_NOTIF"] + _owner_auth(d + 5, exit_consent) + ["OP_ENDIF",
-             "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + [   # new is empty: an exit, paid to old.exit_key
-             "OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",   # old new idx   | .. idx+1
-             SEL_OUT_SINGLE, "OP_TX",                                    # old new amt spk
-             P2TR_PREFIX, 4, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
-             "OP_EQUALVERIFY",                                           # old new amt
-             2, "OP_PICK", 8, "OP_LEFT", "OP_NUMEQUALVERIFY",            # old new   (exact payout)
+             "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + pay + [   # new is empty: an exit, paid to old.exit_key
              "OP_ENDIF",
              "OP_ENDIF",                                     # (old empty: a join, operator only)
              "OP_ENDIF",                                     # (unchanged)

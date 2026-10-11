@@ -83,6 +83,11 @@ add("CCV0", "D", 4, "UPDATE_X", CV._update_script_ccv0(4, OP_KEY, False, exit_co
 # DETACH_2 (7.10) in both numerics, over the reference option set at depth 2.
 add("CCV", "D", 4, "DETACH_2", CV.detach_script_ccv(4, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2")), "c2")
 add("CCV0", "D", 4, "DETACH_2", CV._detach_script_ccv0(4, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c0")), "c0")
+# REWRITE_2 and REWRITE_2^x (7.9) in both numerics.
+add("CCV", "D", 4, "REWRITE_2", CV.rewrite_script_ccv(4, 2, OP_KEY), "c2")
+add("CCV", "D", 4, "REWRITE_X_2", CV.rewrite_script_ccv(4, 2, OP_KEY, exit_consent=True), "c2")
+add("CCV0", "D", 4, "REWRITE_2", CV._rewrite_script_ccv0(4, 2, OP_KEY), "c0")
+add("CCV0", "D", 4, "REWRITE_X_2", CV._rewrite_script_ccv0(4, 2, OP_KEY, exit_consent=True), "c0")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
 # CLAIM^h the hash-locked voucher (7.5.1), SPLIT the owner-authorised

@@ -1001,12 +1001,36 @@ func fullOwnerAuth(k int, exitConsent bool) []Token {
 	return s
 }
 
+// fullRewritePay is the exit payout of fullRewriteStep (spec 7.9 rule 5):
+// [old new] | .. idx -> [old new] | .. idx+1, output idx pays exactly
+// old.amount to P2TR(old.exit_key). The CCV tier substitutes a
+// CHECK_OUTPUT|DEDUCT call here (ccvRewritePay).
+func fullRewritePay() []Token {
+	return []Token{
+		Op(ts.OP_FROMALTSTACK), Op(ts.OP_DUP), Op(ts.OP_1ADD),
+		Op(ts.OP_TOALTSTACK),         // old new idx
+		Num(SelOutSingle), Op(OP_TX), // old new amt spk
+		Data(fullP2TRPrefix), Num(4), Op(ts.OP_PICK), Num(fullOffExitKey),
+		Num(32), Op(OP_SUBSTR), Op(OP_CAT),
+		Op(ts.OP_EQUALVERIFY), // old new amt
+		Num(2), Op(ts.OP_PICK), Num(8), Op(OP_LEFT),
+		Op(ts.OP_NUMEQUALVERIFY), // old new (exact payout)
+	}
+}
+
 // fullRewriteStep: [Z L T ...] with old, new and any signatures below Z ->
 // [Z L T ... oh os nh ns]; the altstack's output index advances on an exit.
 // d is the number of machine elements above T; Z (E_0's hash) and L (the
 // TAG_LEAF prefix) sit directly below T, so the next witness element is at
 // depth d+3.
 func fullRewriteStep(d int, exitConsent bool) []Token {
+	return fullRewriteStepWith(d, exitConsent, fullRewritePay())
+}
+
+// fullRewriteStepWith is fullRewriteStep with the exit payout check `pay`
+// in place of fullRewritePay (tools/layertree_scripts.py _rewrite_step's
+// pay argument); the CCV tier passes its own.
+func fullRewriteStepWith(d int, exitConsent bool, pay []Token) []Token {
 	return fullCat(
 		[]Token{
 			Num(int64(d + 3)), Op(ts.OP_ROLL), Num(int64(d + 4)), Op(ts.OP_ROLL), // old new
@@ -1034,15 +1058,8 @@ func fullRewriteStep(d int, exitConsent bool) []Token {
 		fullOwnerAuth(d+5, exitConsent),
 		[]Token{Op(ts.OP_ENDIF), Op(ts.OP_ELSE)}, // new is empty: an exit
 		fullOwnerAuth(d+5, exitConsent),
+		pay, // new is empty: an exit, paid to old.exit_key
 		[]Token{
-			Op(ts.OP_FROMALTSTACK), Op(ts.OP_DUP), Op(ts.OP_1ADD),
-			Op(ts.OP_TOALTSTACK),         // old new idx
-			Num(SelOutSingle), Op(OP_TX), // old new amt spk
-			Data(fullP2TRPrefix), Num(4), Op(ts.OP_PICK), Num(fullOffExitKey),
-			Num(32), Op(OP_SUBSTR), Op(OP_CAT),
-			Op(ts.OP_EQUALVERIFY), // old new amt
-			Num(2), Op(ts.OP_PICK), Num(8), Op(OP_LEFT),
-			Op(ts.OP_NUMEQUALVERIFY), // old new (exact payout)
 			Op(ts.OP_ENDIF),
 			Op(ts.OP_ENDIF), // old empty: a join, operator only
 			Op(ts.OP_ENDIF), // unchanged

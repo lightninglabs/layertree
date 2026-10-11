@@ -112,6 +112,23 @@ The difference column is measured minus model. For a row whose shape is the mode
 | CCV/S | 32 | CLAIM_H | 9592 | 451 | 70 | 11118 | 2780 | 73 | 2798 | -296 | 10895 | 2724 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | CLAIM_X | 9591 | 483 | 70 | 11149 | 2788 | 73 | 2806 | -296 | 10926 | 2732 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | CLAIM_HX | 9599 | 515 | 71 | 11189 | 2798 | 74 | 2816 | -296 | 10967 | 2742 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/D | 16 | REWRITE_2 (exit, 4 changed) | 2434 | 1359 | 43 | 4868 | 1217 | 46 | 1229 | 516 | 5430 | 1358 | +141 | 2 in / 6 out (5 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_2 (update, 4 changed) | 2434 | 1823 | 43 | 5332 | 1333 | 46 | 1345 | -172 | 5206 | 1302 | -31 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_2 (mixed, 3 changed) | 2434 | 1464 | 41 | 4973 | 1244 | 44 | 1255 | 0 | 5017 | 1255 | +11 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_4 (exit, 16 changed) | 5303 | 3437 | 75 | 9815 | 2454 | 78 | 2474 | 2580 | 12473 | 3119 | +665 | 2 in / 18 out (17 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_4 (update, 16 changed) | 5303 | 5293 | 75 | 11671 | 2918 | 78 | 2938 | -172 | 11577 | 2895 | -23 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_4 (mixed, 13 changed) | 5303 | 4035 | 68 | 10413 | 2604 | 71 | 2621 | 172 | 10656 | 2664 | +60 | 2 in / 4 out (3 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_6 (exit, 64 changed) | 17467 | 11995 | 215 | 30537 | 7635 | 218 | 7689 | 10836 | 41591 | 10398 | +2763 | 2 in / 66 out (65 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_6 (update, 64 changed) | 17467 | 19419 | 215 | 37961 | 9491 | 218 | 9545 | -172 | 38007 | 9502 | +11 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| CCV/D | 16 | REWRITE_6 (mixed, 51 changed) | 17467 | 14040 | 187 | 32582 | 8146 | 190 | 8193 | 1376 | 34148 | 8537 | +391 | 2 in / 11 out (10 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_2 (exit, 4 changed) | 4435 | 1459 | 193 | 6969 | 1743 | 196 | 1792 | 516 | 7681 | 1921 | +178 | 2 in / 6 out (5 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_2 (update, 4 changed) | 4435 | 1951 | 233 | 7461 | 1866 | 236 | 1925 | -172 | 7525 | 1882 | +16 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_2 (mixed, 3 changed) | 4435 | 1578 | 211 | 7088 | 1772 | 214 | 1826 | 0 | 7302 | 1826 | +54 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_4 (exit, 16 changed) | 10212 | 3711 | 379 | 14998 | 3750 | 384 | 3846 | 2580 | 17962 | 4491 | +741 | 2 in / 18 out (17 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_4 (update, 16 changed) | 10212 | 5679 | 539 | 16966 | 4242 | 544 | 4378 | -172 | 17338 | 4335 | +93 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_4 (mixed, 13 changed) | 10212 | 4372 | 462 | 15659 | 3915 | 467 | 4032 | 172 | 16298 | 4075 | +160 | 2 in / 4 out (3 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_5 (exit, 32 changed) | 18202 | 6787 | 642 | 26064 | 6516 | 647 | 6678 | 5332 | 32043 | 8011 | +1495 | 2 in / 34 out (33 P2TR, 1 P2WPKH) |
+| CCV-c0/D | 16 | REWRITE_5 (update, 32 changed) | 18202 | 10723 | 962 | 30000 | 7500 | 967 | 7742 | -172 | 30795 | 7699 | +199 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
 
 ## Per-exit prefix overhead, EXIT_1 (owner), dense D = 16
 
@@ -142,3 +159,20 @@ The measured transaction divided by the leaves that leave or change (`EVICT_SUBT
 | REWRITE_6 (exit, 64 changed) | 64 | 10447 | 163.2 | 162.4 |
 | REWRITE_6 (update, 64 changed) | 64 | 9551 | 149.2 | 149.0 |
 | REWRITE_6 (mixed, 51 changed) | 51 | 8586 | 168.4 | 167.4 |
+| REWRITE_2 (exit, 4 changed) | 4 | 1358 | 339.5 | 336.5 |
+| REWRITE_2 (update, 4 changed) | 4 | 1302 | 325.5 | 333.2 |
+| REWRITE_2 (mixed, 3 changed) | 3 | 1255 | 418.3 | 414.7 |
+| REWRITE_4 (exit, 16 changed) | 16 | 3119 | 194.9 | 193.7 |
+| REWRITE_4 (update, 16 changed) | 16 | 2895 | 180.9 | 182.4 |
+| REWRITE_4 (mixed, 13 changed) | 13 | 2664 | 204.9 | 203.6 |
+| REWRITE_6 (exit, 64 changed) | 64 | 10398 | 162.5 | 161.6 |
+| REWRITE_6 (update, 64 changed) | 64 | 9502 | 148.5 | 148.3 |
+| REWRITE_6 (mixed, 51 changed) | 51 | 8537 | 167.4 | 166.5 |
+| REWRITE_2 (exit, 4 changed) | 4 | 1921 | 480.2 | 468.0 |
+| REWRITE_2 (update, 4 changed) | 4 | 1882 | 470.5 | 466.5 |
+| REWRITE_2 (mixed, 3 changed) | 3 | 1826 | 608.7 | 590.7 |
+| REWRITE_4 (exit, 16 changed) | 16 | 4491 | 280.7 | 274.7 |
+| REWRITE_4 (update, 16 changed) | 16 | 4335 | 270.9 | 265.1 |
+| REWRITE_4 (mixed, 13 changed) | 13 | 4075 | 313.5 | 304.5 |
+| REWRITE_5 (exit, 32 changed) | 32 | 8011 | 250.3 | 245.3 |
+| REWRITE_5 (update, 32 changed) | 32 | 7699 | 240.6 | 234.4 |

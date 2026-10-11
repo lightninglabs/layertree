@@ -1045,6 +1045,13 @@ func midRewriteConv() []Token {
 // fin 1, ok 2, ek 3, rest_o 4, amt8_o 5, amt_n 6, rest_n 7, amt8_n 8, the
 // next witness element 9.
 func midRewriteStep(exitConsent bool) []Token {
+	return midRewriteStepWith(exitConsent, midRewritePay())
+}
+
+// midRewriteStepWith is midRewriteStep with the exit payout check `pay` in
+// place of midRewritePay (tools/layertree_mid.py _rewrite_step's pay
+// argument); the CCV tier's 0xC0 numerics pass their own.
+func midRewriteStepWith(exitConsent bool, pay []Token) []Token {
 	s := midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 3)
 	s = append(s, Op(txscript.OP_IF))
 	s = append(s, midLeafJoinOld()...)
@@ -1091,7 +1098,7 @@ func midRewriteStep(exitConsent bool) []Token {
 	s = append(s, midRewriteOwnerAuth(exitConsent)...)
 	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ELSE))
 	s = append(s, midRewriteOwnerAuth(exitConsent)...)
-	s = append(s, midRewritePay()...)
+	s = append(s, pay...)
 	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF))
 	s = append(s,
 		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
@@ -1137,9 +1144,21 @@ func MidRewriteScript(depth, height int, operatorKey [32]byte,
 
 	s := midPrologue()
 	s = append(s, Data(operatorKey[:]), Op(txscript.OP_CHECKSIGVERIFY))
-	s = append(s, Op(txscript.OP_1), Data(midLeafPrefix), Data(midEvictE0Sc))
+	s = append(s, midRewriteBody(height, exitConsent, midRewritePay())...)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, midCheckOld(false)...)
+	return append(s, midFinal(depth)...)
+}
+
+// midRewriteBody is the tier-independent middle of REWRITE_h after the
+// operator's signature: [.. blocks] -> [T oh os nh ns], the pre-pass over
+// every position and the mirrored post-order hash pass, with `pay` as the
+// exit payout check (tools/layertree_mid.py rewrite_body). Shared with the
+// CCV tier's 0xC0 numerics, as midEvictBody is for the sweep.
+func midRewriteBody(height int, exitConsent bool, pay []Token) []Token {
+	s := []Token{Op(txscript.OP_1), Data(midLeafPrefix), Data(midEvictE0Sc)}
 	for i := 0; i < 1<<height; i++ {
-		s = append(s, midRewriteStep(exitConsent)...)
+		s = append(s, midRewriteStepWith(exitConsent, pay)...)
 	}
 	s = append(s, Op(txscript.OP_2DROP), Op(txscript.OP_DROP), Data(midNodePrefix))
 	var t int64
@@ -1156,9 +1175,7 @@ func MidRewriteScript(depth, height int, operatorKey [32]byte,
 		t -= 4
 	}
 	gen(height, true)
-	s = append(s, midLevels(false, depth, height)...)
-	s = append(s, midCheckOld(false)...)
-	return append(s, midFinal(depth)...)
+	return s
 }
 
 // MidDetachScript is DETACH_h (spec 7.10, 8.10) in the MID tier: FULL's

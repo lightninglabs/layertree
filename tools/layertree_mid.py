@@ -733,7 +733,7 @@ def _rewrite_conv():
             "OP_ENDIF"]
 
 
-def _rewrite_step(exit_consent):
+def _rewrite_step(exit_consent, pay=None):
     """One position of the pre-pass:
     [.. {xsig} {sig} new_slot old_slot idx L Z] | .. -> [.. idx' L Z] | .. ns nsc os osc
 
@@ -744,7 +744,11 @@ def _rewrite_step(exit_consent):
     canonical forms on the stack (new below old) the step applies 7.9
     rules 3 and 5 and converts both to nodes. Depths in the decision
     block, from the top: amt_o 0, fin 1, ok 2, ek 3, rest_o 4, amt8_o 5,
-    amt_n 6, rest_n 7, amt8_n 8, and the next witness element 9."""
+    amt_n 6, rest_n 7, amt8_n 8, and the next witness element 9. `pay` is
+    the exit payout check, _rewrite_pay's by default; the CCV tier's 0xC0
+    numerics pass their own."""
+    if pay is None:
+        pay = _rewrite_pay()
     s = ["OP_TOALTSTACK"] * 3                                                  # .. new_slot old_slot   | .. Z L idx
     s += ["OP_IF"] + _leaf_join_old() + ["OP_ELSE"] + ["OP_0"] * 6 + ["OP_ENDIF"]   # .. new_slot C_old(6)
     s += [6, "OP_PICK", REWRITE_SAME, "OP_EQUAL", "OP_IF",                     # -- the marker: new = old --
@@ -766,7 +770,7 @@ def _rewrite_step(exit_consent):
           "OP_OVER", 8, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",         # .. and amt_o <= amt_n
           2, "OP_PICK", "OP_NOT", "OP_BOOLAND",                                # .. and seq != SEQ_FINAL
           "OP_NOTIF"] + _rewrite_owner_auth(exit_consent) + ["OP_ENDIF",
-          "OP_ELSE"] + _rewrite_owner_auth(exit_consent) + _rewrite_pay() + [  # -- new is empty: exit --
+          "OP_ELSE"] + _rewrite_owner_auth(exit_consent) + pay + [          # -- new is empty: exit --
           "OP_ENDIF",
           "OP_ENDIF",                                                          # (old empty: a join, operator only)
           "OP_ENDIF"]                                                          # (unchanged)
@@ -808,9 +812,20 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
     """
     assert 1 <= height <= depth
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]                       # .. blocks            | m r
-    s += ["OP_1", F.LEAF_PREFIX, E0_SC]                                        # .. blocks idx L Z
+    s += rewrite_body(height, exit_consent)                                    # T oh os nh ns        | m r
+    s += levels(False, depth, height)
+    return s + check_old(False) + final(depth)
+
+
+def rewrite_body(height, exit_consent, pay=None):
+    """The tier-independent middle of REWRITE_h after the operator's
+    signature: [.. blocks] -> [T oh os nh ns], the pre-pass over every
+    position and the mirrored post-order hash pass. Shared with the CCV
+    tier's 0xC0 numerics, which pass their own exit payout check as
+    `pay`, as evict_body is for the sweep."""
+    s = ["OP_1", F.LEAF_PREFIX, E0_SC]                                         # .. blocks idx L Z
     for _ in range(1 << height):
-        s += _rewrite_step(exit_consent)                                       # .. idx' L Z          | m r (ns nsc os osc)*
+        s += _rewrite_step(exit_consent, pay)                                  # .. idx' L Z          | .. (ns nsc os osc)*
     s += ["OP_2DROP", "OP_DROP", F.NODE_PREFIX]                                # T
     t = [0]
 
@@ -824,8 +839,7 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
         s.extend(_rewrite_hash_step2(t[0], root))
         t[0] -= 4
     gen(height, True)                                                          # T oh os nh ns
-    s += levels(False, depth, height)
-    return s + check_old(False) + final(depth)
+    return s
 
 
 def w_rewrite_slot(leaf):
