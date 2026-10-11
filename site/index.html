@@ -232,7 +232,10 @@
   </dl>
 
   <h2 id="numbers">Where the numbers come from</h2>
-  <p>Every size on this site is measured, not estimated. The repository's
+  <p>Every script and witness size on this site is measured, not estimated;
+  whole-transaction sizes follow the specification's fee model, which runs
+  about 1% under the serialised transaction (1,020 against 1,030 vB for the
+  depth-16 exit). The repository's
   tapscript simulator executes each reference script and records its size in
   <a href="../spec/scripts/sizes.md"><code>spec/scripts/sizes.md</code></a>.
   Section 11 of the <a href="../spec/layertree.md">specification</a> turns those
@@ -280,7 +283,7 @@
 <footer class="site-footer">
   <div class="site-footer__inner">
     <p>LayerTree is a design with a reference implementation; the opcodes it uses are proposals, not consensus rules.</p>
-    <p>Sizes are measured by the repository's simulator; see <a href="#numbers">where the numbers come from</a>.</p>
+    <p>Sizes are measured by the repository's simulator (whole transactions on the specification's fee model); see <a href="#numbers">where the numbers come from</a>.</p>
   </div>
 </footer>
 <script src="js/tree-anim.js"></script>

@@ -663,9 +663,9 @@ additions the body had no room for.
     1,681 vB with 684 vB for a simple taproot channel's open and force
     close together, saying that the leaf's exit creates the funding
     output. Table 10's batch cells are 161 and 219 (3 or 61 plus the
-    158 vB sweep), matching the caption; Figure 8's caption notes that
-    its bar, which the figure generator outside `paper/` draws, still
-    reads 162. Table 10's online column reads "owner" with a note that
+    158 vB sweep), matching the caption, and the lifetime figure's dense
+    batch bar, drawn by `tools/gen_cost_figures.py`, was corrected to
+    161 with it. Table 10's online column reads "owner" with a note that
     nobody is needed under `EXIT^t`, matching Table 11.
 12. **Trust table.** Table 1 now says that anyone holding an `EXIT^t`
     authorisation can exit that leaf and that nobody else can trigger an
@@ -738,8 +738,8 @@ channel-budget, receive and voucher text it shares.
   9.6's informative paragraph (finding 6); 11.2's +33% and +44%, which
   could give the serialised premiums too (finding 14); C.4.4's "~40
   typical on the public network" (finding 5).
-* **tools**: drop the PR numbers from the `exit-anatomy` labels and make
-  the lifetime figure's dense batch bar 161 (`gen_cost_figures.py`); new
+* **tools**: drop the PR numbers from the `exit-anatomy` labels
+  (`gen_cost_figures.py`); new
   sizes for `CLAIM`, `CLAIM^h`, `CLAIM^x` and `EXIT_K^t` once 0.13.0
   lands, which move 1,617, 1,627, 1,635, 2,655 (and its fee row in
   Table 15), 1,046 and "107 bytes" in the paper.

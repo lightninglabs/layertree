@@ -32,7 +32,7 @@ leaf that the operator owns and that names the user's key as exit key
 the payer's receipt proves that the operator was paid; the HTLC reaches
 the operator, which settles it \emph{first} and only then signs the user
 a cumulative voucher for the new running total. Nothing reaches the
-chain per payment, but a voucher draws only what the credit leaf holds,
+chain per payment and the user need not be online, but a voucher draws only what the credit leaf holds,
 which the operator pre-funds, recovering any excess only with the user's
 consent, or tops up at about $122\vB$ a leaf in a cohort rewrite
 (Appendix~\ref{app:impl-receive}). A hash-locked voucher issued before
@@ -65,7 +65,8 @@ costs more than it recovers (Appendix~\ref{app:eval}).
 operator pays the recipient a leaf in its next cohort graft (under
 $3\vB$ a member) and retires the voucher by one \tr{UPDATE}$^{x}$ that
 the recipient co-signs ($1{,}048\vB$) or a cohort \tr{REWRITE}$_h^{x}$
-(about $148\vB$ a leaf). If the operator stops cooperating, the
+(about $164\vB$ a leaf with its exit-key signature). If the operator
+stops cooperating, the
 recipient redeems its latest voucher alone with one \tr{CLAIM}$^{x}$
 ($1{,}635\vB$, no timelock) and leaves by the exact exit, paying both
 fees from a confirmed coin of its own: $2{,}655\vB$, or 26{,}550\,sat at

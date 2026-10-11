@@ -124,7 +124,8 @@ recipient is offline. A provider that settles and never issues takes
 this one payment; that is the recipient's whole exposure.
 (5)~\emph{Top-up.} Before the running total exceeds the credit leaf's
 amount, the operator raises the amount by an amount-only
-\tr{REWRITE}$_h^{x}$, about $122\vB$ per credit leaf batched per cohort,
+\tr{REWRITE}$_h^{x}$, about $122\vB$ per credit leaf batched per cohort (a changed position
+without its $16\vB$ member signature),
 or pre-funds the leaf. A top-up voids no voucher, since the message does
 not bind the amount (\S\ref{sec:voucher-def}). Pre-funded capital beyond
 what has been vouched for is the recipient's on every path the operator
@@ -196,8 +197,9 @@ lease holds up a sweep. A renewal moves a member into a cohort with the
 new lease, by an \tr{UPDATE} and a whole-balance \tr{SPLIT}
 ($2{,}616\vB$), or renews a cohort in place with one \tr{REWRITE}$_6$
 at $148\vB$ per member, which needs every renewing member's signature;
-a member who does not sign keeps the old lease and is swept or moved
-when it passes. So a member pays between $148$ and $2{,}616\vB$ per lease
+a member who does not sign keeps the old lease; a sweep needs every
+lease in the cohort to have passed, so the operator evicts it alone or
+moves it when its lease passes. So a member pays between $148$ and $2{,}616\vB$ per lease
 period it stays, and the operator chooses the period. When a lease
 passes, the operator should warn the member and offer renewal (spec
 9.4); if it evicts instead, the member sees its whole balance arrive at

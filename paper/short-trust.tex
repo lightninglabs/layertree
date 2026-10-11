@@ -20,8 +20,8 @@ Table~\ref{tab:trust} lists each party's powers.
 \toprule
 party & can & cannot \\
 \midrule
-Operator & refuse to co-sign; graft leaves, including ones it funds; evict a leaf after its lease, paying it in full, with everything carved from it; issue vouchers on its own leaves; detach a cohort; fill a cohort's empty positions, stalling partial-balance vouchers & move or reduce another leaf; delay an exit beyond [C] (it contends by fee, like anyone); freeze value it did not graft and fund; change the taptree, or unilaterally a lease or a detached cohort's rules, keys or balances \\
-Owner & exit at any time; co-sign updates; issue vouchers against its leaf; carve its leaf, into any empty position (a later lease than a cohort's delays its sweep) & change another leaf; withdraw more than its amount; carve a leaf with another evictor or a later lease than its own \\
+Operator & refuse to co-sign; graft leaves, including ones it funds; evict a leaf after its lease, paying it in full, with everything carved from it; issue vouchers on its own leaves; detach a cohort; fill a cohort's empty positions, stalling partial-balance vouchers & move or reduce another leaf; delay an exit beyond [C] (it contends by fee, like anyone); freeze value it did not graft and fund; change the taptree, or unilaterally a lease or a detached cohort's rules, keys or balances (raising an amount is the one change it makes alone) \\
+Owner & exit at any time; co-sign updates; issue vouchers against its leaf; carve its leaf, into any empty position (which blocks a graft there and, with a later lease than the cohort's, delays its sweep) & change another leaf; withdraw more than its amount; carve a leaf with another evictor or a later lease than its own \\
 Anyone & redeem a valid voucher; relay transitions; exit a leaf whose \tr{EXIT}$^{t}$ authorisation it holds & trigger an owner's exit without one; create leaves; alter amounts \\
 \bottomrule
 \end{tabular}
@@ -33,7 +33,7 @@ used, so the member updates its own path from the chain alone and needs
 nothing else to exit. It verifies its path before funding a join
 (\S\ref{sec:parties}) and the source before accepting a voucher
 (\S\ref{sec:holder-risk}), keeps a confirmed fee coin for every
-unilateral path (Appendix~\ref{app:impl}), and must be online to exit
+unilateral path but FULL's fee-from-payout exit (Appendix~\ref{app:impl}), and must be online to exit
 unless a tower holds its \tr{EXIT}$^{t}$ authorisation (\S\ref{sec:leaving}).
 
 \paragraph{Liveness.}\label{sec:liveness} Every operation spends and
