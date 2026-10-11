@@ -533,10 +533,12 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 }
 
 // SignVoucher is the source owner's voucher for a CLAIM (spec 7.5): a
-// BIP-340 signature over H_voucher(tree_id || source || claim), treeID being
-// the tree's TreeState.Options.TreeID, the constant its CLAIM scripts were
-// compiled with. It commits to no transaction, so it is made off-chain,
-// before any CLAIM is built.
+// BIP-340 signature over H_voucher(tree_id || body(source) || claim), treeID
+// being the tree's TreeState.Options.TreeID, the constant its CLAIM scripts
+// were compiled with. It commits to no transaction, so it is made
+// off-chain, before any CLAIM is built, and it binds the source leaf
+// without its amount, so it survives an amount-only REWRITE_h top-up of the
+// source and is redeemed against the leaf's amount at that time.
 func SignVoucher(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf) ([]byte, error) {
 
@@ -545,7 +547,7 @@ func SignVoucher(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 }
 
 // SignVoucherH is the voucher for a CLAIM^h (spec 7.5.1): a signature over
-// H_voucher_h(tree_id || source || claim || payment_hash).
+// H_voucher_h(tree_id || body(source) || claim || payment_hash).
 func SignVoucherH(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf, paymentHash [32]byte) ([]byte, error) {
 
@@ -554,12 +556,14 @@ func SignVoucherH(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 }
 
 // SignExitAuth is the owner's exit authorisation for EXIT_K^t (spec 7.2
-// rule 7): a BIP-340 signature over H_exit(tree_id || leaf), treeID being
-// the tree's TreeState.Options.TreeID, the constant its EXIT_K^t scripts
-// were compiled with. It commits to no transaction, so it is made
-// off-chain, once, and handed to whoever will build the exit (a tower);
-// it stays valid against every later root of the lineage until the leaf
-// changes, which is how an owner voids it.
+// rule 7): a BIP-340 signature over H_exit(tree_id || body(leaf)), treeID
+// being the tree's TreeState.Options.TreeID, the constant its EXIT_K^t
+// scripts were compiled with. It commits to no transaction, so it is made
+// off-chain, once, and handed to whoever will build the exit (a tower); it
+// stays valid against every later root of the lineage until the leaf
+// changes in any field but its amount, which is how an owner voids it. An
+// amount-only REWRITE_h top-up leaves it valid, and the exit then pays the
+// leaf's current amount.
 func SignExitAuth(ownerKey *btcec.PrivateKey, treeID [32]byte,
 	leaf *tree.Leaf) ([]byte, error) {
 

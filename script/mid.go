@@ -360,13 +360,15 @@ func midLeafJoin() []Token {
 // 7.2 rule 7), shared with the CCV tier's 0xC0 scripts:
 // [leaf(10) ea_num ze we sig] -> [leaf(10) ea_num ze we], where sig MUST
 // be a BIP-340 signature by the leaf's owner key over
-// H_exit(tree_id || leaf), checked with OP_CHECKSIGFROMSTACK. The leaf is
-// rejoined from its seven field elements, each 13 deep under sig, as
-// midVoucherAuth does for CLAIM; ok sits 12 deep once the message
+// H_exit(tree_id || body(leaf)), checked with OP_CHECKSIGFROMSTACK. The
+// leaf body (the six fields after amt8, spec 5.2) is rejoined from its
+// field elements, each 12 deep under sig, as midVoucherAuth does for
+// CLAIM; amt8 is left out, so an amount-only increase by REWRITE_h rule 3
+// leaves the authorisation valid. ok sits 12 deep once the message
 // replaces the copies (tools/layertree_mid.py tower_auth).
 func midTowerAuth(treeID [32]byte) []Token {
-	s := midRepeat([]Token{Num(13), Op(txscript.OP_PICK)}, 7)
-	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+	s := midRepeat([]Token{Num(12), Op(txscript.OP_PICK)}, 6)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 5)...)
 	s = append(s, Data(treeID[:]), Op(txscript.OP_SWAP), Op(txscript.OP_CAT))
 	s = append(s, midTagged(midExitPrefix)...)
 	return append(s, Num(12), Op(txscript.OP_PICK), Op(OP_CHECKSIGFROMSTACK),
@@ -589,14 +591,17 @@ const (
 // numerics (spec 7.5 rule 1, 7.5.1 rule 1), shared with the CCV tier's 0xC0
 // scripts: [src(10) claim(10) extras(13) vsig] -> [src(10) claim(10)
 // extras(13)], with SHA256(preimage) parked on the altstack beforehand under
-// hashlock. The message H_voucher(tree_id || src || claim) is assembled from
-// the seven leaf fields of each block by fourteen OP_PICKs: src's fields sit
-// 33 deep under vsig, claim's 24 once src_leaf is on the stack, and src.ok
-// 32 deep once the message replaces the copies
-// (tools/layertree_mid.py voucher_auth).
+// hashlock. The message H_voucher(tree_id || body(src) || claim) is
+// assembled from the leaf fields of each block by thirteen OP_PICKs: the
+// six fields of the source body (everything after amt8, spec 5.2) sit 32
+// deep under vsig, the seven of the claim leaf 24 deep once the body is on
+// the stack, and src.ok 32 deep once the message replaces the copies. The
+// source amount is left out, so an amount-only increase by REWRITE_h rule 3
+// does not void an outstanding voucher (tools/layertree_mid.py
+// voucher_auth).
 func midVoucherAuth(treeID [32]byte, hashlock bool) []Token {
-	s := midRepeat([]Token{Num(33), Op(txscript.OP_PICK)}, 7)
-	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
+	s := midRepeat([]Token{Num(32), Op(txscript.OP_PICK)}, 6)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 5)...)
 	s = append(s, midRepeat([]Token{Num(24), Op(txscript.OP_PICK)}, 7)...)
 	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 6)...)
 	s = append(s, Op(txscript.OP_CAT), Data(treeID[:]), Op(txscript.OP_SWAP),

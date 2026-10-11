@@ -1,4 +1,4 @@
-# EXIT_1_TOWER (CCV tier, tower-delegable exit, dense, D=4): 767 bytes
+# EXIT_1_TOWER (CCV tier, tower-delegable exit, dense, D=4): 770 bytes
 # macros in CAPITALS are defined in MACROS_CCV.txt; raw opcodes are wrapped and indented
 
 OP_DUP OP_TOALTSTACK OP_IF OP_OVER 104 OP_4 OP_SUBSTR OP_CHECKLOCKTIMEVERIFY

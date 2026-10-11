@@ -53,12 +53,12 @@ amount by what it has paid out: one \tr{UPDATE}$^{x}$ per credit leaf
 \tr{REWRITE}$_h^{x}$ for a cohort of credit leaves, about $148\vB$ per
 changed leaf at $h = 6$ plus $16\vB$ for each exit-key signature. If the
 operator stops cooperating, the recipient redeems its latest voucher
-alone with one \tr{CLAIM}$^{x}$: $1{,}635\vB$ at $D = 16$, with no
+alone with one \tr{CLAIM}$^{x}$: $1{,}636\vB$ at $D = 16$, with no
 timelock, against 1{,}311 to $2{,}511\vB$ and a relative timelock to
 unroll an Ark round tree of 256 to 65{,}536 members (\S\ref{sec:eval}).
 A carve conserves the tree's total and the exact exit pays in full, so
 both fees come from a confirmed coin of the recipient's: with the exit,
-$2{,}655\vB$, or 26{,}550\,sat at 10\,sat/vB, below which the fallback
+$2{,}656\vB$, or 26{,}560\,sat at 10\,sat/vB, below which the fallback
 costs more than it recovers (Appendix~\ref{app:eval}).
 \else
 \paragraph{Settlement.} Normally the voucher is never redeemed: the
@@ -68,8 +68,8 @@ the recipient co-signs ($1{,}048\vB$) or a cohort \tr{REWRITE}$_h^{x}$
 (about $164\vB$ a leaf, signature included). If the operator stops
 cooperating, the
 recipient redeems its latest voucher alone with one \tr{CLAIM}$^{x}$
-($1{,}635\vB$, no timelock) and leaves by the exact exit, paying both
-fees from a confirmed coin of its own: $2{,}655\vB$, or 26{,}550\,sat at
+($1{,}636\vB$, no timelock) and leaves by the exact exit, paying both
+fees from a confirmed coin of its own: $2{,}656\vB$, or 26{,}560\,sat at
 10\,sat/vB, below which the fallback costs more than it recovers
 (Appendix~\ref{app:impl-fees}).
 \fi

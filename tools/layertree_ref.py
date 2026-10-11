@@ -119,6 +119,11 @@ LEAF_VERSION_GSR = 0xC2
 DUST_MIN = 330
 EMPTY_LEAF_HASH = bytes(32)
 LEAF_LEN = 116
+# The leaf body (spec 5.2): the 108 bytes after the amount field, which is
+# what a voucher (7.5) and an exit authorisation (7.2 rule 7) bind, so that
+# an amount-only increase by REWRITE_h rule 3 voids neither.
+LEAF_BODY_OFF = 8
+LEAF_BODY_LEN = LEAF_LEN - LEAF_BODY_OFF
 
 
 def le64(n):
@@ -173,6 +178,15 @@ class Leaf:
                    b[72:104], int.from_bytes(b[104:108], "little"),
                    int.from_bytes(b[108:112], "little"),
                    int.from_bytes(b[112:116], "little"))
+
+    def body(self):
+        """The leaf without its amount (spec 5.2): exit_key || owner_key ||
+        evictor_key || le32(evict_after) || le32(nonce) || le32(seq), 108
+        bytes. Vouchers and exit authorisations sign this rather than the
+        whole leaf (7.5, 7.2 rule 7), so an amount-only increase by
+        REWRITE_h rule 3 leaves them valid while any other change, seq
+        included, voids them."""
+        return self.serialize()[LEAF_BODY_OFF:]
 
     def hash(self):
         return tagged_hash(TAG_LEAF, self.serialize())
@@ -416,11 +430,16 @@ def tree_id(txid, vout):
 
 
 def voucher_msg(tree_id, source_leaf, claim_leaf):
-    """Voucher message (spec 7.5): H_voucher(tree_id || src || claim). The
-    tree_id, not m, is what binds a voucher to one tree: m names a rule set,
-    which two trees can share."""
+    """Voucher message (spec 7.5): H_voucher(tree_id || body(src) || claim).
+    The tree_id, not m, is what binds a voucher to one tree: m names a rule
+    set, which two trees can share. The source leaf is bound without its
+    amount (Leaf.body), so an amount-only increase by REWRITE_h rule 3
+    does not void the voucher; single use comes from seq, which every
+    redemption advances, and over-redemption is stopped by the script's
+    check of the claim against the leaf's current amount. The claim leaf is
+    bound in full."""
     assert len(tree_id) == 32
-    return tagged_hash(TAG_VOUCHER, tree_id + source_leaf.serialize() + claim_leaf.serialize())
+    return tagged_hash(TAG_VOUCHER, tree_id + source_leaf.body() + claim_leaf.serialize())
 
 
 def voucher_h_msg(tree_id, source_leaf, claim_leaf, payment_hash):
@@ -431,17 +450,20 @@ def voucher_h_msg(tree_id, source_leaf, claim_leaf, payment_hash):
     """
     assert len(tree_id) == 32 and len(payment_hash) == 32
     return tagged_hash(TAG_VOUCHER_H,
-                       tree_id + source_leaf.serialize() + claim_leaf.serialize() + payment_hash)
+                       tree_id + source_leaf.body() + claim_leaf.serialize() + payment_hash)
 
 
 def exit_auth_msg(tree_id, leaf):
     """Exit authorisation message (spec 7.2 rule 7): H_tag("LayerTree/exit",
-    tree_id || leaf). An owner signs it once, off-chain; anyone holding the
-    signature can build the exact-payout exit of that leaf against any
-    later root of the lineage, since the message names no transaction. It
-    is void once the leaf changes (any field, seq included)."""
+    tree_id || body(leaf)). An owner signs it once, off-chain; anyone
+    holding the signature can build the exact-payout exit of that leaf
+    against any later root of the lineage, since the message names no
+    transaction. It binds the leaf without its amount (Leaf.body), so an
+    amount-only increase by REWRITE_h rule 3 leaves it valid and the exit
+    pays the leaf's current amount; any other change, seq included, voids
+    it."""
     assert len(tree_id) == 32
-    return tagged_hash(TAG_EXIT, tree_id + leaf.serialize())
+    return tagged_hash(TAG_EXIT, tree_id + leaf.body())
 
 
 def apply_claim(tree, source_slot, claim_slot, claim_leaf):
@@ -528,6 +550,10 @@ def build_vectors():
         "old_root": node_json(r0), "new_root": node_json(r1),
         "exit_output": {"amount": bob.amount, "scriptPubKey": hx(p2tr_spk(bob.exit_key))},
         "new_tree_scriptPubKey": hx(tree_spk(r1[0], merkle_root)),
+        # EXIT_K^t (7.2 rule 7): the owner's off-chain authorisation of this
+        # exit binds the leaf without its amount.
+        "leaf_body": hx(bob.body()),
+        "exit_auth_msg": hx(exit_auth_msg(tid, bob)),
     }
 
     # JOIN of a 4-leaf subtree at height 2, index 2 (slots 8..11), two leaves used.
@@ -578,6 +604,7 @@ def build_vectors():
         "source_leaf_after": src_after.to_json(), "source_path": path_json(spath),
         "intermediate_root": node_json(r_mid),
         "claim_slot": 3, "claim_leaf": erin.to_json(), "claim_path": path_json(cpath),
+        "source_leaf_body": hx(src_before.body()),
         "voucher_msg": hx(voucher_msg(tid, src_before, erin)),
         "old_root": node_json(r3), "new_root": node_json(r4),
     }

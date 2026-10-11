@@ -1,4 +1,4 @@
-# EXIT_1_TOWER (tower-delegable exit, dense, D=4): 1148 bytes
+# EXIT_1_TOWER (tower-delegable exit, dense, D=4): 1151 bytes
 # macros in CAPITALS are defined in MACROS_FULL.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

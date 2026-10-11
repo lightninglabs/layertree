@@ -198,8 +198,8 @@ profile cannot graft at all: a sparse join is one leaf for $1{,}601\vB$.
 
 On-chain transitions are the wrong path for payments. An \tr{UPDATE} at
 $D = 16$ is $1{,}030\vB$ and a voucher redemption with \tr{CLAIM}
-$1{,}617\vB$, priced as spec~11 prices them, without a payout output
-($1{,}073$ and $1{,}660\vB$ on the skeleton that carries one), against
+$1{,}618\vB$, priced as spec~11 prices them, without a payout output
+($1{,}073$ and $1{,}661\vB$ on the skeleton that carries one), against
 $111\vB$ for a bare spend. A member who moved value by rewriting its leaf
 would pay about nine times what separate UTXOs pay per payment
 (Table~\ref{tab:cmp-move}).
@@ -433,6 +433,6 @@ carry each sibling as several small elements. The sizes come from
 \path{tools/gen_listings.py} (\path{spec/scripts/sizes.md}), the fee
 tables from \path{tools/fee_analysis.py}, and the figures of this
 appendix from \path{tools/gen_cost_figures.py}; the baselines are models,
-not measurements. The suites behind the sizes run 1{,}154 FULL, 466 MID,
-55 MIN, 1{,}344 CCV and 220 channel-leaf checks, and 61 for the
+not measurements. The suites behind the sizes run 1{,}244 FULL, 519 MID,
+57 MIN, 1{,}481 CCV and 220 channel-leaf checks, and 61 for the
 hypothetical opcode, which stays out of every tier.

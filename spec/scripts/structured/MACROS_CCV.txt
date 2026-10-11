@@ -22,8 +22,13 @@
 ## TAGGED(EXIT)
 <TAG_EXIT> OP_SWAP OP_CAT OP_SHA256
 
-## TOWER_AUTH   ([leaf sig] -> [leaf]: sig is a BIP-340 signature by leaf.owner_key over H_exit(tree_id || leaf), checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7))
-OP_OVER <TREE_ID> OP_SWAP OP_CAT
+## LEAF_BODY   ([leaf] -> [body]: the 108 bytes after the amount field (5.2), what vouchers and exit authorisations bind (7.5, 7.2 rule 7))
+108 OP_RIGHT
+
+## TOWER_AUTH   ([leaf sig] -> [leaf]: sig is a BIP-340 signature by leaf.owner_key over H_exit(tree_id || body(leaf)), the leaf without its amount (LEAF_BODY), checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7))
+OP_OVER
+LEAF_BODY
+<TREE_ID> OP_SWAP OP_CAT
 TAGGED(EXIT)
 OP_2 OP_PICK 40 32 OP_SUBSTR OP_CHECKSIGFROMSTACK OP_VERIFY
 

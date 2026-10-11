@@ -153,7 +153,7 @@ script walks all 32 levels.
 ## Moving value: on-chain transitions are the wrong path
 
 An on-chain `UPDATE` at `D = 16` costs 1,073 vbytes and a voucher
-redemption with `CLAIM` costs 1,660, against 111 for a bare spend. If
+redemption with `CLAIM` costs 1,661, against 111 for a bare spend. If
 members moved value by rewriting leaves on-chain, the shared UTXO would
 cost ten times more per move than separate UTXOs. That comparison is the
 one a sceptic makes, and on its own terms it is right.
@@ -255,7 +255,7 @@ The non-taproot anchor commitment of BOLT 3 is 1,124 weight units,
 member who leaves alone pays 1,020 vbytes for the first exit from a dense
 `D = 16` tree (665 for each further exit in an `EXIT_K`), about twice a
 channel's 530-vbyte force close and about 1.5 times its 684-vbyte
-lifetime; a voucher redemption with `CLAIM` is 1,660. A channel leaf
+lifetime; a voucher redemption with `CLAIM` is 1,661. A channel leaf
 inside the tree (Appendix C) costs its `EXIT_1` plus an update, a
 settlement and their two anchor children, about 1,681 vbytes in all and
 about 146 blocks, against 684 for a channel with its own funding output.

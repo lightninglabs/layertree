@@ -1371,6 +1371,33 @@ def test_claim_ccv(depth, profile, numeric="c2", hashlock=False):
                 f"{tag} voucher over m (the FULL message)")
     ctx_u = w.ctx([(r1[1] - 1, w.spk(r1))], (600, P2WPKH))
     expect_fail(lambda: w.run(name, h0 + tail(good), ctx_u), f"{tag} output 0 below ns")
+    # 7.5: the voucher binds the source body, not its amount, so a voucher
+    # signed before an amount-only top-up of the source redeems against
+    # the topped-up leaf, for its own amount or for more than the balance
+    # at issuance; an over-claim against the new balance and any other
+    # field change fail
+    topped = src.with_amount_seq(src.amount + 500, src.seq)
+    t_up = w.clone(); t_up.leaves[s_o] = topped
+    w.tree = t_up
+    for label, lf in (("the voucher's amount", frank),
+                      ("more than the balance at issuance", mk("bigger", src.amount + 100, src.evictor_key, src.evict_after))):
+        s_c = w.slot(lf, 3)
+        t_c = w.clone(); lt.apply_claim(t_c, s_o, s_c, lf); r_c = t_c.root()
+        ctx_c = w.ctx([(r_c[1], w.spk(r_c))], (600, P2WPKH))
+        w.run(name, head(t_up, topped, lf, s_o, s_c) + tail(vsig(TREE_ID, src, lf)), ctx_c)
+        check(True, f"{tag} a voucher signed before an amount-only top-up redeems {label} afterwards")
+    over = mk("over", topped.amount + 1, src.evictor_key, src.evict_after)
+    s_ov = w.slot(over, 3)
+    expect_fail(lambda: w.run(name, head(t_up, topped, over, s_o, s_ov) + tail(vsig(TREE_ID, src, over)), ctx),
+                f"{tag} over-claim against the topped-up balance")
+    w.tree = saved
+    for label, lf in (("exit_key", lt.Leaf(src.amount, pubkey_x(sk("other-exit")), src.owner_key, src.evictor_key, src.evict_after, src.nonce, src.seq)),
+                      ("evictor_key", lt.Leaf(src.amount, src.exit_key, src.owner_key, w.op_pk, src.evict_after, src.nonce, src.seq)),
+                      ("evict_after", lt.Leaf(src.amount, src.exit_key, src.owner_key, src.evictor_key, src.evict_after + 1, src.nonce, src.seq)),
+                      ("seq", src.with_amount_seq(src.amount, src.seq + 1))):
+        t_x = w.clone(); t_x.leaves[s_o] = lf
+        expect_fail(lambda: w.run(name, head(t_x, lf, frank, s_o, s_f) + tail(good), ctx),
+                    f"{tag} a voucher against a source whose {label} changed")
     if hashlock:
         expect_fail(lambda: w.run(name, h0 + tail(good, lt.sha256(b"wrong")), ctx), f"{tag} wrong preimage")
         expect_fail(lambda: w.run(name, h0 + tail(good, preimage[:31]), ctx), f"{tag} preimage not 32 bytes")
@@ -1768,6 +1795,20 @@ def test_exit_tower_ccv(depth, profile, numeric="c2"):
     expect_fail(lambda: w.run("EXIT_1", wit3(auth), ctx3), f"{tag}: an authorisation for the leaf before it changed")
     w.run("EXIT_1", wit3(schnorr_sign(lt.exit_auth_msg(TREE_ID, bob2), sk("bob-owner"))), ctx3)
     check(True, f"{tag}: a fresh authorisation over the changed leaf")
+    # an amount-only top-up leaves the authorisation valid; the exit pays the new amount
+    bob_up = bob.with_amount_seq(bob.amount + 500, bob.seq)
+    up = dict(base); up[s_b] = bob_up
+    ctx4, wit4, _ = exit_tx(up, bob_up, s_b)
+    w.run("EXIT_1", wit4(auth), ctx4)
+    check(True, f"{tag}: the authorisation survives an amount-only top-up of the leaf")
+    ctx4o, wit4o, _ = exit_tx(up, bob_up, s_b, amount=bob.amount)
+    expect_fail(lambda: w.run("EXIT_1", wit4o(auth), ctx4o), f"{tag}: the exit after a top-up pays the amount at signing")
+    for label, lf in (("exit_key", lt.Leaf(bob.amount, pubkey_x(sk("other-exit")), bob.owner_key, bob.evictor_key, bob.evict_after, bob.nonce, bob.seq)),
+                      ("evictor_key", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, lt.NUMS_X, bob.evict_after, bob.nonce, bob.seq)),
+                      ("evict_after", lt.Leaf(bob.amount, bob.exit_key, bob.owner_key, bob.evictor_key, bob.evict_after + 1, bob.nonce, bob.seq))):
+        chg = dict(base); chg[s_b] = lf
+        ctx5, wit5, _ = exit_tx(chg, lf, s_b)
+        expect_fail(lambda: w.run("EXIT_1", wit5(auth), ctx5), f"{tag}: an authorisation for the leaf before its {label} changed")
     ctx_e, wit_e, _ = exit_tx(base, bob, s_b, locktime=800_000)
     w.run("EXIT_1", wit_e(schnorr_sign(ctx_e.sighash(), w.op_sk), b"\x01"), ctx_e)
     check(True, f"{tag}: eviction")

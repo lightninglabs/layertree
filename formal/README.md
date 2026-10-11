@@ -27,7 +27,7 @@ installed, `lake` picks it up automatically. There are no dependencies to
 fetch.
 
 The build prints one line per headline theorem from `LayerTree/Axioms.lean`
-(60 theorems) of the form `'LayerTree.payable' depends on axioms:
+(61 theorems) of the form `'LayerTree.payable' depends on axioms:
 [propext, Quot.sound]` (the theorems that case on a `Bool` or on `Steps`
 also list `Classical.choice`). Any line naming `sorryAx` means an
 unfinished proof; there are none.
@@ -47,14 +47,14 @@ unfinished proof; there are none.
 | 5.4 / 7.7 positions inside a subtree, published elements | `Pos.append`, `Pos.dirs`, `Tree.leaves` (`Tree.lean`) | A position inside the subtree at `p` is `p.append q`; `leaves` is the `2^h` elements in position order, which the sweep and rewrite witnesses publish. |
 | 7.1 rules 3, 4 (`CHECK_OLD`, `LEVEL × D`, `FINAL`) | `Step`, `Step.valid`, `Step.WF` (`Transitions.lean`) | A step is a path, a height, an old node and a new node. `valid` is exactly what the script establishes. |
 | 7.6 composition (`CHECK_PREV`) | `Steps` | Sequential chaining of steps. |
-| 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=`, 7.2 rule 7 `EXIT_K^t` | `ExitBlock`, `Payout`, `ExitK exact …` | `exact = true` is the exact-payout variant, which `EXIT_K^t` implies. The block's `payout` is the output as `OP_TX` reads it, key and amount; `payoutOk` is rule 2 (the key is `leaf.exit_key`) with rules 3, 4 and 6. `authorised` is abstract and covers both owner authorisations, the transaction signature of rule 3 and the off-chain signature over `H_exit(tree_id \|\| leaf)` of rule 7, since no theorem depends on what it signs. |
+| 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=`, 7.2 rule 7 `EXIT_K^t` | `ExitBlock`, `Payout`, `ExitK exact …` | `exact = true` is the exact-payout variant, which `EXIT_K^t` implies. The block's `payout` is the output as `OP_TX` reads it, key and amount; `payoutOk` is rule 2 (the key is `leaf.exit_key`) with rules 3, 4 and 6. `authorised` is abstract and covers both owner authorisations, the transaction signature of rule 3 and the off-chain signature over `H_exit(tree_id \|\| body(leaf))` of rule 7 (the leaf without its amount, 0.13.0), since no theorem depends on what it signs. |
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. `new_dust` is the 0.11.0 floor on the written leaf. |
 | 5.1 `SEQ_FINAL`, 7.5 rule 6 `DUST_MIN` | `Params`, `Leaf.seqFinalFull`, `Leaf.seqFinalMid` | The tree-creation constants the carve scripts carry; `Claim`, `Update`, `Rewrite` and the trace layer take a `Params`. |
-| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource`, `claim_evictable`, `claim_not_final` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. What the voucher message binds lives inside that `Prop` at this level; `Voucher.lean` models the message's three fields. Rule 2's `seq` check is `seq_lt : src.seq < π.seqFinal`; rule 5 is `evictorKey_eq` and `evictAfter_le`; rule 6 is `claim_dust` and `residual_dust`. |
+| 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource`, `claim_evictable`, `claim_not_final` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. What the voucher message binds lives inside that `Prop` at this level; `Voucher.lean` models the message's three fields, the source as its body without the amount. Rule 2's `seq` check is `seq_lt : src.seq < π.seqFinal`; rule 5 is `evictorKey_eq` and `evictAfter_le`; rule 6 is `claim_dust` and `residual_dust`. |
 | 9.7 proof maintenance | `Pos.fork`, `Tree.path_maintenance`, `path_maintenance_valid` | A replacement at any position changes exactly one sibling of every other leaf's path, the one at the fork, and its new value is the new node folded up the modified position's path below the fork. |
 | 7 as a whole: histories | `Trans`, `Trans.apply`, `Trans.Pre`, `Reachable`, `Accepts`, `Chain` (`Trace.lean`) | Transition records in the tree's vocabulary, their result and the script's preconditions; reachability at the tree level and acceptance at the chain level, bridged by `Accepts.sound` and `Chain.sound`. |
-| 7.5, 9.6, 10.3 vouchers; 6.2 `tree_id` | `Voucher`, `TreeOutput`, `Voucher.Redeemable`, `TreeOutput.detachChild` (`Voucher.lean`) | The message's three fields by content; redeemability is the script's checks minus signatures; the detached child inherits `tree_id` by definition. |
+| 7.5, 9.6, 10.3 vouchers; 6.2 `tree_id` | `Leaf.Body`, `Leaf.body`, `Voucher`, `TreeOutput`, `Voucher.Redeemable`, `TreeOutput.detachChild` (`Voucher.lean`) | The message's three fields by content, the source leaf as its body (every field but `amount`, 0.13.0); redeemability is the script's checks minus signatures, against whatever amount the leaf holds; the detached child inherits `tree_id` by definition. |
 | 4.5, 8.2 `PADZ` | `Encoding.padz`, `padz_unique`, `padz_scriptNum` | The MID and MIN fixed-width gadget: result `le32 n`, unique pad, and `n < 2^31` enforced. |
 | 7.8 terminal branch of `FINAL` | `Final`, `ExitKT` | `Final d r' out0 terminal` is the branch the script took: `r' = E_D` with output 0 free, or `out0 = r'.sum`. `ExitKT` is `ExitK` with it. |
 | 7.7 `EVICT_SUBTREE_h` | `EvictSubtree`, `Tree.sweepPayouts` (`Cohort.lean`) | One step from the root of the published `Tree h` to `E_h`, with the `FINAL` branch of 7.8 and the payout list of rule 2. |
@@ -278,21 +278,38 @@ spend under any script relation and `Chain` a history of them.
 
 ### Vouchers and detach (`Voucher.lean`)
 
-A `Voucher` is the three fields its message binds (`tree_id`, source
-leaf, claim leaf) and `Voucher.Redeemable` is what `CLAIM` checks of a
-`TreeOutput` apart from signatures: the script's `tree_id` is the
-voucher's, the source leaf is in the tree byte for byte, the carve rules
-hold.
+A `Voucher` is the three fields its message binds (`tree_id`, the source
+leaf's *body*, the claim leaf) and `Voucher.Redeemable` is what `CLAIM`
+checks of a `TreeOutput` apart from signatures: the script's `tree_id` is
+the voucher's, some leaf at the source position has the voucher's body,
+the carve rules hold against that leaf with whatever amount it carries.
+`Leaf.Body` is the leaf without its `amount` (5.2), the six fields from
+`exit_key` to `seq`, and `Leaf.body` the projection; since 0.13.0 the
+voucher and exit-authorisation messages bind it in place of the whole
+leaf, so that an amount-only increase by `REWRITE_h` rule 3 voids
+neither (7.5, 7.2 rule 7). `Voucher.issue` is the voucher an issuer
+signs against the leaf it holds.
 
-* **`voucher_no_replay`**: after a redemption, the source leaf never
-  recurs in any reachable tree, given (i) the source identity was unique
-  in the tree (5.2), (ii) the claim leaf does not carry that identity at
-  or below the source's `seq`, and (iii) nothing later admitted or carved
-  does either. The redemption advances the identity's `seq` and every
-  later carve advances it further, so the voucher's message never
-  verifies against the tree again. The script checks none of (i) to
+* **`voucher_no_replay`**: after a redemption, no leaf with the source's
+  body recurs in any reachable tree, given (i) the source identity was
+  unique in the tree (5.2), (ii) the claim leaf does not carry that
+  identity at or below the source's `seq`, and (iii) nothing later
+  admitted or carved does either. The redemption advances the identity's
+  `seq` and every later carve advances it further, and the body carries
+  `seq`, so the voucher's message never verifies against the tree again,
+  whatever amount the leaf then holds. The script checks none of (i) to
   (iii); they are what 5.2, 9.6 and 10.3 require of creators and issuers,
   and the theorem says the single-use property rests on exactly them.
+  `voucher_no_replay_leaf` is the pre-0.13.0 form (the source leaf itself
+  never recurs), a corollary.
+* **`voucher_survives_topup`**: a voucher redeemable against a leaf stays
+  redeemable when the leaf's amount alone is raised, as `REWRITE_h` rule
+  3 lets the operator do without the owner, provided the raised residual
+  still satisfies 7.5 rule 6 (zero, or at least `DUST_MIN`). The body is
+  unchanged, so the message is, and the amount check only gets easier.
+  The proviso is the one case the message cannot help: a voucher for the
+  whole balance is blocked, not voided, by a top-up below `DUST_MIN`,
+  until the residual reaches the floor (10.3 states the exposure).
 * **`self_voucher_fixed`**: the voucher whose claim leaf *is* the source
   leaf leaves the tree unchanged and verifies again (no value moves). It
   is the counterexample to the literal claim of 7.5 that the source leaf
@@ -426,6 +443,11 @@ need a hypothesis the script does not check.
   again. No value moves, so the risk is nil, but the sentence is false as
   written and the single-use argument needs the claim leaf to differ from
   the source in identity or `seq` (hypothesis (ii) of `voucher_no_replay`).
+* **The sub-dust top-up (7.5 rule 6, 10.3).** `voucher_survives_topup`
+  needs the raised residual to satisfy rule 6. The scripts enforce the
+  floor and nothing bounds the operator's top-up, so a whole-balance
+  voucher can be blocked by a top-up smaller than `DUST_MIN`; the model
+  states the proviso rather than hiding it.
 * **`seq` monotonicity (10.3).** The spec's replay argument says no later
   state reproduces the source bytes because `seq` only advances. An
   `UPDATE` or `REWRITE_h` may set any `seq`, including a lower one, with

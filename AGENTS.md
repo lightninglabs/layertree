@@ -85,15 +85,19 @@ section 7 are right; the tests show the *scripts* implement the rules.
    `taptree_full_d4.merkle_root` vector must not change unless the
    reference script *set* changes**; tree-creation variants (`UPDATE_X`,
    exact-payout `EXIT`) are excluded from it on purpose. It has moved
-   twice, each time because `CLAIM` (a member of the set) changed: at
-   spec 0.10.0 its voucher message was rebound from `m` to `tree_id` and
-   the carve rule of 7.5 rule 5 was added, taking the root from
+   three times, each time because `CLAIM` (a member of the set) changed:
+   at spec 0.10.0 its voucher message was rebound from `m` to `tree_id`
+   and the carve rule of 7.5 rule 5 was added, taking the root from
    `4c41f0a6ee029f07e34656dd8030f5bcfdbff3533e508bc4e52406b64b4a9265` to
    `eff4a173a4c87afe72b378ef18e8e9ee4ffeb3e3118dd1881cf9c075fef86305`;
    at 0.11.0 the `DUST_MIN` floor of 7.5 rule 6 took it to
-   `6dea666e4180a52b0284feddc07098789a8736c685191abdb08ef604b2b9a717`.
+   `6dea666e4180a52b0284feddc07098789a8736c685191abdb08ef604b2b9a717`;
+   at 0.13.0 the voucher message was rebound to the source leaf's body
+   (the leaf without its amount, `108 OP_RIGHT`), taking it to
+   `aa2ba1ffdecb2e69f4cfc5de4fea8983f4755331b76acfcd1b2b5c5a6ec93105`.
    The `sighash_vector` and `tree_spk_vector` entries derive from it and
-   move with it. The `chan` entries derive from the golden `tree_id`
+   move with it, as do the `DETACH_2` entries, whose `m_h` compiles the
+   reference set at depth 2. The `chan` entries derive from the golden `tree_id`
    (Appendix C 0.5.0: `chan_id` binds `tree_id`, not `m`) and move only
    when the channel reference changes.
 4. Mirror the generator in Go (`script/full.go`, `script/mid.go`,
@@ -211,10 +215,10 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (1,154 checks)
-python3 tools/test_mid.py          # MID tier (479 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (1,244 checks)
+python3 tools/test_mid.py          # MID tier (519 checks)
 python3 tools/test_min.py          # MIN tier (57 checks)
-python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (1,353 checks)
+python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (1,481 checks)
 python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (220 checks)
 python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (61 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)

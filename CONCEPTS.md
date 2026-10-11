@@ -253,8 +253,10 @@ signs a message saying "carve this new leaf out of mine". The holder
 redeems it against the output with `CLAIM`, which is two steps in one
 transaction: shrink the source leaf, then place the new leaf in an empty
 slot. The total never changes. It is single-use for free, because the first
-step mutates the source leaf, so the signed message can never verify
-again.
+step advances the source leaf's counter, so the signed message can never
+verify again. The message names the source leaf's keys, lease and
+counter but not its balance, so a top-up of the source by the operator
+leaves a voucher redeemable; only a change the owner signs retires it.
 
 Two honest caveats. The covenant prevents over-*redemption*, not
 over-*issuance*: nothing stops someone signing more vouchers than their
@@ -432,8 +434,8 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 2,697 executable checks across four tiers (1,069 FULL, 413 MID, 55 MIN, 1,160 CCV), positive and negative, plus 210 for the channel leaves of Appendix C |
-| Python against Go | 77 byte-exact golden scripts, shared signature-hash vector |
+| Compiled scripts | 3,301 executable checks across four tiers (1,244 FULL, 519 MID, 57 MIN, 1,481 CCV), positive and negative, plus 220 for the channel leaves of Appendix C |
+| Python against Go | 103 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 
 ## Where to read more

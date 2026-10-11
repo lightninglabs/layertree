@@ -199,8 +199,9 @@ func TestMidSplit(t *testing.T) {
 	midCheckScript(t, g, "MID/D/D4/SPLIT", MidSplitScript(4, false, tree.DustMin))
 	midCheckScript(t, g, "MID/S/D8/SPLIT", MidSplitScript(8, true, tree.DustMin))
 
-	// Dropping the voucher message reconstruction, with its 33-byte
-	// tree_id push, and the OP_CHECKSIGFROMSTACK saves exactly 159 bytes.
+	// Dropping the voucher message reconstruction (thirteen picks, since
+	// the source amount is not in the message), with its 33-byte tree_id
+	// push, and the OP_CHECKSIGFROMSTACK saves exactly 155 bytes.
 	treeID := midGoldenTreeID(t)
 	for _, tc := range []struct {
 		depth  int
@@ -208,9 +209,9 @@ func TestMidSplit(t *testing.T) {
 	}{{4, false}, {8, true}} {
 		claim := MustAssemble(MidClaimScript(tc.depth, treeID, tc.sparse, tree.DustMin), ModeC0)
 		split := MustAssemble(MidSplitScript(tc.depth, tc.sparse, tree.DustMin), ModeC0)
-		if len(claim)-len(split) != 159 {
+		if len(claim)-len(split) != 155 {
 			t.Errorf("depth %d sparse %v: SPLIT is %d bytes under CLAIM, "+
-				"want 159", tc.depth, tc.sparse, len(claim)-len(split))
+				"want 155", tc.depth, tc.sparse, len(claim)-len(split))
 		}
 	}
 

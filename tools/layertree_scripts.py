@@ -45,6 +45,11 @@ OFF_EVICT_AFTER, LEN_EVICT_AFTER = 104, 4
 OFF_NONCE, LEN_NONCE = 108, 4
 OFF_SEQ, LEN_SEQ = 112, 4
 LEAF_LEN = lt.LEAF_LEN
+LEAF_BODY_LEN = lt.LEAF_BODY_LEN
+# [leaf] -> [body]: the 108 bytes after the amount field (spec 5.2), the
+# part of a leaf that vouchers (7.5) and exit authorisations (7.2 rule 7)
+# bind, so that an amount-only increase by REWRITE_h rule 3 voids neither.
+LEAF_BODY = [LEAF_BODY_LEN, "OP_RIGHT"]
 # The FULL tier's non-claimable marker (spec 5.2): REWRITE_h's amount-only
 # exemption (7.9 rule 3) does not reach a leaf whose seq is this value.
 SEQ_FINAL = 0xFFFFFFFF
@@ -248,14 +253,17 @@ def final_output(depth):
 def tower_auth(tree_id):
     """The owner branch of EXIT_K^t (spec 7.2 rule 7), shared with the CCV
     tier's 0xC2 scripts: [leaf sig] -> [leaf], where sig MUST be a BIP-340
-    signature by leaf.owner_key over H_exit(tree_id || leaf), checked with
-    OP_CHECKSIGFROMSTACK. The message names the leaf and the lineage, not
-    the transaction, so whoever holds the signature can assemble the exit
-    against any later root; the covenant fixes everything else (the leaf
-    against the root, output 0, the exact payout). tree_id is a constant of
-    the script, as in CLAIM."""
+    signature by leaf.owner_key over H_exit(tree_id || body(leaf)), checked
+    with OP_CHECKSIGFROMSTACK. The message names the leaf without its
+    amount (LEAF_BODY) and the lineage, not the transaction, so whoever
+    holds the signature can assemble the exit against any later root, and
+    an amount-only increase by REWRITE_h rule 3 leaves it valid; the
+    covenant fixes everything else (the leaf against the root, output 0,
+    the exact payout of the leaf's current amount). tree_id is a constant
+    of the script, as in CLAIM."""
     assert len(tree_id) == 32
-    return (["OP_OVER", tree_id, "OP_SWAP", "OP_CAT"] +      # leaf sig (tree_id||leaf)
+    return (["OP_OVER"] + LEAF_BODY +                        # leaf sig body
+            [tree_id, "OP_SWAP", "OP_CAT"] +                 # leaf sig (tree_id||body)
             tagged(EXIT_PREFIX) +                            # leaf sig msg
             [2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",   # leaf sig msg owner_key
              "OP_CHECKSIGFROMSTACK", "OP_VERIFY"])           # leaf
@@ -444,15 +452,20 @@ def voucher_auth(tree_id, hashlock=False):
     1), shared with the CCV tier: [src claim vsig] -> [src claim], with
     SHA256(preimage) parked on the altstack beforehand under hashlock.
 
-    The message is H_voucher(tree_id || src || claim), tree_id a constant
-    of the script, so the check needs no copy of m: the prologue parks m
-    and r as every other script does.
+    The message is H_voucher(tree_id || body(src) || claim), tree_id a
+    constant of the script, so the check needs no copy of m: the prologue
+    parks m and r as every other script does. The source leaf enters the
+    message without its amount (LEAF_BODY), so an amount-only increase by
+    REWRITE_h rule 3 does not void an outstanding voucher; the carve body
+    still checks the claim against the leaf's current amount, and seq,
+    which every redemption advances, keeps the voucher single-use. The
+    claim leaf is bound in full.
     """
     assert len(tree_id) == 32
-    s = [2, "OP_PICK", 2, "OP_PICK", "OP_CAT",                   # src claim vsig (src||claim)
-         tree_id, "OP_SWAP", "OP_CAT"]                           # src claim vsig (tree_id||src||claim)
+    s = [2, "OP_PICK"] + LEAF_BODY + [2, "OP_PICK", "OP_CAT",    # src claim vsig (body||claim)
+         tree_id, "OP_SWAP", "OP_CAT"]                           # src claim vsig (tree_id||body||claim)
     if hashlock:
-        s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (tree_id||src||claim||phash)
+        s += ["OP_FROMALTSTACK", "OP_CAT"]                       # ... (tree_id||body||claim||phash)
     s += tagged(VOUCHER_H_PREFIX if hashlock else VOUCHER_PREFIX)  # src claim vsig msg
     return s + [3, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
                 "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]             # src claim

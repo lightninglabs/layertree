@@ -22,10 +22,9 @@
 ## TAGGED(TAPTWEAK)
 <TAG_TAPTWEAK> OP_SWAP OP_CAT OP_SHA256
 
-## TOWER_AUTH_MID   ([leaf(10) ea_num ze we sig] -> [leaf(10) ea_num ze we]: sig is a BIP-340 signature by ok over H_exit(tree_id || leaf), the leaf rejoined from its seven fields, checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7))
-OP_13 OP_PICK OP_13 OP_PICK OP_13 OP_PICK OP_13 OP_PICK OP_13 OP_PICK OP_13
-  OP_PICK OP_13 OP_PICK OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT <TREE_ID>
-  OP_SWAP OP_CAT
+## TOWER_AUTH_MID   ([leaf(10) ea_num ze we sig] -> [leaf(10) ea_num ze we]: sig is a BIP-340 signature by ok over H_exit(tree_id || body(leaf)), the leaf body rejoined from its six fields after amt8, checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7))
+OP_12 OP_PICK OP_12 OP_PICK OP_12 OP_PICK OP_12 OP_PICK OP_12 OP_PICK OP_12
+  OP_PICK OP_CAT OP_CAT OP_CAT OP_CAT OP_CAT <TREE_ID> OP_SWAP OP_CAT
 TAGGED(EXIT)
 OP_12 OP_PICK OP_CHECKSIGFROMSTACK OP_VERIFY
 

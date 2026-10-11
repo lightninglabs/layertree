@@ -1,4 +1,4 @@
-# EXIT_1_TOWER (CCV with 0xC0 numerics, in MID macros, dense, D=4): 1206 bytes
+# EXIT_1_TOWER (CCV with 0xC0 numerics, in MID macros, dense, D=4): 1203 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 OP_DUP OP_TOALTSTACK OP_IF OP_3 OP_PICK OP_CHECKLOCKTIMEVERIFY OP_DROP OP_10

@@ -3,8 +3,8 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.5.1
-Requires: spec/layertree.md 0.12.1, FULL or MID tier (section C.7)
+Version:  0.5.2
+Requires: spec/layertree.md 0.13.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
 
@@ -572,7 +572,8 @@ for the tree output* (10.5, C.9.5), then one block for the update plus
 it (below), one for the settlement, `csv_delay` between them, and `G_sweep`
 for the HTLC claim. With `csv_delay = 144`, a conservative `G_exit = 72` and
 `beta_chan = 0`, a channel leaf needs `cltv_expiry_delta ≥ ~220` blocks
-against the ~40 typical on the public network. Operators and users MUST set `cltv_expiry_delta` for channel
+against lnd's default of 80 (`DefaultBitcoinTimeLockDelta` in
+`chainreg/chainregistry.go` at v0.18.4-beta). Operators and users MUST set `cltv_expiry_delta` for channel
 leaves accordingly, and MUST NOT accept forwards that leave less headroom.
 
 `G_exit` is not a constant. It is `Delta(q)` of 10.5 under the contention
@@ -1134,17 +1135,19 @@ funded UTXO, since C.5.5 makes anchor children mandatory.
 
 In a tree created with `EXIT_K^t` (7.2 rule 7) the same tower MAY also
 hold the leaf's exit authorisation, the owner's signature over
-`H_exit(tree_id || leaf)`, together with the leaf, its sibling path and
-the tree's `m`. The tower can then start a unilateral close with the owner
-offline, not only finish one: it builds the exact-payout exit from its
-funded UTXO, rebuilds it against the new root if a competing spend
-confirms first (9.7), and follows with `update_n` and `settle_n` on the
-funding output the exit creates. The authorisation is a bearer exit
-right (7.2 rule 7), so it SHOULD go to this tower and nobody else, and
-never to the counterparty of a leased leaf (C.6.4); it is void after a
-splice or lease renewal (`UPDATE` changes the leaf), so the owner hands
-the tower a fresh one with each new `(update_n, settle_n)` that follows
-one.
+`H_exit(tree_id || body(leaf))`, the leaf without its amount (5.1),
+together with the leaf, its sibling path and the tree's `m`. The tower
+can then start a unilateral close with the owner offline, not only
+finish one: it builds the exact-payout exit from its funded UTXO,
+rebuilds it against the new root if a competing spend confirms first
+(9.7), and follows with `update_n` and `settle_n` on the funding output
+the exit creates. The authorisation is a bearer exit right (7.2 rule 7),
+so it SHOULD go to this tower and nobody else, and never to the
+counterparty of a leased leaf (C.6.4); it is void after a splice or
+lease renewal (`UPDATE` changes the leaf's body), so the owner hands the
+tower a fresh one with each new `(update_n, settle_n)` that follows one.
+A channel leaf sits at `SEQ_FINAL`, so no amount-only rewrite reaches it
+(7.9 rule 3) and the body binding changes nothing for it.
 
 ### C.9.4 Eviction griefing
 

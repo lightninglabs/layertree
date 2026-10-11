@@ -862,7 +862,19 @@ claim against the leaf's current amount. Fix (owner's decision
 would add): the three messages bind the source leaf without its amount,
 in every tier, with the Lean non-replay theorems restated over the
 narrower message; spec 0.13.0, the D4 golden root moves (`CLAIM` is in
-the reference set). Status: fix in flight.
+the reference set). Status: fixed in spec 0.13.0 (Appendix C 0.5.2).
+The message is `body(leaf) = leaf[8:116]`, 108 bytes: +3 bytes of script
+under `0xC2` (`108 OP_RIGHT`), -4 under `0xC0` (one field fewer to pick
+and concatenate). `test_voucher_topup` redeems a pre-top-up voucher and
+exits on a pre-top-up tower authorisation after a real operator-only
+`REWRITE_2` top-up, in FULL and MID; the Lean theorem
+`voucher_survives_topup` (61 audited) states it. One residual, recorded
+in 7.5, 9.6, 10.1 and 10.3: a whole-balance voucher is blocked, not
+voided, by a top-up smaller than `DUST_MIN`, since the residual it would
+leave fails 7.5 rule 6; it unblocks when later top-ups reach the floor
+or the issuer reissues. The operator gains nothing from it. Requiring an
+amount-only rewrite to raise by at least `DUST_MIN` would close it; that
+is a rule change left to the owner.
 
 ## 3. Things deliberately left out
 

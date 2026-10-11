@@ -575,7 +575,7 @@ additions the body had no room for.
    choice included.
 3. **Unilateral recourse needs a fee coin.** Section 5.5 says the
    `CLAIM^x` fallback and the exact exit that follows are paid from a
-   confirmed coin of the recipient's, 2,655 vB or about 26,550 sat at
+   confirmed coin of the recipient's, 2,656 vB or about 26,560 sat at
    10 sat/vB, below which the fallback costs more than it recovers.
    Section 6, "What a member does", requires a confirmed fee coin for
    every unilateral path; section 9 requires it of both channel-leaf
@@ -734,14 +734,15 @@ channel-budget, receive and voucher text it shares.
 
 ### Handed off, by owner
 
-* **spec**: 0.13.0 (finding 1, in progress); 10.3's Ark sentence and
+* **spec** (all landed with 0.13.0): 0.13.0 itself (finding 1); 10.3's Ark sentence and
   9.6's informative paragraph (finding 6); 11.2's +33% and +44%, which
   could give the serialised premiums too (finding 14); C.4.4's "~40
   typical on the public network" (finding 5).
 * **tools**: drop the PR numbers from the `exit-anatomy` labels
-  (`gen_cost_figures.py`); new
-  sizes for `CLAIM`, `CLAIM^h`, `CLAIM^x` and `EXIT_K^t` once 0.13.0
-  lands, which move 1,617, 1,627, 1,635, 2,655 (and its fee row in
-  Table 15), 1,046 and "107 bytes" in the paper.
+  (`gen_cost_figures.py`). The sizes 0.13.0 moved were reconciled
+  after it landed: `CLAIM`, `CLAIM^h` and `CLAIM^x` are 1,618, 1,628
+  and 1,636 vB, claim plus exit is 2,656 vB (26,560 sat at 10 sat/vB),
+  `EXIT_1^t` is 110 bytes of script over the exact exit and still
+  1,046 vB, and the Lean count is 61.
 * **design**: a fee-from-claim `CLAIM` variant for recipients with no
   fee coin (finding 3), a rule change in every voucher tier.
