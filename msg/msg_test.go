@@ -3,11 +3,17 @@ package msg
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
+	"io"
+	"math/bits"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/roasbeef/layertree/tree"
 )
 
@@ -387,6 +393,105 @@ func TestVerifyMemberRejectsWrappedSum(t *testing.T) {
 	}
 	if _, err := offer.VerifyMember(m); err == nil {
 		t.Fatalf("VerifyMember accepted a graft whose sum wraps")
+	}
+}
+
+// hostileStream is a TLV stream of one record of type typ that declares
+// length bytes and carries none of them.
+func hostileStream(t *testing.T, typ tlv.Type, length uint64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	var scratch [8]byte
+	if err := tlv.WriteVarInt(&buf, uint64(typ), &scratch); err != nil {
+		t.Fatal(err)
+	}
+	if err := tlv.WriteVarInt(&buf, length, &scratch); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// decodeGuarded runs decode and reports a panic as an error, together with
+// the bytes the run allocated.
+func decodeGuarded(decode func() error) (err error, allocated uint64) {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic: %v", r)
+			}
+		}()
+		err = decode()
+	}()
+	runtime.ReadMemStats(&after)
+	return err, after.TotalAlloc - before.TotalAlloc
+}
+
+// TestDecodeRejectsOversizedRecords is the probe of design/audit/go.md G3:
+// a stream whose one record claims 2^62 bytes made every decoder panic in
+// makeslice, and one claiming 2^31 made it allocate two gigabytes before
+// noticing the stream was short. Every decoder must now return an error
+// without allocating anything near the claim, for every variable-length
+// record it has and for a record it does not know.
+func TestDecodeRejectsOversizedRecords(t *testing.T) {
+	const unknownType tlv.Type = 99
+	decoders := []struct {
+		name   string
+		types  []tlv.Type
+		decode func(r io.Reader) error
+	}{{
+		name:  "Proof",
+		types: []tlv.Type{TypeProofBitmap, TypeProofNodes, unknownType},
+		decode: func(r io.Reader) error {
+			var p Proof
+			return p.Decode(r)
+		},
+	}, {
+		name: "JoinOffer",
+		types: []tlv.Type{
+			TypeJoinSubtreePath, TypeJoinGraftPath, TypeJoinUnsignedTx,
+			unknownType,
+		},
+		decode: func(r io.Reader) error {
+			var j JoinOffer
+			return j.Decode(r)
+		},
+	}, {
+		name:  "Voucher",
+		types: []tlv.Type{TypeVoucherTreeID, unknownType},
+		decode: func(r io.Reader) error {
+			var v Voucher
+			return v.Decode(r)
+		},
+	}}
+
+	// Well under the 2 GB the 2^31 claim used to allocate, and above
+	// the fixed buffers a decoder legitimately uses.
+	const allocCeiling = 1 << 20
+	for _, d := range decoders {
+		for _, typ := range d.types {
+			for _, length := range []uint64{1 << 62, 1 << 31} {
+				stream := hostileStream(t, typ, length)
+				err, allocated := decodeGuarded(func() error {
+					return d.decode(bytes.NewReader(stream))
+				})
+				if err == nil {
+					t.Errorf("%s.Decode accepted type %d claiming "+
+						"2^%d bytes", d.name, typ,
+						bits.Len64(length)-1)
+				}
+				if strings.HasPrefix(err.Error(), "panic") {
+					t.Errorf("%s.Decode type %d length 2^%d: %v",
+						d.name, typ, bits.Len64(length)-1, err)
+				}
+				if allocated > allocCeiling {
+					t.Errorf("%s.Decode type %d length 2^%d "+
+						"allocated %d bytes", d.name, typ,
+						bits.Len64(length)-1, allocated)
+				}
+			}
+		}
 	}
 }
 

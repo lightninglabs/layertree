@@ -145,14 +145,8 @@ func proofRecords(
 		tlv.MakePrimitiveRecord(TypeProofDepth, depth),
 		tlv.MakePrimitiveRecord(TypeProofHeight, height),
 		tlv.MakePrimitiveRecord(TypeProofPosition, position),
-		tlv.MakeDynamicRecord(
-			TypeProofBitmap, bitmap, tlv.SizeVarBytes(bitmap),
-			tlv.EVarBytes, tlv.DVarBytes,
-		),
-		tlv.MakeDynamicRecord(
-			TypeProofNodes, nodes, tlv.SizeVarBytes(nodes),
-			tlv.EVarBytes, tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeProofBitmap, bitmap, maxProofBitmapLen),
+		boundedVarBytes(TypeProofNodes, nodes, maxProofNodesLen),
 	}
 }
 
@@ -172,7 +166,8 @@ func (p *Proof) Encode(w io.Writer) error {
 	return stream.Encode(w)
 }
 
-// Decode deserializes a proof from a TLV stream produced by Encode.
+// Decode deserializes a proof from a TLV stream produced by Encode. It
+// reads at most maxProofLen bytes of r.
 func (p *Proof) Decode(r io.Reader) error {
 	var (
 		depth, height  uint8
@@ -180,13 +175,10 @@ func (p *Proof) Decode(r io.Reader) error {
 		bitmap, nodesB []byte
 	)
 
-	stream, err := tlv.NewStream(proofRecords(
+	err := decodeLimited(r, maxProofLen, proofRecords(
 		&depth, &height, &position, &bitmap, &nodesB,
-	)...)
+	))
 	if err != nil {
-		return err
-	}
-	if err := stream.Decode(r); err != nil {
 		return err
 	}
 

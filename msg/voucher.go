@@ -111,20 +111,18 @@ func (v *Voucher) Encode(w io.Writer) error {
 	return stream.Encode(w)
 }
 
-// Decode deserializes a voucher from a TLV stream produced by Encode.
+// Decode deserializes a voucher from a TLV stream produced by Encode. It
+// reads at most maxVoucherLen bytes of r.
 func (v *Voucher) Decode(r io.Reader) error {
 	var (
 		treeID [32]byte
 		sig    [64]byte
 	)
 
-	stream, err := tlv.NewStream(voucherRecords(
+	err := decodeLimited(r, maxVoucherLen, voucherRecords(
 		&treeID, &v.SourceLeaf, &v.ClaimLeaf, &sig,
-	)...)
+	))
 	if err != nil {
-		return err
-	}
-	if err := stream.Decode(r); err != nil {
 		return err
 	}
 

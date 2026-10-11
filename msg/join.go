@@ -89,10 +89,8 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 			return err
 		}
 		subtreeBytes = b
-		records = append(records, tlv.MakeDynamicRecord(
-			TypeJoinSubtreePath, &subtreeBytes,
-			tlv.SizeVarBytes(&subtreeBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
+		records = append(records, boundedVarBytes(
+			TypeJoinSubtreePath, &subtreeBytes, maxProofLen,
 		))
 	}
 
@@ -103,20 +101,14 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 			return err
 		}
 		graftBytes = b
-		records = append(records, tlv.MakeDynamicRecord(
-			TypeJoinGraftPath, &graftBytes,
-			tlv.SizeVarBytes(&graftBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
+		records = append(records, boundedVarBytes(
+			TypeJoinGraftPath, &graftBytes, maxProofLen,
 		))
 	}
 
 	records = append(records,
 		nodeRecord(TypeJoinNewNode, &newNode),
-		tlv.MakeDynamicRecord(
-			TypeJoinUnsignedTx, &unsignedTx,
-			tlv.SizeVarBytes(&unsignedTx), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeJoinUnsignedTx, &unsignedTx, maxTxLen),
 	)
 
 	// TypeJoinTreeID..TypeJoinUnsignedTx are strictly increasing whether
@@ -131,6 +123,14 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 }
 
 // Decode deserializes a join offer from a TLV stream produced by Encode.
+// It reads at most maxJoinOfferLen bytes of r.
+//
+// The optional path records are detected by their backing slices: a
+// variable-length record that was present leaves a non-nil slice (even an
+// empty one), an absent record leaves nil. tlv.Stream.DecodeWithParsedTypes
+// would report presence directly, but it buffers every unknown record at
+// its declared length before reading it, which is the allocation this
+// decoder must not make.
 func (j *JoinOffer) Decode(r io.Reader) error {
 	var (
 		treeID, rootHash                     [32]byte
@@ -144,31 +144,13 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 		tlv.MakePrimitiveRecord(TypeJoinRootHash, &rootHash),
 		tlv.MakePrimitiveRecord(TypeJoinTotal, &total),
 		leafRecord(TypeJoinLeaf, &j.Leaf),
-		tlv.MakeDynamicRecord(
-			TypeJoinSubtreePath, &subtreeBytes,
-			tlv.SizeVarBytes(&subtreeBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
-		tlv.MakeDynamicRecord(
-			TypeJoinGraftPath, &graftBytes,
-			tlv.SizeVarBytes(&graftBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeJoinSubtreePath, &subtreeBytes, maxProofLen),
+		boundedVarBytes(TypeJoinGraftPath, &graftBytes, maxProofLen),
 		nodeRecord(TypeJoinNewNode, &newNode),
-		tlv.MakeDynamicRecord(
-			TypeJoinUnsignedTx, &unsignedTx,
-			tlv.SizeVarBytes(&unsignedTx), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeJoinUnsignedTx, &unsignedTx, maxTxLen),
 	}
 
-	stream, err := tlv.NewStream(records...)
-	if err != nil {
-		return err
-	}
-
-	parsed, err := stream.DecodeWithParsedTypes(r)
-	if err != nil {
+	if err := decodeLimited(r, maxJoinOfferLen, records); err != nil {
 		return err
 	}
 
@@ -179,7 +161,7 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 	j.UnsignedTx = unsignedTx
 
 	j.SubtreePath = nil
-	if _, ok := parsed[TypeJoinSubtreePath]; ok {
+	if subtreeBytes != nil {
 		p := &Proof{}
 		if err := p.Decode(bytes.NewReader(subtreeBytes)); err != nil {
 			return fmt.Errorf("msg: decoding subtree path: %w", err)
@@ -188,7 +170,7 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 	}
 
 	j.GraftPath = nil
-	if _, ok := parsed[TypeJoinGraftPath]; ok {
+	if graftBytes != nil {
 		p := &Proof{}
 		if err := p.Decode(bytes.NewReader(graftBytes)); err != nil {
 			return fmt.Errorf("msg: decoding graft path: %w", err)
