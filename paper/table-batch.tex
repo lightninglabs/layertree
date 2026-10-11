@@ -4,7 +4,7 @@
 
 \begin{table}[tbp]
 \centering
-\caption{Batch shapes at dense $D = 16$ on the transaction model: vB per leaf that leaves or changes, or per member that joins. Self-funded joins add each member's P2TR key-path funding input ($58\vB$) and the signing round of \S\ref{sec:parties}. The \tr{REWRITE}$_h$ rows are FULL's figures; \tr{JOIN}$_8$ is extrapolated from \tr{JOIN}$_2$ at 129\,WU a level. A renewal alone is an \tr{UPDATE} and a whole-balance \tr{SPLIT}; a cohort renewed (or its keys rotated) in place by \tr{REWRITE}$_6$ needs every renewing member's signature.}
+\caption{Batch shapes at dense $D = 16$ on the transaction model: vB per leaf that leaves or changes, or per member that joins. Self-funded joins add each member's P2TR key-path funding input ($58\vB$) and the signing round of \S\ref{sec:parties}. The \tr{REWRITE}$_h$ rows are FULL's figures; \tr{JOIN}$_8$ is an estimate, the measured \tr{JOIN}$_0$ at $D = 8$, which walks the same eight levels. A renewal alone is an \tr{UPDATE} and a whole-balance \tr{SPLIT}; a cohort renewed (or its keys rotated) in place by \tr{REWRITE}$_6$ needs every renewing member's signature.}
 \label{tab:batch}
 \setlength{\tabcolsep}{4pt}\scriptsize
 \begin{tabular}{@{}lrrr@{\quad}lrrr@{}}
