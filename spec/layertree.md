@@ -4080,7 +4080,14 @@ exits in a batch" as `EXIT_K` (section 13).
   every generated script is compared byte for byte with the Python output,
   and the BIP-341 signature hash computed by `txscript` is compared with the
   Python simulator's, which is what makes the MIN tier's constructive
-  introspection testable.
+  introspection testable. `txn` builds, signs and verifies every
+  transition of every tier end to end against the tier's real taptree
+  and tree output, one builder per transition selected by the option
+  set's tier: 259 cases (68 FULL, 65 MID, 8 MIN, 59 CCV in each
+  numerics), each pinned to the simulator's signature hash, and
+  `tools/replay_txn_dump.py` runs every signed Go witness through
+  `script_sim.Interp` in CI, so a builder that drifts from a script fails
+  the build.
 
 The simulator is a design-validation tool, not consensus code; its `OP_TX`
 and signature-hash models are simplified as documented in its header.

@@ -298,6 +298,11 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 	if len(steps) == 0 {
 		return nil, nil, errors.New("txn: EXIT_K needs at least one step")
 	}
+	// Exits only lower the sums, so the tree before them is the one the
+	// 0xC0 encoders have to be able to carry.
+	if err := r.checkTotals(st.Tree); err != nil {
+		return nil, nil, err
+	}
 	var lockTime uint32
 	if opts != nil {
 		lockTime = opts.LockTime
@@ -468,7 +473,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 	if err := st.checkPos(r, index, leaf); err != nil {
 		return nil, nil, err
 	}
-	if err := r.checkTotals(next); err != nil {
+	if err := r.checkTotals(st.Tree, next); err != nil {
 		return nil, nil, err
 	}
 
@@ -508,15 +513,17 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 	if len(joins) == 0 {
 		return nil, nil, errors.New("txn: JOINK_K needs a leaf")
 	}
+	// Validate every join and build the final tree before encoding
+	// anything: the 0xC0 encoders size their pads from the running sums,
+	// which the cap check has to cover first.
 	in := st.input(r)
-	cur := st.Tree.Clone()
-	blocks := make([][][]byte, len(joins))
+	next := st.Tree.Clone()
 	for i, j := range joins {
-		if j.Pos >= uint64(1)<<uint(cur.Depth) {
+		if j.Pos >= uint64(1)<<uint(next.Depth) {
 			return nil, nil, fmt.Errorf("txn: join %d: position "+
 				"%d out of range", i+1, j.Pos)
 		}
-		if _, ok := cur.Leaves[j.Pos]; ok {
+		if _, ok := next.Leaves[j.Pos]; ok {
 			return nil, nil, fmt.Errorf("txn: join %d: position "+
 				"%d is occupied", i+1, j.Pos)
 		}
@@ -526,6 +533,16 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 		if err := st.checkPos(r, j.Pos, j.Leaf); err != nil {
 			return nil, nil, err
 		}
+		next.Leaves[j.Pos] = j.Leaf
+	}
+	if err := r.checkTotals(st.Tree, next); err != nil {
+		return nil, nil, err
+	}
+
+	// Block i proves its leaf against the root the previous joins left.
+	cur := st.Tree.Clone()
+	blocks := make([][][]byte, len(joins))
+	for i, j := range joins {
 		var block [][]byte
 		if i == 0 {
 			block = append(block, r.inputPad(uint64(in.Amount))...)
@@ -542,9 +559,6 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 		}
 		blocks[i] = block
 		cur.Leaves[j.Pos] = j.Leaf
-	}
-	if err := r.checkTotals(cur); err != nil {
-		return nil, nil, err
 	}
 
 	// Block K is deepest, block 1 nearest the top, the operator's
@@ -601,7 +615,7 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 	}
 	next := st.Tree.Clone()
 	next.Leaves[pos] = newLeaf
-	if err := r.checkTotals(next); err != nil {
+	if err := r.checkTotals(st.Tree, next); err != nil {
 		return nil, nil, err
 	}
 
@@ -857,7 +871,7 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	}
 	next := mid.Clone()
 	next.Leaves[claimPos] = claim
-	if err := r.checkTotals(next); err != nil {
+	if err := r.checkTotals(st.Tree, next); err != nil {
 		return nil, nil, err
 	}
 
