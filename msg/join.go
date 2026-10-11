@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/roasbeef/layertree/tree"
 )
 
 // TLV types for JoinOffer (spec 9.2).
 const (
-	TypeJoinTreeID      tlv.Type = 0
+	TypeJoinTaptreeRoot tlv.Type = 0
 	TypeJoinRootHash    tlv.Type = 1
 	TypeJoinTotal       tlv.Type = 2
 	TypeJoinLeaf        tlv.Type = 3
@@ -25,9 +26,13 @@ const (
 // operator sends the unsigned tx, the member's leaf, the member's path
 // within the grafted subtree, the path of the graft point, r and m".
 type JoinOffer struct {
-	// TreeID is m, the tree identifier committed into leaf and voucher
-	// hashes.
-	TreeID [32]byte
+	// TaptreeRoot is m, the taptree root of the tree's script set (spec
+	// 6.3), which names the rules the member is joining under and is
+	// what TREE_SPK(r, m) commits to. It is not tree_id (6.2), the
+	// voucher binding the CLAIM scripts carry: the offer does not carry
+	// that, and a member learns it from the published creation
+	// parameters (9.6).
+	TaptreeRoot [32]byte
 
 	// RootHash is the current (pre-graft) tree root's hash.
 	RootHash [32]byte
@@ -70,13 +75,13 @@ func encodeEmbeddedProof(p *Proof) ([]byte, error) {
 // GraftPath are embedded as nested TLV blobs; a nil SubtreePath is simply
 // omitted (spec: "nil for a single-leaf join").
 func (j *JoinOffer) Encode(w io.Writer) error {
-	treeID, rootHash := j.TreeID, j.RootHash
+	taptreeRoot, rootHash := j.TaptreeRoot, j.RootHash
 	total := j.Total
 	newNode := j.NewNode
 	unsignedTx := j.UnsignedTx
 
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeJoinTreeID, &treeID),
+		tlv.MakePrimitiveRecord(TypeJoinTaptreeRoot, &taptreeRoot),
 		tlv.MakePrimitiveRecord(TypeJoinRootHash, &rootHash),
 		tlv.MakePrimitiveRecord(TypeJoinTotal, &total),
 		leafRecord(TypeJoinLeaf, &j.Leaf),
@@ -89,10 +94,8 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 			return err
 		}
 		subtreeBytes = b
-		records = append(records, tlv.MakeDynamicRecord(
-			TypeJoinSubtreePath, &subtreeBytes,
-			tlv.SizeVarBytes(&subtreeBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
+		records = append(records, boundedVarBytes(
+			TypeJoinSubtreePath, &subtreeBytes, maxProofLen,
 		))
 	}
 
@@ -103,23 +106,17 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 			return err
 		}
 		graftBytes = b
-		records = append(records, tlv.MakeDynamicRecord(
-			TypeJoinGraftPath, &graftBytes,
-			tlv.SizeVarBytes(&graftBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
+		records = append(records, boundedVarBytes(
+			TypeJoinGraftPath, &graftBytes, maxProofLen,
 		))
 	}
 
 	records = append(records,
 		nodeRecord(TypeJoinNewNode, &newNode),
-		tlv.MakeDynamicRecord(
-			TypeJoinUnsignedTx, &unsignedTx,
-			tlv.SizeVarBytes(&unsignedTx), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeJoinUnsignedTx, &unsignedTx, maxTxLen),
 	)
 
-	// TypeJoinTreeID..TypeJoinUnsignedTx are strictly increasing whether
+	// TypeJoinTaptreeRoot..TypeJoinUnsignedTx are strictly increasing whether
 	// or not the optional SubtreePath/GraftPath records are present, so
 	// records is already canonically ordered.
 	stream, err := tlv.NewStream(records...)
@@ -131,55 +128,45 @@ func (j *JoinOffer) Encode(w io.Writer) error {
 }
 
 // Decode deserializes a join offer from a TLV stream produced by Encode.
+// It reads at most maxJoinOfferLen bytes of r.
+//
+// The optional path records are detected by their backing slices: a
+// variable-length record that was present leaves a non-nil slice (even an
+// empty one), an absent record leaves nil. tlv.Stream.DecodeWithParsedTypes
+// would report presence directly, but it buffers every unknown record at
+// its declared length before reading it, which is the allocation this
+// decoder must not make.
 func (j *JoinOffer) Decode(r io.Reader) error {
 	var (
-		treeID, rootHash                     [32]byte
+		taptreeRoot, rootHash                [32]byte
 		total                                uint64
 		newNode                              tree.Node
 		subtreeBytes, graftBytes, unsignedTx []byte
 	)
 
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(TypeJoinTreeID, &treeID),
+		tlv.MakePrimitiveRecord(TypeJoinTaptreeRoot, &taptreeRoot),
 		tlv.MakePrimitiveRecord(TypeJoinRootHash, &rootHash),
 		tlv.MakePrimitiveRecord(TypeJoinTotal, &total),
 		leafRecord(TypeJoinLeaf, &j.Leaf),
-		tlv.MakeDynamicRecord(
-			TypeJoinSubtreePath, &subtreeBytes,
-			tlv.SizeVarBytes(&subtreeBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
-		tlv.MakeDynamicRecord(
-			TypeJoinGraftPath, &graftBytes,
-			tlv.SizeVarBytes(&graftBytes), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeJoinSubtreePath, &subtreeBytes, maxProofLen),
+		boundedVarBytes(TypeJoinGraftPath, &graftBytes, maxProofLen),
 		nodeRecord(TypeJoinNewNode, &newNode),
-		tlv.MakeDynamicRecord(
-			TypeJoinUnsignedTx, &unsignedTx,
-			tlv.SizeVarBytes(&unsignedTx), tlv.EVarBytes,
-			tlv.DVarBytes,
-		),
+		boundedVarBytes(TypeJoinUnsignedTx, &unsignedTx, maxTxLen),
 	}
 
-	stream, err := tlv.NewStream(records...)
-	if err != nil {
+	if err := decodeLimited(r, maxJoinOfferLen, records); err != nil {
 		return err
 	}
 
-	parsed, err := stream.DecodeWithParsedTypes(r)
-	if err != nil {
-		return err
-	}
-
-	j.TreeID = treeID
+	j.TaptreeRoot = taptreeRoot
 	j.RootHash = rootHash
 	j.Total = total
 	j.NewNode = newNode
 	j.UnsignedTx = unsignedTx
 
 	j.SubtreePath = nil
-	if _, ok := parsed[TypeJoinSubtreePath]; ok {
+	if subtreeBytes != nil {
 		p := &Proof{}
 		if err := p.Decode(bytes.NewReader(subtreeBytes)); err != nil {
 			return fmt.Errorf("msg: decoding subtree path: %w", err)
@@ -188,7 +175,7 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 	}
 
 	j.GraftPath = nil
-	if _, ok := parsed[TypeJoinGraftPath]; ok {
+	if graftBytes != nil {
 		p := &Proof{}
 		if err := p.Decode(bytes.NewReader(graftBytes)); err != nil {
 			return fmt.Errorf("msg: decoding graft path: %w", err)
@@ -199,19 +186,23 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 	return nil
 }
 
-// VerifyMember performs the message-local checks of spec 9.2 step 3: that
-// the member's leaf folds up (via SubtreePath, or directly if it is nil) to
-// NewNode, that GraftPath folds the empty node it replaces up to the
-// pre-graft root (RootHash, Total), and that the resulting post-graft root
-// carries the expected sum Total + NewNode.Sum. It does not verify anything
-// that requires external state, such as the unsigned tx actually matching
-// the chain or any signatures.
+// VerifyMember performs the checks of spec 9.2 step 3 that the message
+// alone supports: (b) and (c), that the member's leaf folds up (via
+// SubtreePath, or directly if it is nil) to NewNode, that GraftPath folds
+// the empty node it replaces up to the pre-graft root (RootHash, Total),
+// and that the post-graft root r' carries the sum Total + NewNode.Sum,
+// every addition checked; and (d), that UnsignedTx parses and its output 0
+// is TREE_SPK(r', m) holding that sum, which is what makes a self-funding
+// member's input safe to sign (9.2 step 3(f)). Step 3(a), that input 0
+// spends an unspent TREE_SPK(RootHash, m) holding Total, needs the chain:
+// the offer carries the outpoint only inside the transaction, so the
+// caller looks it up and compares. Signatures are not checked.
 //
 // On success it returns the post-graft root.
 func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
-	if j.TreeID != expectedM {
-		return tree.Node{}, fmt.Errorf("msg: join offer tree id " +
-			"does not match the expected tree")
+	if j.TaptreeRoot != expectedM {
+		return tree.Node{}, fmt.Errorf("msg: join offer's taptree root " +
+			"is not the expected m")
 	}
 	if j.GraftPath == nil {
 		return tree.Node{}, fmt.Errorf("msg: join offer is missing " +
@@ -248,11 +239,45 @@ func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
 	if err != nil {
 		return tree.Node{}, err
 	}
-	newRoot := tree.Fold(j.NewNode, path)
-	if newRoot.Sum != j.Total+j.NewNode.Sum {
+	newRoot, err := tree.Fold(j.NewNode, path)
+	if err != nil {
+		return tree.Node{}, err
+	}
+	wantSum, err := tree.AddSum(j.Total, j.NewNode.Sum)
+	if err != nil {
+		return tree.Node{}, err
+	}
+	if newRoot.Sum != wantSum {
 		return tree.Node{}, fmt.Errorf("msg: new root sum %d != "+
 			"total %d + new node sum %d", newRoot.Sum, j.Total,
 			j.NewNode.Sum)
+	}
+
+	// 9.2 step 3(d): output 0 of the unsigned transaction recreates the
+	// tree under r' and m with the whole new total, so the only thing
+	// the member's input can fund is a tree that holds its leaf.
+	r := bytes.NewReader(j.UnsignedTx)
+	var tx wire.MsgTx
+	if err := tx.Deserialize(r); err != nil {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx: %w", err)
+	}
+	if r.Len() != 0 {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx has %d "+
+			"trailing bytes", r.Len())
+	}
+	if len(tx.TxIn) == 0 || len(tx.TxOut) == 0 {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx has no " +
+			"inputs or no outputs")
+	}
+	wantSPK, err := tree.ScriptPubKey(newRoot.Hash, expectedM)
+	if err != nil {
+		return tree.Node{}, err
+	}
+	out0 := tx.TxOut[0]
+	if !bytes.Equal(out0.PkScript, wantSPK) || out0.Value != int64(newRoot.Sum) {
+		return tree.Node{}, fmt.Errorf("msg: unsigned tx output 0 is "+
+			"not TREE_SPK(r', m) holding %d (spec 9.2 step 3(d))",
+			newRoot.Sum)
 	}
 
 	return newRoot, nil

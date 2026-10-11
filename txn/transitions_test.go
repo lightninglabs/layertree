@@ -130,17 +130,51 @@ func newWorld(t *testing.T, depth int, sparse bool, variants ...string) *world {
 	if err != nil {
 		t.Fatalf("NewTapTree: %v", err)
 	}
+
+	// The suite appends its variants beside the scripts they would
+	// replace (UPDATE_X next to UPDATE), a shape FullTreeOptions.Scripts
+	// does not emit, so the taptree is assembled by hand and Options
+	// describes the reference members the builders consult.
 	return &world{
 		t: t, depth: depth, sparse: sparse, op: op,
 		keys: []*btcec.PrivateKey{op},
 		st: &TreeState{
-			Tree:        tree.New(depth),
-			Sparse:      sparse,
-			TapTree:     tt,
-			OperatorKey: opKey,
-			TreeID:      treeID,
-			OutPoint:    prevOutPoint(0),
+			Tree:     tree.New(depth),
+			Options:  suiteOptions(opKey, treeID, sparse),
+			TapTree:  tt,
+			OutPoint: prevOutPoint(0),
 		},
+	}
+}
+
+// suiteOptions are the suite's reference members as creation parameters:
+// EXIT_1, EXIT_2, JOIN_0, JOIN_2, JOINK_2, UPDATE and CLAIM.
+func suiteOptions(opKey, treeID [32]byte, sparse bool) script.FullTreeOptions {
+	return script.FullTreeOptions{
+		OperatorKey: opKey, TreeID: treeID, Sparse: sparse,
+		JoinHeights: []int{0, 2}, ExitKs: []int{1, 2}, JoinKs: []int{2},
+		Claim: true,
+	}
+}
+
+// newExactWorld is newWorld for a tree created with exact payouts (spec 7.2
+// rule 6): the same keys and members, compiled through NewTreeState with
+// Exact set, so the exits are EXIT_K^=.
+func newExactWorld(t *testing.T, depth int, sparse bool) *world {
+	t.Helper()
+	op := sk("operator")
+	opts := suiteOptions(xonly(op), suiteTreeID(), sparse)
+	opts.Exact = true
+	st, err := NewTreeState(tree.New(depth), opts, prevOutPoint(0))
+	if err != nil {
+		t.Fatalf("NewTreeState: %v", err)
+	}
+	if st.TapTree.Root() != opts.TapTreeRoot(depth) {
+		t.Fatal("NewTreeState's taptree root is not the options' m")
+	}
+	return &world{
+		t: t, depth: depth, sparse: sparse, op: op,
+		keys: []*btcec.PrivateKey{op}, st: st,
 	}
 }
 
@@ -216,7 +250,7 @@ func (w *world) fee(amount int64) []ExtraInput {
 func (w *world) base() (alice, bob, oper *tree.Leaf, sAlice, sBob,
 	sOper uint64) {
 
-	opKey := w.st.OperatorKey
+	opKey := w.st.Options.OperatorKey
 	alice = w.mkLeaf("alice", 50_000, nil, 0)
 	bob = w.mkLeaf("bob", 125_000, &opKey, 800_000)
 	oper = w.mkLeaf("operator", 1_000_000, nil, 0)
@@ -236,8 +270,18 @@ type txCase struct {
 	name     string
 	depth    int
 	sparse   bool
+	exact    bool
 	variants []string
 	build    func(w *world) (*Spend, *tree.Tree, error)
+}
+
+// world returns the case's world: the suite's reference taptree, or the
+// exact-payout one compiled through NewTreeState.
+func (c *txCase) world(t *testing.T) *world {
+	if c.exact {
+		return newExactWorld(t, c.depth, c.sparse)
+	}
+	return newWorld(t, c.depth, c.sparse, c.variants...)
 }
 
 func (c *txCase) key() string {
@@ -263,6 +307,15 @@ func exitCases(depth int, sparse bool) []txCase {
 				})
 		},
 	}, {
+		// An owner exit under EXIT_1^= (spec 7.2 rule 6): the payout is
+		// the whole leaf and the fee comes from the extra input.
+		name: "EXIT_1 exact", depth: depth, sparse: sparse, exact: true,
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			_, _, _, _, sBob, _ := w.base()
+			return BuildExit(w.st, []ExitStep{{Pos: sBob}},
+				&TxOpts{Inputs: w.fee(5_000)})
+		},
+	}, {
 		name: "EXIT_1 evict", depth: depth, sparse: sparse,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			_, _, _, _, sBob, _ := w.base()
@@ -273,7 +326,7 @@ func exitCases(depth int, sparse bool) []txCase {
 		name: "EXIT_2 owner+evict", depth: depth, sparse: sparse,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			carol := w.mkLeaf("carol", 30_000, &opKey, 900_000)
 			dave := w.mkLeaf("dave", 70_000, &opKey, 900_000)
 			tr := w.st.Tree
@@ -307,7 +360,7 @@ func joinCases(depth int, sparse bool) []txCase {
 		name: "JOIN_0", depth: depth, sparse: sparse,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
 			sErin := w.slot(erin, 9, w.st.Tree)
 			return BuildJoin(w.st, 0, sErin,
@@ -318,7 +371,7 @@ func joinCases(depth int, sparse bool) []txCase {
 		name: "JOINK_2", depth: depth, sparse: sparse,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			hank := w.mkLeaf("hank", 9_000, &opKey, 900_000)
 			sHank := w.slot(hank, 12, w.st.Tree)
 			ivy := w.mkLeaf("ivy", 11_000, &opKey, 900_000)
@@ -340,7 +393,7 @@ func joinCases(depth int, sparse bool) []txCase {
 		name: "JOIN_2", depth: depth, sparse: sparse,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			carol := w.mkLeaf("carol", 30_000, &opKey, 900_000)
 			dave := w.mkLeaf("dave", 70_000, &opKey, 900_000)
 			return BuildJoin(w.st, 2, 2,
@@ -399,7 +452,7 @@ func carveCases(depth int, sparse bool) []txCase {
 			frank := w.carveOf(oper, "frank", 40_000)
 			sFrank := w.slot(frank, 3, w.st.Tree)
 			vsig, err := SignVoucher(
-				sk("operator-owner"), w.st.TreeID, oper, frank,
+				sk("operator-owner"), w.st.Options.TreeID, oper, frank,
 			)
 			if err != nil {
 				return nil, nil, err
@@ -411,14 +464,14 @@ func carveCases(depth int, sparse bool) []txCase {
 		name: "CLAIM drain", depth: depth, sparse: sparse,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
 			sErin := w.slot(erin, 9, w.st.Tree)
 			w.st.Tree.Leaves[sErin] = erin
 			gina := w.carveOf(erin, "gina", erin.Amount)
 			sGina := w.slot(gina, 6, w.st.Tree)
 			vsig, err := SignVoucher(
-				sk("erin-owner"), w.st.TreeID, erin, gina,
+				sk("erin-owner"), w.st.Options.TreeID, erin, gina,
 			)
 			if err != nil {
 				return nil, nil, err
@@ -435,7 +488,7 @@ func carveCases(depth int, sparse bool) []txCase {
 			sHodl := w.slot(hodl, 3, w.st.Tree)
 			preimage := sha256.Sum256([]byte("payment-preimage"))
 			vsig, err := SignVoucherH(
-				sk("operator-owner"), w.st.TreeID, oper, hodl,
+				sk("operator-owner"), w.st.Options.TreeID, oper, hodl,
 				sha256.Sum256(preimage[:]),
 			)
 			if err != nil {
@@ -477,7 +530,7 @@ func evictCases(depth int) []txCase {
 		cases = append(cases, txCase{
 			name: name, depth: depth, variants: []string{name},
 			build: func(w *world) (*Spend, *tree.Tree, error) {
-				opKey := w.st.OperatorKey
+				opKey := w.st.Options.OperatorKey
 				index := uint64(1)
 				if h == w.depth {
 					index = 0
@@ -544,6 +597,7 @@ var pythonSighash = map[string]string{
 	"FULL/D/D16/EVICT_SUBTREE_2":    "f040c9afe7870fd7c1c3f1c636d39c7b15acd8b2471c7c9113fd282d843675b1",
 	"FULL/D/D16/EVICT_SUBTREE_4":    "f82b9245bb52c87d6956fab817a52e3f1e26502f579d9aec7fc86c1a65e02137",
 	"FULL/D/D16/EXIT_1 evict":       "29d028b4580f662f56ff5fe46645eff034a77df9f577ee4617e498bdca350c8b",
+	"FULL/D/D16/EXIT_1 exact":       "e45b6b2e4ede704658e5bbd66b451855e6b030b846e49dc75a8c6d6afcd2f3f6",
 	"FULL/D/D16/EXIT_1 owner":       "f42dbba5a5f59d300b7405014e59fd3802270c429a4aa3b35126f3810fdcfba4",
 	"FULL/D/D16/EXIT_1 terminal":    "60d208a09f18ec2b1e5161ee3b70f452b2173370e7c5b6766b1df88437dce826",
 	"FULL/D/D16/EXIT_2 owner+evict": "14f39cc331096a30cc23d77b20ab4059c54d4d687583db3832d204f4a011505f",
@@ -559,6 +613,7 @@ var pythonSighash = map[string]string{
 	"FULL/D/D4/EVICT_SUBTREE_2":     "1be854c05eaf1d69f342a27a53df9bec420fb4af398d4da118ececa740e9c198",
 	"FULL/D/D4/EVICT_SUBTREE_4":     "c5ea2fe56ec4745af217858b7fa48cc70d0894ff512d24b85d3c68f8e9e4cb52",
 	"FULL/D/D4/EXIT_1 evict":        "8f4fa7815ec3f20de47d04b036b236fc925dd74a58864c3c0772f14df54edfca",
+	"FULL/D/D4/EXIT_1 exact":        "62394321c20cc8bf28f81a8b2c91c5e13e0fdb85c06bdc9fc2f65a48cc7bf35f",
 	"FULL/D/D4/EXIT_1 owner":        "2da79fd6c9fa2a7da03b091e4c3d2f62655fae5beb6bf08a7b1bfea92db446e9",
 	"FULL/D/D4/EXIT_1 terminal":     "5b0d36c4beab9386a7bac57041a362fa1dc6663b48bb3d7dc71f1152ef9213ff",
 	"FULL/D/D4/EXIT_2 owner+evict":  "73f44f06344f483e3f368529d357518f504fca1bb50b1247602c92cff3c3072b",
@@ -572,6 +627,7 @@ var pythonSighash = map[string]string{
 	"FULL/S/D8/CLAIM drain":         "79a6cbf06c0f87ced18de5f83d8f0b9794ad8e131f895afccfc1d8328c4c0571",
 	"FULL/S/D8/CLAIM_H":             "69f5d4708e4a1962cb959a4d9fe21f668d6e381f52fa5200816786bb8cb027b9",
 	"FULL/S/D8/EXIT_1 evict":        "590c70f75a01deba293abf21334501670adfb0de838219c29b540998e77d3b27",
+	"FULL/S/D8/EXIT_1 exact":        "a226b12d5c108f6c1cc07e1ebe3e9972a1f6ce95b9bf9d73149d4ac842104b9c",
 	"FULL/S/D8/EXIT_1 owner":        "44fb950ba3ce933f8f3660cd0709918c8da0d257a93dbe254687f6bed051fed9",
 	"FULL/S/D8/EXIT_1 terminal":     "5d1511a29eff07af42dc57373e8f9a9ec9c343a7ebb6164ee9d1c2d86f62a257",
 	"FULL/S/D8/EXIT_2 owner+evict":  "58728f5705a9b6d8b9b3db346a37fdfb788a2860639549815736ddccbe45b7dd",
@@ -665,7 +721,7 @@ func TestTransitionsEndToEnd(t *testing.T) {
 	for _, c := range allCases() {
 		c := c
 		t.Run(c.key(), func(t *testing.T) {
-			w := newWorld(t, c.depth, c.sparse, c.variants...)
+			w := c.world(t)
 			spend, next, err := c.build(w)
 			if err != nil {
 				t.Fatalf("build: %v", err)
@@ -799,10 +855,95 @@ func checkSpend(t *testing.T, w *world, before *tree.Tree, s *Spend,
 // covenant would reject, rather than producing them.
 func TestBuilderRejects(t *testing.T) {
 	cases := []struct {
-		name   string
-		sparse bool
-		build  func(w *world) error
+		name     string
+		sparse   bool
+		exact    bool
+		variants []string
+		build    func(w *world) error
 	}{{
+		// design/audit/go.md G4: EXIT_1^= pays the whole leaf, so a
+		// fee taken from the payout is a transaction no node accepts.
+		name: "owner exit with a fee in an exact-payout tree", exact: true,
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildExit(w.st, []ExitStep{{
+				Pos: sBob, Fee: 1_000,
+			}}, &TxOpts{Inputs: w.fee(50_000)})
+			return err
+		},
+	}, {
+		// design/audit/go.md G5: OP_CHECKLOCKTIMEVERIFY fails when the
+		// operand and nLockTime are of different types, so an
+		// eviction's lock time must be a height (10.6).
+		name: "eviction with a timestamp lock time",
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildExit(w.st, []ExitStep{{
+				Pos: sBob, Evict: true,
+			}}, &TxOpts{LockTime: 1_000_000_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		name:     "sweep with a timestamp lock time",
+		variants: []string{"EVICT_SUBTREE_2"},
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildEvictSubtree(w.st, 2, sBob>>2,
+				&TxOpts{LockTime: 1_000_000_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// G5: the voucher is checked with OP_CHECKSIGFROMSTACK against
+		// the source owner's key, so one signed by anyone else fails
+		// on chain.
+		name: "claim with a voucher from the wrong issuer",
+		build: func(w *world) error {
+			_, _, oper, _, _, sOper := w.base()
+			frank := w.carveOf(oper, "frank", 40_000)
+			vsig, err := SignVoucher(
+				sk("alice-owner"), w.st.Options.TreeID, oper, frank,
+			)
+			if err != nil {
+				return err
+			}
+			_, _, err = BuildClaim(w.st, sOper, 3, frank, vsig,
+				&TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		// G5: tree.Tree.Root covers positions [0, 2^D), so a claim
+		// placed beyond them is folded in by the path but left out of
+		// output 0.
+		name: "claim into a position outside the tree",
+		build: func(w *world) error {
+			_, _, oper, _, _, sOper := w.base()
+			frank := w.carveOf(oper, "frank", 40_000)
+			vsig, err := SignVoucher(
+				sk("operator-owner"), w.st.Options.TreeID, oper, frank,
+			)
+			if err != nil {
+				return err
+			}
+			_, _, err = BuildClaim(w.st, sOper, 1<<w.depth+3, frank,
+				vsig, &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}, {
+		// G5: 7.3 rule 4 lets the covenant graft any leaf, so the
+		// builder has to hold the 5.2 line (10.7): a zero amount and
+		// an owner key with no lift_x make a leaf nobody can spend.
+		name: "join of a leaf that fails 5.2",
+		build: func(w *world) error {
+			w.base()
+			opKey := w.st.Options.OperatorKey
+			broken := w.mkLeaf("broken", 0, &opKey, 900_000)
+			broken.OwnerKey = [32]byte{}
+			_, _, err := BuildJoin(w.st, 0, 9,
+				map[uint64]*tree.Leaf{0: broken},
+				&TxOpts{Inputs: w.fee(1_000)})
+			return err
+		},
+	}, {
 		name: "eviction before evict_after",
 		build: func(w *world) error {
 			_, _, _, _, sBob, _ := w.base()
@@ -847,7 +988,7 @@ func TestBuilderRejects(t *testing.T) {
 		name: "join over an occupied subtree",
 		build: func(w *world) error {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			carol := w.mkLeaf("carol", 30_000, &opKey, 900_000)
 			_, _, err := BuildJoin(w.st, 2, 0,
 				map[uint64]*tree.Leaf{1: carol},
@@ -858,7 +999,7 @@ func TestBuilderRejects(t *testing.T) {
 		name: "underfunded join",
 		build: func(w *world) error {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
 			_, _, err := BuildJoin(w.st, 0, 9,
 				map[uint64]*tree.Leaf{0: erin},
@@ -869,7 +1010,7 @@ func TestBuilderRejects(t *testing.T) {
 		name: "JOINK_2 naming one position twice",
 		build: func(w *world) error {
 			w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			hank := w.mkLeaf("hank", 9_000, &opKey, 900_000)
 			ivy := w.mkLeaf("ivy", 11_000, &opKey, 900_000)
 			_, _, err := BuildJoinK(w.st, []PlacedLeaf{
@@ -919,7 +1060,7 @@ func TestBuilderRejects(t *testing.T) {
 		name: "claim with a different evictor key",
 		build: func(w *world) error {
 			alice, _, _, sAlice, _, _ := w.base()
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			escape := w.mkLeaf("escape", 10_000, &opKey, alice.EvictAfter)
 			_, _, err := BuildClaim(w.st, sAlice, 3, escape,
 				make([]byte, 64), &TxOpts{Inputs: w.fee(600)})
@@ -945,7 +1086,8 @@ func TestBuilderRejects(t *testing.T) {
 			return err
 		},
 	}, {
-		name: "sweep before the lease expires",
+		name:     "sweep before the lease expires",
+		variants: []string{"EVICT_SUBTREE_2"},
 		build: func(w *world) error {
 			_, _, _, _, sBob, _ := w.base()
 			_, _, err := BuildEvictSubtree(w.st, 2, sBob>>2,
@@ -953,7 +1095,8 @@ func TestBuilderRejects(t *testing.T) {
 			return err
 		},
 	}, {
-		name: "sweep over a leaf the operator cannot evict",
+		name:     "sweep over a leaf the operator cannot evict",
+		variants: []string{"EVICT_SUBTREE_2"},
 		build: func(w *world) error {
 			w.base()
 			w.st.Tree.Leaves[6] = w.mkLeaf("stubborn", 5_000, nil, 0)
@@ -974,7 +1117,7 @@ func TestBuilderRejects(t *testing.T) {
 	}, {
 		name: "sparse join away from the derived position", sparse: true,
 		build: func(w *world) error {
-			opKey := w.st.OperatorKey
+			opKey := w.st.Options.OperatorKey
 			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
 			pos := erin.Position(w.depth) ^ 1
 			_, _, err := BuildJoin(w.st, 0, pos,
@@ -986,7 +1129,10 @@ func TestBuilderRejects(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			w := newWorld(t, 4, c.sparse)
+			w := newWorld(t, 4, c.sparse, c.variants...)
+			if c.exact {
+				w = newExactWorld(t, 4, c.sparse)
+			}
 			err := c.build(w)
 			if err == nil {
 				t.Fatal("builder accepted it")
