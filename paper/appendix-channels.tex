@@ -28,21 +28,21 @@ $n$.
 \begin{figure}[tbp]
 \centering\small
 \begin{pchstack}[center]
-\scalebox{0.85}{\procedure{$\mathsf{REBIND}_n$ \quad (tapleaf 0xC2, 81 B)}{
+\scalebox{0.85}{\procedure{$\mathsf{REBIND}_n$ \quad (\texttt{0xC2}, 81 B)}{
   \langle S_0 + n + 1 \rangle\ \op{CHECKLOCKTIMEVERIFY}\ \op{DROP} \\
   \langle \mathsf{SEL\_CHAN\_UPD} \rangle\ \op{TX} \pccomment{collated blob} \\
   \langle \mathsf{ctx}_{\mathsf{upd}} \rangle\ \op{SWAP}\ \op{CAT}\ \op{SHA256} \\
   \langle P_{\mathsf{chan}} \rangle\ \op{CHECKSIGFROMSTACK}
 }}
 \pchspace
-\scalebox{0.85}{\procedure{$\mathsf{SETTLE}_n$ \quad (tapleaf 0xC2, 79 B)}{
+\scalebox{0.85}{\procedure{$\mathsf{SETTLE}_n$ \quad (\texttt{0xC2}, 79 B)}{
   \langle \mathsf{csv\_delay} \rangle\ \op{CHECKSEQUENCEVERIFY}\ \op{DROP} \\
-  \langle \mathsf{SEL\_CHAN\_SET} \rangle\ \op{TX} \pccomment{$+$ input amount, spk} \\
+  \langle \mathsf{SEL\_CHAN\_SET} \rangle\ \op{TX} \pccomment{$+$ amount, spk} \\
   \langle \mathsf{ctx}_{\mathsf{set}} \rangle\ \op{SWAP}\ \op{CAT}\ \op{SHA256} \\
   \langle P_{\mathsf{chan}} \rangle\ \op{CHECKSIGFROMSTACK}
 }}
 \end{pchstack}
-\caption{The two leaves of a channel leaf's update output for state $n$, sized at $\mathsf{csv\_delay} = 144$; under \texttt{0xC0} $\mathsf{SETTLE}_n$ is 80 B, since 144 needs two bytes as a \texttt{CScriptNum}.}
+\caption{The two tapleaves (version \texttt{0xC2}) of a channel leaf's update output for state $n$, sized at $\mathsf{csv\_delay} = 144$; under \texttt{0xC0} $\mathsf{SETTLE}_n$ is 80 B, since 144 needs two bytes as a \texttt{CScriptNum}.}
 \label{fig:chan}
 \end{figure}
 
