@@ -18,9 +18,6 @@ All activity is serialised through one output, so an honest exit's delay
 is set by policy and fees, which [C] names rather than derives; cluster
 mempool~\cite{clustermempool} raises $\kappa$ for a cooperative tree but
 shares the cluster with every descendant anyone attaches, and fee
-pinning is outside [C]. Two open changes would narrow the dependence: a
-relative lock on transitions that remove no value, so that only removals
-chain, and an exit authorised by a CSFS signature over $m$, the leaf and
-the payout rather than the outpoint, so a tower could rebroadcast it. A
+pinning is outside [C]. A
 Liquid prototype of MID~\cite{elements} is the obvious next experiment.
 \fi
