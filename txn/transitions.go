@@ -623,6 +623,66 @@ func BuildClaimH(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 		}, opts)
 }
 
+// BuildClaimX builds CLAIM^x (spec 7.5.3): CLAIM with one more signature
+// slot, directly below r, for the source leaf's exit key over the
+// transaction. It is the credit-leaf form of 10.3: the issuer owns the
+// source leaf and signs the voucher, the holder of its exit key signs the
+// redemption, so neither can carve the leaf alone.
+func BuildClaimX(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	voucherSig []byte, opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	return buildCarve(st, srcPos, claimPos, claim, "CLAIM_X",
+		func(cPath, sPath [][]byte, src *tree.Leaf, r,
+			m [32]byte) ([][]byte, []SigSlot, error) {
+
+			msg := tree.VoucherMsg(st.Options.TreeID, src, claim)
+			err := VerifySchnorr(src.OwnerKey, msg[:], voucherSig)
+			if err != nil {
+				return nil, nil, fmt.Errorf("txn: voucher: %w", err)
+			}
+			stack := ClaimWitness(
+				cPath, sPath, src, claim, voucherSig, r, m,
+			)
+			return withExitSig(stack, src)
+		}, opts)
+}
+
+// BuildClaimHX builds CLAIM^hx (spec 7.5.3): CLAIM^h with the exit-key
+// signature slot of CLAIM^x, which sits above the preimage.
+func BuildClaimHX(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	voucherSig []byte, preimage [32]byte, opts *TxOpts) (*Spend,
+	*tree.Tree, error) {
+
+	return buildCarve(st, srcPos, claimPos, claim, "CLAIM_HX",
+		func(cPath, sPath [][]byte, src *tree.Leaf, r,
+			m [32]byte) ([][]byte, []SigSlot, error) {
+
+			msg := tree.VoucherHMsg(
+				st.Options.TreeID, src, claim,
+				sha256.Sum256(preimage[:]),
+			)
+			err := VerifySchnorr(src.OwnerKey, msg[:], voucherSig)
+			if err != nil {
+				return nil, nil, fmt.Errorf("txn: voucher: %w", err)
+			}
+			stack := ClaimHWitness(
+				cPath, sPath, src, claim, voucherSig, preimage, r, m,
+			)
+			return withExitSig(stack, src)
+		}, opts)
+}
+
+// withExitSig inserts the exit-consent slot of CLAIM^x and CLAIM^hx into a
+// carve stack ending in r m: an empty element directly below r, to be
+// signed by the source leaf's exit key.
+func withExitSig(stack [][]byte, src *tree.Leaf) ([][]byte, []SigSlot, error) {
+	n := len(stack)
+	out := make([][]byte, 0, n+1)
+	out = append(out, stack[:n-2]...)
+	out = append(out, sigPlaceholder(), stack[n-2], stack[n-1])
+	return out, []SigSlot{{Index: n - 2, Key: src.ExitKey, Role: "exit"}}, nil
+}
+
 // BuildSplit builds SPLIT (spec 7.5.2): CLAIM's two steps authorised by the
 // source owner's signature over the transaction, which takes the voucher's
 // place in the stack.

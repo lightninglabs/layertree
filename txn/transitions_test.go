@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -113,12 +114,25 @@ func newWorld(t *testing.T, depth int, sparse bool, variants ...string) *world {
 			toks = script.FullUpdateXScript(depth, opKey, sparse)
 		case "CLAIM_H":
 			toks = script.FullClaimHScript(depth, treeID, sparse, tree.DustMin)
+		case "CLAIM_X":
+			toks = script.FullClaimXScript(depth, treeID, sparse, tree.DustMin)
+		case "CLAIM_HX":
+			toks = script.FullClaimHXScript(depth, treeID, sparse, tree.DustMin)
 		case "SPLIT":
 			toks = script.FullSplitScript(depth, sparse, tree.DustMin)
 		case "EVICT_SUBTREE_2":
 			toks = script.FullEvictSubtreeScript(depth, 2, opKey)
 		case "EVICT_SUBTREE_4":
 			toks = script.FullEvictSubtreeScript(depth, 4, opKey)
+		case "REWRITE_2":
+			toks = script.FullRewriteScript(depth, 2, opKey, false)
+		case "REWRITE_X_2":
+			toks = script.FullRewriteScript(depth, 2, opKey, true)
+		case "DETACH_2":
+			// m_h is the suite's option set at depth 2, which is what
+			// BuildDetach compiles the child's taptree from.
+			opts := suiteOptions(opKey, treeID, sparse)
+			toks = script.FullDetachScript(depth, 2, opKey, opts.TapTreeRoot(2))
 		default:
 			t.Fatalf("unknown variant %s", name)
 		}
@@ -245,6 +259,33 @@ func (w *world) fee(amount int64) []ExtraInput {
 		Sequence: TreeSequence,
 		PrevOut:  wire.NewTxOut(amount, p2wpkh(w.t)),
 	}}
+}
+
+// creditLeaf populates the suite's credit-leaf tree of 10.3 (test_claim_x):
+// a leaf the operator owns whose exit key is the recipient's, at the last
+// position, with alice at 0. Returns the credit leaf and its position.
+func (w *world) creditLeaf() (*tree.Leaf, uint64) {
+	recipient := sk("recipient-exit")
+	w.keys = append(w.keys, recipient)
+	h := sha256.Sum256([]byte("credit"))
+	nums, err := tree.HexKey(tree.NUMSHex)
+	if err != nil {
+		w.t.Fatalf("NUMS: %v", err)
+	}
+	credit := &tree.Leaf{
+		Amount:     1_000_000,
+		ExitKey:    xonly(recipient),
+		OwnerKey:   w.st.Options.OperatorKey,
+		EvictorKey: nums,
+		Nonce:      binary.LittleEndian.Uint32(h[:4]),
+	}
+	alice := w.mkLeaf("alice", 50_000, nil, 0)
+	tr := w.st.Tree
+	sCredit := w.slot(credit, uint64(1)<<w.depth-1, tr)
+	tr.Leaves[sCredit] = credit
+	sAlice := w.slot(alice, 0, tr)
+	tr.Leaves[sAlice] = alice
+	return credit, sCredit
 }
 
 // base populates the suite's starting tree: alice at 0, bob (evictable by
@@ -560,6 +601,41 @@ func carveCases(depth int, sparse bool) []txCase {
 				preimage, &TxOpts{Inputs: w.fee(600)})
 		},
 	}, {
+		// The credit leaf of 10.3: the operator owns the source leaf and
+		// signs the voucher, the recipient holds its exit key and signs
+		// the redemption (spec 7.5.3).
+		name: "CLAIM_X", depth: depth, sparse: sparse,
+		variants: []string{"CLAIM_X"},
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			credit, sCredit := w.creditLeaf()
+			claim := w.carveOf(credit, "recipient", 40_000)
+			sClaim := w.slot(claim, 3, w.st.Tree)
+			vsig, err := SignVoucher(w.op, w.st.Options.TreeID, credit, claim)
+			if err != nil {
+				return nil, nil, err
+			}
+			return BuildClaimX(w.st, sCredit, sClaim, claim, vsig,
+				&TxOpts{Inputs: w.fee(600)})
+		},
+	}, {
+		name: "CLAIM_HX", depth: depth, sparse: sparse,
+		variants: []string{"CLAIM_HX"},
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			credit, sCredit := w.creditLeaf()
+			claim := w.carveOf(credit, "recipient", 40_000)
+			sClaim := w.slot(claim, 3, w.st.Tree)
+			preimage := sha256.Sum256([]byte("credit-preimage"))
+			vsig, err := SignVoucherH(
+				w.op, w.st.Options.TreeID, credit, claim,
+				sha256.Sum256(preimage[:]),
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			return BuildClaimHX(w.st, sCredit, sClaim, claim, vsig,
+				preimage, &TxOpts{Inputs: w.fee(600)})
+		},
+	}, {
 		name: "SPLIT", depth: depth, sparse: sparse,
 		variants: []string{"SPLIT"},
 		build: func(w *world) (*Spend, *tree.Tree, error) {
@@ -632,6 +708,133 @@ func evictCases(depth int) []txCase {
 	return cases
 }
 
+// cohort populates the suite's cohort of test_evict_subtree and
+// test_detach: positions base..base+2^h-1 hold c<i> leaves with a common
+// lease, every fifth position from the fourth empty when sparseCohort is
+// set, alice at 0 and the operator's leaf at the last position.
+func (w *world) cohort(height int, index uint64, sparseCohort bool) {
+	opKey := w.st.Options.OperatorKey
+	base := index << uint(height)
+	tr := w.st.Tree
+	for i := 0; i < 1<<uint(height); i++ {
+		if sparseCohort && i%5 == 3 {
+			continue
+		}
+		tr.Leaves[base+uint64(i)] = w.mkLeaf(
+			fmt.Sprintf("c%d", i), 10_000+7*uint64(i), &opKey, 800_000,
+		)
+	}
+	tr.Leaves[0] = w.mkLeaf("alice", 50_000, nil, 0)
+	tr.Leaves[uint64(1)<<w.depth-1] = w.mkLeaf("operator", 1_000_000, nil, 0)
+}
+
+// rewritePlan is the suite's mixed REWRITE_2 scenario over the cohort at
+// index 1 (positions 4..7): position 4 exits, 5 is unchanged, 6 rotates
+// its owner key and 7, empty before, is joined. Returns the contents of
+// the subtree afterwards by offset and the funding the join needs (the
+// exit is paid from the tree, so it frees nothing for the join).
+func (w *world) rewritePlan() (map[uint64]*tree.Leaf, int64) {
+	w.cohort(2, 1, false)
+	tr := w.st.Tree
+	delete(tr.Leaves, 7)
+	opKey := w.st.Options.OperatorKey
+	rotated := *tr.Leaves[6]
+	owner2 := sk("c2-owner2")
+	w.keys = append(w.keys, owner2)
+	rotated.OwnerKey = xonly(owner2)
+	joined := w.mkLeaf("j3", 5_003, &opKey, 900_000)
+	after := map[uint64]*tree.Leaf{
+		1: tr.Leaves[5], 2: &rotated, 3: joined,
+	}
+	return after, int64(joined.Amount)
+}
+
+// cohortCases are REWRITE_2, REWRITE_2^x, the operator's amount-only
+// top-up of a cohort and DETACH_2, dense profile.
+func cohortCases(depth int) []txCase {
+	rewrite := func(x bool) func(w *world) (*Spend, *tree.Tree, error) {
+		return func(w *world) (*Spend, *tree.Tree, error) {
+			after, funding := w.rewritePlan()
+			spend, next, err := BuildRewrite(w.st, 2, 1, after, x, &TxOpts{
+				Inputs:  w.fee(funding + 5_000),
+				Outputs: []*wire.TxOut{wire.NewTxOut(400, p2wpkh(w.t))},
+			})
+			// Positions 4 and 6 sign by their owners (and under ^x by
+			// their exit keys), 5 and 7 need nobody but the operator.
+			want := 3
+			if x {
+				want = 5
+			}
+			if err == nil && len(spend.Sigs) != want {
+				return nil, nil, fmt.Errorf("the rewrite has %d "+
+					"signature slots, want %d", len(spend.Sigs), want)
+			}
+			return spend, next, err
+		}
+	}
+	return []txCase{{
+		name: "REWRITE_2", depth: depth, variants: []string{"REWRITE_2"},
+		build: rewrite(false),
+	}, {
+		name: "REWRITE_X_2", depth: depth, variants: []string{"REWRITE_X_2"},
+		build: rewrite(true),
+	}, {
+		// The operator tops every leaf of the cohort up by 500 (spec 7.9
+		// rule 3's exemption): no owner signs.
+		name: "REWRITE_2 topup", depth: depth, variants: []string{"REWRITE_2"},
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			w.cohort(2, 1, false)
+			after := make(map[uint64]*tree.Leaf)
+			for off := uint64(0); off < 4; off++ {
+				topped := *w.st.Tree.Leaves[4+off]
+				topped.Amount += 500
+				after[off] = &topped
+			}
+			spend, next, err := BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(4*500 + 5_000)})
+			if err == nil && len(spend.Sigs) != 1 {
+				return nil, nil, fmt.Errorf("the top-up has %d "+
+					"signature slots, want the operator's alone",
+					len(spend.Sigs))
+			}
+			return spend, next, err
+		},
+	}, {
+		name: "DETACH_2", depth: depth, variants: []string{"DETACH_2"},
+		build: func(w *world) (*Spend, *tree.Tree, error) {
+			w.cohort(2, 1, true)
+			node := w.st.Tree.Subtree(2, 1)
+			spend, host, child, err := BuildDetach(w.st, 2, 1, &TxOpts{
+				Inputs:  w.fee(5_000),
+				Outputs: []*wire.TxOut{wire.NewTxOut(400, p2wpkh(w.t))},
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+			// Output 1 is the detached tree: the cohort's node under
+			// m_h, which is the child's own taptree root, and the
+			// child's outpoint names it.
+			if child.Tree.Root() != node {
+				return nil, nil, errors.New("the child's root is not " +
+					"the detached node")
+			}
+			in := child.Input()
+			spk, err := tree.ScriptPubKey(node.Hash, child.TapTree.Root())
+			if err != nil {
+				return nil, nil, err
+			}
+			out1 := spend.Tx.TxOut[1]
+			if !bytes.Equal(out1.PkScript, spk) || out1.Value != in.Amount ||
+				in.OutPoint != (wire.OutPoint{Hash: spend.Tx.TxHash(), Index: 1}) {
+
+				return nil, nil, errors.New("output 1 is not the child " +
+					"tree output")
+			}
+			return spend, host, nil
+		},
+	}}
+}
+
 // allCases is every transition at every depth and profile covered.
 func allCases() []txCase {
 	var cases []txCase
@@ -645,68 +848,10 @@ func allCases() []txCase {
 		cases = append(cases, carveCases(p.depth, p.sparse)...)
 		if !p.sparse {
 			cases = append(cases, evictCases(p.depth)...)
+			cases = append(cases, cohortCases(p.depth)...)
 		}
 	}
 	return cases
-}
-
-// pythonSighash is the BIP-341 digest tools/script_sim.py computes for each
-// case's transaction; see the comment at the top of this file.
-var pythonSighash = map[string]string{
-	"FULL/D/D16/CLAIM":               "b068d28e03ecb63c9e3c478ed86b319ce054eae35339dfdf4e22cb21ab590a11",
-	"FULL/D/D16/CLAIM drain":         "143c4ff78a56f4fcb1bf9ede882950676e63c5e44a7823bcb1a14f03cab5ba54",
-	"FULL/D/D16/CLAIM topped":        "ec23332d8b692f0b75de0e35e5dbd10614d827e3dae79a4747976f2039685e7a",
-	"FULL/D/D16/CLAIM_H":             "64c55ec35cca88065fb9ae04bedd6c30ef35708db0163787835ad4855e6f6bb9",
-	"FULL/D/D16/EVICT_SUBTREE_2":     "d36eff0b1013cd75d917850a6855ebe6bf6304b62f8c6ae87211a370ea82ef54",
-	"FULL/D/D16/EVICT_SUBTREE_4":     "2c8c7f90ff94b84310a2168aa2ddd07b9d1ac88890396e7b84f9fca900343fcf",
-	"FULL/D/D16/EXIT_1 evict":        "f59f6c9a23f4ca17340500cdffe5ed0d67d21b5ed1f07aaa02010c15f4a2c49e",
-	"FULL/D/D16/EXIT_1 exact":        "a3ee501b7e3e3efcb83e8df632a738c2a7e8e0ee350d16c2ccadfb34c5bdb666",
-	"FULL/D/D16/EXIT_1 owner":        "5f84878a2345dbcf6d382871e62befa728193f2b6ffec4c9ad856025e5076214",
-	"FULL/D/D16/EXIT_1 terminal":     "0d2973e803f8b0371ac35997e342248c6b5d6fcf0dd5a3a16552a5b7da8ec937",
-	"FULL/D/D16/EXIT_1 tower":        "c945a0c1d13ba65eb98b9709344a62db8bdd9df9b62e7ab9dede3f9ea2e096ba",
-	"FULL/D/D16/EXIT_1 tower topped": "76deb486b12376d95fd8a99ebff2bae959079dc491f62aad4759ea9edce260f1",
-	"FULL/D/D16/EXIT_2 owner+evict":  "70875478bd423e6c37210201f8f8e2ed5e3c3f5fc05598bcae984f46dca4960f",
-	"FULL/D/D16/JOINK_2":             "2403cf703c51834d6a6f300948ea88d4e944f25168a19e9089bbd6699d6c7d06",
-	"FULL/D/D16/JOIN_0":              "ccafb3ce3a9d8b6753e08fd61d7a89f7b60296ed1970c8ce5e10cb84ea397bd3",
-	"FULL/D/D16/JOIN_2":              "c020f37398f44ace5c6678af51c25d873f60a25501cc71ee3fe475b6bf31bf8b",
-	"FULL/D/D16/SPLIT":               "eac5599abdc6d82865c238cf4764575a7e44c1ddaeff2f08f1c5c1cd90ba4f41",
-	"FULL/D/D16/UPDATE":              "c2d923c54636327db1fbbbd45b4676a36b76af8b8bd80c150d1ea7041cd5a62a",
-	"FULL/D/D16/UPDATE_X":            "4acf59a07066ea535acf6f527db841ecf417c1cab45d60e326f2a690a1237a75",
-	"FULL/D/D4/CLAIM":                "5f7c899c57d0a982985fbe6bd28b63b71d38a2126e15e35c8bce843b75649a08",
-	"FULL/D/D4/CLAIM drain":          "19c3746fe51149d1a7df9988d4f9e9776ef397b84b65efba3c51eed1ced83461",
-	"FULL/D/D4/CLAIM topped":         "1aed8a4f7990493dece4064db334bae13a68585441a6a4c6a96677c459f45fd8",
-	"FULL/D/D4/CLAIM_H":              "00c98d984fb7673da9b4e9e161cb6346a440caf8760514c21e556df5ab1e8e00",
-	"FULL/D/D4/EVICT_SUBTREE_2":      "6fc3c7a14f1f7b3039cf73da82348d21f480a9041fcd525f66ca4f417254bc3a",
-	"FULL/D/D4/EVICT_SUBTREE_4":      "83cb8825efebcfc5c6b6ecf8ab294271c058493f360be37cff5a89500ad431ef",
-	"FULL/D/D4/EXIT_1 evict":         "fa846b4c4dea3cafe346bd9fd2376ea44aed46803da23bacddeaaf8ad6c34da4",
-	"FULL/D/D4/EXIT_1 exact":         "2157a488a2bbba371fd3f1b57e3e5d3cfa353ee8c6895c69a728e6508eb08ad1",
-	"FULL/D/D4/EXIT_1 owner":         "fb84425e9dd35fd6953e2a19f9941ccba956229b908e6b72650f109fa3eb4265",
-	"FULL/D/D4/EXIT_1 terminal":      "490e248a508b481c499b2fed4e214845a96adcc23225a7332b975816cefcf647",
-	"FULL/D/D4/EXIT_1 tower":         "685eb0fa21e2259a6102bf043fd77403214be8f132a50b2b9d82ae12d7a5db7e",
-	"FULL/D/D4/EXIT_1 tower topped":  "66f6ce0d224b15c643d461031873bcd25540826e9ebf38c97aa51c355ba55f77",
-	"FULL/D/D4/EXIT_2 owner+evict":   "d6cc6b969e8e5a11d177a28e08bc02b706b072777d2fa6356e05640bac25e6a2",
-	"FULL/D/D4/JOINK_2":              "0bc354adb42d3f584930ce0ccff6edef5c0c841b67c63a5a9a4001a8dddfe470",
-	"FULL/D/D4/JOIN_0":               "8d67dab93374a6b329ba92853b8c3120fdd61fa41572f5b07b2a1f0905693fb6",
-	"FULL/D/D4/JOIN_2":               "d2c8c5594c5e5b6b287b33fdbd05a1fc8d3c8092ca573e94acd7b094a1807ab9",
-	"FULL/D/D4/SPLIT":                "f008793cdea3464a59c705ede8d5574b69689443c1ca686d01da0e8470765588",
-	"FULL/D/D4/UPDATE":               "8194de057254c68e0ef3e4f9a81f2c2452a307583b36343b114e73f2bb35fd31",
-	"FULL/D/D4/UPDATE_X":             "9bc2a8a31221953f3129f040ac7bb8c59bb2cacd748f0146c3831596ad35e9df",
-	"FULL/S/D8/CLAIM":                "59daf6054433fd206aa7cbe2872808d017b07304b6ae048047470d6dcfd25f3b",
-	"FULL/S/D8/CLAIM drain":          "9db1d5750faefa886844ab879032f5d4a9037fda980e223e6b895c30d2a74cbf",
-	"FULL/S/D8/CLAIM topped":         "709c9bbffa93de38377d4fc6e43a86b502e83d662cf6a2ed4eb455451aa211d3",
-	"FULL/S/D8/CLAIM_H":              "dee14223f07fabc024bebe77e05c5794d6a4cb75e29c662e7ffa15c6d46fe902",
-	"FULL/S/D8/EXIT_1 evict":         "28e0e5725b8dfaf182a4ebcdc1efb96de99801048f13b715bc94fae2f2482052",
-	"FULL/S/D8/EXIT_1 exact":         "37a44e8f642311f6e6cb3331b97c7d4098a6dae01c5ab20b5f90f742d4884442",
-	"FULL/S/D8/EXIT_1 owner":         "9b4d5807e8a325f5175fad05cd2e33a68c35b386467ff0053cccfba179e42dc6",
-	"FULL/S/D8/EXIT_1 terminal":      "74c36ce4ca9ae567c5e4dfc5202323172f1f4a35391a7c29fcc508ff77310eb4",
-	"FULL/S/D8/EXIT_1 tower":         "3e23b5ae04c0de4db69d4cd7b52a31a8757cd2afd26eb88f4459932b3149c713",
-	"FULL/S/D8/EXIT_1 tower topped":  "65b5651a36aeef03bb3e69c3ca0c00d060eee5a094cb37570bb108063c621388",
-	"FULL/S/D8/EXIT_2 owner+evict":   "5ca26b64ae4f8d7ae0434cbaf6f06f712629ce61fc5a5f38b21527974a72329a",
-	"FULL/S/D8/JOINK_2":              "9c99fb0c949c831f4bc14a0c26bc271305657c618c948de1baecfdb501380775",
-	"FULL/S/D8/JOIN_0":               "8e9c8af405ef06dc1e570307fbfb6356027d7b0636fbb0eee8587f1949a1023a",
-	"FULL/S/D8/SPLIT":                "72f921b9c1710689428fdac28dc327a89bc765aeca90d6db7092e70ca54a9de4",
-	"FULL/S/D8/UPDATE":               "7f8f26573e33ea17ceaf2e30965f6607b4abde08f44653bd2ebdb98402967c78",
-	"FULL/S/D8/UPDATE_X":             "2acbdf41d4d0bc785d8945983f400d13d493535e28613db4e39354995c833078",
 }
 
 // dumpCase is one case as LAYERTREE_TXN_DUMP writes it.
@@ -1225,6 +1370,83 @@ func TestBuilderRejects(t *testing.T) {
 			w.st.Tree.Leaves[6] = w.mkLeaf("stubborn", 5_000, nil, 0)
 			_, _, err := BuildEvictSubtree(w.st, 2, 1,
 				&TxOpts{LockTime: 800_000, Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// 7.9 rule 6: the join into position 7 must be funded.
+		name:     "rewrite with an unfunded join",
+		variants: []string{"REWRITE_2"},
+		build: func(w *world) error {
+			after, _ := w.rewritePlan()
+			_, _, err := BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(1)})
+			return err
+		},
+	}, {
+		// 10.7: the covenant grafts whatever the operator signs, so the
+		// builder holds the 5.2 line for a joined leaf.
+		name:     "rewrite grafting a leaf that fails 5.2",
+		variants: []string{"REWRITE_2"},
+		build: func(w *world) error {
+			after, _ := w.rewritePlan()
+			after[3].Amount = 0
+			_, _, err := BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(50_000)})
+			return err
+		},
+	}, {
+		name:     "rewrite of a position outside the subtree",
+		variants: []string{"REWRITE_2"},
+		build: func(w *world) error {
+			after, _ := w.rewritePlan()
+			after[4] = after[3]
+			_, _, err := BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(50_000)})
+			return err
+		},
+	}, {
+		name:     "rewrite that changes nothing",
+		variants: []string{"REWRITE_2"},
+		build: func(w *world) error {
+			w.cohort(2, 1, false)
+			after := make(map[uint64]*tree.Leaf)
+			for off := uint64(0); off < 4; off++ {
+				after[off] = w.st.Tree.Leaves[4+off]
+			}
+			_, _, err := BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// 7.9 rule 7: beside UPDATE^x the cohort form is REWRITE_h^x.
+		name: "plain rewrite in a tree with UPDATE^x",
+		build: func(w *world) error {
+			opts := suiteOptions(xonly(w.op), suiteTreeID(), false)
+			opts.UpdateX, opts.RewriteHeights = true, []int{2}
+			st, err := NewTreeState(tree.New(4), opts, prevOutPoint(0))
+			if err != nil {
+				return nil
+			}
+			w.st = st
+			after, _ := w.rewritePlan()
+			_, _, err = BuildRewrite(w.st, 2, 1, after, false,
+				&TxOpts{Inputs: w.fee(50_000)})
+			return err
+		},
+	}, {
+		name:     "detach of an empty subtree",
+		variants: []string{"DETACH_2"},
+		build: func(w *world) error {
+			w.base()
+			_, _, _, err := BuildDetach(w.st, 2, 2, &TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		name:     "detach of the whole tree",
+		variants: []string{"DETACH_2"},
+		build: func(w *world) error {
+			w.base()
+			_, _, _, err := BuildDetach(w.st, 4, 0, &TxOpts{Inputs: w.fee(5_000)})
 			return err
 		},
 	}, {
