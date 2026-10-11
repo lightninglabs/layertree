@@ -879,8 +879,13 @@ def test_evict_subtree(depth, height, verbose=True, full=False):
         # BIP-342 caps stack plus altstack at 1,000 elements after every
         # opcode; the witness is the body, sig r m, and the prologue pushes
         # three more before anything is consumed (spec 4.5).
-        expect_fail(lambda: run(outputs),
-                    f"mid: {name} with {len(cohort)} of {n} positions occupied exceeds 1,000 stack elements")
+        # The rejection must come from the stack size limit itself.
+        try:
+            run(outputs)
+            check(False, f"mid: {name} with {len(cohort)} of {n} positions occupied ran past the 1,000-element stack limit")
+        except ScriptError as e:
+            check("stack size limit" in str(e),
+                  f"mid: {name} with {len(cohort)} of {n} positions occupied is rejected by the stack size limit: {str(e)[:60]}")
         if verbose:
             print(f"MID EVICT_SUBTREE_{height} D={depth}: {len(cohort)} of {n} positions, script {len(script)} B, "
                   f"witness over the 1,000-element limit (rejected)")
@@ -1003,8 +1008,14 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True, scenario="mixe
     # the pre-pass peaks four above the witness (NONNEG's two copies over the
     # picked amount while idx, L and Z are parked), see spec 4.5.
     if len(wit) + 4 > 1000:
-        expect_fail(lambda: w.run(name, wit, ctx),
-                    f"mid: {name} ({scenario}) with {len(wit)} witness elements exceeds 1,000 stack elements")
+        # The rejection must come from the stack size limit itself, so that
+        # a generator bug on this shape cannot pass as "over the limit".
+        try:
+            w.run(name, wit, ctx)
+            check(False, f"mid: {name} ({scenario}) with {len(wit)} witness elements ran past the 1,000-element stack limit")
+        except ScriptError as e:
+            check("stack size limit" in str(e),
+                  f"mid: {name} ({scenario}) with {len(wit)} witness elements is rejected by the stack size limit: {str(e)[:60]}")
         if verbose:
             print(f"MID {name} D={depth} ({scenario}): {n} positions, script {len(c['script'])} B, "
                   f"witness {len(wit)} elements, over the 1,000-element limit (rejected)")

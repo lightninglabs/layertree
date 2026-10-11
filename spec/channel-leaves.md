@@ -432,7 +432,10 @@ value is RECOMMENDED. A balance or HTLC below `DUST_CHAN` MUST be omitted
 from `settle_n` and its value added to the anchor output, which therefore
 carries the sum of the trimmed amounts and is the 0-value ephemeral output
 only when nothing is trimmed. Trimming is decided when the state is signed,
-since the output set is committed. BOLT-3 trims into fees, which a zero-fee
+since the output set is committed: the `StateProposal` of C.12 carries the
+post-trim settlement outputs (a zero balance is an omitted output), not
+ledger balances, so the proposer trims before sending and the receiver's
+`Validate` checks the floor without trimming. BOLT-3 trims into fees, which a zero-fee
 transaction cannot do: the settlement's fee is its anchor child's (C.5.5),
 and a transaction with a 0-value anchor is relayed only if it pays no fee
 and carries no other dust output. A sub-dust balance beside the anchor,

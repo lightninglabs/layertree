@@ -209,8 +209,10 @@ design does not.
 3. **BIP-441 (tapleaf version 0xC2)**: restored `OP_CAT`, `OP_SUBSTR`,
    `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT`; arbitrary-length unsigned
    integers; 4,000,000-byte stack elements; the modified success rule (a
-   single non-zero element). All LayerTree scripts are tapleaf version
-   `0xC2`.
+   single non-zero element). `x n OP_RIGHT` pushes the last `n` bytes of
+   `x`, as in the Satoshi client and the simulator; the `SEQ_FINAL` check
+   of `REWRITE_STEP` (8.9) depends on that reading. All LayerTree scripts
+   are tapleaf version `0xC2`.
 4. **`OP_TX`** as in the draft BIP (`rustyrussell/bips`, branch
    `guilt/varops`, `bip-unknown-optx.mediawiki`, version 0.1.0), redefining
    `OP_SUCCESS189` (0xbd). Only the selector bits enumerated in section 8.1
@@ -1030,7 +1032,13 @@ Rules:
      the exit's witness, can rebuild the exit against the next root. An
      owner who stays in the tree after an outbid exit MUST void the
      authorisation by changing the leaf: an `UPDATE`, or a `SPLIT` of the
-     whole balance to itself (9.4 describes the same move for a lease).
+     whole balance into a leaf that differs from the old one, with a
+     fresh `nonce` (9.4 describes the same move for a lease). A `SPLIT`
+     into a byte-identical leaf voids nothing: the source position
+     becomes `E_0`, so no `seq` advances, and the authorisation binds the
+     leaf bytes. A `SEQ_FINAL` leaf cannot `SPLIT` (7.5 rule 2) and
+     `UPDATE` needs the operator, so a channel-leaf owner's only
+     unilateral remedy is to exit.
      The harm a stale authorisation can do is bounded, since the exit
      pays `P2TR(leaf.exit_key)` in full: a forced exit of the owner's own
      funds at a time of the holder's choosing and at the holder's fee,
@@ -1473,8 +1481,9 @@ each of the `2^h` positions in position order an **old element** and a
 **new element**, each either the 116-byte leaf at that position or the
 empty string for `E_0`, and the new element MAY instead be the one-byte
 **unchanged marker**, which stands for the old element of the same
-position (`0x01`; `0x02` in the MID tier, where `0x01` is a slot's
-presence flag, 8.9); for every position rule 3 names, `sig_i`; and
+position (any one-byte element in FULL, `0x01` by convention, since the
+script tests the element's size; exactly `0x02` in the MID tier, where
+`0x01` is a slot's presence flag, 8.9); for every position rule 3 names, `sig_i`; and
 `sig_op`, `r`, `m`. Signatures appear only where rules 3 and 7 require
 them, so an unchanged position costs its old element, the marker and
 nothing else. The marker is defined for the new element only: an old
@@ -2166,8 +2175,10 @@ section 11.
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  block_{2^h−1} … block_0  sig_op
 r  m`, with `block_i = [xsig_i] [sig_i] new_i old_i` (`old_0` on top;
-each element is 116 bytes or empty, and `new_i` may be the one-byte
-marker `0x01` for "`old_i`"; `sig_i` only where 7.9 rule 3 requires it,
+each element is 116 bytes or empty, and `new_i` may be a one-byte element,
+the unchanged marker for "`old_i`" (`0x01` by convention; the step tests
+only `OP_SIZE OP_1 OP_EQUAL`, so any one-byte value serves, 7.9); `sig_i`
+only where 7.9 rule 3 requires it,
 `xsig_i` only under `^x` and only where `sig_i` is present).
 
 ```

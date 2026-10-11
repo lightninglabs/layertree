@@ -332,10 +332,14 @@ func decodeHtlcs(b []byte) ([]Htlc, error) {
 
 // StateProposal proposes state n: the balances and in-flight HTLCs that
 // settle_n will pay out (C.3.4). Both parties then run the signing rounds
-// of C.3.6 over it. The balances are settlement outputs, so a zero
-// balance is an omitted output and a nonzero one is never below the
-// channel's DustChan; whatever the outputs leave of the capacity is the
-// anchor's value, which carries the trimmed amounts (C.3.4).
+// of C.3.6 over it. The wire message carries post-trim settlement outputs,
+// not ledger balances: the proposer applies the dust floor before sending
+// (the reference settle_outputs of tools/layertree_chan.py takes ledger
+// balances and trims a sub-dust one into the anchor), so a zero balance
+// here is an omitted output, a nonzero one is never below the channel's
+// DustChan, and whatever the outputs leave of the capacity is the anchor's
+// value, which carries the trimmed amounts. Validate checks that shape and
+// trims nothing itself.
 type StateProposal struct {
 	ChanID   [32]byte
 	StateNum uint32
