@@ -14,8 +14,10 @@
 %    costs and prior work, and says in one short section what is proved.
 %    It carries no ideal functionality, simulator, Lean listings or proof
 %    appendices; its appendices hold the assumption and size tables
-%    (appendix-short.tex) and the cost comparison against bare UTXOs,
-%    Lightning, Ark and transaction trees (appendix-compare.tex).
+%    (appendix-short.tex), the cost comparison against bare UTXOs,
+%    Lightning, Ark and transaction trees (appendix-compare.tex), and the
+%    implementer's notes: tree creation, per-party state and reorgs, the
+%    receive sequence, fee reserves, mempool and leases (appendix-impl.tex).
 %  - main-full.pdf, the full version (\fullversiontrue), for academics and
 %    agents: functionality first (the ideal functionality, the abstract
 %    protocol and its covenant predicates, the tiers, the UC theorem with
@@ -192,8 +194,8 @@ too. We describe each operation in the order a member meets it,
 who authorises it and what it costs, and the voucher system: a signature
 over a source leaf and a new leaf that anyone can redeem once, which an
 issuer re-signs for a running total, so repeated payments to one
-recipient, including payments received over Lightning, cost nothing
-on-chain and never expire. The design compiles to four tiers of proposed
+recipient, including payments received over Lightning into a funded
+credit leaf (FULL tier), cost nothing on-chain per payment. The design compiles to four tiers of proposed
 opcodes, the smallest needing \op{CAT} and one point-tweak opcode;
 channels live in leaves; the tree rules are mechanised in Lean~4, and a
 simulator, a byte-exact Go implementation and 3{,}019 executable checks
@@ -272,14 +274,11 @@ This paper explains the design for those who would build on it: the
 tree (\S\ref{sec:howitworks}), every operation in the order a member
 meets it (\S\ref{sec:ops}), vouchers, which pay a member or receive from
 Lightning with no one's participation at redemption
-(\S\ref{sec:vouchers}), and who can do what (\S\ref{sec:trust}). The
-operations compile to four tiers (\S\ref{sec:scripts}), from restored
-string opcodes~\cite{bip440,bip441}, introspection~\cite{optx}, stack
-signature checks~\cite{bip348} and elliptic-curve
-arithmetic~\cite{ecops,bip449} down to \op{CAT} and one point-tweak
-opcode, plus one on \op{CHECKCONTRACTVERIFY}~\cite{bip443}. We propose
-no opcode, but three tiers assume opcodes in a tapleaf version their
-proposals do not define.\ifanon\else{} The elliptic-curve
+(\S\ref{sec:vouchers}), who can do what (\S\ref{sec:trust}), and, in
+Appendix~\ref{app:impl}, what an implementer stores and pays for. The
+operations compile to four tiers of proposed opcodes
+(\S\ref{sec:scripts}); we propose none, but three tiers assume opcodes
+in a tapleaf version their proposals do not define.\ifanon\else{} The elliptic-curve
 draft~\cite{ecops} is by the author.\fi{} The ideal functionality, its
 UC proof and the Lean development are in the full version
 (\S\ref{sec:proved}).
@@ -371,7 +370,7 @@ a fee coin the caller names and posts it.
 \textbf{On} $\iface{EVICT}(p, f)$ \textbf{from} $\mathcal{P}$: as \iface{EXIT} with $\mathit{pk}_{\mathrm{ev}}$ in place of $\mathit{pk}_{\mathrm{own}}$, $\Gclock \ge h_{\mathrm{ev}}$, and $v = a$.\par
 \textbf{On} $\iface{UPDATE}(p, \ell')$ \textbf{from} the owner of $T[p] = \ell$ and the operator jointly (and the holder of $\ell.\mathit{pk}_{\mathrm{exit}}$ in variant \tr{UPDATE}$^{x}$): set $T[p] := \ell'$; require $\ell'.a - \ell.a$ coins deposited if positive, else pay the difference to the callers.\par
 \textbf{On} $\iface{VOUCH}(p, \ell_c)$ \textbf{from} the owner of $T[p] = \ell$: require $\ell_c.a \le \ell.a$, $\ell_c.\mathit{pk}_{\mathrm{ev}} = \ell.\mathit{pk}_{\mathrm{ev}}$ and $\ell_c.h_{\mathrm{ev}} \le \ell.h_{\mathrm{ev}}$; add $(p, \ell, \ell_c)$ to $V$ and return it to the caller.\par
-\textbf{On} $\iface{CLAIM}(p, \ell_c, q)$ \textbf{from} any party holding $(p, \ell, \ell_c) \in V$ with $T[p] = \ell$: set $T[p] :=$ empty if $\ell_c.a = a$, else $\ell$ with amount $a - \ell_c.a$ and $\mathit{seq}+1$; then require $T[q]$ empty and set $T[q] := \ell_c$. (\tr{SPLIT} is \iface{VOUCH} and \iface{CLAIM} by the owner at once.)\par
+\textbf{On} $\iface{CLAIM}(p, \ell_c, q)$ \textbf{from} any party holding $(p, \ell, \ell_c) \in V$ with $T[p]$ equal to $\ell$ in every field but $a$ and $\ell_c.a \le T[p].a$: set $T[p] :=$ empty if $\ell_c.a = T[p].a$, else $T[p]$ with amount $T[p].a - \ell_c.a$ and $\mathit{seq}+1$; then require $T[q]$ empty and set $T[q] := \ell_c$. (\tr{SPLIT} is \iface{VOUCH} and \iface{CLAIM} by the owner at once.)\par
 \textbf{On} $\iface{SWEEP}(p, h)$ \textbf{from} $\mathcal{P}$: require every leaf below node $p$ (height $h$) known and naming $\mathcal{P}$ as evictor with $\Gclock \ge h_{\mathrm{ev}}$; set the subtree empty; pay each leaf's $a$ to its $\mathit{pk}_{\mathrm{exit}}$.\par
 \textbf{On} $\iface{READ}$ \textbf{from} any party: return $T$ and $A$.
 }}
@@ -410,10 +409,12 @@ adversary's fee budget against the honest bid; unbounded, it makes exit
 a fee auction. Under [C] an honest call with $q$ honest calls queued
 ahead takes effect within
 $\lat(q) = \lat_L(\lceil (\beta + q)/\kappa \rceil + 1)$ rounds, $\lat_L$
-being the ledger's liveness parameter. Cooperatively ($\beta = 0$,
-$\kappa = 25$, $\lat_L = 1$ block) a tree drains 25 exits per block, so
-10{,}000 channel leaves closing at once take 400 blocks: trees are sized
-by exit throughput, not depth.
+being the ledger's liveness parameter. We use $\kappa = 25$, since a
+deployment assumes the lowest limit its relay peers enforce (spec 10.5).
+Cooperatively ($\beta = 0$, $\lat_L = 1$ block) a tree then drains 25
+exits per block, or 64 once peers run cluster mempool, so 10{,}000
+channel leaves closing at once take 400 blocks (157 at 64): trees are
+sized by exit throughput, not depth.
 
 % The functionality section above is the full version's alone.
 \fi
@@ -485,8 +486,8 @@ $h = 8$, 256 members) for a constant script cost, but cannot look inside
 the grafted node: this is where opaque nodes come from.
 \tr{EVICT\_SUBTREE}$_h$ is a shape-specialised multiproof, one path to the
 subtree and its $2^h$ leaves hashed once. \iface{VOUCH} is an off-chain
-signature by the source leaf's owner over the source leaf, the claim leaf
-and the tree's lineage identifier $\mathsf{tree\_id}$ (fixed at creation
+signature by the source leaf's owner over the source leaf without its
+amount (spec 0.13.0), the claim leaf and the tree's lineage identifier $\mathsf{tree\_id}$ (fixed at creation
 and inherited by detached cohorts, so a voucher verifies in no other
 tree), and every carve gives the claim leaf the source's evictor key and
 a lease no later than the source's, so moving a balance cannot escape
@@ -511,8 +512,8 @@ Figure~\ref{fig:exit} with a fee input. Its signature commits to the tree
 outpoint, which every transition changes, so a plain exit cannot be
 pre-signed or delegated: the owner key must be online to rebuild it after
 a competing spend and to bump its fee. The tower variant \tr{EXIT}$_K^{t}$
-(FULL, MID, CCV) replaces that signature by one over the leaf and the
-tree's identifier, checked from the stack, so a tower holding it builds,
+(FULL, MID, CCV) replaces that signature by one over the leaf without
+its amount and the tree's identifier, checked from the stack, so a tower holding it builds,
 fees and rebuilds the exit while the owner is offline. Transitions are final at the
 member's confirmation depth. The operator keeps the full tree, assigns
 slots, signs joins and updates, and evicts or sweeps expired leaves.
@@ -769,7 +770,8 @@ signed without committing to it (\op{TX} collates the signed fields
 behind a per-channel context, and CSFS checks the signature over the
 hash, emulating \texttt{SIGHASH\_ANYPREVOUT}~\cite{bip118}), and the
 channel uses the eltoo ratchet~\cite{eltoo,lnsymmetry} with zero-fee
-version-3 transactions and an ephemeral anchor~\cite{bip431}. This needs
+version-3 transactions~\cite{bip431} and an ephemeral
+anchor~\cite{ephemeralanchor}. This needs
 \op{TX} and CSFS: FULL, MID, or CCV with the channel scripts in their own
 outputs.
 \else
@@ -780,8 +782,8 @@ such leaves is a Lightning hub behind one UTXO. That outpoint changes
 with every tree transition, so states are signed without committing to
 it (\op{TX} collates the signed fields and CSFS checks the signature,
 emulating \texttt{SIGHASH\_ANYPREVOUT}~\cite{bip118}), with the eltoo
-ratchet~\cite{eltoo,lnsymmetry}, zero-fee version-3 transactions and an
-ephemeral anchor~\cite{bip431}. This needs FULL, MID or CCV.
+ratchet~\cite{eltoo,lnsymmetry}, zero-fee version-3
+transactions~\cite{bip431} and an ephemeral anchor~\cite{ephemeralanchor}. This needs FULL, MID or CCV.
 \fi
 
 \input{body-channel-budget}
@@ -845,16 +847,22 @@ margin, but are not proved.
 \section{Conclusion}
 \fi
 
+\iffullversion
 LayerTree specifies a shared output by what it lets members do (join,
 leave alone, be evicted after a lease, be swept as a cohort) and realises
 it with a tree kept off-chain as data: a one-transaction exit of about a
 kilobyte, no pre-signing, no expiry of the shared output, from proposed
 opcodes; its price is that all activity funnels through one UTXO.
-\iffullversion Future work: a verified compiler, a proof of
+Future work: a verified compiler, a proof of
 Conjecture~\ref{thm:chan}, mechanising Lemma~\ref{lem:path}, and a P
-model~\cite{plang}.\else Vouchers pay members off-chain against that
-output. Future work: a verified compiler, a proof that channel leaves
-compose, and a P model~\cite{plang}.\fi
+model~\cite{plang}.
+\else
+LayerTree gives a shared output a one-transaction exit of about a
+kilobyte, with no pre-signing and no expiry, and vouchers pay its
+members off-chain; the price is one UTXO for all activity. Future work:
+a Liquid prototype of MID~\cite{elements}, a verified compiler, a proof
+that channel leaves compose, and a P model~\cite{plang}.
+\fi
 
 \bibliographystyle{splncs04}
 % Let long URLs in the references break after a hyphen; scoped to the
@@ -874,6 +882,7 @@ compose, and a P model~\cite{plang}.\fi
 \else
 \input{appendix-short}
 \input{appendix-compare}
+\input{appendix-impl}
 \fi
 
 \end{document}

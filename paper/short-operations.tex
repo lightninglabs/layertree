@@ -7,8 +7,9 @@
 
 Every operation is one spend of the tree output through one tapleaf.
 The tree output is input~0, and output~0 recreates it under the new root
-and total. Payouts are outputs $1, \dots, K$, each paying exactly a
-removed leaf's amount to its exit key; every other input and output is
+and total. Payouts are outputs $1, \dots, K$, each paying a removed leaf's
+amount to $\mathrm{P2TR}(\mathsf{exit\_key})$ (exactly, but for FULL's
+fee-from-payout exit, \S\ref{sec:leaving}); every other input and output is
 free, for fees, change and anchors. The witness proves each changed
 position with a \emph{step}: the old node folded up its sibling path
 must give the committed $(r, S)$, and the new node folded up the same
@@ -27,7 +28,8 @@ subtree's root and sum. \emph{On chain} the tree output grows by the
 subtree's sum, which other inputs must supply. The covenant sees a hash
 and a sum, not the leaves, and walks only the $D - h$ levels above the
 slot, so a larger cohort is a smaller transaction: $937\vB$ for one
-leaf, $872\vB$ for four ($218$ each), $679\vB$ for 256 ($2.7$ each). A taptree carries one \tr{JOIN}$_h$
+leaf, $872\vB$ for four ($218$ each), and an estimated $679\vB$ for 256
+($2.7$ each). A taptree carries one \tr{JOIN}$_h$
 leaf per height it supports.
 
 Because the covenant cannot look inside the graft, each joiner checks
@@ -42,10 +44,8 @@ after checking its path against the confirmed root, or through a
 hash-locked voucher (\S\ref{sec:hashlock}).
 
 \paragraph{\tr{JOINK}$_K$: batched single joins.} $K$ single-leaf joins
-in sequence under one operator signature. It is the batching primitive of
-the sparse profile, where a leaf's position is derived from its key and
-cannot be grafted as part of a subtree, and costs $1{,}494\vB$ for two
-in the dense profile.
+under one operator signature, the batching primitive of the sparse
+profile, which cannot graft; $1{,}494\vB$ for two.
 
 \subsection{Moving Value}
 
@@ -79,10 +79,9 @@ position under the intermediate root, which receives the new leaf.
 leaf keeps the source's evictor key and a lease no later than the
 source's, and neither it nor a non-zero residual may be below
 $\mathsf{DUST\_MIN}$ (both rules are shared with \tr{CLAIM},
-\S\ref{sec:voucher-def}). $1{,}586\vB$. \tr{SPLIT} is the right shape
-when the payer is the one broadcasting and paying the fee; it leaves no
-outstanding promise behind, and it is the one member-to-member transfer
-the MIN tier supports. Its deferred counterpart, a voucher redeemed by
+\S\ref{sec:voucher-def}). $1{,}586\vB$. \tr{SPLIT} suits a payer that broadcasts and pays the fee itself, leaves
+no outstanding promise, and is the one member-to-member transfer MIN
+supports. Its deferred counterpart, a voucher redeemed by
 \tr{CLAIM}, is the subject of \S\ref{sec:vouchers}.
 
 \subsection{Settling a Cohort}
@@ -99,17 +98,16 @@ within a cohort needs only the payer's, and a leaf nobody signs for passes
 through unchanged. \emph{Proves} the old
 subtree, every leaf of it published, against the root, and computes the
 new one. \emph{On chain} each emptied leaf is paid exactly its amount at
-its exit key, so the operator cannot use the rewrite to remove a leaf
-without its owner's signature and its payout. At $h = 6$ a mass exit
+its exit key. At $h = 6$ a mass exit
 costs $162\vB$ per leaf, about what a sweep costs the operator, and
 rewriting every balance $148\vB$ per leaf against $1{,}030\vB$ for an
 \tr{UPDATE} each; a position whose leaf does not change is published
 once, behind a one-byte marker, for about $92\vB$. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
 ($16\vB$ per signed position) and replaces \tr{REWRITE}$_h$ wherever
-\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. FULL and MID, where the
-stack limit holds a full cohort to $h = 5$.
+\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. It exists in FULL and
+MID, whose stack limit holds a full cohort only to $h = 5$.
 
-\subsection{Leaving}
+\subsection{Leaving}\label{sec:leaving}
 
 \paragraph{\tr{EXIT}$_K$: unilateral exit.} Removes one leaf, or $K$
 leaves in one transaction, and pays each out
@@ -127,12 +125,16 @@ one exit, and $665\vB$ more for a second in the same transaction
 tree outpoint, which every operation changes, so a plain exit cannot be
 pre-signed: the owner must be online to rebuild it after a competing
 spend. The tower variant \tr{EXIT}$_K^{t}$ (FULL, MID and CCV, exact
-payout) replaces that signature by one over the leaf and the tree's
-identifier, checked from the stack with \op{CHECKSIGFROMSTACK}; whoever
-holds it builds the exit with its own fee input and rebuilds it after a
-competing spend, so an owner signs once in advance and a tower does the
-rest. The authorisation is a bearer right until the leaf changes, so an
-owner who stays voids it by changing the leaf. $107$ bytes of script over
+payout) replaces that signature by one over the leaf without its
+amount and the tree's identifier, checked from the stack with
+\op{CHECKSIGFROMSTACK}; whoever holds it builds the exit with its own fee
+input and rebuilds it after a competing spend, so an owner signs once in
+advance and a tower does the rest. The authorisation is a bearer right
+until a field other than the amount changes (a top-up leaves it valid),
+so an owner who stays voids it by changing the leaf. Rejoining any tree
+of the lineage with an owner key, nonce and $\mathsf{seq}$ held before
+would revive every authorisation published for that leaf, so a wallet
+draws a fresh nonce at every join (spec 9.2). $107$ bytes of script over
 the exact exit. Owners first ask for a cooperative exit, which the
 operator can batch, and a held authorisation makes that one message.
 
@@ -159,7 +161,10 @@ One leaf with a later lease holds up its cohort's sweep until that lease
 passes, and one with another evictor blocks it, so operators admit only
 leaves that name the operator as evictor into a cohort, align leases per
 cohort, and renew a member by moving it to a cohort with the new lease
-(an \tr{UPDATE} followed by a \tr{SPLIT} of the whole balance).
+(an \tr{UPDATE} and a \tr{SPLIT} of the whole balance, $2{,}616\vB$),
+or renews a whole cohort in place by one \tr{REWRITE}$_6$ that every
+renewing member signs ($148\vB$ each; a member who does not sign keeps
+the old lease).
 
 \subsection{Scaling Out}
 

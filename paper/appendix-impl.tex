@@ -1,0 +1,222 @@
+% Short version only: what an implementer needs that the body leaves out
+% (paper/reviews/developer.md findings 3, 4 and 8 and its closing list).
+% Sources: spec/layertree.md 6.2, 6.5, 9.1 to 9.7, 10.3, 10.5, 10.9,
+% 10.11 and 11.2 (0.12.x; the voucher message follows the 0.13.0 rule
+% that the source leaf is bound without its amount), spec/channel-leaves.md
+% C.4.4, C.5.2, C.5.5 and C.9.3, design/receive.md, msg/ and txn/.
+% Sizes at D = 16 dense, FULL, on the model of the evaluation section.
+\section{Implementer's Notes}\label{app:impl}
+
+The body says what each operation does and who signs it. This appendix
+collects what a wallet, a tower or an operator also has to get right:
+how a tree is created and recognised, what each party stores and rolls
+back, the Lightning receive as a message sequence, the fee reserve every
+unilateral path needs, mempool behaviour, leases and channel leaves.
+Section~\ref{sec:ops} serves as the per-operation card (who authorises,
+what the witness proves, what the outputs must be); the witness order of
+each tapleaf is in spec~8, the builders and signers are in the Go
+package \path{txn/} (\texttt{BuildExit}, \texttt{BuildJoin},
+\texttt{BuildClaim}, \texttt{SignVoucher}, \texttt{SignExitAuth} and the
+rest), and what a co-signer verifies before signing is spec~9.2 step~3
+for joins, 9.5 for updates and 9.6 for vouchers.
+
+\subsection{Creating and Recognising a Tree}\label{app:impl-create}
+
+The operator fixes the tree's parameters: the profile, the depth $D$,
+the operator key, the dust floor $\mathsf{DUST\_MIN}$, the supported
+\tr{JOIN}$_h$ heights and \tr{EXIT}$_K$ sizes, the variants (the
+exact-payout and tower exits, \tr{UPDATE}$^{x}$, \tr{CLAIM}$^{x}$,
+\tr{REWRITE}$_h$ or \tr{REWRITE}$_h^{x}$, \tr{DETACH}$_h$) and
+$\mathsf{tree\_id}$. It compiles the taptree from them and publishes the
+parameters with its root $m$ (spec 6.2, 9.1). The recommended
+$\mathsf{tree\_id}$ is a tagged hash of the outpoint spent by input~0 of
+the creation transaction, which is known before that transaction is
+built and can be spent only once, so it is unique per lineage; a chosen
+constant is not, and the tree output's own outpoint cannot serve, since
+$m$ depends on $\mathsf{tree\_id}$. The creator therefore fixes input~0
+before compiling the scripts. A zero-value output is invalid, so the
+operator seeds the tree with a leaf of its own, or with initial leaves
+whose owners have checked their inclusion before funding (spec 6.5).
+
+Before treating an output as a LayerTree, a member, a voucher holder and
+a tower each recompute $m$ from the published parameters and check
+$\TreeSpk(r, m)$ against the output for the root $r$ they hold a path
+under. The scripts are visible only through $m$, so an operator that
+adds one tapleaf of its own (say, ``the operator key spends the
+output'') produces an output indistinguishable on-chain from an honest
+one; the recomputation, and rejecting any taptree with a leaf outside
+the expected set, is the check that custody rests on. A credit-leaf
+recipient also confirms that no plain \tr{REWRITE}$_h$ is present, and a
+voucher holder that the voucher's $\mathsf{tree\_id}$ is the one the
+\tr{CLAIM} scripts carry.
+
+\subsection{State, Backups and Reorganisations}\label{app:impl-state}
+
+Table~\ref{tab:impl-state} lists what each party keeps. Every
+transition's witness publishes the paths it used, so a party holding a
+path for root $r_k$ derives its path for $r_{k+1}$ from the witness of
+that spend alone (spec 9.7); a light client finds the spend with BIP-158
+filters, which match the spent output's scriptPubKey. The one piece of
+data that is not on-chain is a grafted member's path inside its subtree,
+which the operator sends at the join and which a member who loses it can
+recover only from the operator or a cohort peer, so it is the backup
+that matters (spec 10.9).
+
+\begin{table}[htbp]
+\centering
+\caption{What each party stores. ``Derives'' is what it updates from each spend of the tree output; on a reorganisation every row is rolled back to the surviving $(\mathsf{txid}, r)$.}
+\label{tab:impl-state}
+\setlength{\tabcolsep}{3pt}\scriptsize
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\begin{tabular}{@{}L{1.5cm}L{4.2cm}L{2.7cm}L{3.0cm}@{}}
+\toprule
+party & stores & must back up & derives from each spend \\
+\midrule
+Member & its leaf and path; $r$, $m$, $\mathsf{tree\_id}$ and the published parameters; the txids of its join and of the latest spend & the leaf, and its path inside a grafted subtree & its new path, from the witness \\
+Voucher holder & the latest voucher, $\ell_{\mathrm{src}}$ and $\ell_{\mathrm{claim}}$; the source's path; a full-balance voucher or an empty position's path; the source's evictor and lease & the voucher and both leaves & the source's path and $\mathsf{seq}$; whether the lease still outlasts a redemption \\
+Tower & the \tr{EXIT}$^{t}$ authorisation, the leaf, its path and $m$; a funded fee coin; for a channel leaf, $(\mathsf{update}_n, \mathsf{settle}_n)$ with their signatures (spec C.9.3) & the authorisation and the latest state & the leaf's path; whether a bound field of the leaf changed \\
+Operator & the whole tree: every leaf and path, cohort leases, the vouchers it issued as liabilities & the whole tree & every node; which leases have passed \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A holder who is not a member has no join-time path to start from: it
+follows the tree from creation or asks the operator for the source's
+path and checks it against the confirmed root. The operator may be the
+party it later falls back against; it can refuse the path but not
+falsify it, since a path either folds to the root or does not.
+
+\paragraph{Reorganisations.} Vouchers, paths and roots are keyed by
+$(\mathsf{txid}, r)$ and roll back with the chain (spec 10.11). A
+transition reorganised out is rebuilt against the surviving root and
+rebroadcast; a pending exit is rebuilt the same way after any competing
+spend. A \tr{JOIN} reorganised out leaves each funder's input its own.
+A reorganised \tr{CLAIM}$^{h}$ puts the swap back at the issuer's
+discretion, so the holder rebroadcasts it at once. A member paying
+off-chain for a grafted leaf waits for its usual confirmation depth
+before paying (spec 9.2).
+
+\paragraph{Messages.} Spec~9 leaves message encoding out of scope, but
+the Go implementation carries TLV codecs, on lnd's \texttt{tlv} package, for the
+join offer (\path{msg/join.go}), vouchers (\path{msg/voucher.go}),
+proofs (\path{msg/proof.go}) and every channel-leaf message
+(\path{msg/chan.go}: open, state proposals and signatures, HTLC add,
+fulfil and fail, rebind and splice).
+
+\subsection{Receiving over Lightning, Step by Step}\label{app:impl-receive}
+
+The flow of \S\ref{sec:receive-short}, in FULL, with what goes wrong at
+each step:
+(1)~\emph{Setup.} The operator grafts a credit leaf that it owns, with
+the recipient's key as exit key, the operator as evictor and a finite
+lease. The recipient checks $m$ (Appendix~\ref{app:impl-create}) and its
+path. If the operator never grafts it, nothing has been paid yet.
+(2)~\emph{Invoice.} The operator draws the preimage and issues the
+invoice, so the payer's receipt proves that the operator was paid. A
+recipient that wants the receipt to name it draws preimages and hands
+them over in advance, and can then be paid offline only that many times.
+(3)~\emph{HTLC.} The payer's HTLC reaches the operator, which settles it
+by revealing the preimage. If it fails, no voucher is issued and the
+recipient is owed nothing.
+(4)~\emph{Voucher.} Only then does the operator sign a cumulative voucher
+for the new running total and send it, store and forward if the
+recipient is offline. A provider that settles and never issues takes
+this one payment; that is the recipient's whole exposure.
+(5)~\emph{Top-up.} Before the running total exceeds the credit leaf's
+amount, the operator raises the amount by an amount-only
+\tr{REWRITE}$_h^{x}$, about $122\vB$ per credit leaf batched per cohort,
+or pre-funds the leaf. A top-up voids no voucher, since the message does
+not bind the amount (\S\ref{sec:voucher-def}). Pre-funded capital beyond
+what has been vouched for is the recipient's on every path the operator
+can take alone, and comes back only with the recipient's consent.
+(6)~\emph{Retirement.} The operator pays the recipient another way, for
+instance with a leaf of its own in the next graft, then advances the
+credit leaf's $\mathsf{seq}$ and lowers its amount by one
+\tr{UPDATE}$^{x}$ that the recipient co-signs, or one
+\tr{REWRITE}$_h^{x}$ for a cohort of credit leaves.
+(7)~\emph{Fallback.} If the operator stops cooperating, the recipient
+redeems its latest voucher with \tr{CLAIM}$^{x}$ and leaves with the
+exact exit, paying both fees from a confirmed coin of its own
+(Appendix~\ref{app:impl-fees}).
+
+\subsection{Fee Reserves and Break-Even Balances}\label{app:impl-fees}
+
+Only FULL's fee-from-payout exit can pay its fee out of tree value. A
+carve (\tr{CLAIM}, \tr{CLAIM}$^{h}$, \tr{CLAIM}$^{x}$, \tr{SPLIT})
+conserves the tree's total; the exact-payout exit, which a credit-leaf
+tree, every channel leaf and the MID, MIN and CCV tiers use, pays the
+whole amount; and a channel leaf's update and settlement are zero-fee
+and are bumped only by an anchor child (spec C.5.5). So a member, a
+voucher holder and each party to a channel leaf keep a confirmed fee
+coin as a condition of holding the position, and a channel-leaf party's
+reserve grows with the HTLC value it has in flight, since a counterparty
+can delay the settlement at about $313\vB$ a block. A user with no
+on-chain coin at all has no unilateral recourse except, in FULL, the
+fee-from-payout exit of an ordinary leaf. Table~\ref{tab:impl-fees}
+gives each path's fee at three feerates: a balance smaller than the fee
+is not worth recovering alone, and ten times the fee is the balance at
+which the path costs 10\% (spec 11.2).
+
+\begin{table}[htbp]
+\centering
+\caption{The fee of each unilateral path at $D = 16$, FULL, on the transaction model, against the balance it recovers.}
+\label{tab:impl-fees}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lcrrrr@{}}
+\toprule
+path & fee coin & vB & 2\,sat/vB & 10\,sat/vB & 50\,sat/vB \\
+\midrule
+\tr{EXIT}$_1$, fee from the payout & no & 921 & 1{,}842 & 9{,}210 & 46{,}050 \\
+\tr{EXIT}$_1$ or \tr{EXIT}$_1^{=}$, fee input & yes & 1{,}020 & 2{,}040 & 10{,}200 & 51{,}000 \\
+channel-leaf force close & yes & 1{,}681 & 3{,}362 & 16{,}810 & 84{,}050 \\
+\tr{CLAIM}$^{x}$ then \tr{EXIT}$_1^{=}$ & yes & 2{,}655 & 5{,}310 & 26{,}550 & 132{,}750 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Mempool Behaviour}\label{app:impl-mempool}
+
+An exit is bumped by replacement, which a plain exit's owner must
+re-sign and an \tr{EXIT}$^{t}$ holder rebuilds with its own fee input,
+or by a child spending its change or a pay-to-anchor output, which any
+transition may carry at an index past its payouts (spec 4.7). Version-3
+(TRUC) transactions are not an option for transitions: TRUC caps an
+unconfirmed chain at two, and the chain of spends of the tree output is
+the throughput (spec 10.5). When a competing transition confirms first,
+the pending one is invalid; the wallet updates its path from the winner's
+witness and rebuilds. A graft with several funders cannot be replaced
+without every funder signing again, so it carries an operator change
+output or an anchor and is bumped by a child (spec 9.2).
+
+\subsection{Leases}\label{app:impl-leases}
+
+A lease is what lets the operator sweep a cohort at $158\vB$ a leaf, and
+it has a recurring price. Leases are aligned per cohort, since one later
+lease holds up a sweep. A renewal moves a member into a cohort with the
+new lease, by an \tr{UPDATE} and a whole-balance \tr{SPLIT}
+($2{,}616\vB$), or renews a cohort in place with one \tr{REWRITE}$_6$
+at $148\vB$ per member, which needs every renewing member's signature;
+a member who does not sign keeps the old lease and is swept or moved
+when it passes. So a member pays between $148$ and $2{,}616\vB$ per lease
+period it stays, and the operator chooses the period. When a lease
+passes, the operator should warn the member and offer renewal (spec
+9.4); if it evicts instead, the member sees its whole balance arrive at
+its exit key, at the operator's fee.
+
+\subsection{Channel Leaves}\label{app:impl-chan}
+
+A channel leaf is a new channel type, not a BOLT channel: LN-Symmetry
+updates signed with \op{TX} and CSFS so that they rebind to whatever
+funding outpoint the exit creates. Its funding output does not exist
+until the leaf leaves the tree, so there is nothing to announce to the
+gossip network; the leaf is reached through its counterparty, normally
+the operator. Its tower holds $(\mathsf{update}_n, \mathsf{settle}_n)$,
+their signatures and a funded fee coin, and, in a tree with the tower
+exit, the leaf's \tr{EXIT}$^{t}$ authorisation, which lets it start a
+close as well as finish one (spec C.9.3). The deadline budget, with the
+counterparty's stale updates in $\beta_{\mathrm{chan}}$, is in
+\S\ref{sec:channels}. A splice is one \tr{UPDATE}$^{x}$ ($1{,}048\vB$)
+that replaces the leaf's amount and exit key, with no new funding output
+and no period in which two versions of the channel are live (spec
+C.5.2); it voids the tower's authorisation, so the owner hands over a
+fresh one with the first state of the new epoch.

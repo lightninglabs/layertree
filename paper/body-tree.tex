@@ -11,7 +11,10 @@ $x$. A leaf is a fixed 116-byte record
 \,\|\, \mathsf{le}_{32}(\mathsf{evict\_after})
 \,\|\, \mathsf{le}_{32}(\mathsf{nonce}) \,\|\, \mathsf{le}_{32}(\mathsf{seq}),
 \end{multline*}
-with keys as 32-byte x-only points, $\mathsf{evict\_after}$ a block
+with keys as 32-byte x-only points ($\mathrm{P2TR}(k)$ is the output
+script \texttt{OP\_1}~$\langle k \rangle$, so $\mathsf{exit\_key}$ is the
+payout's output key itself, and a single-key wallet supplies its tweaked
+BIP-86 output key), $\mathsf{evict\_after}$ a block
 height, $\mathsf{nonce}$ a per-leaf identifier and $\mathsf{seq}$ a
 counter advanced by vouchers (\iffullversion Appendix~\ref{app:claim}\else \S\ref{sec:vouchers}\fi). A \emph{node} is
 a pair $(h, s)$ of a 32-byte hash and an unsigned sum. A position holding
@@ -67,7 +70,10 @@ $\NUMS$ is the BIP-341 nothing-up-my-sleeve point and $\mathsf{lift\_x}$
 the BIP-340 even-$y$ normalisation, so the key path is unspendable and
 every spend goes through a script. Its taptree has one leaf per
 predicate; its Merkle root $m$ identifies the rule set and is fixed for
-the tree's life. A \emph{tree output} for state $(r, S)$ has scriptPubKey
+the tree's life. $\TreeSpk$ hides the scripts, so a member, a voucher
+holder or a tower recomputes $m$ from the published parameters before
+treating an output as a tree, rejecting any taptree with a leaf outside
+the expected set (spec 9.1\iffullversion\else, Appendix~\ref{app:impl}\fi). A \emph{tree output} for state $(r, S)$ has scriptPubKey
 $\TreeSpk(r, m)$ and amount $S$. Every predicate recomputes
 $\TreeSpk(r, m)$ from its witness and checks it against the spent input,
 binding the root the proofs are checked against and the script set the

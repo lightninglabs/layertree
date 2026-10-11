@@ -3,25 +3,47 @@
 % design/receive.md; sizes from spec/scripts/sizes.md on the model of the
 % evaluation section (no payout output for a carve or an update).
 
-\paragraph{The flow.} A user with no on-chain funds receives a Lightning
-payment into a credit leaf that the operator owns and that names the
-user's key as exit key. The payer's HTLC reaches the operator, which
-obtains the preimage and settles that inbound HTLC \emph{first}; only then
-does it sign the user a voucher for the new running total, a plain
-cumulative voucher against the credit leaf, redeemable under
-\tr{CLAIM}$^{x}$. Nothing reaches the chain, there is no minimum per
-payment beyond $\mathsf{DUST\_MIN}$ at redemption, nothing expires, and
-the recipient need not be online when it is paid. The order matters. A
+\iffullversion
+\paragraph{The flow.} A user receives a Lightning payment into a credit
+leaf that the operator owns and that names the user's key as exit key,
+in the FULL tier, the only one with \tr{CLAIM}$^{x}$. The operator issues
+the invoice and draws its preimage, so the payer's receipt proves that
+the operator was paid, not the user; a user who wants a receipt naming
+it hands the operator preimages in advance, and can then receive offline
+only as many payments as it has pre-shared. The payer's HTLC reaches the
+operator, which settles it \emph{first}; only then does it sign the user
+a voucher for the new running total, a plain cumulative voucher against
+the credit leaf. Nothing reaches the chain per payment and the user need
+not be online, but a voucher draws only what the credit leaf holds: the
+operator pre-funds it, with capital it recovers only with the user's
+consent, or tops it up as credit accrues, about $122\vB$ per credit leaf
+in a cohort \tr{REWRITE}$_h^{x}$~\cite{layertreerepo}, which voids no
+voucher. The order matters. A
 hash-locked voucher issued before the HTLC settles, with the preimage
 held by the recipient, breaks the rule that the party the HTLC pays draws
-the preimage (\iffullversion spec~9.6.2\else\S\ref{sec:hashlock}\fi),
+the preimage (spec~9.6.2),
 and on a credit leaf it cannot be repaired: if the
 HTLC then fails, retiring the voucher means advancing the credit leaf's
 $\mathsf{seq}$, which needs the recipient's exit key, so the voucher
-stays redeemable for a payment that never arrived. Settling first leaves
+stays redeemable for a payment that never arrived. \else
+\paragraph{The flow.} A user receives a Lightning payment into a credit
+leaf that the operator owns and that names the user's key as exit key
+(FULL only, for \tr{CLAIM}$^{x}$). The operator draws the preimage, so
+the payer's receipt proves that the operator was paid; the HTLC reaches
+the operator, which settles it \emph{first} and only then signs the user
+a cumulative voucher for the new running total. Nothing reaches the
+chain per payment, but a voucher draws only what the credit leaf holds,
+which the operator pre-funds, recovering any excess only with the user's
+consent, or tops up at about $122\vB$ a leaf in a cohort rewrite
+(Appendix~\ref{app:impl-receive}). A hash-locked voucher issued before
+the HTLC settled would break rule~(1) of \S\ref{sec:hashlock} and, if
+the HTLC failed, could never be retired, since advancing the credit
+leaf's $\mathsf{seq}$ needs the recipient's exit key. \fi
+Settling first leaves
 the recipient exposed for one payment, the one the operator has settled
 and not yet vouched for.
 
+\iffullversion
 \paragraph{Settlement.} Normally the voucher is never redeemed. The
 operator places a leaf of the recipient's own in its next cohort graft,
 at under $3\vB$ per member in a 256-member \tr{JOIN}$_8$, and retires the
@@ -31,7 +53,22 @@ amount by what it has paid out: one \tr{UPDATE}$^{x}$ per credit leaf
 \tr{REWRITE}$_h^{x}$ for a cohort of credit leaves, about $148\vB$ per
 changed leaf at $h = 6$ plus $16\vB$ for each exit-key signature. If the
 operator stops cooperating, the recipient redeems its latest voucher
-alone with one \tr{CLAIM}$^{x}$: $1{,}635\vB$ at $D = 16$, about
-16{,}350\,sat at 10\,sat/vB, with no timelock, against 1{,}311 to
-$2{,}511\vB$ and a relative timelock to unroll an Ark round tree of 256
-to 65{,}536 members (\S\ref{sec:eval}).
+alone with one \tr{CLAIM}$^{x}$: $1{,}635\vB$ at $D = 16$, with no
+timelock, against 1{,}311 to $2{,}511\vB$ and a relative timelock to
+unroll an Ark round tree of 256 to 65{,}536 members (\S\ref{sec:eval}).
+A carve conserves the tree's total and the exact exit pays in full, so
+both fees come from a confirmed coin of the recipient's: with the exit,
+$2{,}655\vB$, or 26{,}550\,sat at 10\,sat/vB, below which the fallback
+costs more than it recovers (Appendix~\ref{app:eval}).
+\else
+\paragraph{Settlement.} Normally the voucher is never redeemed: the
+operator pays the recipient a leaf in its next cohort graft (under
+$3\vB$ a member) and retires the voucher by one \tr{UPDATE}$^{x}$ that
+the recipient co-signs ($1{,}048\vB$) or a cohort \tr{REWRITE}$_h^{x}$
+(about $148\vB$ a leaf). If the operator stops cooperating, the
+recipient redeems its latest voucher alone with one \tr{CLAIM}$^{x}$
+($1{,}635\vB$, no timelock) and leaves by the exact exit, paying both
+fees from a confirmed coin of its own: $2{,}655\vB$, or 26{,}550\,sat at
+10\,sat/vB, below which the fallback costs more than it recovers
+(Appendix~\ref{app:impl-fees}).
+\fi

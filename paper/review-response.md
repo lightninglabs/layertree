@@ -524,3 +524,224 @@ as in the short one.
   (protocol 1c); prevout-independent exit authorisation for delegation
   (protocol 8); the Lightning figures of `cost-comparison.md` and the
   REWRITE figures of `batching.md` (systems 5, 8).
+
+## Round three: developer review (2026-10-10)
+
+`reviews/developer.md` reads the short version stamped `dce2c57`
+(sources at `e16ce55`) as a wallet, node and tower implementer would,
+against spec 0.12.1, and asks for a major revision: fifteen findings and
+a closing list of eight things a developer would want added. Each
+finding is listed under the reviewer's number with what changed.
+Section, table and appendix numbers are those of the revised short
+version (`main.pdf`); where the full version (`main-full.pdf`) shares
+the text or had the same error, it changed too. The new Appendix C,
+"Implementer's Notes", is short-version only and carries most of the
+additions the body had no room for.
+
+1. **The operator voids vouchers and tower authorisations by a
+   one-satoshi top-up.** Resolved by a rule change, not by text. The
+   owner took option (a): from spec 0.13.0, `H_voucher` and `H_exit`
+   bind the source leaf without its `amount`, so an amount-only increase
+   under `REWRITE_h` or `REWRITE_h^x` voids no voucher and no `EXIT_K^t`
+   authorisation. Single use still comes from `seq`, which every
+   redemption advances, and the covenant's sum check still stops a
+   voucher drawing more than the source holds. The paper is written to
+   that rule: section 5.1 defines the message over `tree_id`, the source
+   leaf without its amount and the claim leaf, Figure 2 and its caption
+   show it, "Single use" says why a top-up voids nothing, and the credit
+   leaf of 5.3 now says that voiding needs a *bound* field to change and
+   that the operator's one solo change touches none, so the one-way
+   property holds as stated. Section 4.4 says the tower authorisation is
+   a bearer right "until a field other than the amount changes". In the
+   full version the functionality (Figure 1: `CLAIM` now requires `T[p]`
+   to equal the vouched leaf in every field but the amount), the
+   predicate prose, the honest-party paragraph, the discussion and the
+   voucher appendix say the same. The script sizes of `CLAIM`, `CLAIM^h`,
+   `CLAIM^x` and `EXIT_K^t` are left at their 0.12 values until the spec
+   change is measured (see "Handed off").
+2. **Lightning receive costs something on-chain, and who holds the
+   preimage.** Section 5.5 says the flow is FULL only (`CLAIM^x`), that
+   the operator draws the preimage so the payer's receipt proves the
+   operator was paid (the full version adds that a recipient who wants
+   its own receipt pre-shares preimages, which bounds offline receipt),
+   and that a voucher draws only what the credit leaf holds: pre-funded
+   capital the operator recovers only with the recipient's consent, or
+   top-ups of about 122 vB a credit leaf in a cohort `REWRITE_h^x`,
+   which after finding 1 void nothing. The abstract now reads "into a
+   funded credit leaf (FULL tier), cost nothing on-chain per payment"
+   and drops "never expire". Table 12's pay-off-chain cell names the
+   operator for Lightning receive. Appendix C.3 gives the flow as a
+   seven-step sequence with each step's failure mode, the preimage
+   choice included.
+3. **Unilateral recourse needs a fee coin.** Section 5.5 says the
+   `CLAIM^x` fallback and the exact exit that follows are paid from a
+   confirmed coin of the recipient's, 2,655 vB or about 26,550 sat at
+   10 sat/vB, below which the fallback costs more than it recovers.
+   Section 6, "What a member does", requires a confirmed fee coin for
+   every unilateral path; section 9 requires it of both channel-leaf
+   parties, with the HTLC-proportional reserve of spec C.5.5. Appendix
+   C.4 says which operations need an external input (every carve, the
+   exact exit and every channel-leaf transaction; only FULL's
+   fee-from-payout exit does not) and gives each path's fee at 2, 10 and
+   50 sat/vB (Table 15), with spec 11.2's 10% rule. The suggested
+   fee-from-claim `CLAIM` variant is a rule change and is handed off.
+4. **Recompute `m`; tree creation.** Section 3.2 now says that
+   `TreeSPK` hides the scripts, so a member, a voucher holder and a tower
+   recompute `m` from the published parameters and reject any taptree
+   with a leaf outside the expected set (spec 9.1). Section 6's custody
+   sentence is qualified by that check. Appendix C.1, "Creating and
+   Recognising a Tree", lists the parameters, gives the recommended
+   `tree_id` derivation from the creation transaction's input-0 outpoint
+   (and why a chosen constant or the tree's own outpoint will not do),
+   says the input must be fixed before compiling, and covers the seed
+   leaf (spec 6.2, 6.5).
+5. **Channel-leaf deadline.** Section 9's formula is now spec C.4.4's,
+   `G_exit + 1 + beta_chan + 1 + csv_delay + 1 + G_sweep`, with one
+   clause on what a stale update costs the counterparty (about 313 vB a
+   block), which delta binds in each direction (the invoice's
+   `min_final_cltv_expiry_delta` for a receiving leaf, the hub's delta on
+   the leaf-facing hop for a paying one), and the fee reserve. The "40 to
+   80" range is replaced by lnd's default of 80, which we checked in
+   `chainreg/chainregistry.go` at v0.18.4-beta and cite; we could not
+   check the other implementations' defaults against a source we can
+   cite, so the reviewer's 34 to 144 range is not quoted.
+6. **Vouchers against Ark out-of-round payments.** The opening of
+   section 5 is rewritten: an Ark transfer is undone only if sender and
+   server collude, a voucher by its issuer alone or by the source's
+   evictor after the lease, until its redemption confirms; in exchange a
+   redeemed voucher is a leaf whose eviction pays its holder on-chain,
+   where an expired round forfeits to the operator, and the credit leaf
+   removes the issuer's voiding for payments from the operator. After
+   finding 1 the operator's top-up is no longer a voiding party. Spec
+   10.3's sentence is outside `paper/` and is handed off.
+7. **Lease renewal is not priced.** Section 4.5 gives both renewal paths
+   and their costs (an `UPDATE` and a whole-balance `SPLIT`, 2,616 vB,
+   or 148 vB a member in a cohort `REWRITE_6` that every renewing member
+   signs, an absent one keeping the old lease). Table 7 gains a renewal
+   row and its rewrite row is relabelled; Table 10's caption says the
+   sweep applies only to expired leases aligned per cohort and that
+   renewals are not included; Table 11's "leases are optional" now reads
+   "a lease is the price of the cheap batch exit"; Table 8's Ark row says
+   that rounds and refreshes are not priced (its 86 kvB contains none),
+   and the LayerTree row that renewals are not; B.8 gives the renewal
+   cost. Appendix C.6 gives the per-period cost (148 to 2,616 vB a
+   member) and what a member sees when its lease passes. A per-period
+   line for Ark at a stated VTXO lifetime is not added: the paper has no
+   measured refresh cost to put in it.
+8. **State, reorgs and messages.** New Appendix C. C.2 has the state
+   table the review asks for (Table 14: member, voucher holder, tower,
+   operator; what each stores, backs up and derives from each spend),
+   the grafted member's subtree path as the one backup that matters
+   (spec 10.9), how a non-member holder gets the source's path, the
+   reorganisation rules (rollback by `(txid, r)`, rebuild against the
+   surviving root, a reorged `CLAIM^h` returned to the issuer's
+   discretion, waiting for confirmation depth before paying for a graft)
+   and the TLV codecs in `msg/`. C.3 is the receive sequence, C.4 the fee
+   reserves and break-even fees. On the per-operation card: we judge
+   that section 4 serves, since it gives each operation's authoriser,
+   what its witness proves and what the outputs must be; C's preamble
+   adds the pointers it lacked (witness order in spec 8, the `txn/`
+   builders and signers, and what a co-signer verifies in spec 9.2, 9.5
+   and 9.6).
+9. **Nonce discipline and source uniqueness.** One sentence each:
+   section 4.4 says that rejoining a tree of the lineage with an owner
+   key, nonce and `seq` held before revives every `EXIT^t` authorisation
+   for that leaf, so a wallet draws a fresh nonce at every join (spec
+   9.2); section 5.1 says that in the dense profile an issuer checks for
+   a duplicate of its source leaf before signing, since one voucher
+   would redeem against both (spec 10.3).
+10. **The chain limit.** Section 6 says the figures use kappa = 25, the
+    lowest limit relay peers may enforce (spec 10.5), and gives the
+    drain at 64 (157 blocks for 10,000 leaves). The full version's
+    liveness paragraph says the same. Appendix B.2 now says that
+    uncoordinated exits chain only if each exiter rebuilds on the
+    previous unconfirmed one, or a tower or the operator holding `EXIT^t`
+    authorisations builds them in sequence, that otherwise they
+    conflict, and that the worst case is set by beta; B.8's "worst case"
+    wording is corrected to match.
+11. **Labels and sums.** Section 9's force-close sentence compares
+    1,681 vB with 684 vB for a simple taproot channel's open and force
+    close together, saying that the leaf's exit creates the funding
+    output. Table 10's batch cells are 161 and 219 (3 or 61 plus the
+    158 vB sweep), matching the caption; Figure 8's caption notes that
+    its bar, which the figure generator outside `paper/` draws, still
+    reads 162. Table 10's online column reads "owner" with a note that
+    nobody is needed under `EXIT^t`, matching Table 11.
+12. **Trust table.** Table 1 now says that anyone holding an `EXIT^t`
+    authorisation can exit that leaf and that nobody else can trigger an
+    owner's exit; that an owner can carve into any empty position, a
+    later lease than a cohort's delaying its sweep (the owner's "cannot"
+    cell is narrowed to changing another leaf); and that the operator
+    cannot change the taptree, or *unilaterally* a lease or a detached
+    cohort. Section 6's custody sentence names the evictor's signature
+    after the lease (paying the leaf in full) beside the owner's and the
+    operator's. The amount-only rewrite needs no mention after finding 1:
+    it only adds value, which the sentence already covers.
+13. **`P2TR(exit_key)`.** Section 3.1 defines `P2TR(k)` as `OP_1 <k>`,
+    so `exit_key` is the payout's output key itself, and says a
+    single-key wallet supplies its tweaked BIP-86 output key.
+14. **Serialised premiums.** Table 2's last row gives model and
+    serialised sizes for every tier (1,020 / 1,030, 1,355 / 1,398,
+    1,473 / 1,518, 908 / 918), and section 10 gives both premiums: MID
+    +33% on the model and +36% serialised, MIN +44% and +47%. The full
+    version's MIN paragraph does the same.
+15. **Nits.** Table 2's native-opcode figure now points at Appendix B.1
+    (the discussion section in the full version). Figure 4's "PR #6" and
+    "PR #7" labels come from `tools/gen_cost_figures.py`, outside
+    `paper/`, so the caption now says what they name and the generator
+    change is handed off. Section 9 cites BIP-431 for version-3
+    transactions and a new entry, Bitcoin Core's `ephemeral_policy.h` at
+    v31.1, for the ephemeral anchor, in both versions. Section 4's
+    opening says payouts are exact except for FULL's fee-from-payout
+    exit. Section 4.3's fragment now reads "It exists in FULL and MID,
+    whose stack limit holds a full cohort only to h = 5." `JOIN_8`'s
+    679 vB is called an estimate in 4.1, Table 7 (whose caption now says
+    it is the measured `JOIN_0` at D = 8, as the full version's graft
+    table already did) and Appendix B.3. The abstract no longer says
+    "never expire". Section 6 says a member must be online to exit
+    unless a tower holds its `EXIT^t` authorisation.
+
+**The closing list.** (1) Per-operation card: section 4 plus the
+pointers in Appendix C's preamble, as above. (2) Creating and
+recognising a tree: section 3.2 and Appendix C.1. (3) State table:
+Appendix C.2. (4) Fee reserve and break-even: Appendix C.4. (5) The
+receive flow as a message sequence: Appendix C.3. (6) Channel leaves as
+an implementer meets them: Appendix C.7 (a new channel type, nothing to
+announce, reached through the counterparty, what its tower holds, the
+splice as one `UPDATE^x` at 1,048 vB) with the `beta_chan` budget in
+section 9; a byte comparison against a Lightning splice transaction is
+not given, since the paper has no measured figure for one. (7) Lease
+policy: Appendix C.6. (8) Mempool behaviour: Appendix C.5 (replacement
+or a child from change or a pay-to-anchor output, why transitions cannot
+be TRUC, rebuilding after a competing transition, and CPFP for a
+multi-funder graft).
+
+### Length
+
+Short version (`main.pdf`, 33 pages): the body ends on page 15 and
+References start at the top of page 16, checked with `pdftotext -layout`
+page by page; no overfull boxes and no unresolved references. To pay for
+the body additions, the short version now has its own, shorter forms of
+the receive-flow and settlement paragraphs (the long forms remain in the
+full version, and the detail is in Appendix C.3), a tighter "What Is
+Proved", a shorter introduction sentence on the tiers, tighter `JOINK_K`,
+`SPLIT`, cumulative-voucher, hash-lock and voucher-cost paragraphs, the
+Liquid and Simplicity sentences of related work moved to the full
+version (the Liquid prototype now sits in the future-work line), and a
+one-sentence conclusion. Full version (`main-full.pdf`, 78 pages):
+References start on page 30, one page later than before, from the
+channel-budget, receive and voucher text it shares.
+
+### Handed off, by owner
+
+* **spec**: 0.13.0 (finding 1, in progress); 10.3's Ark sentence and
+  9.6's informative paragraph (finding 6); 11.2's +33% and +44%, which
+  could give the serialised premiums too (finding 14); C.4.4's "~40
+  typical on the public network" (finding 5).
+* **tools**: drop the PR numbers from the `exit-anatomy` labels and make
+  the lifetime figure's dense batch bar 161 (`gen_cost_figures.py`); new
+  sizes for `CLAIM`, `CLAIM^h`, `CLAIM^x` and `EXIT_K^t` once 0.13.0
+  lands, which move 1,617, 1,627, 1,635, 2,655 (and its fee row in
+  Table 15), 1,046 and "107 bytes" in the paper.
+* **design**: a fee-from-claim `CLAIM` variant for recipients with no
+  fee coin (finding 3), a rule change in every voucher tier.

@@ -4,17 +4,15 @@
 \section{What Is Proved}\label{sec:proved}
 
 The rules of every operation are mechanised in Lean~4~\cite{lean4}
-(about 3{,}400 lines, no Mathlib), with an axiom audit of
-\LeanTheoremCount{} headline theorems, none resting on an unproved step.
-They show that a root binds its tree, so a leaf whose path verifies is
-the leaf at that position; that every sequence of steps conserves the
-total, with no hash assumption; that every known leaf can be paid out by
-its honest witness; that a graft without a real preimage freezes only
-the value it brought; that a voucher cannot be replayed and a carve
-keeps the evictor, lease and dust floor; and that the cohort operations
-and encodings behave as the scripts assume. Sums are conserved
-unconditionally, but an exit is guaranteed only to a member who verified
-its path. Scripts are matched to the rules by executable checks
+(about 3{,}400 lines, no Mathlib; \LeanTheoremCount{} headline theorems
+in an axiom audit). They show that a root binds its tree; that every
+sequence of steps conserves the total, with no hash assumption; that
+every known leaf can be paid out by its honest witness; that a graft
+without a real preimage freezes only the value it brought; that a
+voucher cannot be replayed and a carve keeps the evictor, lease and dust
+floor; and that the cohort operations and encodings behave as the
+scripts assume. An exit is guaranteed only to a member who verified its
+path. Scripts are matched to the rules by executable checks
 (\S\ref{sec:eval}), not a verified compiler.
 
 For each tier, the protocol UC-realises an ideal functionality of the
