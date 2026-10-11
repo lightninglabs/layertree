@@ -1053,7 +1053,7 @@ func tierProfiles(tier Tier) []profile {
 }
 
 // coveredTiers are the tiers the end-to-end suite runs.
-var coveredTiers = []Tier{Full}
+var coveredTiers = []Tier{Full, Mid}
 
 // allCases is every transition of every covered tier at every depth and
 // profile.
@@ -1724,9 +1724,124 @@ func fullRejects() []rejectCase {
 	}}
 }
 
-// rejectCases is every negative of every covered tier.
+// c0Rejects are the negatives of the 0xC0 encoding (spec 4.5), run in
+// MID and in the CCV tier's 0xC0 numerics.
+func c0Rejects(tier Tier) []rejectCase {
+	return []rejectCase{{
+		// A sparse leaf whose nonce gives a non-minimal pos_lo cannot be
+		// proven by the 0xC0 sparse scripts; a joiner grinds its nonce.
+		name: "sparse join of a leaf without a minimal pos_lo",
+		tier: tier, sparse: true,
+		build: func(w *world) error {
+			opKey := w.opKey()
+			erin := w.mkLeaf("erin", 12_345, &opKey, 900_000)
+			for erin.PosLoMinimal(w.depth) {
+				erin.Nonce++
+			}
+			_, _, err := BuildJoin(w.st, 0, erin.Position(w.depth),
+				map[uint64]*tree.Leaf{0: erin},
+				&TxOpts{Inputs: w.fee(20_000)})
+			return err
+		},
+	}, {
+		// Every sum of a 0xC0 tree is a minimal CScriptNum below 2^31.
+		name: "join past the 0xC0 sum cap", tier: tier,
+		build: func(w *world) error {
+			w.base()
+			opKey := w.opKey()
+			whale := w.mkLeaf("whale", script.MidMaxSum, &opKey, 900_000)
+			_, _, err := BuildJoin(w.st, 0, 9,
+				map[uint64]*tree.Leaf{0: whale},
+				&TxOpts{Inputs: w.fee(int64(script.MidMaxSum) + 500)})
+			return err
+		},
+	}, {
+		// SEQ_FINAL is 0x7FFFFFFF under 0xC0 numerics, not 0xFFFFFFFF.
+		name: "claim against a 0xC0 SEQ_FINAL source", tier: tier,
+		build: func(w *world) error {
+			src := w.mkLeaf("chan-src", 1_000_000, nil, 0)
+			src.Seq = script.MidSeqFinal
+			w.st.Tree.Leaves[15] = src
+			claim := w.mkLeaf("claimant", 40_000, nil, 0)
+			_, _, err := BuildClaim(w.st, 15, 3, claim,
+				make([]byte, 64), &TxOpts{Inputs: w.fee(600)})
+			return err
+		},
+	}}
+}
+
+// minRejects are the MIN tier's own negatives: the tier's fixed shape
+// (spec 4.5).
+func minRejects() []rejectCase {
+	return []rejectCase{{
+		// MIN's output 0 is always a tree output.
+		name: "terminal exit", tier: Min,
+		build: func(w *world) error {
+			solo := w.mkLeaf("solo", 77_000, nil, 0)
+			w.st.Tree.Leaves[2] = solo
+			_, _, err := BuildExit(w.st, []ExitStep{{Pos: 2}}, &TxOpts{
+				Inputs:   w.fee(1_000),
+				Terminal: wire.NewTxOut(600, p2wpkh(w.t)),
+			})
+			return err
+		},
+	}, {
+		// The raw introspection pieces describe exactly one fee input.
+		name: "exit with two fee inputs", tier: Min,
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			inputs := append(w.fee(5_000), ExtraInput{
+				OutPoint: prevOutPoint(2), Sequence: TreeSequence,
+				PrevOut: wire.NewTxOut(5_000, p2wpkh(w.t)),
+			})
+			_, _, err := BuildExit(w.st, []ExitStep{{Pos: sBob}},
+				&TxOpts{Inputs: inputs})
+			return err
+		},
+	}, {
+		// MIN pays out exactly.
+		name: "owner exit with a fee from the payout", tier: Min,
+		build: func(w *world) error {
+			_, _, _, _, sBob, _ := w.base()
+			_, _, err := BuildExit(w.st, []ExitStep{{Pos: sBob, Fee: 1}},
+				&TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}, {
+		// MIN has no EXIT_2.
+		name: "EXIT_2", tier: Min,
+		build: func(w *world) error {
+			_, _, _, sAlice, sBob, _ := w.base()
+			_, _, err := BuildExit(w.st, []ExitStep{{Pos: sAlice}, {Pos: sBob}},
+				&TxOpts{Inputs: w.fee(5_000)})
+			return err
+		},
+	}}
+}
+
+// rejectCases is every negative of every covered tier: the shared list in
+// FULL and again in each tier whose builders exist (the rules the builders
+// hold are the same in every tier), then each tier's own.
 func rejectCases() []rejectCase {
-	return fullRejects()
+	cases := fullRejects()
+	for _, tier := range coveredTiers {
+		if tier == Full || tier == Min {
+			continue
+		}
+		for _, c := range fullRejects() {
+			c.tier = tier
+			cases = append(cases, c)
+		}
+		if tier.elements() {
+			cases = append(cases, c0Rejects(tier)...)
+		}
+	}
+	for _, tier := range coveredTiers {
+		if tier == Min {
+			cases = append(cases, minRejects()...)
+		}
+	}
+	return cases
 }
 
 // TestBuilderRejects checks that the builders refuse transactions the
