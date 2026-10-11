@@ -642,7 +642,7 @@ def fig_batching_shapes(png_dir):
     series(ax, DETACH_EXIT, VIOLET, hollow=True, line=False)
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 64, 162, "162", 0, 12, ha="center")
-    label(ax, 64, 144, "144", 10, -4)
+    label(ax, 64, 148, "148", 10, -4)
     label(ax, 256, 762, "762", 0, 12, ha="center")
     label(ax, 205, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
