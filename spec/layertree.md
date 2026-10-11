@@ -2373,7 +2373,10 @@ To add participants the operator prepares a `JOIN_h` transaction:
 3. `U` MUST verify, before signing any input: (a) input 0 spends an
    unspent output with scriptPubKey `TREE_SPK(r, m)` and amount `S`; (b)
    `fold(E_h, path) = (r, S)`; (c) `fold(U.leaf, subtree path)` equals
-   `(new_hash, new_sum)`, recomputing every sum; (d) output 0 is
+   `(new_hash, new_sum)`, recomputing every sum, and the subtree path has
+   exactly `h` levels, so that the leaf lands at depth `D` (`JOIN_h`
+   checks only the slot and the sum, and a leaf grafted shallower sits
+   where no transition's `D`-level path can reach it); (d) output 0 is
    `TREE_SPK(r', m)` with amount `S + new_sum`, where `r'` is `fold` of the
    new node; (e) `U`'s leaf fields are as agreed; (f) `U`'s own inputs and
    change are as agreed. `U` then signs its inputs with `SIGHASH_DEFAULT`

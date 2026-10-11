@@ -188,7 +188,8 @@ func (j *JoinOffer) Decode(r io.Reader) error {
 
 // VerifyMember performs the checks of spec 9.2 step 3 that the message
 // alone supports: (b) and (c), that the member's leaf folds up (via
-// SubtreePath, or directly if it is nil) to NewNode, that GraftPath folds
+// SubtreePath, which must have exactly GraftPath.Height levels, or directly
+// if it is nil and the graft is at height 0) to NewNode, that GraftPath folds
 // the empty node it replaces up to the pre-graft root (RootHash, Total),
 // and that the post-graft root r' carries the sum Total + NewNode.Sum,
 // every addition checked; and (d), that UnsignedTx parses and its output 0
@@ -207,6 +208,27 @@ func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
 	if j.GraftPath == nil {
 		return tree.Node{}, fmt.Errorf("msg: join offer is missing " +
 			"its graft path")
+	}
+
+	// 9.2 step 3(c): the subtree path must have exactly h levels, h being
+	// the graft height, so that the leaf lands at depth D in the grafted
+	// tree. JOIN_h checks only the slot and the sum, so an operator could
+	// otherwise graft a bare leaf, or a shallower subtree, at height h and
+	// leave the leaf h levels short of the depth every transition's path
+	// takes, where nothing can ever consume it. A nil path is a bare leaf,
+	// which only a height-0 graft may carry.
+	switch {
+	case j.SubtreePath == nil && j.GraftPath.Height != 0:
+		return tree.Node{}, fmt.Errorf("msg: join offer grafts a bare "+
+			"leaf at height %d", j.GraftPath.Height)
+
+	case j.SubtreePath != nil && (j.SubtreePath.Height != 0 ||
+		j.SubtreePath.Depth != j.GraftPath.Height):
+
+		return tree.Node{}, fmt.Errorf("msg: subtree path runs from "+
+			"height %d to %d, want a leaf path of %d levels (the "+
+			"graft height)", j.SubtreePath.Height, j.SubtreePath.Depth,
+			j.GraftPath.Height)
 	}
 
 	// The member's leaf must fold, via its subtree path (or directly, in
