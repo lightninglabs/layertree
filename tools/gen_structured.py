@@ -92,6 +92,7 @@ def full_macros():
 
 
 PARAM_FAMILIES = ("LEVEL_S(", "HASH_STEP(", "HASH_STEP2(", "REWRITE_STEP(", "REWRITE_STEP_X(",
+                  "REWRITE_STEP_CCV(", "REWRITE_STEP_CCV_X(",
                   "OWNER_AUTH(", "OWNER_AUTH_X(", "ELEM_NODE(", "REWRITE_HASH_STEP2(", "REWRITE_HASH_ROOT2(",
                   "EXIT_CONSENT(", "EXIT_CONSENT_MID(")
 
@@ -151,6 +152,15 @@ def ccv_macros():
     t += [(f"LEVEL_S({k})", F.level_sparse(k)) for k in range(0, 64)]
     t += [("FINAL", CV.final_ccv(d)) for d in (4, 8, 12, 16, 20, 32)]
     t += [("LEVEL_MIN", F.level_min()), ("LEAF_STEP", CV.leaf_step_ccv(OP_KEY))]
+    t += [(f"HASH_STEP({k})", F._hash_step(k)) for k in range(3, 64)]
+    # REWRITE_h under CCV (8.9): FULL's step with the payout as a CCV call.
+    t += [("REWRITE_PAY_CCV", CV._rewrite_pay_ccv())]
+    t += [(f"REWRITE_STEP_CCV({d})", F._rewrite_step(d, False, CV._rewrite_pay_ccv())) for d in range(0, 64, 4)]
+    t += [(f"REWRITE_STEP_CCV_X({d})", F._rewrite_step(d, True, CV._rewrite_pay_ccv())) for d in range(0, 64, 4)]
+    t += [(f"HASH_STEP2({d})", F._hash_step2(d)) for d in range(8, 68, 4)]
+    t += [(f"ELEM_NODE({d})", F._elem_node(d + 4, d + 3)) for d in range(0, 64)]
+    t += [(f"OWNER_AUTH({d})", F._owner_auth(d + 5, False)) for d in range(0, 64, 4)]
+    t += [(f"OWNER_AUTH_X({d})", F._owner_auth(d + 5, True)) for d in range(0, 64, 4)]
     t += [(f"EXIT_CONSENT({k})", [k, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]) for k in (3, 4)]
     return [(n, words(x, "c2")) for n, x in t]
 
@@ -272,7 +282,7 @@ def macro_file(tier, macros, notes):
             shown = "HASH_STEP(t)   [shown for t = 3; the OP_PICK depth is t-3]"
         if key == "HASH_STEP2":
             shown = "HASH_STEP2(d)   [shown for d = 8; the HASH_STEP pick depths are d-3 and d-5]"
-        if key in ("REWRITE_STEP", "REWRITE_STEP_X"):
+        if key in ("REWRITE_STEP", "REWRITE_STEP_X", "REWRITE_STEP_CCV", "REWRITE_STEP_CCV_X"):
             shown = f"{key}(d)   [shown for d = 0; the OP_ROLL depths are d+3, d+4 and d+5, the picks d+3 to d+5]"
         if key == "EXIT_CONSENT":
             shown = "EXIT_CONSENT(k)   [shown for k = 3; k = 4 under a preimage (CLAIM^hx) or for UPDATE^x]"
@@ -375,6 +385,13 @@ NOTES_CCV = {
     "CHECK_OLD": "the input-amount equality plus one CCV_CHECK_INPUT on the folded old root",
     "FINAL": "output 0 is the CCV assign-mode tree output with amount == ns, unless nh == E_D",
     "PROLOGUE_CCV": "empty: CCV's -1 index binds the current input without OP_TX",
+    "REWRITE_PAY_CCV": "cohort rewrite: output idx pays exactly old.amount to old.exit_key by a CHECK_OUTPUT|DEDUCT call, idx advances (7.9 rule 5)",
+    "REWRITE_STEP_CCV": "cohort rewrite: FULL's REWRITE_STEP with REWRITE_PAY_CCV as the exit payout",
+    "REWRITE_STEP_CCV_X": "REWRITE_STEP_CCV with OWNER_AUTH_X",
+    "HASH_STEP2": "cohort rewrite: two HASH_STEPs, the old pair then the new pair",
+    "OWNER_AUTH": "cohort rewrite: the next witness element is a signature by old.owner_key",
+    "OWNER_AUTH_X": "OWNER_AUTH plus a signature by old.exit_key (REWRITE_h^x)",
+    "ELEM_NODE": "cohort rewrite: a 116-byte leaf -> (H_leaf, amount), the empty element -> E_0",
     "LEAF_BODY": "[leaf] -> [body]: the 108 bytes after the amount field (5.2), what vouchers and exit authorisations bind (7.5, 7.2 rule 7)",
     "TOWER_AUTH": "[leaf sig] -> [leaf]: sig is a BIP-340 signature by leaf.owner_key over H_exit(tree_id || body(leaf)), the leaf without its amount (LEAF_BODY), checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7)",
 }
@@ -434,6 +451,12 @@ open(os.path.join(OUT, "DETACH_2_D8.txt"), "w").write(
 open(os.path.join(OUT, "CCV_DETACH_2_D8.txt"), "w").write(
     structured("DETACH_2 (CCV tier, dense, D=8): detach a 4-position subtree into its own tree output",
                CV.detach_script_ccv(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2")), "c2", CCV))
+open(os.path.join(OUT, "CCV_REWRITE_2_D8.txt"), "w").write(
+    structured("REWRITE_2 (CCV tier, dense, D=8): cohort rewrite of a 4-position subtree",
+               CV.rewrite_script_ccv(8, 2, OP_KEY), "c2", CCV))
+open(os.path.join(OUT, "CCV0_REWRITE_2_D4.txt"), "w").write(
+    structured("REWRITE_2 (CCV with 0xC0 numerics, in MID macros, cohort rewrite of a 4-position subtree, dense, D=4)",
+               CV._rewrite_script_ccv0(4, 2, OP_KEY), "c0", MID))
 open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w").write(
     structured("EXIT_1 (minimal inventory, dense, D=4)", F.exit_script_min(D), "c2", FULL))
 for name, toks in M.all_scripts(D, OP_KEY, False, tree_id=TREE_ID).items():
