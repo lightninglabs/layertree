@@ -2,6 +2,7 @@ package tree
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -206,6 +207,56 @@ func TestLeafAndTreeVectors(t *testing.T) {
 			if got := l.Position(v.SparseExample.Depth); got != want {
 				t.Fatalf("sparse position for %s: got %d want %d", key, got, want)
 			}
+		}
+	}
+}
+
+// TestPosLoMinimalDepth is the probe of design/audit/go.md G6: the MID
+// sparse scripts compare the D-bit direction accumulator with all 32 bits
+// of pos_lo, so a usable nonce needs pos_lo < 2^D as well as a minimal
+// positive CScriptNum. The expectations are tools/layertree_mid.py
+// pos_ok(leaf, depth) over the owner key 0x02 * 32 and the first nonces:
+// at D = 28 nonce 0 (pos_lo 0x60ba96d4) is minimal but out of range, which
+// the old depth-free rule accepted; at D = 31 the two rules coincide.
+func TestPosLoMinimalDepth(t *testing.T) {
+	var key [32]byte
+	for i := range key {
+		key[i] = 0x02
+	}
+	leaf := func(nonce uint32) *Leaf {
+		return &Leaf{OwnerKey: key, Nonce: nonce}
+	}
+
+	// Pin the hash the rule is applied to.
+	h := leaf(0).PosHash()
+	if got := binary.LittleEndian.Uint32(h[:4]); got != 0x60ba96d4 {
+		t.Fatalf("pos_lo of nonce 0 = %#x, want 0x60ba96d4", got)
+	}
+	h = leaf(27).PosHash()
+	if got := binary.LittleEndian.Uint32(h[:4]); got != 0x0d1686ef {
+		t.Fatalf("pos_lo of nonce 27 = %#x, want 0x0d1686ef", got)
+	}
+
+	cases := []struct {
+		nonce uint32
+		depth int
+		want  bool
+	}{
+		// Minimal, but at or above 2^28.
+		{0, 28, false}, {1, 28, false}, {3, 28, false},
+		// Minimal and below 2^28.
+		{27, 28, true}, {43, 28, true}, {65, 28, true},
+		// At D = 31 the range condition is implied by the top bit.
+		{0, 31, true}, {1, 31, true}, {27, 31, true},
+		// Not minimal (top bit set) at any depth.
+		{2, 28, false}, {2, 31, false}, {4, 31, false},
+		// Outside the 25 <= D <= 31 band of spec 4.5.
+		{27, 24, false}, {27, 32, false},
+	}
+	for _, c := range cases {
+		if got := leaf(c.nonce).PosLoMinimal(c.depth); got != c.want {
+			t.Errorf("PosLoMinimal(nonce %d, D = %d) = %v, want %v",
+				c.nonce, c.depth, got, c.want)
 		}
 	}
 }

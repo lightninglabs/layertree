@@ -238,11 +238,21 @@ func (l *Leaf) Position(depth int) uint64 {
 	return v & (uint64(1)<<uint(depth) - 1)
 }
 
-// PosLoMinimal reports whether the first 4 bytes of PosHash form a minimal
-// positive CScriptNum, as the 0xC0 tiers require (spec 4.5).
-func (l *Leaf) PosLoMinimal() bool {
+// PosLoMinimal reports whether the leaf's nonce is usable in a 0xC0 sparse
+// tree of the given depth (spec 4.5, tools/layertree_mid.py pos_ok): the
+// first 4 bytes of PosHash must be a minimal positive CScriptNum (top bit
+// clear, last byte non-zero), and, since SPARSE_TEARDOWN compares the
+// D-bit direction accumulator with all 32 bits of pos_lo, pos_lo must be
+// below 2^depth. A non-zero last byte puts pos_lo at 2^24 or above, so the
+// band is 25 <= D <= 31; at D = 31 the two conditions coincide. Outside
+// the band no nonce is usable.
+func (l *Leaf) PosLoMinimal(depth int) bool {
+	if depth < 25 || depth > 31 {
+		return false
+	}
 	h := l.PosHash()
-	return h[3]&0x80 == 0 && h[3] != 0
+	posLo := binary.LittleEndian.Uint32(h[:4])
+	return h[3]&0x80 == 0 && h[3] != 0 && posLo < uint32(1)<<uint(depth)
 }
 
 // VoucherMsg is H_voucher(tree_id || source_leaf || claim_leaf), the message
