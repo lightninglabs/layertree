@@ -91,14 +91,16 @@ func (t *TapTree) InclusionProof(i int) []byte {
 // the order tools/layertree_scripts.py all_scripts emits it: EXIT_K for each
 // exitKs, JOIN_h for each joinHeights (dense) or JOIN_0 (sparse), JOINK_K for
 // each joinKs, UPDATE and CLAIM. treeID is the tree's voucher binding (spec
-// 6.2), a constant of CLAIM. Tree-creation variants (UPDATE_X, CLAIM_H,
+// 6.2), a constant of CLAIM, and dustMin its DUST_MIN (zero meaning
+// tree.DustMin). Tree-creation variants (UPDATE_X, CLAIM_H,
 // SPLIT, EVICT_SUBTREE_h) are appended by the caller, or swapped in for the
 // script they replace, exactly as the Python suites do.
 func FullReferenceLeaves(depth int, operatorKey, treeID [32]byte, sparse bool,
-	joinHeights, exitKs, joinKs []int) ([]TapLeaf, error) {
+	joinHeights, exitKs, joinKs []int, dustMin uint64) ([]TapLeaf, error) {
 
 	all := script.FullAllScripts(
 		depth, operatorKey, treeID, sparse, joinHeights, exitKs, joinKs,
+		dustMin,
 	)
 	var names []string
 	for _, k := range exitKs {

@@ -1,6 +1,10 @@
 package script
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/roasbeef/layertree/tree"
+)
 
 func TestMinExitScriptD4(t *testing.T) {
 	g, _ := midLoadGolden(t)
@@ -12,7 +16,7 @@ func TestMinExitScriptD4(t *testing.T) {
 // is what lets it exist in the MIN tier.
 func TestMinSplitScriptD4(t *testing.T) {
 	g, _ := midLoadGolden(t)
-	toks := MinSplitScript(4)
+	toks := MinSplitScript(4, tree.DustMin)
 	midCheckScript(t, g, "MIN/D/D4/SPLIT", toks)
 	for _, tok := range toks {
 		if tok.kind == tokOp &&

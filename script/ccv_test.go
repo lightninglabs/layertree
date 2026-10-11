@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/roasbeef/layertree/tree"
 )
 
 // ccvScriptFor builds the CCV-tier script named by a golden key's profile,
@@ -21,7 +23,7 @@ func ccvScriptFor(profile string, depth int, name string,
 		return nil, fmt.Errorf("UPDATE_X is a tree-creation parameter; " +
 			"generated separately in TestCCVUpdateX")
 	case name == "SPLIT":
-		return CCVSplitScript(depth, sparse), nil
+		return CCVSplitScript(depth, sparse, tree.DustMin), nil
 	case strings.HasPrefix(name, "EXIT_"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d", &n); err != nil {
 			return nil, err
@@ -155,10 +157,10 @@ func TestCCVClaim(t *testing.T) {
 		if hl {
 			name = "CLAIM_H"
 		}
-		ccvCheckC2(t, g, "CCV/D/D4/"+name, CCVClaimScript(4, treeID, false, hl))
-		ccvCheckC2(t, g, "CCV/S/D8/"+name, CCVClaimScript(8, treeID, true, hl))
-		midCheckScript(t, g, "CCV0/D/D4/"+name, CCV0ClaimScript(4, treeID, false, hl))
-		midCheckScript(t, g, "CCV0/S/D8/"+name, CCV0ClaimScript(8, treeID, true, hl))
+		ccvCheckC2(t, g, "CCV/D/D4/"+name, CCVClaimScript(4, treeID, false, hl, tree.DustMin))
+		ccvCheckC2(t, g, "CCV/S/D8/"+name, CCVClaimScript(8, treeID, true, hl, tree.DustMin))
+		midCheckScript(t, g, "CCV0/D/D4/"+name, CCV0ClaimScript(4, treeID, false, hl, tree.DustMin))
+		midCheckScript(t, g, "CCV0/S/D8/"+name, CCV0ClaimScript(8, treeID, true, hl, tree.DustMin))
 	}
 }
 
@@ -175,11 +177,11 @@ func ccv0ScriptFor(profile string, depth int, name string,
 	case name == "UPDATE_X":
 		return CCV0UpdateXScript(depth, key, sparse), nil
 	case name == "SPLIT":
-		return CCV0SplitScript(depth, sparse), nil
+		return CCV0SplitScript(depth, sparse, tree.DustMin), nil
 	case name == "CLAIM":
-		return CCV0ClaimScript(depth, treeID, sparse, false), nil
+		return CCV0ClaimScript(depth, treeID, sparse, false, tree.DustMin), nil
 	case name == "CLAIM_H":
-		return CCV0ClaimScript(depth, treeID, sparse, true), nil
+		return CCV0ClaimScript(depth, treeID, sparse, true, tree.DustMin), nil
 	case strings.HasSuffix(name, "_TOWER"):
 		if _, err := fmt.Sscanf(name, "EXIT_%d_TOWER", &n); err != nil {
 			return nil, err

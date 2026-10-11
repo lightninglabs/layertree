@@ -73,8 +73,10 @@ const MidTierMaxSum = uint64(1)<<31 - 1
 // a leaf (7.5 rule 6). It is the P2TR dust threshold of Bitcoin Core's
 // default policy, 3000 sat/kvB over the 110 bytes of a P2TR output and its
 // spending input, since every transition that removes a leaf pays it to
-// exactly one P2TR output. The carve scripts carry it as a constant; the
-// Go generators compile this value.
+// exactly one P2TR output. The carve scripts carry the tree's DUST_MIN as a
+// constant; the Go generators take it as FullTreeOptions.DustMin,
+// CCVTreeOptions.DustMin or a dustMin argument, and compile this value when
+// it is zero.
 const DustMin = uint64(330)
 
 // Node is a merkle-sum node: a 32-byte hash and a satoshi sum.
