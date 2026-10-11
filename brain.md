@@ -49,31 +49,22 @@ with numbers.
   review of the short paper (`paper/reviews/`), then (2) MID DETACH_h
   and CLAIM^x outside FULL.
 
-  HANDOFF (pre-compaction, 2026-10-10 late). Branch
-  `claude/brain-md-review-caffeinete-48c122` is 4 commits ahead of
-  origin/main (0711e9c): the F46/F47 fix merge (spec 0.12.2, counts
-  1,154 / 479 / 57 / 1,353 / 220 / 61; Go, gofmt, Lean verified green on
-  the merge; the Python suites and the generator drift check were still
-  running at compaction, see the scratchpad logs `*.4.log` and
-  `suites4.done`) plus this bookkeeping commit. Push main once the
-  suites pass (ff-merge in the main worktree, push, republish the site
-  with the Litbucket script from the owner's terminal). In flight, both
-  in worktrees, commit never push: (a) Fable rule worker, spec 0.13.0,
-  vouchers and EXIT^t authorisations bind the source leaf WITHOUT its
-  amount (owner's decision, F48; generators in every tier, Go, golden
-  root moves by design, Lean Voucher.lean restated, spec 7.5/7.2/9.6/
-  9.7/10.3, receive.md, interactivity.md, status.md decision 28); merge
-  it first when it reports, full matrix, then reconcile the paper's
-  voucher message description and CLAIM sizes. (b) Opus paper worker:
-  developer review findings 2 to 15 and round-three response, Appendix
-  C implementer's notes; paper only; merge after (a), rebuild PDFs
-  (short body must end on page 15), republish site. After both: review
-  F48 status to fixed, brain.md counts, then item 2 (MID DETACH_h,
-  CLAIM^x outside FULL). Decisions: see status.md 22 to 27 and the
-  "Decided" paragraph above. Post-compaction note: the six suites passed
-  (1,154 / 479 / 57 / 1,353 / 220 / 61); both workers (a) and (b) had
-  been stopped before compaction with nothing committed, so they were
-  relaunched from 54a9867 with the same instructions.
+  STATE 2026-10-11 (early). main at 71d977d, pushed; site republished
+  (Litbucket version 6). Landed since the handoff: spec 0.13.0 / Appendix
+  C 0.5.2 (vouchers and EXIT^t bind body(leaf) = leaf[8:116], F48 fixed,
+  decision 28, D4 root aa2ba1ff..., Lean 61), the developer-review paper
+  round (findings 1 to 15, Appendix C implementer's notes, round three in
+  review-response.md), a report-only review of that round and its fixes,
+  and the spec hand-offs (10.3/9.6 Ark comparison, 11.2 serialised
+  premiums, C.4.4 cites lnd's 80). Counts 1,244 / 519 / 57 / 1,481 / 220
+  / 61; 103 golden scripts; txn 54 cases. Short paper: body ends p15,
+  References p16; full: References p30. Open for the owner: (a) the
+  residual of F48, a top-up below DUST_MIN blocks (not voids) a
+  whole-balance voucher; the fix is a DUST_MIN floor on 7.9 rule 3's
+  amount-only increase; (b) the public repository URL for refs.bib (the
+  repo moved to lightninglabs/layertree, still private). Next: item 2,
+  MID DETACH_h and CLAIM^x / CLAIM^hx in MID and CCV (status.md open
+  work 9).
 
 - Round of 2026-10-10 (evening), owner's "execute 1-4, no GitHub pages,
   refine papers": (a) Opus paper worker in a worktree: new title for
