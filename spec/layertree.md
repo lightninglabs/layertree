@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.13.0
+Version:  0.13.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -389,11 +389,11 @@ are interchangeable, with one numeric cap noted below.
 | `CLAIM` (vouchers) | yes | yes | no (needs `OP_CHECKSIGFROMSTACK`) | yes, both numerics, with `OP_CHECKSIGFROMSTACK` |
 | `CLAIM^h` (hash-locked vouchers, 7.5.1) | yes | yes | no (no `CLAIM`) | yes, both numerics, as `CLAIM` |
 | `SPLIT` (owner-authorised carve, 7.5.2) | yes | yes | yes, dense (8.6.2) | yes, both numerics |
-| `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | not implemented | no (no `CLAIM`) | not implemented |
+| `CLAIM^x`, `CLAIM^hx` (exit-key consent, 7.5.3) | yes | yes (8.6.3) | no (no `CLAIM`) | yes, both numerics (8.6.3) |
 | `UPDATE^x` (exit-key consent) | yes | yes | no (no `UPDATE`) | yes, both numerics |
 | `EVICT_SUBTREE_h` (cohort sweep, 7.7) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | yes, dense, both numerics (`0xC0`: MID's sweep and stack bound, 4.6) |
 | `REWRITE_h`, `REWRITE_h^x` (cohort rewrite, 7.9) | yes | yes, dense; bounded by the 1,000-element stack limit (below) | no | not implemented |
-| `DETACH_h` (subtree detach, 7.10) | yes | not implemented | no | yes, dense, both numerics (4.6) |
+| `DETACH_h` (subtree detach, 7.10) | yes | yes, dense (8.10) | no | yes, dense, both numerics (4.6) |
 | Channel leaves (Appendix C) | yes | yes (`OP_TX` + `OP_CHECKSIGFROMSTACK`) | no: rebindable signatures need `OP_TX`; MIN trees hold plain leaves only | yes, hosted: the channel scripts of C.3 live in their own outputs and need `OP_TX` + `OP_CHECKSIGFROMSTACK` there (C.7); the tree's scripts need neither, and its exact payouts are what C.6.1 asks |
 | `SEQ_FINAL` (non-claimable leaf) | `0xFFFFFFFF` | `0x7FFFFFFF` | `0x7FFFFFFF` (bars `SPLIT`) | `0xFFFFFFFF` (`0xC2`), `0x7FFFFFFF` (`0xC0`) |
 | Terminal exit (7.8) | yes | yes | no; output 0 is always the tree output | yes |
@@ -426,18 +426,20 @@ script / witness data:
 | `EVICT_SUBTREE_2` (3 of 4 swept) | 2,709 / 1,051 | 4,169 / 1,157 | — | 2,340 / 987 | — | — | — |
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
-| `CLAIM^x` | 3,884 / 1,754 | — | n/a | — | 9,978 / 547 | — | — |
+| `CLAIM^x` | 3,884 / 1,754 | 6,530 / 1,901 | n/a | 3,497 / 1,690 | 9,978 / 547 | 18,600 / 1,483 | 9,591 / 483 |
 | `REWRITE_4` (16 positions, mixed) | 5,624 / 4,099 | 10,516 / 4,436 | — | — | n/a | n/a | n/a |
-| `DETACH_8` | 1,548 / 497 | — | — | 973 / 433 | n/a | n/a | n/a |
+| `DETACH_8` | 1,548 / 497 | 2,174 / 534 | — | 973 / 433 | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
 3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,111 / 1,092, `UPDATE^x`
-3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `SPLIT`
+3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `CLAIM^x`
+6,160 / 1,837, `CLAIM^hx` 6,168 / 1,869, `SPLIT`
 6,001 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
-24,057 / 7,397; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
+24,057 / 7,397, `DETACH_8` 1,628 / 470; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
 9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
-18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `SPLIT` 18,071 / 1,356. The CCV call saves about 360 bytes of script
+18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `CLAIM^x` 18,230 / 1,419,
+`CLAIM^hx` 18,238 / 1,451, `SPLIT` 18,071 / 1,356. The CCV call saves about 360 bytes of script
 over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
 because the `TREE_SPK_MIN` recomputation and the spk introspection read
 drop out.
@@ -471,7 +473,14 @@ it is one `OP_PICK` and one `OP_CAT` fewer, 4 bytes saved. The
 carve rule of 7.5 rule 5 costs 25 bytes under `0xC2` and 64 under
 `0xC0`, where it also adds six witness elements and `NONNEG`-checks the
 claim leaf's lease number (10.6), and the `DUST_MIN`
-floor of 7.5 rule 6 a further 15 and 14 (8.6).
+floor of 7.5 rule 6 a further 15 and 14 (8.6). The exit-key consent of
+`CLAIM^x` and `CLAIM^hx` (7.5.3) costs 7 bytes under `0xC2` numerics
+and 4 under `0xC0` in every tier that has `CLAIM`, as `UPDATE^x` over
+`UPDATE` in each (one pick of the source leaf's exit key and one
+`OP_CHECKSIGVERIFY`, 8.6.3), plus the 64-byte signature in the witness:
+at `D = 16` (dense) `CLAIM^x` measures 6,530 beside `CLAIM` at 6,526 in
+MID, 3,497 beside 3,490 in CCV and 6,160 beside 6,156 under the CCV
+tier's `0xC0` numerics.
 
 The MID `EVICT_SUBTREE_h` (8.7) carries each occupied position as
 fourteen witness elements (the ten of a MID leaf, the minimal
@@ -562,20 +571,25 @@ for the tier: a short payout would strand its difference in the residual
 and force output 0 above `ns`, breaking rule 5's equality. Fees are
 exogenous, as in MID and MIN.
 
-**Vouchers.** `CLAIM` and `CLAIM^h` check the voucher of 7.5 over the
+**Vouchers.** `CLAIM` and `CLAIM^h`, and their exit-consent forms
+`CLAIM^x` and `CLAIM^hx` (7.5.3), check the voucher of 7.5 over the
 tree's `tree_id` (6.2) exactly as the other tiers do, token for token
 (8.6.2): the message never names `m`, so the CCV witness's lack of `m`
-costs the tier nothing. `CLAIM`, `CLAIM^h` and the tower-delegable exit
-`EXIT_K^t` (7.2 rule 7, whose authorisation is checked the same way over
-the same `tree_id`) are the only CCV scripts
+costs the tier nothing. The four `CLAIM` forms and the tower-delegable
+exit `EXIT_K^t` (7.2 rule 7, whose authorisation is checked the same
+way over the same `tree_id`) are the only CCV scripts
 that use `OP_CHECKSIGFROMSTACK`; a CCV tree that omits them does not
 depend on it, which is why they are tree-creation parameters in this
 tier, like `SPLIT` and `UPDATE^x`, rather than members of the default
-script set. `SPLIT` (7.5.2) needs neither `tree_id` nor
+script set. The exit-key consent of `CLAIM^x` is FULL's check under
+`0xC2` numerics and MID's under `0xC0` (8.6.3), run before the voucher
+check as in those tiers. `SPLIT` (7.5.2) needs neither `tree_id` nor
 `OP_CHECKSIGFROMSTACK`: it is authorised by the source owner's
 transaction signature (`OP_CHECKSIGVERIFY`), which commits to the spent
-outputs and so to the tree's scriptPubKey. All three exist in both
-numerics (`claim_script_ccv`, `_claim_script_ccv0`, `split_script_ccv`).
+outputs and so to the tree's scriptPubKey. All of them exist in both
+numerics (`claim_script_ccv` and `_claim_script_ccv0`, with
+`exit_consent` for the `^x` forms, and `split_script_ccv`;
+`CCVTreeOptions` carries each as a flag).
 `UPDATE^x` (both numerics), terminal exits and every other transition are
 unchanged. The `0xC2` `SEQ_FINAL` is FULL's `0xFFFFFFFF` and the `0xC0`
 one MID's `0x7FFFFFFF`, since the carve bodies are those tiers'.
@@ -1407,10 +1421,11 @@ voucher against the leaf into a leaf no cohort can sweep), the credit
 leaf's balance can only grow or be paid to its recipient, which removes
 the voiding race of 10.3 for that leaf; and because the voucher binds the
 leaf without its amount (7.5), the issuer's top-ups under `REWRITE_h^x`
-rule 3 void nothing either. The reference generator exposes the
-variant as `claim_script(…, exit_consent=True)`. It costs 7 bytes over
-`CLAIM` or `CLAIM^h` in the FULL tier, as `UPDATE^x` over `UPDATE`, and
-64 bytes of witness.
+rule 3 void nothing either. The reference generators expose the
+variant as `claim_script(…, exit_consent=True)` in every tier that has
+`CLAIM`: FULL, MID and CCV in both numerics (4.5). It costs 7 bytes over
+`CLAIM` or `CLAIM^h` under `0xC2` numerics and 4 under `0xC0`, as
+`UPDATE^x` over `UPDATE` in each, and 64 bytes of witness (8.6.3).
 
 ### 7.6 Composition and variants
 
@@ -1621,8 +1636,10 @@ Rules:
    generator computes it as `detached_taptree_root(h, OPERATOR_KEY,
    tree_id, options)`, where the default options are the reference set
    of 6.2 (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`),
-   and for a CCV parent as `detached_taptree_root_ccv(h, OPERATOR_KEY,
-   numeric, options)` over the CCV set of the same numerics (4.6).
+   for a MID parent as `layertree_mid.detached_taptree_root` over the
+   MID option set (`layertree_mid.TreeOptions`, 8.10), and for a CCV
+   parent as `detached_taptree_root_ccv(h, OPERATOR_KEY, numeric,
+   options)` over the CCV set of the same numerics (4.6).
 4. `sig` MUST be a valid signature over `tx` by `OPERATOR_KEY`.
 
 A member's proof in the detached tree is its proof in the parent truncated
@@ -2115,6 +2132,21 @@ In `CLAIM^hx` the pick depth is `OP_4`, since the preimage sits between
 script (section 8.8), as `UPDATE^x` over `UPDATE`. Listing:
 `spec/scripts/CLAIM_X_D4.txt`.
 
+**MID tier.** The source leaf is ten elements, so the exit key is an
+element rather than a `SUBSTR`. With the `0xC0` witness of 8.6
+(`src(10) claim(10) extras(13) vsig [preimage] xsig r m`) the source
+block's `ek` sits 33 deep under `exit_sig`, 34 in `CLAIM^hx`, and the
+check is `33 OP_PICK OP_CHECKSIGVERIFY` straight after the prologue: 4
+bytes, as `UPDATE^x` over `UPDATE` in this tier (`EXIT_CONSENT_MID(k)`
+in `spec/scripts/structured/`). Everything after it is the `0xC0` script
+of 8.6 unchanged. Listing: `spec/scripts/MID_CLAIM_X_D4.txt`.
+
+**CCV tier.** Under `0xC2` numerics the check is FULL's, token for
+token (`EXIT_CONSENT(3)`, `EXIT_CONSENT(4)` under the hash lock), run
+first since the tier has no prologue; under `0xC0` it is the MID
+tier's. The rest is the tier's `CLAIM` or `CLAIM^h` (4.6). Listings:
+`spec/scripts/CCV_CLAIM_X_D4.txt`, `spec/scripts/CCV0_CLAIM_X_D4.txt`.
+
 ### 8.7 EVICT_SUBTREE_h
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  leaf_{2^h−1} … leaf_0  sig  r  m`
@@ -2366,6 +2398,25 @@ options)`, `TreeOptions.at_depth(h)` being the parent's option set at
 depth `h`. The
 script is `JOIN_h` plus 235 bytes, almost all of them the second
 `TREE_SPK`. Listing: `spec/scripts/DETACH_2_D8.txt`.
+
+**MID tier.** Output 1's scriptPubKey is recomputed with `TREE_SPK_MIN`
+(4.4) under `m_h`, as the prologue recomputes the input's, and the
+subtree sum arrives as a minimal number with its `PADZ` pad, as every
+number does in this encoding: witness `zf wf zi wi [levels h..D-1] R_h
+sum_num zs ws sig r m`. After the operator's signature `NONNEG` checks
+the number and parks it, `LE64` turns number and pad into
+`le64(sum_h)`, `OP_OVER <m_h> TREE_SPK_MIN OP_1 <SEL_OUT_SINGLE> OP_TX
+OP_ROT OP_EQUALVERIFY OP_EQUALVERIFY` pins output 1 to that scriptPubKey
+and to that amount as bytes, and the number comes back as the old
+node's sum for `LEVEL_MID × (D − h)`, `CHECK_OLD` and `FINAL`. The
+script is the MID `JOIN_h` plus 250 bytes, the second `TREE_SPK_MIN`
+among them (`DETACH_8` at `D = 16`: 2,174 / 534 bytes against FULL's
+1,548 / 497). The witness is `9(D − h) + 11` elements below `sig r m`
+and shrinks with `h`, so the 1,000-element bound that caps the MID
+sweep and rewrite (4.5) binds nothing here: 86 elements at the peak for
+`DETACH_8` at `D = 16`. `m_h` is the parent's MID option set compiled
+at depth `h` (`layertree_mid.TreeOptions`, the MID counterpart of
+`TreeOptions`, 7.10 rule 3). Listing: `spec/scripts/MID_DETACH_2_D8.txt`.
 
 **CCV tier.** The second `TREE_SPK` becomes one CCV call (4.6): after the
 operator's signature and the two size checks, `OP_OVER <1> <> <m_h> <2>
@@ -3300,9 +3351,12 @@ dependency. The `r` and `m` witness elements are gone entirely. Each CCV
 call charges one sigcheck-equivalent (500,000 varops, [A-6]); an
 `EXIT_1` makes two calls, within the same budget headroom as the FULL
 tier's two `TREE_SPK` recomputations. A CCV `CLAIM` at `D = 16` (dense)
-measures 3,490 / 1,626 bytes against FULL's 3,877 / 1,690; with `CLAIM^h`
-and the tower-delegable `EXIT_K^t` (7.2 rule 7; 1,826 / 838 at `D = 16`)
-it is one of the three CCV scripts that need `OP_CHECKSIGFROMSTACK` (4.6).
+measures 3,490 / 1,626 bytes against FULL's 3,877 / 1,690; with `CLAIM^h`,
+the exit-consent forms `CLAIM^x` and `CLAIM^hx` (7.5.3; 3,497 / 1,690 and
+3,505 / 1,722) and the tower-delegable `EXIT_K^t` (7.2 rule 7; 1,826 /
+838 at `D = 16`) it is one of the CCV scripts that need
+`OP_CHECKSIGFROMSTACK` (4.6). The MID `CLAIM^x` measures 6,530 / 1,901
+against its `CLAIM` at 6,526 / 1,840 (8.6.3).
 
 The transaction weight column adds the 946 WU skeleton of the model
 above. In the dense profile each level costs 129 WU regardless of
@@ -3448,7 +3502,9 @@ a cohort of 256 that all leave alone saves about a quarter. Its larger
 effect is on throughput (10.5), not bytes. Under CCV the same detach
 measures 973 / 433 bytes (`0xC2`) and 1,628 / 470 (`0xC0`), 621 and
 794 vB on the model, and the exits from the detached tree cost the CCV
-depth-8 figures.
+depth-8 figures; under MID it measures 2,174 / 534 bytes (8.10), 946 vB
+on the model, and the exits from the detached tree cost the MID depth-8
+figure.
 
 Varops usage is 5.6–7.7% of budget for the dense profile (`D = 20` to
 `D = 8`) and 2.5–4.7% for the sparse profile (`D = 256` to `D = 32`),
@@ -3648,7 +3704,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 519 and 57 checks respectively; the MID
+  operands during development), 777 and 57 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -3663,7 +3719,31 @@ exits in a batch" as `EXIT_K` (section 13).
   voucher whose residual is the top-up; a whole-balance voucher after a
   sub-dust top-up fails under 7.5 rule 6), the
   `UPDATE^x`, `CLAIM^h` and `SPLIT` variants of 7.4 rule 5, 7.5.1 and
-  7.5.2 in both profiles, the tower-delegable `EXIT_K^t` of 7.2 rule 7
+  7.5.2 in both profiles, the exit-consent `CLAIM^x` and `CLAIM^hx` of
+  7.5.3 in both profiles with the FULL suite's credit-leaf cases (the
+  recipient's redemption with the voucher and its exit-key signature
+  succeeds, as does the recipient consenting to a drain; an `exit_sig`
+  by the operator, a garbage or absent `exit_sig`, the plain `CLAIM`
+  given the `CLAIM^x` witness, no voucher or a transaction signature in
+  its place, a voucher by the wrong signer or for another `tree_id`, an
+  over-claim, the redeemed voucher replayed, the operator draining the
+  leaf with a voucher to itself and, under the hash lock, a wrong or
+  short preimage all fail), the credit leaf end to end (a tree carrying
+  `UPDATE^x`, `CLAIM^x` and `REWRITE_2^x`: the operator tops the leaf up
+  by an amount-only rewrite with its signature alone, cannot rotate its
+  exit key without the recipient and cannot redeem its own voucher,
+  while the recipient redeems the latest cumulative voucher, signed
+  before the top-up, for more than the balance at issuance, after which
+  the earlier one is void), `DETACH_2` at `D = 8` and `16` and
+  `DETACH_8` at `D = 16` (7.10, 8.10) under a parent created with
+  `CLAIM` and `UPDATE^x` on top of the reference set, with the CCV
+  suite's cases (the detach conserves the total, `m_h` is the parent's
+  set at depth `h` and differs from the reference set's, the truncated
+  path exits from the child and a voucher issued in the parent redeems
+  there) and its negatives, plus output 1 under the CCV-tier key, under
+  the `m_h` of a child that does not inherit `tree_id`, the host
+  remainder off by one, a 31-byte `R_h` and a forged path over the
+  non-empty subtree, all rejected, the tower-delegable `EXIT_K^t` of 7.2 rule 7
   (dense at `D = 16`, sparse at `D = 31`, with the FULL suite's cases
   over the seven-element leaf), the dense `JOIN_2` negatives (occupied slot,
   no operator signature), a stale `JOINK_2` second path, and the MID
@@ -3865,7 +3945,7 @@ exits in a batch" as `EXIT_K` (section 13).
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 1,481 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 1,841 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -3914,7 +3994,11 @@ exits in a batch" as `EXIT_K` (section 13).
   claim of one satoshi, of zero satoshis or one leaving a one-satoshi
   residual (7.5 rule 6; exactly `DUST_MIN` succeeds), and
   the cross-form, wrong, short or absent preimage cases of the FULL suite
-  all fail); the negatives of the byte-level audit
+  all fail); `CLAIM^x` and `CLAIM^hx` (7.5.3) in both numerics at the
+  same depths with the credit-leaf cases of the FULL and MID suites
+  (the recipient's redemption succeeds and the operator's, with its own
+  exit signature or its own voucher, fails, with the other negatives
+  above); the negatives of the byte-level audit
   (`test_audit_negatives_ccv` at `D = 8`: in `0xC2` output 0 over-funded
   by one sat, the tree output and the payout swapped and a payout to the
   exit key under a taptree, and in `0xC0` a `JOIN_2` whose `new_sum` is
@@ -3959,7 +4043,12 @@ exits in a batch" as `EXIT_K` (section 13).
   `CCV/S/D8`, `CCV0/D/D4` and `CCV0/S/D8` (every tier's `CLAIM` scripts
   are built over the `tree_id` vector, which fixes the RECOMMENDED
   derivation),
-  `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4` and `FULL/S/D8`,
+  `CLAIM_X` and `CLAIM_HX` under `FULL/D/D4`, `FULL/S/D8`, `MID/D/D4`,
+  `MID/S/D8`, `CCV/D/D4`, `CCV/S/D8`, `CCV0/D/D4` and `CCV0/S/D8`,
+  `DETACH_2` and `DETACH_2_HOST` under `MID/D/D4` (over the MID
+  reference set at depth 2 and over a parent created with `EXIT_K^t`,
+  `CLAIM^h` and `DETACH_2`, whose `m_h` the Go `MidTreeOptions`
+  reproduces),
   `REWRITE_2`, `REWRITE_X_2`, `DETACH_2`, `EXIT_1_EXACT` (7.2 rule 6)
   and `DETACH_2_HOST` (the `DETACH_2` of a parent created with exact
   payouts, `CLAIM^h` and `DETACH_2`, whose `m_h` is that option set at

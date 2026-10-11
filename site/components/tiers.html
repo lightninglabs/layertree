@@ -153,9 +153,9 @@
       </thead>
       <tbody>
         <tr><td>FULL</td><td>new tapleaf version restoring the disabled opcodes (BIP-441), <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code> (BIP-348), elliptic-curve opcodes</td><td>every transition</td><td class="num">2,101 / 902</td><td class="num">1,020</td></tr>
-        <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code>; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree)</td><td class="num">3,367 / 978</td><td class="num">1,355</td></tr>
+        <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>every transition; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree), and a cohort sweep or rewrite of at most 32 full positions per spend</td><td class="num">3,367 / 978</td><td class="num">1,355</td></tr>
         <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,640 / 1,175</td><td class="num">1,473</td></tr>
-        <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code></td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
+        <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>all but the cohort rewrite</td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
         <tr><td><em>Hypothetical floor</em></td><td>CCV plus one purpose-built Merkle-sum opcode (<code>OP_MERKLESUMUPDATE</code>, not proposed; <code>design/native-opcodes.md</code>)</td><td>measured for the exit and the single join only; script size is constant in depth</td><td class="num">252 / 225 (six-leaf tree)</td><td class="num">388, about 520 in a full tree</td></tr>
       </tbody>
     </table>
