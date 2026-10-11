@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/bits"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -50,6 +51,14 @@ const LeafLen = 116
 
 // MaxAmount bounds leaf amounts (spec 5.2).
 const MaxAmount = uint64(1) << 51
+
+// MaxSum is the largest node sum an implementation accepts from a peer. No
+// honest node reaches it: 5.2 bounds every leaf below 2^51, and the total
+// of any real tree is below the 2.1 * 10^15 sat of supply, which is itself
+// below 2^51. A node sum at or above it can only come from a path whose
+// sums were made to wrap (design/audit/go.md G1), so decoders refuse it
+// before any fold sees it.
+const MaxSum = MaxAmount
 
 // MidTierMaxSum is the per-tree sum cap of the 0xC0 tiers (spec 4.5).
 const MidTierMaxSum = uint64(1)<<31 - 1
@@ -100,10 +109,38 @@ func Le32(n uint32) []byte {
 	return b[:]
 }
 
-// Parent hashes two children (spec 5.3).
+// ErrSumOverflow is returned when two sums add past 2^64 - 1. The Python
+// reference's le64 raises on the same input and the FULL scripts add
+// BIP-441 numbers of unbounded size, so a path that only adds up modulo
+// 2^64 is provable to nobody but a wrapping verifier (design/audit/go.md
+// G1).
+var ErrSumOverflow = errors.New("tree: node sum overflows 2^64")
+
+// AddSum is the checked addition every sum of a path goes through: it
+// returns a + b, or ErrSumOverflow if the addition carries.
+func AddSum(a, b uint64) (uint64, error) {
+	sum, carry := bits.Add64(a, b, 0)
+	if carry != 0 {
+		return 0, ErrSumOverflow
+	}
+	return sum, nil
+}
+
+// parentHash is H_node(left.hash || enc64(left.sum) || right.hash ||
+// enc64(right.sum)) (spec 5.3).
+func parentHash(left, right Node) [32]byte {
+	return TaggedHash(
+		TagNode, left.Hash[:], Enc64(left.Sum), right.Hash[:],
+		Enc64(right.Sum),
+	)
+}
+
+// Parent hashes two children (spec 5.3). Its sum is a machine addition:
+// it serves the in-memory Tree, whose leaves the holder bounded with
+// Leaf.Validate, and the empty nodes, whose sums are zero. A path received
+// from a peer is folded with Fold, which checks every addition.
 func Parent(left, right Node) Node {
-	h := TaggedHash(TagNode, left.Hash[:], Enc64(left.Sum), right.Hash[:], Enc64(right.Sum))
-	return Node{Hash: h, Sum: left.Sum + right.Sum}
+	return Node{Hash: parentHash(left, right), Sum: left.Sum + right.Sum}
 }
 
 // EmptyNode returns E_h, the node covering 2^h empty positions.
@@ -300,16 +337,22 @@ func (t *Tree) Path(pos uint64, height int) []PathStep {
 	return out
 }
 
-// Fold recomputes the root from a node and its path.
-func Fold(node Node, path []PathStep) Node {
+// Fold recomputes the root from a node and its path. Every addition is
+// checked: a path whose sums wrap past 2^64 fails with ErrSumOverflow
+// rather than folding to a small root, since the scripts would reject it.
+func Fold(node Node, path []PathStep) (Node, error) {
 	for _, s := range path {
+		sum, err := AddSum(node.Sum, s.Sibling.Sum)
+		if err != nil {
+			return Node{}, err
+		}
 		if s.Dir {
-			node = Parent(s.Sibling, node)
+			node = Node{Hash: parentHash(s.Sibling, node), Sum: sum}
 		} else {
-			node = Parent(node, s.Sibling)
+			node = Node{Hash: parentHash(node, s.Sibling), Sum: sum}
 		}
 	}
-	return node
+	return node, nil
 }
 
 // CompressPath replaces empty siblings by nil (sparse profile witness

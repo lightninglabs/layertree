@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/roasbeef/layertree/tree"
 )
@@ -55,17 +54,16 @@ type Proof struct {
 // tree.Tree.Path's own height parameter), and position is the leaf-level
 // position that path was built for (tree.Tree.Path(position, height)).
 func NewProof(path []tree.PathStep, depth, height int, position uint64) *Proof {
-	bitmap, nodeBytes := tree.BitmapPath(path, height)
+	bitmap, _ := tree.BitmapPath(path, height)
 
-	// tree.BitmapPath only ever emits canonical 41-byte node encodings,
-	// so decodeNode cannot fail here.
-	nodes := fn.Map(nodeBytes, func(b []byte) tree.Node {
-		n, err := decodeNode(b)
-		if err != nil {
-			panic(err)
+	// The non-empty siblings, bottom up, are the ones tree.BitmapPath
+	// leaves a clear bit for.
+	nodes := make([]tree.Node, 0, len(path))
+	for k, s := range path {
+		if s.Sibling != tree.EmptyNode(height+k) {
+			nodes = append(nodes, s.Sibling)
 		}
-		return n
-	})
+	}
 
 	return &Proof{
 		Depth:    uint8(depth),
@@ -122,13 +120,16 @@ func (p *Proof) Path() ([]tree.PathStep, error) {
 	return path, nil
 }
 
-// Verify reports whether node folds up this proof's path to root.
+// Verify reports whether node folds up this proof's path to root. The fold
+// is checked arithmetic, so a path whose sums wrap past 2^64 does not
+// verify, whatever root it would wrap to.
 func (p *Proof) Verify(node, root tree.Node) bool {
 	path, err := p.Path()
 	if err != nil {
 		return false
 	}
-	return tree.Fold(node, path) == root
+	folded, err := tree.Fold(node, path)
+	return err == nil && folded == root
 }
 
 // records returns the TLV records for the proof's fields, bound to the

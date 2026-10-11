@@ -141,13 +141,16 @@ func TestLeafAndTreeVectors(t *testing.T) {
 				t.Fatalf("path %s level %d mismatch", slot, k)
 			}
 		}
-		if Fold(tr.Leaves[pos].Node(), path) != root {
-			t.Fatalf("fold %s != root", slot)
+		if folded, err := Fold(tr.Leaves[pos].Node(), path); err != nil || folded != root {
+			t.Fatalf("fold %s != root (%v)", slot, err)
 		}
 	}
 	// exit transition: fold E_0 over bob's path gives the new root
 	path := tr.Path(v.TransitionExit.Slot, 0)
-	nr := Fold(EmptyLeaf, path)
+	nr, err := Fold(EmptyLeaf, path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if hex.EncodeToString(nr.Hash[:]) != v.TransitionExit.NewRoot.Hash || nr.Sum != v.TransitionExit.NewRoot.Sum {
 		t.Fatalf("exit new root mismatch")
 	}
@@ -204,5 +207,29 @@ func TestLeafAndTreeVectors(t *testing.T) {
 				t.Fatalf("sparse position for %s: got %d want %d", key, got, want)
 			}
 		}
+	}
+}
+
+// TestFoldRejectsOverflow is the probe of design/audit/go.md G1: a sibling
+// whose sum is 2^64 - a + s folds with a leaf of amount a to a parent of
+// sum s under wrapping arithmetic, which the Python reference (le64) and
+// the FULL scripts both reject. Fold must fail on the carry.
+func TestFoldRejectsOverflow(t *testing.T) {
+	const amount = uint64(100_000_000)
+	leaf := Node{Hash: sha256.Sum256([]byte("member")), Sum: amount}
+	fake := Node{
+		Hash: sha256.Sum256([]byte("fake")),
+		Sum:  ^uint64(0) - amount + 1 + 330,
+	}
+	path := []PathStep{{Dir: false, Sibling: fake}}
+
+	if _, err := Fold(leaf, path); err == nil {
+		t.Fatalf("Fold accepted a path whose sum wraps past 2^64")
+	}
+	if _, err := AddSum(^uint64(0), 1); err == nil {
+		t.Fatalf("AddSum accepted a carry")
+	}
+	if got, err := AddSum(^uint64(0)-1, 1); err != nil || got != ^uint64(0) {
+		t.Fatalf("AddSum rejected 2^64 - 1: %v", err)
 	}
 }

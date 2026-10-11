@@ -207,12 +207,15 @@ func TestExitTransitionVector(t *testing.T) {
 	leaf := te.Leaf.parse(t)
 
 	// Spec 7.1 rule 3: folding the leaf over its path reproduces r.
-	if got := tree.Fold(leaf.Node(), path); got != oldRoot {
+	if got, err := tree.Fold(leaf.Node(), path); err != nil || got != oldRoot {
 		t.Fatalf("fold of the old leaf does not reproduce the root")
 	}
 
 	// Rule 4: folding E_0 over the same path yields r'.
-	newRoot := tree.Fold(tree.EmptyLeaf, path)
+	newRoot, err := tree.Fold(tree.EmptyLeaf, path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := hex.EncodeToString(newRoot.Hash[:]); got != te.NewRoot.Hash {
 		t.Fatalf("new root mismatch:\n got %s\nwant %s", got,
 			te.NewRoot.Hash)
@@ -297,10 +300,13 @@ func TestBuildSignExit1(t *testing.T) {
 		t.Fatalf("path has %d levels, want %d", len(path),
 			v.ExampleTree.Depth)
 	}
-	if got := tree.Fold(bob.Node(), path); got != oldRoot {
+	if got, err := tree.Fold(bob.Node(), path); err != nil || got != oldRoot {
 		t.Fatal("fold of the leaf does not reproduce the root")
 	}
-	newRoot := tree.Fold(tree.EmptyLeaf, path)
+	newRoot, err := tree.Fold(tree.EmptyLeaf, path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if newRoot.Sum != te.NewRoot.Sum {
 		t.Fatalf("new root sum = %d, want %d", newRoot.Sum,
 			te.NewRoot.Sum)

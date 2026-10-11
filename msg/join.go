@@ -248,8 +248,15 @@ func (j *JoinOffer) VerifyMember(expectedM [32]byte) (tree.Node, error) {
 	if err != nil {
 		return tree.Node{}, err
 	}
-	newRoot := tree.Fold(j.NewNode, path)
-	if newRoot.Sum != j.Total+j.NewNode.Sum {
+	newRoot, err := tree.Fold(j.NewNode, path)
+	if err != nil {
+		return tree.Node{}, err
+	}
+	wantSum, err := tree.AddSum(j.Total, j.NewNode.Sum)
+	if err != nil {
+		return tree.Node{}, err
+	}
+	if newRoot.Sum != wantSum {
 		return tree.Node{}, fmt.Errorf("msg: new root sum %d != "+
 			"total %d + new node sum %d", newRoot.Sum, j.Total,
 			j.NewNode.Sum)

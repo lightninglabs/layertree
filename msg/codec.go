@@ -19,7 +19,9 @@ const nodeLen = 41
 
 // decodeNode parses a 41-byte canonical node encoding: a 32-byte hash
 // followed by an 8-byte little-endian sum and a trailing 0x01 tag byte (the
-// minimal BIP-441 encoding mirrored by tree.Enc64).
+// minimal BIP-441 encoding mirrored by tree.Enc64). A sum of tree.MaxSum or
+// more is refused: no honest node carries one, and a path built to wrap
+// the verifier's arithmetic needs one (design/audit/go.md G1).
 func decodeNode(b []byte) (tree.Node, error) {
 	if len(b) != nodeLen {
 		return tree.Node{}, fmt.Errorf("msg: invalid node encoding "+
@@ -33,6 +35,10 @@ func decodeNode(b []byte) (tree.Node, error) {
 	var n tree.Node
 	copy(n.Hash[:], b[:32])
 	n.Sum = binary.LittleEndian.Uint64(b[32:40])
+	if n.Sum >= tree.MaxSum {
+		return tree.Node{}, fmt.Errorf("msg: node sum %d is not below "+
+			"2^51", n.Sum)
+	}
 
 	return n, nil
 }

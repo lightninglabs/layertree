@@ -2,6 +2,7 @@ package msg
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"reflect"
 	"testing"
 
@@ -316,5 +317,106 @@ func TestJoinOfferSubtree(t *testing.T) {
 	tampered.NewNode.Hash[0] ^= 0xff
 	if _, err := tampered.VerifyMember(treeID); err == nil {
 		t.Fatalf("expected VerifyMember to reject a wrong NewNode")
+	}
+}
+
+// wrappedSubtreeOffer is the probe of design/audit/go.md G1 as a join
+// offer: the operator grafts a two-position subtree holding the member's
+// 1 BTC leaf beside a sibling whose sum is 2^64 - a + 330, so that a
+// wrapping fold gives the subtree a sum of 330. It returns the offer, the
+// m it was made for, the subtree proof and the wrapped node.
+func wrappedSubtreeOffer(t *testing.T) (*JoinOffer, [32]byte, *Proof,
+	tree.Node) {
+
+	t.Helper()
+	key := xOnlyKey(mustKey(t))
+
+	const depth = 4
+	mainTree := tree.New(depth)
+	mainTree.Leaves[15] = newTestLeaf(t, key, 1_000_000, 1, 0)
+	rootHash, total := mainTree.Root().Hash, mainTree.Root().Sum
+
+	const amount = uint64(100_000_000)
+	member := newTestLeaf(t, key, amount, 2, 0)
+	fake := tree.Node{
+		Hash: sha256.Sum256([]byte("fake")),
+		Sum:  ^uint64(0) - amount + 1 + 330,
+	}
+
+	// The grafted node is what tree.Parent computes with wrapping
+	// arithmetic: the right hash, sum 330.
+	newNode := tree.Parent(member.Node(), fake)
+	if newNode.Sum != 330 {
+		t.Fatalf("expected the wrapped sum 330, got %d", newNode.Sum)
+	}
+
+	// A height 1 subtree at index 2 (positions 4 and 5), currently
+	// empty.
+	const graftHeight, graftIdx = 1, 2
+	graftPath := NewProof(
+		mainTree.Path(graftIdx<<graftHeight, graftHeight), depth,
+		graftHeight, graftIdx<<graftHeight,
+	)
+	subtreePath := &Proof{
+		Depth: graftHeight, Height: 0, Position: 0,
+		Bitmap: []byte{0}, Nodes: []tree.Node{fake},
+	}
+
+	var m [32]byte
+	copy(m[:], bytes.Repeat([]byte{0x44}, 32))
+	offer := &JoinOffer{
+		TreeID:      m,
+		RootHash:    rootHash,
+		Total:       total,
+		Leaf:        *member,
+		SubtreePath: subtreePath,
+		GraftPath:   graftPath,
+		NewNode:     newNode,
+		UnsignedTx:  []byte("unsigned-tx-placeholder"),
+	}
+	return offer, m, subtreePath, newNode
+}
+
+// TestVerifyMemberRejectsWrappedSum is the G1 probe: VerifyMember and
+// Proof.Verify must reject a path whose sums only add up modulo 2^64.
+func TestVerifyMemberRejectsWrappedSum(t *testing.T) {
+	offer, m, subtreePath, newNode := wrappedSubtreeOffer(t)
+
+	if subtreePath.Verify(offer.Leaf.Node(), newNode) {
+		t.Fatalf("Proof.Verify accepted a wrapping path")
+	}
+	if _, err := offer.VerifyMember(m); err == nil {
+		t.Fatalf("VerifyMember accepted a graft whose sum wraps")
+	}
+}
+
+// TestDecodeNodeRejectsLargeSum checks the second, independent G1 guard:
+// a node whose sum is 2^51 or more cannot come from an honest tree (spec
+// 5.2 bounds leaves below 2^51 and the supply is below it too), so the
+// decoder refuses it before any fold sees it.
+func TestDecodeNodeRejectsLargeSum(t *testing.T) {
+	for _, sum := range []uint64{tree.MaxSum, tree.MaxSum + 1, ^uint64(0)} {
+		n := tree.Node{Sum: sum}
+		if _, err := decodeNode(n.Encode()); err == nil {
+			t.Fatalf("decodeNode accepted a sum of %d", sum)
+		}
+	}
+	n := tree.Node{Sum: tree.MaxSum - 1}
+	if _, err := decodeNode(n.Encode()); err != nil {
+		t.Fatalf("decodeNode rejected 2^51 - 1: %v", err)
+	}
+
+	// The same node inside a proof's node list is refused by Decode.
+	p := &Proof{
+		Depth: 1, Bitmap: []byte{0},
+		Nodes: []tree.Node{{Sum: tree.MaxSum}},
+	}
+	var buf bytes.Buffer
+	if err := p.Encode(&buf); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var decoded Proof
+	if err := decoded.Decode(&buf); err == nil {
+		t.Fatalf("Proof.Decode accepted a node sum of 2^51")
 	}
 }
