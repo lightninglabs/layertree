@@ -451,6 +451,32 @@ func TestJoinOfferSubtree(t *testing.T) {
 	if _, err := tampered.VerifyMember(m); err == nil {
 		t.Fatalf("expected VerifyMember to reject a wrong NewNode")
 	}
+
+	// 9.2 step 3(c): the subtree path must have exactly h levels. JOIN_2
+	// itself would accept the member's bare leaf as the grafted node, or
+	// a one-level subtree holding it, and the leaf would then sit one or
+	// two levels short of depth D, where no transition can reach it.
+	bare := decoded
+	bare.SubtreePath = nil
+	bare.NewNode = memberLeaf.Node()
+	_, err = bare.VerifyMember(m)
+	if err == nil || !strings.Contains(err.Error(), "bare leaf") {
+		t.Fatalf("expected VerifyMember to reject a bare leaf grafted "+
+			"at height %d, got %v", graftHeight, err)
+	}
+	shallow := tree.New(1)
+	shallow.Leaves[1] = memberLeaf
+	short := decoded
+	short.SubtreePath = NewProof(shallow.Path(1, 0), 1, 0, 1)
+	short.NewNode = shallow.Root()
+	if !short.SubtreePath.Verify(memberLeaf.Node(), short.NewNode) {
+		t.Fatalf("the one-level subtree path should fold to its root")
+	}
+	_, err = short.VerifyMember(m)
+	if err == nil || !strings.Contains(err.Error(), "graft height") {
+		t.Fatalf("expected VerifyMember to reject a one-level subtree "+
+			"path under a height-%d graft, got %v", graftHeight, err)
+	}
 }
 
 // wrappedSubtreeOffer is the probe of design/audit/go.md G1 as a join

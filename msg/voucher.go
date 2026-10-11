@@ -65,7 +65,11 @@ func (v *Voucher) Sign(priv *btcec.PrivateKey) error {
 	return nil
 }
 
-// Verify checks Sig against SourceLeaf.OwnerKey over Msg() (spec 7.5).
+// Verify checks Sig against SourceLeaf.OwnerKey over Msg() (spec 7.5). The
+// message is built over the voucher's own TreeID, so a voucher issued for
+// another tree verifies true here: a caller MUST also compare TreeID with
+// the tree's tree_id (TreeState.Options.TreeID), as txn.BuildClaim does by
+// verifying the signature over the tree's own value instead.
 func (v *Voucher) Verify() bool {
 	pub, err := schnorr.ParsePubKey(v.SourceLeaf.OwnerKey[:])
 	if err != nil {

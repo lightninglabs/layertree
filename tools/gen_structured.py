@@ -312,7 +312,7 @@ NOTES_FULL = {
 }
 NOTES_MID = {
     "TAGGED": "[msg] -> [H_tag(msg)]",
-    "CARVE_RULES": "[src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ (7.5 rule 5), and claim.amt_num >= DUST_MIN (rule 6)",
+    "CARVE_RULES": "[src(10) claim(10) extras(7) sea zse wse cea zce wce] -> [src(10) claim(10) extras(7)]: claim.evk == src.evk and claim.evict_after <= src.evict_after, each evict_after a minimal number checked against its field by PADZ and the claim's NONNEG-checked before the compare (7.5 rule 5, 10.6), and claim.amt_num >= DUST_MIN (rule 6)",
     "DRAIN_RULE": "[.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6)",
     "NONNEG": "[x] -> [x]: x == |x|, a minimal non-negative CScriptNum (rejects a negative, a negative zero and a non-minimal encoding)",
     "PADZ": "[x z w] -> [le32(x)]: z||w == 00000000 and size(x)+size(z) == 4",

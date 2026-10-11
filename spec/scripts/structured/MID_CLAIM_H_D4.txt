@@ -1,4 +1,4 @@
-# CLAIM_H (MID tier, hash-locked voucher, dense, D=4): 2694 bytes
+# CLAIM_H (MID tier, hash-locked voucher, dense, D=4): 2698 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

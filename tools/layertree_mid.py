@@ -20,7 +20,9 @@ no arbitrary-precision arithmetic. Consequences, all handled here:
   and would pass PADZ as the le32 of a value in [2^31, 2^32): the
   NONNEG check (`OP_DUP OP_DUP OP_ABS OP_EQUALVERIFY`) rejects it wherever a
   witness-supplied number enters a sum (a sibling sum, a leaf amount, a
-  joined sum). Everything else that is summed is derived from those.
+  joined sum) or a comparison with a leaf field (the claim leaf's
+  evict_after in the carve rule). Everything else that is summed is
+  derived from those.
 * Payouts are exact (8-byte comparison with OP_TX); no fee-from-payout.
 * Sparse positions: direction bits are witness items folded into an
   accumulator that must equal pos_lo, the first 4 bytes of H_pos, which the
@@ -397,6 +399,12 @@ def carve_rules(dust_min=lt.DUST_MIN):
     CScriptNum, so, as EXIT_1 does for the lock time, the witness supplies
     each evict_after as a minimal number with a PADZ pad; the pad is
     checked against the leaf's own field and the two numbers compared.
+    The claim leaf's number is NONNEG-checked first: a claim field of
+    `01 00 00 81` is the minimal CScriptNum -16,777,217 with an empty pad,
+    which the compare would accept against any source lease, planting a
+    leaf whose eviction fails OP_CHECKLOCKTIMEVERIFY for good (10.6). The
+    source's number needs no check: its field is already in the tree,
+    and with the claim side checked no carve can write a negative one.
     The claim amount is already a number (the block's amt_num, which
     LEAF_JOIN binds to the amount field), so the DUST_MIN floor of rule 6
     is one comparison against the constant."""
@@ -405,8 +413,8 @@ def carve_rules(dust_min=lt.DUST_MIN):
             [16, "OP_PICK", "OP_EQUALVERIFY",                        # le32(cea) == claim.ea
              2, "OP_PICK", "OP_TOALTSTACK"] + padz() +               # ... le32(sea)               | cea sea
             [23, "OP_PICK", "OP_EQUALVERIFY",                        # le32(sea) == src.ea
-             "OP_FROMALTSTACK", "OP_FROMALTSTACK",                   # ... sea cea
-             "OP_GREATERTHANOREQUAL", "OP_VERIFY",                   # src(10) claim(10) extras(7)
+             "OP_FROMALTSTACK", "OP_FROMALTSTACK"] + nonneg() +      # ... sea cea   (cea >= 0)
+            ["OP_GREATERTHANOREQUAL", "OP_VERIFY",                   # src(10) claim(10) extras(7)
              dust_min, 10, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_VERIFY"])     # DUST_MIN <= claim.amt_num
 
 
@@ -893,16 +901,19 @@ def w_levels(path, old_node, new_node, sparse=False, height=0):
     return items
 
 
-def w_carve_extras(src, claim, amt_new=None):
+def w_carve_extras(src, claim, amt_new=None, claim_ea=None):
     """The thirteen carve extras (bottom..top): the source seq as a number
     with its pad, the pad of seq + 1, the pad of the new source amount, and
     the minimal evict_after of the source and of the claim leaf with their
-    pads (carve_rules). amt_new defaults to src.amount - claim.amount."""
+    pads (carve_rules). amt_new defaults to src.amount - claim.amount;
+    claim_ea, a (number, z, w) triple, replaces the claim leaf's three
+    items, for tests that present a field outside the number range."""
     if amt_new is None:
         amt_new = src.amount - claim.amount
+    if claim_ea is None:
+        claim_ea = (scriptnum(claim.evict_after),) + pad(claim.evict_after)
     return ([scriptnum(src.seq)] + list(pad(src.seq)) + list(pad(src.seq + 1)) + list(pad(amt_new)) +
-            [scriptnum(src.evict_after)] + list(pad(src.evict_after)) +
-            [scriptnum(claim.evict_after)] + list(pad(claim.evict_after)))
+            [scriptnum(src.evict_after)] + list(pad(src.evict_after)) + list(claim_ea))
 
 
 def w_pos(leaf):
