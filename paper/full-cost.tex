@@ -16,7 +16,7 @@ measured sizes for scripts or populations not measured directly.
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  xbar stacked, bar width=8pt, width=0.86\linewidth, height=5.4cm,
+  xbar stacked, bar width=8pt, width=0.82\linewidth, height=5.4cm,
   xmin=0, xmax=2700, xlabel={vB per transaction},
   symbolic y coords={native,ccv,d8,full,mid,min,sparse},
   ytick=data, y dir=reverse, enlarge y limits=0.09,
@@ -48,8 +48,9 @@ measured sizes for scripts or populations not measured directly.
 
 \paragraph{Exit.} Figure~\ref{fig:anatomy} decomposes exits; taking the
 fee from the payout brings the FULL exit at $D = 16$ to $921\vB$. The
-hypothetical native opcode's $388\vB$ is measured on the six-leaf tree,
-whose compressed proof is $56\vB$ of witness; with $2^{16}$ members the
+hypothetical native opcode's $388\vB$ is measured on a six-leaf tree,
+where the whole witness (leaf, signature and compressed proof) is
+$56\vB$; with $2^{16}$ members the
 proof grows by about 14 non-empty siblings to roughly $530\vB$, the
 better estimate of the floor for a design that publishes a proof in
 script. The transaction-tree model (Table~\ref{tab:ark}) ignores the
@@ -79,7 +80,7 @@ maintenance, not payment.
 
 \begin{table}[tbp]
 \centering
-\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
+\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). LayerTree rows are dense at $D = 16$ unless marked sparse. Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
 \label{tab:lifetime}
 \setlength{\tabcolsep}{3pt}\scriptsize
 \begin{tabular}{@{}lrrrlll@{}}
@@ -88,8 +89,8 @@ maintenance, not payment.
 \cmidrule(lr){2-4}\cmidrule(l){5-7}
  & never alone & in a batch & alone & txs & blocks & online \\
 \midrule
-LayerTree dense, $D = 16$, operator-funded & 3 & 161 & 1{,}023 & 1 & 1 & nobody \\
-LayerTree dense, $D = 16$, self-funded & 61 & 219 & 1{,}081 & 1 & 1 & nobody \\
+LayerTree, operator-funded & 3 & 161 & 1{,}023 & 1 & 1 & nobody \\
+LayerTree, self-funded & 61 & 219 & 1{,}081 & 1 & 1 & nobody \\
 LayerTree sparse, $D = 32$ & 1{,}601 & 3{,}209 & 3{,}382 & 1 & 1 & nobody \\
 Lightning channel & 197 & 197 & 573 & 3 & $\approx 145$ & tower \\
 Ark, round of 256 & 86 & 86 & 1{,}354 & 9 & $8 +$ timelock & member \\
@@ -103,6 +104,4 @@ bare UTXO & 154 & 154 & 154 & 1 & 1 & nobody \\
 exit. The dense tree wins outright for a member who never exits alone or
 who is swept, and loses to Lightning and to a bare UTXO for a member who
 exits alone, though it beats an Ark unroll there; the sparse profile is
-the most expensive design in every column. A LayerTree exit has no
-pre-signed transaction to lose, no counterparty and no timelock, and the
-shared output does not expire, though the member's lease does.
+the most expensive design in every column.

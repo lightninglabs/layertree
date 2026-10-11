@@ -103,7 +103,7 @@ sequential confirmations nor the larger opcode set.
 \caption{Batch shapes at dense $D = 16$ on the model above: vB per leaf that leaves or changes, or per member that joins. Self-funded joins add each member's P2TR key-path funding input ($58\vB$) and the signing round of \S\ref{sec:parties}. The \tr{REWRITE}$_h$ rows are FULL only.}
 \label{tab:batch}
 \setlength{\tabcolsep}{4pt}\scriptsize
-\begin{tabular}{@{}lrrr@{\qquad}lrrr@{}}
+\begin{tabular}{@{}lrrr@{\quad}lrrr@{}}
 \toprule
 removal & leaves & tx & per leaf & addition or change & leaves & tx & per leaf \\
 \midrule
@@ -119,8 +119,8 @@ removal & leaves & tx & per leaf & addition or change & leaves & tx & per leaf \
 
 \paragraph{Batching and joins.} A second exit in the same transaction
 adds $665\vB$ (its marginal weight rounded up on its own, one more than
-$1{,}684 - 1{,}020$). Owners leaving together by \tr{REWRITE}$_6$ pay
-what the operator pays to sweep them (Table~\ref{tab:batch}). A graft
+$1{,}684 - 1{,}020$), against $158$ to $161\vB$ per leaf for a sweep or
+a rewrite (Table~\ref{tab:batch}). A graft
 costs the operator under $3\vB$ per member, so a self-funded member's own
 input dominates its entry. Off-chain, a member follows every spend of the
 tree output (about 1\,kB of witness each), and the operator stores the

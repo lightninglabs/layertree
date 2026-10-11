@@ -14,14 +14,15 @@ tapleaf fixed at creation; the sparse profile batches only by
 \paragraph{What the covenant checks.} The predicate requires that the
 slot held $\Emp_h$, that output~0 carries $S + s_h$, and the operator's
 signature. It sees a hash and a sum and cannot tell a real cohort from
-random bytes, which is what makes the graft constant-size and is the
-source of every trust question. \lean{join\_sound} states the
+random bytes, which is what makes the graft's size independent of the
+cohort's and is the source of every trust question. \lean{join\_sound} states the
 consequences: the slot was empty, output~0 is the old sum plus $s_h$, and
 for every tree whose root is the grafted node the new root is the old
 tree with it inserted. A graft therefore cannot move, shrink or rewrite
 an existing leaf. A node with no preimage is an opaque node of $\Ftree$:
 its $s_h$, exactly the value the graft added, is frozen, every other leaf
-stays payable (Theorem~\ref{thm:cons} holds whatever a sibling is), and
+stays payable (Theorem~\ref{thm:pay}, with Lemma~\ref{lem:path} for a
+path past the opaque node), and
 the terminal exit is lost.
 
 \paragraph{Who carries what risk.} Existing members never sign and take
@@ -75,7 +76,7 @@ the operator admits with a NUMS evictor or a later lease blocks the
 sweep of its subtree (a member cannot create one by carving, which
 keeps the evictor and the lease, spec~0.10.0).
 \tr{REWRITE}$_h$ is a graft that publishes its leaves: grounded by
-construction, at about $117\vB$ per position of the rewritten subtree
+construction, at about $120\vB$ per position of the rewritten subtree
 (measured at $h = 6$, \S\ref{sec:batching}) against under 3 per member
 for \tr{JOIN}$_8$. A graft also settles off-chain credit as exitable
 leaves (\S\ref{sec:receive}).
