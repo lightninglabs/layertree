@@ -227,11 +227,23 @@ def run_mid():
             with quiet():
                 it, sl, wl = fn(d, sparse, verbose=False)
             measure(tier, d, k, it, sl, wl)
+        for hl in (False, True):
+            with quiet():
+                it, sl, wl = test_mid.test_claim_x(d, sparse, hashlock=hl, verbose=False)
+            measure(tier, d, "CLAIM_HX" if hl else "CLAIM_X", it, sl, wl)
     for h in (2, 4, 6):
         with quiet():
             it, script, wit = test_mid.test_evict_subtree(16, h, verbose=False)
         measure("MID/D", 16, "EVICT_SUBTREE_%d" % h, it, len(script),
                 sum(len(x) for x in wit))
+    start = len(CAPTURES)
+    with quiet():
+        it, sl, wl = test_mid.test_detach(16, 8, verbose=False)
+    measure("MID/D", 16, "DETACH_8", it, sl, wl)
+    # The EXIT_1 from the detached depth-8 tree is the next successful run.
+    ex = [c for c in CAPTURES[start:] if c is not it][0]
+    measure("MID/D", 8, "EXIT_1 from the detached tree (owner)", ex, len(ex.mw[0]),
+            sum(len(x) for x in ex.mw[1]))
 
 
 def run_min():
@@ -257,6 +269,10 @@ def run_ccv():
             with quiet():
                 it, sl, wl = test_ccv.test_claim_ccv(d, prof, "c2", hl)
             measure(tier, d, "CLAIM_H" if hl else "CLAIM", it, sl, wl)
+        for hl in (False, True):
+            with quiet():
+                it, sl, wl = test_ccv.test_claim_x_ccv(d, prof, "c2", hl)
+            measure(tier, d, "CLAIM_HX" if hl else "CLAIM_X", it, sl, wl)
 
 
 def write(path):

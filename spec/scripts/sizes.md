@@ -112,8 +112,13 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/S | 31 | CLAIM_H | 18604 | 1446 | 129 | 20179 | n/a (0xC0) | 1 |
 | MID/D | 16 | SPLIT | 6371 | 1821 | 129 | 8321 | n/a (0xC0) | 1 |
 | MID/S | 31 | SPLIT | 18441 | 1420 | 129 | 19990 | n/a (0xC0) | 1 |
+| MID/D | 16 | CLAIM_X | 6530 | 1901 | 129 | 8560 | n/a (0xC0) | 2 |
+| MID/D | 16 | CLAIM_HX | 6538 | 1933 | 129 | 8600 | n/a (0xC0) | 2 |
+| MID/S | 31 | CLAIM_X | 18600 | 1483 | 129 | 20212 | n/a (0xC0) | 2 |
+| MID/S | 31 | CLAIM_HX | 18608 | 1515 | 129 | 20252 | n/a (0xC0) | 2 |
 | MID/D | 16 | EXIT_1_TOWER | 3488 | 978 | 129 | 4595 | n/a (0xC0) | 1 |
 | MID/S | 31 | EXIT_1_TOWER | 9523 | 796 | 129 | 10448 | n/a (0xC0) | 1 |
+| MID/D | 16 | DETACH_8 | 2174 | 534 | 129 | 2837 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_2 (4 positions, every fifth exited) | 4169 | 1157 | 129 | 5455 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7977 | 2417 | 129 | 10523 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24169 | 7461 | 129 | 31759 | n/a (0xC0) | 1 |
@@ -174,6 +179,14 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/D | 16 | CLAIM_H | 6164 | 1805 | 129 | 8098 | n/a (0xC0) | 1 |
 | CCV-c0/S | 31 | CLAIM | 18226 | 1350 | 129 | 19705 | n/a (0xC0) | 1 |
 | CCV-c0/S | 31 | CLAIM_H | 18234 | 1382 | 129 | 19745 | n/a (0xC0) | 1 |
+| CCV/D | 16 | CLAIM_X | 3497 | 1690 | 129 | 5316 | 2671451 | 2 |
+| CCV/D | 16 | CLAIM_HX | 3505 | 1722 | 129 | 5356 | 2675613 | 2 |
+| CCV/S | 32 | CLAIM_X | 9591 | 483 | 129 | 10203 | 3852722 | 2 |
+| CCV/S | 32 | CLAIM_HX | 9599 | 515 | 129 | 10243 | 3856884 | 2 |
+| CCV-c0/D | 16 | CLAIM_X | 6160 | 1837 | 129 | 8126 | n/a (0xC0) | 2 |
+| CCV-c0/D | 16 | CLAIM_HX | 6168 | 1869 | 129 | 8166 | n/a (0xC0) | 2 |
+| CCV-c0/S | 31 | CLAIM_X | 18230 | 1419 | 129 | 19778 | n/a (0xC0) | 2 |
+| CCV-c0/S | 31 | CLAIM_HX | 18238 | 1451 | 129 | 19818 | n/a (0xC0) | 2 |
 | CCV/D | 16 | DETACH_8 | 973 | 433 | 129 | 1535 | 2154472 | 1 |
 | CCV-c0/D | 16 | DETACH_8 | 1628 | 470 | 129 | 2227 | n/a (0xC0) | 1 |
 | CCV/D | 16 | EXIT_1_TOWER | 1826 | 838 | 129 | 2793 | 2331249 | 1 |

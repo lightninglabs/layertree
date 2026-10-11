@@ -65,6 +65,8 @@ The difference column is measured minus model. For a row whose shape is the mode
 | MID/D | 16 | UPDATE_X | 3483 | 1225 | 175 | 5783 | 1446 | 178 | 1491 | -296 | 5665 | 1417 | -29 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | CLAIM_H | 6534 | 1869 | 331 | 9478 | 2370 | 336 | 2454 | -296 | 9518 | 2380 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | SPLIT | 6371 | 1821 | 330 | 9267 | 2317 | 335 | 2401 | -296 | 9306 | 2327 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/D | 16 | CLAIM_X | 6530 | 1901 | 331 | 9506 | 2377 | 336 | 2461 | -296 | 9546 | 2387 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/D | 16 | CLAIM_HX | 6538 | 1933 | 332 | 9546 | 2387 | 337 | 2471 | -296 | 9587 | 2397 | +10 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | EXIT_1 (owner) | 9402 | 796 | 306 | 11273 | 2819 | 311 | 2896 | 0 | 11584 | 2896 | +77 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | MID/S | 31 | EXIT_1 (evict) | 9402 | 797 | 306 | 11274 | 2819 | 311 | 2897 | -124 | 11461 | 2866 | +47 | 2 in / 2 out (2 P2TR, 0 P2WPKH) |
 | MID/S | 31 | JOIN_0 | 9382 | 783 | 302 | 11240 | 2810 | 307 | 2887 | -296 | 11251 | 2813 | +3 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
@@ -74,9 +76,13 @@ The difference column is measured minus model. For a row whose shape is the mode
 | MID/S | 31 | UPDATE_X | 9529 | 1032 | 314 | 11636 | 2909 | 319 | 2989 | -296 | 11659 | 2915 | +6 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | CLAIM_H | 18604 | 1446 | 609 | 21125 | 5282 | 614 | 5435 | -296 | 21443 | 5361 | +79 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/S | 31 | SPLIT | 18441 | 1420 | 608 | 20936 | 5234 | 613 | 5388 | -296 | 21253 | 5314 | +80 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/S | 31 | CLAIM_X | 18600 | 1483 | 609 | 21158 | 5290 | 614 | 5443 | -296 | 21476 | 5369 | +79 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| MID/S | 31 | CLAIM_HX | 18608 | 1515 | 610 | 21198 | 5300 | 615 | 5454 | -296 | 21517 | 5380 | +80 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | MID/D | 16 | EVICT_SUBTREE_2 | 4169 | 1157 | 182 | 6401 | 1601 | 185 | 1647 | 344 | 6930 | 1733 | +132 | 2 in / 5 out (4 P2TR, 1 P2WPKH) |
 | MID/D | 16 | EVICT_SUBTREE_4 | 7977 | 2417 | 330 | 11469 | 2868 | 335 | 2951 | 2064 | 13868 | 3467 | +599 | 2 in / 15 out (14 P2TR, 1 P2WPKH) |
 | MID/D | 16 | EVICT_SUBTREE_6 | 24169 | 7461 | 950 | 32705 | 8177 | 955 | 8415 | 8600 | 42260 | 10565 | +2388 | 2 in / 53 out (52 P2TR, 1 P2WPKH) |
+| MID/D | 16 | DETACH_8 | 2174 | 534 | 85 | 3783 | 946 | 88 | 968 | 0 | 3871 | 968 | +22 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
+| MID/D | 8 | EXIT_1 from the detached tree (owner) | 2087 | 638 | 95 | 3800 | 950 | 98 | 975 | -124 | 3774 | 944 | -6 | 2 in / 2 out (2 P2TR, 0 P2WPKH) |
 | MIN/D | 16 | EXIT_1 (owner) | 3640 | 1175 | 176 | 5890 | 1473 | 179 | 1518 | 0 | 6069 | 1518 | +45 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | MIN/D | 16 | SPLIT | 6655 | 2018 | 339 | 9748 | 2437 | 344 | 2523 | -172 | 9920 | 2480 | +43 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 37 | 3629 | 908 | 40 | 918 | 0 | 3669 | 918 | +10 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
@@ -91,6 +97,8 @@ The difference column is measured minus model. For a row whose shape is the mode
 | CCV/D | 16 | SPLIT | 3378 | 1610 | 69 | 6063 | 1516 | 72 | 1534 | -296 | 5839 | 1460 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/D | 16 | CLAIM | 3490 | 1626 | 69 | 6191 | 1548 | 72 | 1566 | -296 | 5967 | 1492 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/D | 16 | CLAIM_H | 3498 | 1658 | 70 | 6231 | 1558 | 73 | 1576 | -296 | 6008 | 1502 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/D | 16 | CLAIM_X | 3497 | 1690 | 70 | 6262 | 1566 | 73 | 1584 | -296 | 6039 | 1510 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/D | 16 | CLAIM_HX | 3505 | 1722 | 71 | 6302 | 1576 | 74 | 1594 | -296 | 6080 | 1520 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | EXIT_1 (owner) | 4762 | 262 | 37 | 6099 | 1525 | 40 | 1535 | 0 | 6139 | 1535 | +10 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | CCV/S | 32 | EXIT_1 (evict) | 4762 | 263 | 37 | 6100 | 1525 | 40 | 1535 | -396 | 5744 | 1436 | -89 | 1 in / 2 out (2 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | EXIT_1 (terminal) | 4762 | 180 | 37 | 6017 | 1505 | 40 | 1515 | -172 | 5885 | 1472 | -33 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
@@ -102,6 +110,8 @@ The difference column is measured minus model. For a row whose shape is the mode
 | CCV/S | 32 | SPLIT | 9472 | 419 | 69 | 10966 | 2742 | 72 | 2760 | -296 | 10742 | 2686 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | CLAIM | 9584 | 419 | 69 | 11078 | 2770 | 72 | 2788 | -296 | 10854 | 2714 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 | CCV/S | 32 | CLAIM_H | 9592 | 451 | 70 | 11118 | 2780 | 73 | 2798 | -296 | 10895 | 2724 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/S | 32 | CLAIM_X | 9591 | 483 | 70 | 11149 | 2788 | 73 | 2806 | -296 | 10926 | 2732 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
+| CCV/S | 32 | CLAIM_HX | 9599 | 515 | 71 | 11189 | 2798 | 74 | 2816 | -296 | 10967 | 2742 | -56 | 2 in / 1 out (1 P2TR, 0 P2WPKH) |
 
 ## Per-exit prefix overhead, EXIT_1 (owner), dense D = 16
 

@@ -153,9 +153,16 @@ for d, sparse in ((16, False), (31, True)):
     rows.append(("MID/" + ("S" if sparse else "D"), d, "SPLIT", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
 for d, sparse in ((16, False), (31, True)):
+    for hl, name in ((False, "CLAIM_X"), (True, "CLAIM_HX")):
+        it, sl, wl = test_mid.test_claim_x(d, sparse, hashlock=hl, verbose=False)
+        rows.append(("MID/" + ("S" if sparse else "D"), d, name, sl, wl, 129,
+                     sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+for d, sparse in ((16, False), (31, True)):
     it, sl, wl = test_mid.test_exit_tower(d, sparse, verbose=False)
     rows.append(("MID/" + ("S" if sparse else "D"), d, "EXIT_1_TOWER", sl, wl, 129,
                  sl + wl + 129, "n/a (0xC0)", it.sigchecks))
+it, sl, wl = test_mid.test_detach(16, 8, verbose=False)
+rows.append(("MID/D", 16, "DETACH_8", sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
 for h, full in ((2, False), (4, False), (6, False), (5, True)):
     it, script, wit = test_mid.test_evict_subtree(16, h, verbose=False, full=full)
     n = 1 << h
@@ -194,6 +201,12 @@ with open(os.path.join(OUT, "MID_SPLIT_D4.txt"), "w") as f:
 with open(os.path.join(OUT, "MID_EXIT_1_TOWER_D4.txt"), "w") as f:
     f.write(listing("EXIT_1_TOWER (MID tier, tower-delegable exit, dense, D=4)",
                     LM.exit_script(4, 1, False, tower=True, tree_id=TREE_ID)))
+with open(os.path.join(OUT, "MID_CLAIM_X_D4.txt"), "w") as f:
+    f.write(listing("CLAIM_X (MID tier, exit-key consent, dense, D=4)",
+                    LM.claim_script(4, TREE_ID, False, exit_consent=True)))
+with open(os.path.join(OUT, "MID_DETACH_2_D8.txt"), "w") as f:
+    f.write(listing("DETACH_2 (MID tier, dense, D=8): detach a 4-position subtree into its own tree output",
+                    LM.detach_script(8, 2, OP_KEY, LM.detached_taptree_root(2, OP_KEY, TREE_ID))))
 with open(os.path.join(OUT, "MIN_EXIT_1_D4.txt"), "w") as f:
     f.write(listing("EXIT_1 (MIN tier, dense, D=4)", LN.exit_script(4)))
 with open(os.path.join(OUT, "MIN_SPLIT_D4.txt"), "w") as f:
@@ -233,6 +246,12 @@ for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31,
         tierp = ("CCV/" if numeric == "c2" else "CCV-c0/") + prof
         rows.append((tierp, d, "CLAIM_H" if hl else "CLAIM", sl, wl, 129, sl + wl + 129,
                      it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for d, prof, numeric in ((16, "D", "c2"), (32, "S", "c2"), (16, "D", "c0"), (31, "S", "c0")):
+    for hl in (False, True):
+        it, sl, wl = test_ccv.test_claim_x_ccv(d, prof, numeric, hl)
+        tierp = ("CCV/" if numeric == "c2" else "CCV-c0/") + prof
+        rows.append((tierp, d, "CLAIM_HX" if hl else "CLAIM_X", sl, wl, 129, sl + wl + 129,
+                     it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
 for numeric in ("c2", "c0"):
     it, sl, wl = test_ccv.test_detach_ccv(16, 8, numeric)
     rows.append(("CCV/D" if numeric == "c2" else "CCV-c0/D", 16, "DETACH_8", sl, wl, 129, sl + wl + 129,
@@ -260,6 +279,12 @@ for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     with open(os.path.join(OUT, f"CCV0_{nm}_D4.txt"), "w") as f:
         f.write(listing(f"{nm} (CCV tier, 0xC0 numerics, dense, D=4)",
                         CV._claim_script_ccv0(4, TREE_ID, False, hl)))
+with open(os.path.join(OUT, "CCV_CLAIM_X_D4.txt"), "w") as f:
+    f.write(listing("CLAIM_X (CCV tier, exit-key consent, dense, D=4)",
+                    CV.claim_script_ccv(4, TREE_ID, "D", exit_consent=True)))
+with open(os.path.join(OUT, "CCV0_CLAIM_X_D4.txt"), "w") as f:
+    f.write(listing("CLAIM_X (CCV tier, 0xC0 numerics, exit-key consent, dense, D=4)",
+                    CV._claim_script_ccv0(4, TREE_ID, False, exit_consent=True)))
 with open(os.path.join(OUT, "CCV0_SPLIT_D4.txt"), "w") as f:
     f.write(listing("SPLIT (CCV tier, 0xC0 numerics, owner-authorised carve, dense, D=4)",
                     CV._split_script_ccv0(4, False)))
