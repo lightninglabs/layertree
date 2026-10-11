@@ -122,6 +122,43 @@ func minSighashTail() []Token {
 	return s
 }
 
+// MinTreeOptions are a MIN tree's creation parameters other than its depth.
+// The MIN tier is an existence proof (spec 4.5): its taptree carries
+// EXIT_1 and SPLIT for the dense profile and nothing else, so the only
+// parameter is DUST_MIN. The type exists so that the transaction builders
+// can treat a MIN tree as they treat the other tiers' option sets.
+type MinTreeOptions struct {
+	// DustMin is the tree's DUST_MIN (spec 6.2), the floor SPLIT carries
+	// as a constant (7.5 rule 6). Zero means tree.DustMin.
+	DustMin uint64
+}
+
+// DustFloor is the DUST_MIN the tree's SPLIT enforces: DustMin, or
+// tree.DustMin when it is zero.
+func (o MinTreeOptions) DustFloor() uint64 {
+	return dustFloor(o.DustMin)
+}
+
+// Scripts compiles the MIN set for a tree of the given depth: EXIT_1, then
+// SPLIT.
+func (o MinTreeOptions) Scripts(depth int) []FullNamedScript {
+	return []FullNamedScript{
+		{Name: "EXIT_1", Tokens: MinExitScript(depth)},
+		{Name: "SPLIT", Tokens: MinSplitScript(depth, o.DustMin)},
+	}
+}
+
+// TapTreeRoot is the tree identifier m of a MIN tree of the given depth
+// created with these options (spec 6.2).
+func (o MinTreeOptions) TapTreeRoot(depth int) [32]byte {
+	scripts := o.Scripts(depth)
+	leaves := make([][32]byte, 0, len(scripts))
+	for _, s := range scripts {
+		leaves = append(leaves, TapLeafHash(MustAssemble(s.Tokens, ModeC0), 0xc0))
+	}
+	return TapTreeRoot(leaves)
+}
+
 // MinSplitScript is the MIN-tier SPLIT (spec 7.5.2) for the dense profile:
 // the MID carve, authorised by the source owner's transaction signature,
 // with the OP_TX reads replaced by the constructive signature message.

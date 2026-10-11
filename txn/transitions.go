@@ -4,13 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 
-	"github.com/roasbeef/layertree/script"
 	"github.com/roasbeef/layertree/tree"
 )
 
@@ -19,31 +17,36 @@ import (
 // compiled from, its taptree (whose root is m), and the outpoint that
 // holds it.
 //
-// Options is what the builders consult about the rules: the profile, the
-// operator key the JOIN, UPDATE and sweep scripts check, the tree_id of
-// spec 6.2 that the CLAIM scripts carry as a constant and SignVoucher signs
-// over, and whether the exits are the exact-payout EXIT_K^= of 7.2 rule 6
-// or the tower-delegable EXIT_K^t of rule 7, whose owner steps take an
-// authorisation from SignExitAuth in place of a transaction signature.
-// NewTreeState compiles TapTree from Options, so the two agree by
-// construction. A TreeState assembled by hand must keep them consistent:
-// Options has to describe the scripts in TapTree, or the builders will
-// sign what the scripts reject (design/audit/go.md G4, G8).
+// Options is the option set of the tree's tier (one of
+// script.FullTreeOptions, script.MidTreeOptions, script.MinTreeOptions or
+// script.CCVTreeOptions), and it is what the builders consult about the
+// rules: the tier itself, which fixes the leaf version, the numerics, the
+// witness encoding and the tree output key; the profile; the operator key
+// the JOIN, UPDATE and cohort scripts check; the tree_id of spec 6.2 that
+// the CLAIM scripts carry as a constant and SignVoucher signs over; the
+// DUST_MIN of 7.5 rule 6; and whether the exits are the exact-payout
+// EXIT_K^= of 7.2 rule 6 or the tower-delegable EXIT_K^t of rule 7, whose
+// owner steps take an authorisation from SignExitAuth in place of a
+// transaction signature. NewTreeState compiles TapTree from Options, so
+// the two agree by construction. A TreeState assembled by hand must keep
+// them consistent: Options has to describe the scripts in TapTree, or the
+// builders will sign what the scripts reject (design/audit/go.md G4, G8).
 type TreeState struct {
 	Tree     *tree.Tree
-	Options  script.FullTreeOptions
+	Options  Options
 	TapTree  *TapTree
 	OutPoint wire.OutPoint
 }
 
 // NewTreeState returns the state of the tree output at outPoint holding tr,
-// created with opts: the taptree is compiled from opts at the tree's depth,
-// so its m is opts.TapTreeRoot(depth) and the tree_id its CLAIM scripts
-// check is the one the builders sign vouchers over.
-func NewTreeState(tr *tree.Tree, opts script.FullTreeOptions,
-	outPoint wire.OutPoint) (*TreeState, error) {
+// created with opts: the taptree is compiled from opts at the tree's depth
+// in the tier opts belongs to, so its m is opts.TapTreeRoot(depth) and the
+// tree_id its CLAIM scripts check is the one the builders sign vouchers
+// over.
+func NewTreeState(tr *tree.Tree, opts Options, outPoint wire.OutPoint) (
+	*TreeState, error) {
 
-	tt, err := NewFullTapTree(tr.Depth, opts)
+	tt, err := NewOptionsTapTree(tr.Depth, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -52,24 +55,37 @@ func NewTreeState(tr *tree.Tree, opts script.FullTreeOptions,
 	}, nil
 }
 
-// Input returns the tree input: TREE_SPK(r, m) holding the root's sum.
-func (st *TreeState) Input() TreeInput {
+// rules reads the builders' rules off the tree's option set.
+func (st *TreeState) rules() (rules, error) {
+	return optionRules(st.Options)
+}
+
+// Tier is the tier of the tree's scripts.
+func (st *TreeState) Tier() (Tier, error) {
+	r, err := st.rules()
+	return r.tier, err
+}
+
+// Input returns the tree input: TREE_SPK(r, m) of the tree's tier holding
+// the root's sum.
+func (st *TreeState) Input() (TreeInput, error) {
+	r, err := st.rules()
+	if err != nil {
+		return TreeInput{}, err
+	}
+	return st.input(r), nil
+}
+
+// input is Input with the rules already read.
+func (st *TreeState) input(r rules) TreeInput {
 	root := st.Tree.Root()
 	return TreeInput{
 		OutPoint:   st.OutPoint,
 		Amount:     int64(root.Sum),
 		RootHash:   root.Hash,
 		MerkleRoot: st.TapTree.Root(),
+		Tier:       r.tier,
 	}
-}
-
-// pathWitness renders a sibling path in the tree's profile. height is the
-// height of the path's first level.
-func (st *TreeState) pathWitness(path []tree.PathStep, height int) [][]byte {
-	if st.Options.Sparse {
-		return SparsePathWitness(path, height)
-	}
-	return DensePathWitness(path)
 }
 
 // checkEvictLockTime rejects an nLockTime the eviction branch's
@@ -91,14 +107,22 @@ func checkEvictLockTime(lockTime, evictAfter uint32) error {
 
 // checkPos rejects a sparse-profile position that is not the one the leaf
 // derives (spec 5.4): the scripts derive the position themselves, so any
-// other position would fail.
-func (st *TreeState) checkPos(pos uint64, leaf *tree.Leaf) error {
-	if !st.Options.Sparse {
+// other position would fail. Under 0xC0 numerics the leaf's pos_lo must
+// also be a minimal positive CScriptNum (spec 4.5), which a joiner grinds
+// its nonce for; a leaf whose nonce is not usable is refused here rather
+// than failed on chain.
+func (st *TreeState) checkPos(r rules, pos uint64, leaf *tree.Leaf) error {
+	if !r.sparse {
 		return nil
 	}
 	if want := leaf.Position(st.Tree.Depth); pos != want {
 		return fmt.Errorf("txn: sparse leaf derives position %d, not %d",
 			want, pos)
+	}
+	if r.tier.elements() && !leaf.PosLoMinimal(st.Tree.Depth) {
+		return fmt.Errorf("txn: the leaf's nonce does not give a minimal "+
+			"pos_lo at depth %d, which the 0xC0 sparse scripts need "+
+			"(spec 4.5)", st.Tree.Depth)
 	}
 	return nil
 }
@@ -125,9 +149,14 @@ func sigPlaceholder() []byte { return []byte{} }
 
 // finish assembles the transaction for a transition from st to next and
 // returns it as a Spend revealing the named script. payouts are outputs
-// 1..K; stack and sigs are the witness stack and its signature slots.
-func finish(st *TreeState, next *tree.Tree, name string, payouts []Payout,
-	stack [][]byte, sigs []SigSlot, opts *TxOpts) (*Spend, error) {
+// 1..K; body is the witness body in the tier's encoding and sigs its
+// signature slots, indexed within the body. finish frames the body for
+// the tier: under 0xC0 numerics the PADZ pad of the new total goes
+// underneath it, in the MIN tier the nine raw introspection pieces
+// underneath that, and r m on top unless the tier is CCV.
+func finish(st *TreeState, r rules, next *tree.Tree, name string,
+	payouts []Payout, body [][]byte, sigs []SigSlot, opts *TxOpts) (*Spend,
+	error) {
 
 	if opts == nil {
 		opts = &TxOpts{}
@@ -135,6 +164,9 @@ func finish(st *TreeState, next *tree.Tree, name string, payouts []Payout,
 	newRoot := next.Root()
 	terminal := newRoot == tree.EmptyNode(next.Depth)
 	switch {
+	case terminal && r.tier == Min:
+		return nil, errors.New("txn: the MIN tier's output 0 is always " +
+			"a tree output, so it has no terminal form (spec 7.8)")
 	case terminal && opts.Terminal == nil:
 		return nil, errors.New("txn: the transition empties the tree; " +
 			"output 0 must be supplied (spec 7.8)")
@@ -142,10 +174,14 @@ func finish(st *TreeState, next *tree.Tree, name string, payouts []Payout,
 		return nil, errors.New("txn: a terminal output 0 is only " +
 			"allowed when the new root is E_D")
 	}
+	if err := r.checkTotals(st.Tree, next); err != nil {
+		return nil, err
+	}
 
+	in := st.input(r)
 	b := &Builder{
 		LockTime:     opts.LockTime,
-		Tree:         st.Input(),
+		Tree:         in,
 		NewRoot:      newRoot.Hash,
 		NewAmount:    int64(newRoot.Sum),
 		Payouts:      payouts,
@@ -164,16 +200,16 @@ func finish(st *TreeState, next *tree.Tree, name string, payouts []Payout,
 
 	// The covenant only fixes output 0 and the payouts; whatever value
 	// they need beyond the tree input has to come from the other inputs.
-	var in, out int64
+	var inSum, outSum int64
 	for _, txIn := range tx.TxIn {
-		in += prevOuts[txIn.PreviousOutPoint].Value
+		inSum += prevOuts[txIn.PreviousOutPoint].Value
 	}
 	for _, txOut := range tx.TxOut {
-		out += txOut.Value
+		outSum += txOut.Value
 	}
-	if out > in {
+	if outSum > inSum {
 		return nil, fmt.Errorf("txn: outputs (%d) exceed inputs (%d)",
-			out, in)
+			outSum, inSum)
 	}
 
 	idx, err := st.TapTree.Find(name)
@@ -181,12 +217,34 @@ func finish(st *TreeState, next *tree.Tree, name string, payouts []Payout,
 		return nil, err
 	}
 	leaf := st.TapTree.Leaves[idx]
-	cb, err := TreeControlBlock(
-		b.Tree.RootHash, b.Tree.MerkleRoot, leaf.Version,
+	cb, err := r.tier.controlBlock(
+		in.RootHash, in.MerkleRoot, leaf.Version,
 		st.TapTree.InclusionProof(idx),
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Frame the body for the tier.
+	var prefix [][]byte
+	if r.tier.elements() {
+		prefix = pad(newRoot.Sum)
+	}
+	if r.tier == Min {
+		raw, err := minRawPieces(tx, prevOuts, leaf.Hash(), 1+len(payouts))
+		if err != nil {
+			return nil, err
+		}
+		prefix = append(raw, prefix...)
+	}
+	stack := make([][]byte, 0, len(prefix)+len(body)+2)
+	stack = append(stack, prefix...)
+	stack = append(stack, body...)
+	if !r.tier.ccv() {
+		stack = append(stack, in.RootHash[:], in.MerkleRoot[:])
+	}
+	for i := range sigs {
+		sigs[i].Index += len(prefix)
 	}
 	return &Spend{
 		Tx:           tx,
@@ -209,14 +267,15 @@ type ExitStep struct {
 
 	// Fee is the part of the leaf's amount an owner exit leaves to the
 	// transaction (7.2 rule 3). BuildExit rejects a non-zero fee on an
-	// eviction and in a tree whose Options.Exact or Options.Tower is set,
-	// since EXIT_K^= (7.2 rule 6) and EXIT_K^t (rule 7) pay the whole
-	// leaf.
+	// eviction and in a tree whose exits pay the whole leaf: one created
+	// with Exact or Tower in the FULL tier (EXIT_K^= of 7.2 rule 6,
+	// EXIT_K^t of rule 7), and every tree of the other tiers, whose only
+	// payout mode is exact.
 	Fee int64
 
 	// Auth is the owner's exit authorisation of spec 7.2 rule 7, a
 	// signature from SignExitAuth, for an owner exit in a tree whose
-	// Options.Tower is set: EXIT_K^t takes it in the signature slot in
+	// Tower option is set: EXIT_K^t takes it in the signature slot in
 	// place of a transaction signature, so the step has no slot to sign
 	// and whoever holds the authorisation (a tower) builds the exit with
 	// its own fee input. BuildExit requires it for an owner exit in such a
@@ -232,14 +291,24 @@ type ExitStep struct {
 func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(steps) == 0 {
 		return nil, nil, errors.New("txn: EXIT_K needs at least one step")
+	}
+	// Exits only lower the sums, so the tree before them is the one the
+	// 0xC0 encoders have to be able to carry.
+	if err := r.checkTotals(st.Tree); err != nil {
+		return nil, nil, err
 	}
 	var lockTime uint32
 	if opts != nil {
 		lockTime = opts.LockTime
 	}
 
+	in := st.input(r)
 	cur := st.Tree.Clone()
 	blocks := make([][][]byte, len(steps))
 	payouts := make([]Payout, len(steps))
@@ -254,10 +323,9 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 			return nil, nil, fmt.Errorf("txn: exit step %d: fee "+
 				"%d out of range", i+1, step.Fee)
 		}
-		if step.Fee != 0 && (st.Options.Exact || st.Options.Tower) {
+		if step.Fee != 0 && r.exact {
 			return nil, nil, fmt.Errorf("txn: exit step %d: the "+
-				"tree's EXIT_K^= scripts pay out exactly (spec 7.2 "+
-				"rule 6)", i+1)
+				"tree's exits pay out exactly (spec 7.2 rule 6)", i+1)
 		}
 		keys[i] = leaf.OwnerKey
 		sig := sigPlaceholder()
@@ -279,7 +347,7 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 			}
 			keys[i] = leaf.EvictorKey
 
-		case st.Options.Tower:
+		case r.tower:
 			// EXIT_K^t (spec 7.2 rule 7): the owner branch takes the
 			// off-chain authorisation, so there is no slot to sign.
 			if step.Auth == nil {
@@ -287,7 +355,7 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 					"tree's EXIT_K^t scripts take the owner's exit "+
 					"authorisation (spec 7.2 rule 7)", i+1)
 			}
-			msg := tree.ExitAuthMsg(st.Options.TreeID, leaf)
+			msg := tree.ExitAuthMsg(r.treeID, leaf)
 			if err := VerifySchnorr(leaf.OwnerKey, msg[:], step.Auth); err != nil {
 				return nil, nil, fmt.Errorf("txn: exit step %d: "+
 					"authorisation: %w", i+1, err)
@@ -299,8 +367,21 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 				"authorisation needs a tree created with EXIT_K^t "+
 				"(spec 7.2 rule 7)", i+1)
 		}
-		path := st.pathWitness(cur.Path(step.Pos, 0), 0)
-		blocks[i] = ExitBlock(path, leaf, sig, step.Evict)
+
+		// Block i: the input pad for the first block the script runs,
+		// the levels, the sparse position items, the leaf with its
+		// evict_after, the signature and is_evict.
+		var block [][]byte
+		if i == 0 {
+			block = append(block, r.inputPad(uint64(in.Amount))...)
+		}
+		block = append(block, r.levels(
+			cur.Path(step.Pos, 0), 0, leaf.Node(), tree.EmptyLeaf,
+		)...)
+		block = append(block, r.pos(leaf)...)
+		block = append(block, r.leaf(leaf, true)...)
+		block = append(block, sig, boolElem(step.Evict))
+		blocks[i] = block
 		payouts[i] = Payout{
 			ExitKey: leaf.ExitKey,
 			Amount:  int64(leaf.Amount) - step.Fee,
@@ -312,30 +393,35 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 	// block's signature sits two elements from its end. An owner step
 	// under EXIT_K^t carries its authorisation there already and has no
 	// slot.
+	var body [][]byte
 	var sigs []SigSlot
-	n := 0
 	for i := len(blocks) - 1; i >= 0; i-- {
-		n += len(blocks[i])
 		role := "owner"
 		if steps[i].Evict {
 			role = "evictor"
-		} else if st.Options.Tower {
-			continue
 		}
-		sigs = append(sigs, SigSlot{
-			Index: n - 2, Key: keys[i],
-			Role: fmt.Sprintf("exit %d %s", i+1, role),
-		})
+		if steps[i].Evict || !r.tower {
+			sigs = append(sigs, SigSlot{
+				Index: len(body) + len(blocks[i]) - 2, Key: keys[i],
+				Role: fmt.Sprintf("exit %d %s", i+1, role),
+			})
+		}
+		body = append(body, blocks[i]...)
 	}
-	in := st.Input()
-	stack := ExitKWitness(blocks, in.RootHash, in.MerkleRoot)
 
 	name := fmt.Sprintf("EXIT_%d", len(steps))
-	spend, err := finish(st, cur, name, payouts, stack, sigs, opts)
+	spend, err := finish(st, r, cur, name, payouts, body, sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}
 	return spend, cur, nil
+}
+
+// operatorSlot appends the operator's signature placeholder to a body and
+// returns the body and its slot.
+func operatorSlot(r rules, body [][]byte) ([][]byte, []SigSlot) {
+	slot := SigSlot{Index: len(body), Key: r.operatorKey, Role: "operator"}
+	return append(body, sigPlaceholder()), []SigSlot{slot}
 }
 
 // BuildJoin builds JOIN_h (spec 7.3): graft the subtree of height h at
@@ -347,6 +433,10 @@ func BuildJoin(st *TreeState, height int, index uint64,
 	leaves map[uint64]*tree.Leaf, opts *TxOpts) (*Spend, *tree.Tree,
 	error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
 	cur := st.Tree
 	switch {
 	case height < 0 || height > cur.Depth:
@@ -357,7 +447,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 			index)
 	case len(leaves) == 0:
 		return nil, nil, errors.New("txn: a join needs a leaf")
-	case st.Options.Sparse && (height != 0 || len(leaves) != 1):
+	case r.sparse && (height != 0 || len(leaves) != 1):
 		return nil, nil, errors.New("txn: the sparse profile joins " +
 			"one leaf at height 0")
 	}
@@ -380,29 +470,30 @@ func BuildJoin(st *TreeState, height int, index uint64,
 		next.Leaves[index<<uint(height)+off] = l
 		leaf = l
 	}
-	if err := st.checkPos(index, leaf); err != nil {
+	if err := st.checkPos(r, index, leaf); err != nil {
+		return nil, nil, err
+	}
+	if err := r.checkTotals(st.Tree, next); err != nil {
 		return nil, nil, err
 	}
 
-	in := st.Input()
-	path := st.pathWitness(cur.Path(index<<uint(height), height), height)
-	var stack [][]byte
-	if st.Options.Sparse {
-		stack = JoinLeafWitness(
-			path, leaf, sigPlaceholder(), in.RootHash, in.MerkleRoot,
-		)
+	in := st.input(r)
+	node := next.Subtree(height, index)
+	body := r.inputPad(uint64(in.Amount))
+	body = append(body, r.levels(
+		cur.Path(index<<uint(height), height), height,
+		tree.EmptyNode(height), node,
+	)...)
+	if r.sparse {
+		body = append(body, r.pos(leaf)...)
+		body = append(body, r.leaf(leaf, false)...)
 	} else {
-		stack = JoinWitness(
-			path, next.Subtree(height, index), sigPlaceholder(),
-			in.RootHash, in.MerkleRoot,
-		)
+		body = append(body, node.Hash[:], r.sum(node.Sum))
 	}
-	sigs := []SigSlot{{
-		Index: len(stack) - 3, Key: st.Options.OperatorKey, Role: "operator",
-	}}
+	body, sigs := operatorSlot(r, body)
 
 	name := fmt.Sprintf("JOIN_%d", height)
-	spend, err := finish(st, next, name, nil, stack, sigs, opts)
+	spend, err := finish(st, r, next, name, nil, body, sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -415,45 +506,71 @@ func BuildJoin(st *TreeState, height int, index uint64,
 func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(joins) == 0 {
 		return nil, nil, errors.New("txn: JOINK_K needs a leaf")
 	}
-	cur := st.Tree.Clone()
-	blocks := make([][][]byte, len(joins))
+	// Validate every join and build the final tree before encoding
+	// anything: the 0xC0 encoders size their pads from the running sums,
+	// which the cap check has to cover first.
+	in := st.input(r)
+	next := st.Tree.Clone()
 	for i, j := range joins {
-		if j.Pos >= uint64(1)<<uint(cur.Depth) {
+		if j.Pos >= uint64(1)<<uint(next.Depth) {
 			return nil, nil, fmt.Errorf("txn: join %d: position "+
 				"%d out of range", i+1, j.Pos)
 		}
-		if _, ok := cur.Leaves[j.Pos]; ok {
+		if _, ok := next.Leaves[j.Pos]; ok {
 			return nil, nil, fmt.Errorf("txn: join %d: position "+
 				"%d is occupied", i+1, j.Pos)
 		}
 		if err := j.Leaf.Validate(); err != nil {
 			return nil, nil, fmt.Errorf("txn: join %d: %w", i+1, err)
 		}
-		if err := st.checkPos(j.Pos, j.Leaf); err != nil {
+		if err := st.checkPos(r, j.Pos, j.Leaf); err != nil {
 			return nil, nil, err
 		}
-		path := st.pathWitness(cur.Path(j.Pos, 0), 0)
-		if st.Options.Sparse {
-			blocks[i] = JoinBlock(path, tree.Node{}, j.Leaf)
-		} else {
-			blocks[i] = JoinBlock(path, j.Leaf.Node(), nil)
+		next.Leaves[j.Pos] = j.Leaf
+	}
+	if err := r.checkTotals(st.Tree, next); err != nil {
+		return nil, nil, err
+	}
+
+	// Block i proves its leaf against the root the previous joins left.
+	cur := st.Tree.Clone()
+	blocks := make([][][]byte, len(joins))
+	for i, j := range joins {
+		var block [][]byte
+		if i == 0 {
+			block = append(block, r.inputPad(uint64(in.Amount))...)
 		}
+		block = append(block, r.levels(
+			cur.Path(j.Pos, 0), 0, tree.EmptyLeaf, j.Leaf.Node(),
+		)...)
+		if r.sparse {
+			block = append(block, r.pos(j.Leaf)...)
+			block = append(block, r.leaf(j.Leaf, false)...)
+		} else {
+			h := j.Leaf.Hash()
+			block = append(block, h[:], r.sum(j.Leaf.Amount))
+		}
+		blocks[i] = block
 		cur.Leaves[j.Pos] = j.Leaf
 	}
 
-	in := st.Input()
-	stack := JoinKWitness(
-		blocks, sigPlaceholder(), in.RootHash, in.MerkleRoot,
-	)
-	sigs := []SigSlot{{
-		Index: len(stack) - 3, Key: st.Options.OperatorKey, Role: "operator",
-	}}
+	// Block K is deepest, block 1 nearest the top, the operator's
+	// signature above them all (spec 8.4).
+	var body [][]byte
+	for i := len(blocks) - 1; i >= 0; i-- {
+		body = append(body, blocks[i]...)
+	}
+	body, sigs := operatorSlot(r, body)
 
 	name := fmt.Sprintf("JOINK_%d", len(joins))
-	spend, err := finish(st, cur, name, nil, stack, sigs, opts)
+	spend, err := finish(st, r, cur, name, nil, body, sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -482,6 +599,10 @@ func BuildUpdateX(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 	exitConsent bool, opts *TxOpts) (*Spend, *tree.Tree, error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
 	old := st.Tree.Leaves[pos]
 	if old == nil {
 		return nil, nil, fmt.Errorf("txn: no leaf at position %d", pos)
@@ -489,43 +610,40 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 	if err := newLeaf.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("txn: new leaf: %w", err)
 	}
-	if err := st.checkPos(pos, newLeaf); err != nil {
+	if err := st.checkPos(r, pos, newLeaf); err != nil {
 		return nil, nil, err
 	}
 	next := st.Tree.Clone()
 	next.Leaves[pos] = newLeaf
+	if err := r.checkTotals(st.Tree, next); err != nil {
+		return nil, nil, err
+	}
 
-	in := st.Input()
-	path := st.pathWitness(st.Tree.Path(pos, 0), 0)
+	// Witness: path, old leaf, new leaf, owner_sig, operator_sig and,
+	// for UPDATE^x, exit_sig directly above operator_sig (spec 8.5).
+	in := st.input(r)
+	body := r.inputPad(uint64(in.Amount))
+	body = append(body, r.levels(
+		st.Tree.Path(pos, 0), 0, old.Node(), newLeaf.Node(),
+	)...)
+	body = append(body, r.pos(old)...)
+	body = append(body, r.leaf(old, false)...)
+	body = append(body, r.leaf(newLeaf, false)...)
+	sigs := []SigSlot{
+		{Index: len(body), Key: old.OwnerKey, Role: "owner"},
+		{Index: len(body) + 1, Key: r.operatorKey, Role: "operator"},
+	}
+	body = append(body, sigPlaceholder(), sigPlaceholder())
 	name := "UPDATE"
-	var stack [][]byte
 	if exitConsent {
 		name = "UPDATE_X"
-		stack = UpdateXWitness(
-			path, old, newLeaf, sigPlaceholder(), sigPlaceholder(),
-			sigPlaceholder(), in.RootHash, in.MerkleRoot,
-		)
-	} else {
-		stack = UpdateWitness(
-			path, old, newLeaf, sigPlaceholder(), sigPlaceholder(),
-			in.RootHash, in.MerkleRoot,
-		)
-	}
-
-	// owner_sig and operator_sig follow the two leaves; exit_sig, when
-	// present, sits directly above operator_sig.
-	ownerIdx := len(path) + 2
-	sigs := []SigSlot{
-		{Index: ownerIdx, Key: old.OwnerKey, Role: "owner"},
-		{Index: ownerIdx + 1, Key: st.Options.OperatorKey, Role: "operator"},
-	}
-	if exitConsent {
 		sigs = append(sigs, SigSlot{
-			Index: ownerIdx + 2, Key: old.ExitKey, Role: "exit",
+			Index: len(body), Key: old.ExitKey, Role: "exit",
 		})
+		body = append(body, sigPlaceholder())
 	}
 
-	spend, err := finish(st, next, name, nil, stack, sigs, opts)
+	spend, err := finish(st, r, next, name, nil, body, sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -534,11 +652,11 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 
 // SignVoucher is the source owner's voucher for a CLAIM (spec 7.5): a
 // BIP-340 signature over H_voucher(tree_id || body(source) || claim), treeID
-// being the tree's TreeState.Options.TreeID, the constant its CLAIM scripts
-// were compiled with. It commits to no transaction, so it is made
-// off-chain, before any CLAIM is built, and it binds the source leaf
-// without its amount, so it survives an amount-only REWRITE_h top-up of the
-// source and is redeemed against the leaf's amount at that time.
+// being the tree's tree_id, the constant its CLAIM scripts were compiled
+// with. It commits to no transaction, so it is made off-chain, before any
+// CLAIM is built, and it binds the source leaf without its amount, so it
+// survives an amount-only REWRITE_h top-up of the source and is redeemed
+// against the leaf's amount at that time.
 func SignVoucher(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 	claim *tree.Leaf) ([]byte, error) {
 
@@ -557,13 +675,12 @@ func SignVoucherH(ownerKey *btcec.PrivateKey, treeID [32]byte, source,
 
 // SignExitAuth is the owner's exit authorisation for EXIT_K^t (spec 7.2
 // rule 7): a BIP-340 signature over H_exit(tree_id || body(leaf)), treeID
-// being the tree's TreeState.Options.TreeID, the constant its EXIT_K^t
-// scripts were compiled with. It commits to no transaction, so it is made
-// off-chain, once, and handed to whoever will build the exit (a tower); it
-// stays valid against every later root of the lineage until the leaf
-// changes in any field but its amount, which is how an owner voids it. An
-// amount-only REWRITE_h top-up leaves it valid, and the exit then pays the
-// leaf's current amount.
+// being the tree's tree_id, the constant its EXIT_K^t scripts were compiled
+// with. It commits to no transaction, so it is made off-chain, once, and
+// handed to whoever will build the exit (a tower); it stays valid against
+// every later root of the lineage until the leaf changes in any field but
+// its amount, which is how an owner voids it. An amount-only REWRITE_h
+// top-up leaves it valid, and the exit then pays the leaf's current amount.
 func SignExitAuth(ownerKey *btcec.PrivateKey, treeID [32]byte,
 	leaf *tree.Leaf) ([]byte, error) {
 
@@ -571,30 +688,60 @@ func SignExitAuth(ownerKey *btcec.PrivateKey, treeID [32]byte,
 	return SignSchnorr(ownerKey, msg[:])
 }
 
+// carveAuth renders the authorisation of a carve, the witness elements
+// above the leaves (and, under 0xC0 numerics, above the extras): a
+// voucher, a voucher and a preimage, an owner's signature slot, each with
+// or without the exit-consent slot of 7.5.3. It runs after every carve
+// rule has been checked, so it is also where a transition checks the
+// authority it was handed (a voucher) against the source leaf. The slots
+// it returns are indexed within the elements it returns.
+type carveAuth func(r rules, src *tree.Leaf) ([][]byte, []SigSlot, error)
+
+// voucherAuth is the authorisation of CLAIM and CLAIM^h (preimage set),
+// plus the exit-consent slot of CLAIM^x and CLAIM^hx (exitConsent). The
+// voucher is verified against the source owner's key before anything is
+// built, since the script checks it with OP_CHECKSIGFROMSTACK and a
+// redeemer holding one from the wrong issuer or over another tree_id would
+// otherwise learn so on chain.
+func voucherAuth(claim *tree.Leaf, voucherSig []byte, preimage *[32]byte,
+	exitConsent bool) carveAuth {
+
+	return func(r rules, src *tree.Leaf) ([][]byte, []SigSlot, error) {
+		var msg [32]byte
+		if preimage == nil {
+			msg = tree.VoucherMsg(r.treeID, src, claim)
+		} else {
+			msg = tree.VoucherHMsg(
+				r.treeID, src, claim, sha256.Sum256(preimage[:]),
+			)
+		}
+		if err := VerifySchnorr(src.OwnerKey, msg[:], voucherSig); err != nil {
+			return nil, nil, fmt.Errorf("txn: voucher: %w", err)
+		}
+		items := [][]byte{voucherSig}
+		if preimage != nil {
+			items = append(items, preimage[:])
+		}
+		var sigs []SigSlot
+		if exitConsent {
+			sigs = []SigSlot{{
+				Index: len(items), Key: src.ExitKey, Role: "exit",
+			}}
+			items = append(items, sigPlaceholder())
+		}
+		return items, sigs, nil
+	}
+}
+
 // BuildClaim builds CLAIM (spec 7.5): carve claim out of the leaf at
 // srcPos into the empty position claimPos, on the authority of a voucher
-// from SignVoucher. The voucher is verified against the source owner's key
-// before anything is built, since the script checks it with
-// OP_CHECKSIGFROMSTACK and a redeemer holding one from the wrong issuer or
-// over another tree_id would otherwise learn so on chain. Nobody signs the
-// transaction, so the spend has no signature slots; fees come from
-// opts.Inputs.
+// from SignVoucher. Nobody signs the transaction, so the spend has no
+// signature slots; fees come from opts.Inputs.
 func BuildClaim(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	voucherSig []byte, opts *TxOpts) (*Spend, *tree.Tree, error) {
 
 	return buildCarve(st, srcPos, claimPos, claim, "CLAIM",
-		func(cPath, sPath [][]byte, src *tree.Leaf, r,
-			m [32]byte) ([][]byte, []SigSlot, error) {
-
-			msg := tree.VoucherMsg(st.Options.TreeID, src, claim)
-			err := VerifySchnorr(src.OwnerKey, msg[:], voucherSig)
-			if err != nil {
-				return nil, nil, fmt.Errorf("txn: voucher: %w", err)
-			}
-			return ClaimWitness(
-				cPath, sPath, src, claim, voucherSig, r, m,
-			), nil, nil
-		}, opts)
+		voucherAuth(claim, voucherSig, nil, false), opts)
 }
 
 // BuildClaimH builds CLAIM^h (spec 7.5.1): CLAIM under a hash-locked
@@ -605,22 +752,29 @@ func BuildClaimH(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	*tree.Tree, error) {
 
 	return buildCarve(st, srcPos, claimPos, claim, "CLAIM_H",
-		func(cPath, sPath [][]byte, src *tree.Leaf, r,
-			m [32]byte) ([][]byte, []SigSlot, error) {
+		voucherAuth(claim, voucherSig, &preimage, false), opts)
+}
 
-			msg := tree.VoucherHMsg(
-				st.Options.TreeID, src, claim,
-				sha256.Sum256(preimage[:]),
-			)
-			err := VerifySchnorr(src.OwnerKey, msg[:], voucherSig)
-			if err != nil {
-				return nil, nil, fmt.Errorf("txn: voucher: %w", err)
-			}
-			return ClaimHWitness(
-				cPath, sPath, src, claim, voucherSig, preimage,
-				r, m,
-			), nil, nil
-		}, opts)
+// BuildClaimX builds CLAIM^x (spec 7.5.3): CLAIM with one more signature
+// slot, directly below r, for the source leaf's exit key over the
+// transaction. It is the credit-leaf form of 10.3: the issuer owns the
+// source leaf and signs the voucher, the holder of its exit key signs the
+// redemption, so neither can carve the leaf alone.
+func BuildClaimX(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	voucherSig []byte, opts *TxOpts) (*Spend, *tree.Tree, error) {
+
+	return buildCarve(st, srcPos, claimPos, claim, "CLAIM_X",
+		voucherAuth(claim, voucherSig, nil, true), opts)
+}
+
+// BuildClaimHX builds CLAIM^hx (spec 7.5.3): CLAIM^h with the exit-key
+// signature slot of CLAIM^x, which sits above the preimage.
+func BuildClaimHX(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
+	voucherSig []byte, preimage [32]byte, opts *TxOpts) (*Spend,
+	*tree.Tree, error) {
+
+	return buildCarve(st, srcPos, claimPos, claim, "CLAIM_HX",
+		voucherAuth(claim, voucherSig, &preimage, true), opts)
 }
 
 // BuildSplit builds SPLIT (spec 7.5.2): CLAIM's two steps authorised by the
@@ -630,40 +784,30 @@ func BuildSplit(st *TreeState, srcPos, newPos uint64, newLeaf *tree.Leaf,
 	opts *TxOpts) (*Spend, *tree.Tree, error) {
 
 	return buildCarve(st, srcPos, newPos, newLeaf, "SPLIT",
-		func(cPath, sPath [][]byte, src *tree.Leaf, r,
-			m [32]byte) ([][]byte, []SigSlot, error) {
-
-			stack := ClaimWitness(
-				cPath, sPath, src, newLeaf, sigPlaceholder(),
-				r, m,
-			)
-			return stack, []SigSlot{{
-				Index: len(stack) - 3, Key: src.OwnerKey,
-				Role: "owner",
+		func(r rules, src *tree.Leaf) ([][]byte, []SigSlot, error) {
+			return [][]byte{sigPlaceholder()}, []SigSlot{{
+				Index: 0, Key: src.OwnerKey, Role: "owner",
 			}}, nil
 		}, opts)
 }
 
-// carveStack assembles a carve's stack from the rendered claim and source
-// paths, the source leaf, r and m. It runs after every carve rule has been
-// checked, so it is also where a transition checks the authority it was
-// handed (a voucher) against the source leaf.
-type carveStack func(claimPath, sourcePath [][]byte, source *tree.Leaf,
-	rootHash, merkleRoot [32]byte) ([][]byte, []SigSlot, error)
-
-// buildCarve is the shared body of CLAIM, CLAIM^h and SPLIT (spec 7.5 rules
-// 2 to 6). Step 1 lowers the source leaf by the claim's amount and advances
-// its seq, emptying the position if nothing is left; step 2 places the
-// claim leaf at a position that is empty after step 1. The total is
-// conserved, the claim leaf keeps the source's evictor and a lease no
-// longer than the source's, so eviction holds per balance, and neither the
-// claim leaf nor a non-zero residual is below the tree's DUST_MIN
-// (st.Options.DustFloor, the constant its scripts carry), so no carve
+// buildCarve is the shared body of the CLAIM forms and SPLIT (spec 7.5
+// rules 2 to 6). Step 1 lowers the source leaf by the claim's amount and
+// advances its seq, emptying the position if nothing is left; step 2
+// places the claim leaf at a position that is empty after step 1. The
+// total is conserved, the claim leaf keeps the source's evictor and a
+// lease no longer than the source's, so eviction holds per balance, and
+// neither the claim leaf nor a non-zero residual is below the tree's
+// DUST_MIN (Options.DustFloor, the constant its scripts carry), so no carve
 // leaves a leaf that only a non-standard transaction can remove.
 func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
-	name string, assemble carveStack, opts *TxOpts) (*Spend, *tree.Tree,
+	name string, auth carveAuth, opts *TxOpts) (*Spend, *tree.Tree,
 	error) {
 
+	r, err := st.rules()
+	if err != nil {
+		return nil, nil, err
+	}
 	src := st.Tree.Leaves[srcPos]
 	dustMin := st.Options.DustFloor()
 	switch {
@@ -673,9 +817,13 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	case claim.Amount > src.Amount:
 		return nil, nil, fmt.Errorf("txn: claim of %d exceeds the "+
 			"source's %d", claim.Amount, src.Amount)
-	case src.Seq == math.MaxUint32:
-		return nil, nil, errors.New("txn: the source leaf's seq is " +
-			"final, so it cannot be carved (spec 5.2)")
+	case src.Seq >= r.tier.SeqFinal():
+		// At SEQ_FINAL the leaf is not carvable (5.2); beyond it, which
+		// only the 0xC0 tiers' 0x7FFFFFFF leaves room for, seq is outside
+		// the numbers the carve extras can carry (4.5).
+		return nil, nil, fmt.Errorf("txn: the source leaf's seq 0x%08x "+
+			"is not below the tier's SEQ_FINAL 0x%08x, so it cannot be "+
+			"carved (spec 5.2)", src.Seq, r.tier.SeqFinal())
 	case claim.EvictorKey != src.EvictorKey:
 		return nil, nil, errors.New("txn: the claim leaf must keep the " +
 			"source's evictor_key (spec 7.5 rule 5)")
@@ -699,7 +847,7 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	if err := claim.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("txn: claim leaf: %w", err)
 	}
-	if err := st.checkPos(claimPos, claim); err != nil {
+	if err := st.checkPos(r, claimPos, claim); err != nil {
 		return nil, nil, err
 	}
 
@@ -708,10 +856,12 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	newSrc := *src
 	newSrc.Amount -= claim.Amount
 	newSrc.Seq++
+	newSrcNode := tree.EmptyLeaf
 	if newSrc.Amount == 0 {
 		delete(mid.Leaves, srcPos)
 	} else {
 		mid.Leaves[srcPos] = &newSrc
+		newSrcNode = newSrc.Node()
 	}
 
 	// Step 2: the claim leaf, proven against the root step 1 left.
@@ -721,87 +871,35 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 	}
 	next := mid.Clone()
 	next.Leaves[claimPos] = claim
+	if err := r.checkTotals(st.Tree, next); err != nil {
+		return nil, nil, err
+	}
 
-	in := st.Input()
-	stack, sigs, err := assemble(
-		st.pathWitness(mid.Path(claimPos, 0), 0),
-		st.pathWitness(st.Tree.Path(srcPos, 0), 0),
-		src, in.RootHash, in.MerkleRoot,
-	)
+	// Witness (spec 8.6): the claim path sits deeper in the stack because
+	// the script consumes it second: the source path is folded first to
+	// r1, and the claim path is folded over that; so it is the source
+	// fold that carries the input pad.
+	in := st.input(r)
+	body := r.levels(mid.Path(claimPos, 0), 0, tree.EmptyLeaf, claim.Node())
+	body = append(body, r.pos(claim)...)
+	body = append(body, r.inputPad(uint64(in.Amount))...)
+	body = append(body, r.levels(
+		st.Tree.Path(srcPos, 0), 0, src.Node(), newSrcNode,
+	)...)
+	body = append(body, r.pos(src)...)
+	body = append(body, r.leaf(src, false)...)
+	body = append(body, r.leaf(claim, false)...)
+	body = append(body, r.carveExtras(src, claim, newSrc.Amount)...)
+	items, sigs, err := auth(r, src)
 	if err != nil {
 		return nil, nil, err
 	}
-	spend, err := finish(st, next, name, nil, stack, sigs, opts)
-	if err != nil {
-		return nil, nil, err
+	for i := range sigs {
+		sigs[i].Index += len(body)
 	}
-	return spend, next, nil
-}
+	body = append(body, items...)
 
-// BuildEvictSubtree builds EVICT_SUBTREE_h (spec 7.7), dense profile only:
-// sweep every leaf of the aligned subtree of height h at index, each paid
-// exactly to its exit key on the next output from 1 in position order, under
-// one operator signature. Every leaf must name the operator as evictor and
-// opts.LockTime must have reached every evict_after. If the sweep empties
-// the tree, opts.Terminal is output 0 (spec 7.8).
-func BuildEvictSubtree(st *TreeState, height int, index uint64,
-	opts *TxOpts) (*Spend, *tree.Tree, error) {
-
-	cur := st.Tree
-	switch {
-	case st.Options.Sparse:
-		return nil, nil, errors.New("txn: EVICT_SUBTREE_h is a dense " +
-			"profile script")
-	case height < 0 || height > cur.Depth:
-		return nil, nil, fmt.Errorf("txn: sweep height %d out of "+
-			"range", height)
-	case index >= uint64(1)<<uint(cur.Depth-height):
-		return nil, nil, fmt.Errorf("txn: sweep index %d out of range",
-			index)
-	}
-	var lockTime uint32
-	if opts != nil {
-		lockTime = opts.LockTime
-	}
-
-	next := cur.Clone()
-	base := index << uint(height)
-	leaves := make([]*tree.Leaf, 1<<uint(height))
-	var payouts []Payout
-	for off := range leaves {
-		pos := base + uint64(off)
-		leaf := cur.Leaves[pos]
-		if leaf == nil {
-			continue
-		}
-		if leaf.EvictorKey != st.Options.OperatorKey {
-			return nil, nil, fmt.Errorf("txn: the leaf at %d is not "+
-				"evictable by the operator", pos)
-		}
-		if err := checkEvictLockTime(lockTime, leaf.EvictAfter); err != nil {
-			return nil, nil, fmt.Errorf("txn: leaf at %d: %w", pos, err)
-		}
-		leaves[off] = leaf
-		payouts = append(payouts, Payout{
-			ExitKey: leaf.ExitKey, Amount: int64(leaf.Amount),
-		})
-		delete(next.Leaves, pos)
-	}
-	if len(payouts) == 0 {
-		return nil, nil, errors.New("txn: the subtree is empty")
-	}
-
-	in := st.Input()
-	stack := EvictSubtreeWitness(
-		DensePathWitness(cur.Path(base, height)), leaves,
-		sigPlaceholder(), in.RootHash, in.MerkleRoot,
-	)
-	sigs := []SigSlot{{
-		Index: len(stack) - 3, Key: st.Options.OperatorKey, Role: "operator",
-	}}
-
-	name := fmt.Sprintf("EVICT_SUBTREE_%d", height)
-	spend, err := finish(st, next, name, payouts, stack, sigs, opts)
+	spend, err := finish(st, r, next, name, nil, body, sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}

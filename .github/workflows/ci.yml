@@ -23,9 +23,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.24" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
       - run: go build ./... && go vet ./...
       - run: go test ./...
       - run: test -z "$(gofmt -l .)"
+      # Every transition the Go builders produce, in every tier, runs
+      # through the Python simulator: the dump holds each signed witness
+      # and the replay fails on any script failure or sighash mismatch.
+      - run: LAYERTREE_TXN_DUMP=txn-dump.json go test ./txn -run TestTransitionsEndToEnd
+      - run: python3 tools/replay_txn_dump.py txn-dump.json
   lean:
     runs-on: ubuntu-latest
     steps:

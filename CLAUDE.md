@@ -19,7 +19,7 @@ opcodes it relies on are proposals, not consensus.
 |---|---|---|
 | Specification (RFC 2119) | `spec/layertree.md` (base), `spec/channel-leaves.md` (Appendix C), `spec/fee-analysis.md` | none directly; every normative script claim is backed by a test below |
 | Python reference + tapscript simulator | `tools/` | `python3 tools/test_scripts.py`, `test_mid.py`, `test_min.py` |
-| Go implementation (btcd, lnd, taproot-assets) | `tree/`, `script/`, `txn/`, `msg/` | `GOTOOLCHAIN=local go test ./...` |
+| Go implementation (btcd, lnd, taproot-assets) | `tree/`, `script/`, `txn/`, `msg/` | `GOTOOLCHAIN=local go test ./...`; the `txn` witnesses replayed through the simulator by `tools/replay_txn_dump.py` (see "Running everything") |
 | Channel leaves (Appendix C) in executable form | `tools/layertree_chan.py`, `script/chan.go`, `msg/chan.go` | `python3 tools/test_chan.py`; the Go mirror is checked against the `chan` section of `spec/golden.json` |
 | Golden vectors linking Python and Go | `spec/test-vectors.json`, `spec/golden.json` | `python3 tools/gen_golden.py && git diff --exit-code spec/golden.json spec/test-vectors.json` |
 | Formal model (Lean 4, core only) | `formal/` | `cd formal && lake build` (prints the axiom audit) |
@@ -210,6 +210,17 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 * **Subagents** on Opus have hit session rate limits mid-task twice.
   Review their partial work with the full test matrix before committing
   rather than assuming it is unfinished or finished.
+* **`txn` builders and pins**: `txn/` has one builder per transition for
+  every tier, selected by the option set's tier (`txn/tier.go`); the
+  witness layouts come from the Python `w_*` helpers, so a layout change
+  in a generator means a change in `rules.levels`, `leaf`, `carveExtras`
+  or `nodePads`, not a new builder. `txn/pins_test.go` holds the
+  simulator's sighash for every end-to-end case; a new case fails with
+  "no Python sighash" until the dump is replayed and its line pasted in
+  (the replay prints the whole map, sorted). Go never executes the
+  covenant: the replay is the check that a builder's witness is one the
+  scripts accept, so run it after touching a builder, not only the Go
+  tests.
 
 ## Running everything
 
@@ -226,8 +237,10 @@ python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed l
 python3 tools/gen_golden.py        # spec/golden.json
 python3 tools/fee_analysis.py      # spec/fee-analysis.md tables
 GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./... && gofmt -l .
+LAYERTREE_TXN_DUMP=/tmp/txn-dump.json GOTOOLCHAIN=local go test ./txn -run TestTransitionsEndToEnd && python3 tools/replay_txn_dump.py /tmp/txn-dump.json   # every Go-built witness through the simulator (259 cases)
 cd formal && lake build
 ```
 
 CI (`.github/workflows/ci.yml`) runs the Python suites with a golden-vector
-diff check, the Go build and tests, and the Lean build.
+diff check, the Go build and tests, the replay of the Go-built witnesses
+through the simulator, and the Lean build.
