@@ -58,6 +58,30 @@ with numbers.
   report to the owner and execute. Merge order: (c) first (golden), then
   (a) (paper only; reconcile REWRITE sizes if the marker landed), (b) is
   a report. No GitHub Pages deployment (owner).
+  Decided (orchestrator + Opus second opinion, Fable check on Q3):
+  B6: chan_id binds tree_id (Appendix C 0.5.0; Fable rule worker
+  running, owns layertree_chan.py, test_chan.py, chan Go, chan golden,
+  channel-leaves.md, review F35, status decision 24). P1c: declined; the
+  first adversarial spend per block already invalidates the honest exit,
+  chaining adds no delay, descendant pinning drives kappa to 1, so the
+  lock removes nothing and costs throughput; [C] stays a stated fee
+  auction (record as status decision 25). P8: build EXIT^t as an
+  exact-payout creation variant in FULL, MID and CCV (not MIN, no CSFS):
+  owner authorisation is a BIP-340 signature checked by CSFS over
+  H_tag("LayerTree/exit", tree_id || leaf) in place of the transaction
+  signature; evict branch unchanged; one authorisation per leaf in
+  EXIT_K; survives DETACH_h (tree_id inherited); reference set of 6.2
+  untouched so the D4 root does not move. Spec text: a published
+  authorisation is a bearer exit right until the leaf changes (void by
+  UPDATE or self-SPLIT); 9.2: MUST NOT re-join with a (owner_key, nonce,
+  seq) held before, fresh nonce RECOMMENDED; a tower refreshes after an
+  amount-only REWRITE changes a plain leaf; Appendix C: MUST NOT give
+  the authorisation to the counterparty of a leased leaf, SHOULD only to
+  the tower holding (update_n, settle_n); cooperative exit becomes one
+  message; paper "needs nobody else's signature"; interactivity.md
+  lifetime row. Lean: ExitBlock.authorised is abstract, doc comment
+  only. Worker starts after (c) lands (shared generators); record as
+  decision 26. Q4 MIN extra_outs: leave 8.11's note (decision 27).
 
 - Paper restructure landed 2026-10-10 (merge of the writer's branch at
   a1a493f, PDFs in the commit after): see the Paper row above. The
