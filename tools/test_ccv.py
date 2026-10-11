@@ -1439,6 +1439,149 @@ def test_carve_rules_ccv(depth, numeric="c2"):
     sweep(False, f"{tag}: a non-evictable member's NUMS dust still blocks the sweep (10.8)")
 
 
+def test_detach_ccv(depth, height, numeric="c2"):
+    """DETACH_h (spec 7.10) under CCV in either numerics, mirroring
+    test_scripts.test_detach: the detach succeeds and conserves the total
+    across the two tree outputs, a member's old path truncated to its
+    lower h levels is the detached tree's own path, an EXIT_1 from the
+    detached tree succeeds with it, and (in 0xC2) a voucher issued in the
+    parent redeems in the child, which inherits tree_id. Negatives: output
+    1 under the wrong m_h, output 1 under the FULL-tier key, output 1
+    shortchanged or overfunded, a missing operator signature, output 0
+    keeping the subtree, an inflated subtree sum, the two tree outputs
+    swapped, and (0xC0) a malformed sum pad.
+
+    7.10 rule 3: the parent is created with CLAIM and UPDATE^x on top of
+    the reference set, so m_h is that option set at depth h and differs
+    from the reference set's m_h, under which the detach fails."""
+    c0 = numeric == "c0"
+    name = f"DETACH_{height}"
+    tag = f"{numeric}: {name} D={depth}"
+    opts = C.CCVTreeOptions(pubkey_x(sk("operator")), numeric, "D", TREE_ID, join_heights=(0, 2),
+                            exit_ks=(1, 2), claim=True, update_x=True, detach_heights=(height,))
+    if c0:
+        w = WorldC0(depth, "D")
+        allowed, mode, lv = C0_OPCODES | CSFS_OPS, "c0", 0xc0
+    else:
+        w = World(depth, "D")
+        allowed, mode, lv = ALLOWED | CSFS_OPS, "c2", 0xc2
+    w.scripts = opts.at_depth(depth)
+    for nm, toks in w.scripts.items():
+        bad = {t for t in toks if isinstance(t, str)} - allowed
+        check(not bad, f"{tag}: {nm} opcodes outside the CCV set: {sorted(bad)}")
+    w.compiled = {k: assemble(v, mode=mode) for k, v in w.scripts.items()}
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    check(name in w.compiled and "CLAIM" in w.compiled and "UPDATE_X" in w.compiled,
+          f"{tag}: the parent's option set carries DETACH_h, CLAIM and UPDATE^x")
+    m_h = opts.taptree_root(height)
+    ref_m_h = C.detached_taptree_root_ccv(height, w.op_pk, numeric)
+    check(m_h != ref_m_h, f"{tag}: m_h from the parent's options differs from the reference set's m_h")
+    check(C.detached_taptree_root_ccv(height, w.op_pk, numeric, opts) == m_h,
+          f"{tag}: detached_taptree_root_ccv with the parent's options is the parent's set at depth h")
+    n, base = 1 << height, 1 << height
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000) for i in range(n) if i % 5 != 3}
+    w.tree.leaves = dict(cohort)
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    node = w.tree.subtree(height, 1)                      # (R_h, sum_h)
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for p_ in cohort:
+        del t1.leaves[p_]
+    r1 = t1.root()
+    spk1 = lt.tree_spk_ccv(node[0], m_h)
+
+    def body(nd=node, tree=None):
+        tree = tree or w.tree
+        if not c0:
+            return w.path_witness(path, height) + [nd[0], lt.le64(nd[1])]
+        return (list(M.pad(r1[1])) + w.pads_for(tree.root()[1]) +
+                M.w_levels(path, nd, lt.empty_node(height), False, height) +
+                [nd[0], M.scriptnum(nd[1]), *M.pad(nd[1])])
+
+    def run(outs, extra=5_000, signer=None, nd=node, mutate=None):
+        ctx = w.ctx(outs, (extra, P2WPKH))
+        wit = body(nd)
+        if mutate:
+            wit = mutate(wit)
+        return w.run(name, wit + [schnorr_sign(ctx.sighash(), signer or w.op_sk)], ctx)
+    outputs = [(r1[1], w.spk(r1)), (node[1], spk1), (400, P2WPKH)]
+    it = None
+    try:
+        it = run(outputs)
+        check(True, f"{tag} detaches {len(cohort)} leaves into their own tree output")
+    except ScriptError as e:
+        check(False, f"{tag} positive: {str(e)[:120]}")
+    check(r1[1] + node[1] == root[1], f"{tag} conserves the total across two tree outputs")
+    # negatives
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk_ccv(node[0], ref_m_h)), outputs[2]]),
+                f"{tag} output 1 under an m_h that drops the parent's options")
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk_ccv(node[0], w.m)), outputs[2]]),
+                f"{tag} output 1 under the parent's own taptree")
+    expect_fail(lambda: run([outputs[0], (node[1], lt.tree_spk(node[0], m_h)), outputs[2]]),
+                f"{tag} output 1 under the FULL-tier key")
+    expect_fail(lambda: run([outputs[0], (node[1] - 1, spk1), outputs[2]]), f"{tag} output 1 shortchanged")
+    expect_fail(lambda: run([outputs[0], (node[1] + 1, spk1), outputs[2]], extra=6_000), f"{tag} output 1 overfunded")
+    expect_fail(lambda: run(outputs, signer=sk("alice-owner")), f"{tag} without the operator signature")
+    expect_fail(lambda: run([(root[1], w.spk(root)), (node[1], spk1), outputs[2]], extra=node[1] + 5_000),
+                f"{tag} subtree not emptied in output 0 (new node not E_h)")
+    expect_fail(lambda: run([outputs[0], (node[1] + 1, spk1), outputs[2]], extra=6_000, nd=(node[0], node[1] + 1)),
+                f"{tag} inflated subtree sum")
+    expect_fail(lambda: run([outputs[1], outputs[0], outputs[2]]), f"{tag} the two tree outputs swapped")
+    if c0:
+        def swap_pad(wit):
+            b = list(wit); b[-2], b[-1] = b[-2] + b"\x00", b[-1][1:]
+            return b
+        expect_fail(lambda: run(outputs, mutate=swap_pad), f"{tag} malformed sum pad")
+
+    # the detached tree: the same options at depth h
+    w2 = WorldC0(height, "D") if c0 else World(height, "D")
+    w2.scripts = opts.at_depth(height)
+    w2.compiled = {k: assemble(v, mode=mode) for k, v in w2.scripts.items()}
+    w2.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w2.compiled.values()])
+    check(w2.m == m_h, f"{tag}: the detached tree's identifier is the parent's options compiled at depth h")
+    check(list(w2.compiled) == ["EXIT_1", "EXIT_2", "JOIN_0", "JOIN_2", "JOINK_2", "UPDATE_X",
+                                "EVICT_SUBTREE_1", "EVICT_SUBTREE_2", "CLAIM"],
+          f"{tag}: the detached tree carries the parent's set less the heights that do not fit")
+    w2.tree.leaves = {p_ - base: lf for p_, lf in cohort.items()}
+    check(w2.tree.root() == node, f"{tag}: the detached tree's root is the detached node")
+    victim = base + 2
+    lf = cohort[victim]
+    short = w.tree.path(victim)[:height]
+    check(lt.fold(lf.node(), short) == node, f"{tag}: old path truncated to h levels verifies in the detached tree")
+    check(short == w2.tree.path(victim - base), f"{tag}: the truncated path is the detached tree's own path")
+    t2 = w2.clone(); del t2.leaves[victim - base]; r2 = t2.root()
+    ctx2 = TxContext([(node[1], spk1), (5_000, P2WPKH)],
+                     [(r2[1], w2.spk(r2)), (lf.amount, lt.p2tr_spk(lf.exit_key))],
+                     internal_key=lt.ccv_internal_key(node[0]), taptree_root=m_h)
+    sig2 = schnorr_sign(ctx2.sighash(), sk(f"c{victim - base}-owner"))
+    if c0:
+        wit2 = (list(M.pad(r2[1])) + list(M.pad(node[1])) + M.w_levels(short, lf.node(), lt.EMPTY_NODE, False) +
+                M.w_leaf_exit(lf) + [sig2, b""])
+    else:
+        wit2 = w2.path_witness(short) + [lf.serialize(), sig2, b""]
+    it2 = w2.run("EXIT_1", wit2, ctx2)
+    check(True, f"{tag}: EXIT_1 from the detached depth-{height} tree with the truncated path")
+    if not c0:
+        # a voucher issued while the source leaf sat in the parent redeems in
+        # the detached tree: it inherits tree_id (7.10 rule 3) and its CLAIM
+        # carries the same constant, so no reissue after a detach (9.6)
+        issuer = max(cohort)
+        src = cohort[issuer]
+        holder = mk_leaf("holder", 3_000, w.op_pk, 800_000)
+        vsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, holder), sk(f"c{issuer - base}-owner"))
+        s_holder = next(i for i in range(n) if i not in w2.tree.leaves)
+        t3 = w2.clone(); lt.apply_claim(t3, issuer - base, s_holder, holder); r3 = t3.root()
+        ctx3 = TxContext([(node[1], spk1), (600, P2WPKH)], [(r3[1], w2.spk(r3))],
+                         internal_key=lt.ccv_internal_key(node[0]), taptree_root=m_h)
+        w2.run("CLAIM", w2.path_witness(t3.path(s_holder)) + w2.path_witness(w2.tree.path(issuer - base)) +
+               [src.serialize(), holder.serialize(), vsig], ctx3)
+        check(True, f"{tag}: a voucher issued in the parent redeems in the detached tree")
+    wit = body() + [bytes(64)]
+    return it, len(w.compiled[name]), sum(len(x) for x in wit)
+
+
 def test_audit_negatives_ccv(depth):
     """Negative cases from the byte-level audit (design/audit/script.md).
 
@@ -1534,6 +1677,13 @@ def main():
             test_claim_ccv(depth, profile, numeric)
             test_claim_ccv(depth, profile, numeric, hashlock=True)
             print(f"  {profile}/{depth} ({numeric}) CLAIM, CLAIM^h: {CHECKS - before} checks")
+    # DETACH_h in both numerics (spec 7.10): the detach, the detached tree,
+    # and the parent's options compiled at depth h (rule 3).
+    for numeric in ("c2", "c0"):
+        before = CHECKS
+        for depth, h in ((8, 2), (16, 8)):
+            test_detach_ccv(depth, h, numeric)
+        print(f"  D (DETACH, {numeric}): {CHECKS - before} checks")
     before = CHECKS
     test_audit_negatives_ccv(8)
     print(f"  D/8 audit negatives (c2, c0): {CHECKS - before} checks")

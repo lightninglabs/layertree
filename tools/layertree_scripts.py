@@ -734,11 +734,14 @@ def evict_subtree_script(depth, height, operator_key):
 # exit_key signs wherever the owner does.
 #
 # Signatures are consumed only where the rules require them, so an
-# unchanged position costs two leaf elements of witness and nothing else:
+# unchanged position costs its two elements of witness and nothing else:
 # the next witness element is always directly below T, and every roll depth
 # is a constant, so a branch that needs a signature rolls one more element
-# and a branch that does not leaves the witness untouched.
+# and a branch that does not leaves the witness untouched. A new element of
+# one byte is the "unchanged" marker (REWRITE_SAME): the step replaces it
+# with a copy of the old element, so an unchanged leaf is published once.
 # ---------------------------------------------------------------------------
+REWRITE_SAME = b"\x01"
 def _elem_node(k_leaf, k_empty):
     """[elem] -> [h s]: a 116-byte leaf gives (H_leaf, amount), the empty
     element E_0. The TAG_LEAF prefix and E_0 are not pushed inline: the
@@ -767,6 +770,8 @@ def _rewrite_step(d, exit_consent):
     above T; Z (E_0's hash) and L (the TAG_LEAF prefix) sit directly below T,
     so the next witness element is at depth d+3."""
     return ([d + 3, "OP_ROLL", d + 4, "OP_ROLL",            # T ... old new
+             "OP_SIZE", "OP_1", "OP_EQUAL",                  # old new (new is the one-byte marker?)
+             "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF",       # old new   (marker: new := old)
              "OP_2DUP", "OP_EQUAL", "OP_NOTIF",              # changed?
              "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",   # old is a leaf?
              "OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",    # new is a leaf: rewrite
@@ -810,7 +815,8 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
 
     witness (bottom..top) = [dir sc]*(D-h)  block_{2^h-1} ... block_0  sig_op  r  m
     block_i = [xsig_i] [sig_i] new_i old_i   (old_i on top; each element is a
-    116-byte leaf or empty; sig_i only where 7.9 rule 3 requires it, xsig_i
+    116-byte leaf or empty, and new_i may be the one-byte marker REWRITE_SAME
+    for "the old element"; sig_i only where 7.9 rule 3 requires it, xsig_i
     only under ^x and only where sig_i is present).
     """
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks | m r

@@ -569,6 +569,234 @@ def w_evict_subtree(tree, depth, height, idx):
     return items
 
 
+# ------------------------------------------------------- REWRITE_h (7.9) --
+# The FULL tier's cohort rewrite (section 8.9) under MID numerics, built
+# like the MID sweep: a pre-pass at the top of the stack converts every
+# position in order, and a hash pass folds the parked nodes in mirrored
+# post-order. Each position carries two slots, the old element and the new
+# element, each a MID leaf (ten elements plus a presence flag) or one empty
+# element. The pre-pass reduces each slot to a canonical form built from
+# the leaf's own fields before they are re-joined, so the rules of 7.9
+# need no OP_SUBSTR: the old slot becomes [amt8 rest ek ok fin amt] and
+# the new slot [amt8 rest amt], where rest is leaf[8:] (the six fields
+# after the amount, CAT-joined), fin is whether seq == SEQ_FINAL, and amt
+# is the amount as a number. "Unchanged" is rest and amt8 equal, "amount
+# only" is rest equal; the owner key, exit key and amount field of the old
+# leaf are then on hand for the signature and the payout.
+#
+# The TAG_LEAF prefix (L) and E_0's 41-byte node (Z) are hoisted: they
+# travel with the output index as [idx L Z] on top of the remaining
+# witness, parked on the altstack while a position's slots are reduced
+# and picked by the node conversion. Inline they would cost about 210
+# bytes per position. Each position parks (ns, nsc, os, osc) on the
+# altstack; the hash pass pops them four at a time, old pair below new as
+# the hash step leaves them, and runs the sweep's HASH_STEP twice per
+# internal node, the old pair first, each taking its PADZ pad pair from
+# directly below T.
+#
+# MID's SEQ_FINAL is 0x7FFFFFFF (spec 4.5): the raw seq field of the old
+# leaf is compared with the constant as bytes.
+#
+# An unchanged position publishes its leaf once: the new slot may be the
+# single one-byte element REWRITE_SAME (0x02 here, since 0x01 is a slot's
+# presence flag), and the step then converts the old slot's node twice.
+SEQ_FINAL = 0x7FFFFFFF
+SEQ_FINAL_BYTES = lt.le32(SEQ_FINAL)
+REWRITE_SLOT_WITNESS = LEAF_WITNESS + 1
+REWRITE_SAME = b"\x02"
+
+
+def _leaf_join_old():
+    """[amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest ek ok fin amt]
+
+    LEAF_JOIN with the fields the rewrite rules need kept beside the
+    re-joined rest: copies of ek and ok, fin = (seq == SEQ_FINAL) and the
+    amount as a (non-negative) number. rest is ek||ok||evk||ea||nonce||seq,
+    so amt8||rest is the leaf."""
+    s = [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"]                          # ... amt_num za wa    | amt
+    s += le64() + [7, "OP_PICK", "OP_EQUALVERIFY"]                             # amt8 ek ok evk ea nonce seq
+    for d, size in FIELD_SIZES:
+        s += ([d, "OP_PICK"] if d else ["OP_DUP"]) + ["OP_SIZE", size, "OP_EQUALVERIFY", "OP_DROP"]
+    s += ["OP_DUP", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_TOALTSTACK"]              # | amt fin
+    s += [5, "OP_PICK", 5, "OP_PICK", "OP_TOALTSTACK", "OP_TOALTSTACK"]        # | amt fin ok ek
+    s += ["OP_CAT"] * 5                                                        # amt8 rest
+    return s + ["OP_FROMALTSTACK"] * 4                                         # amt8 rest ek ok fin amt
+
+
+def _leaf_join_new():
+    """[amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest amt]"""
+    s = [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"]
+    s += le64() + [7, "OP_PICK", "OP_EQUALVERIFY"]
+    for d, size in FIELD_SIZES:
+        s += ([d, "OP_PICK"] if d else ["OP_DUP"]) + ["OP_SIZE", size, "OP_EQUALVERIFY", "OP_DROP"]
+    return s + ["OP_CAT"] * 5 + ["OP_FROMALTSTACK"]                            # amt8 rest amt
+
+
+def _rewrite_owner_auth(exit_consent):
+    """[sig C_new(3) C_old(6)] -> [C_new(3) C_old(6)]: the next witness element,
+    nine deep, is a signature by old.ok; under ^x one more by old.ek."""
+    s = [9, "OP_ROLL", 3, "OP_PICK", "OP_CHECKSIGVERIFY"]
+    if exit_consent:
+        s += [9, "OP_ROLL", 4, "OP_PICK", "OP_CHECKSIGVERIFY"]
+    return s
+
+
+def _rewrite_pay():
+    """[C_new(3) C_old(6)] | .. idx -> [C_new(3) C_old(6)] | .. idx+1: output idx
+    pays exactly old.amt8 to P2TR(old.ek) (7.9 rule 5)."""
+    return ["OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",           # .. idx
+            SEL_OUT_SINGLE, "OP_TX",                                           # .. amt spk
+            F.P2TR_PREFIX, 6, "OP_PICK", "OP_CAT", "OP_EQUALVERIFY",           # .. amt
+            6, "OP_PICK", "OP_EQUALVERIFY"]                                    # C_new C_old
+
+
+def _rewrite_conv():
+    """[idx L Z amt8 rest] -> [idx L Z sc]: a leaf's 41-byte node
+    H_leaf(amt8||rest) || amt8 || 01, or Z for the empty element."""
+    return ["OP_SIZE", "OP_0NOTEQUAL", "OP_IF",
+            "OP_2DUP", "OP_CAT",                                               # idx L Z amt8 rest leaf
+            4, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",                    # idx L Z amt8 rest lh
+            "OP_NIP", "OP_SWAP", b"\x01", "OP_CAT", "OP_CAT",                  # idx L Z sc
+            "OP_ELSE", "OP_2DROP", "OP_DUP",                                   # idx L Z Z
+            "OP_ENDIF"]
+
+
+def _rewrite_step(exit_consent):
+    """One position of the pre-pass:
+    [.. {xsig} {sig} new_slot old_slot idx L Z] | .. -> [.. idx' L Z] | .. ns nsc os osc
+
+    A slot is leaf(10) 0x01 or one empty element, and the new slot may be
+    the one-byte marker REWRITE_SAME, in which case the old slot's node is
+    parked twice and nothing else happens (7.9: unchanged). Otherwise the
+    old slot is reduced first, parked, then the new slot; with both
+    canonical forms on the stack (new below old) the step applies 7.9
+    rules 3 and 5 and converts both to nodes. Depths in the decision
+    block, from the top: amt_o 0, fin 1, ok 2, ek 3, rest_o 4, amt8_o 5,
+    amt_n 6, rest_n 7, amt8_n 8, and the next witness element 9."""
+    s = ["OP_TOALTSTACK"] * 3                                                  # .. new_slot old_slot   | .. Z L idx
+    s += ["OP_IF"] + _leaf_join_old() + ["OP_ELSE"] + ["OP_0"] * 6 + ["OP_ENDIF"]   # .. new_slot C_old(6)
+    s += [6, "OP_PICK", REWRITE_SAME, "OP_EQUAL", "OP_IF",                     # -- the marker: new = old --
+          6, "OP_ROLL", "OP_DROP",                                             # .. C_old(6)
+          "OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK",           # .. amt8 rest amt
+          "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK"]             # .. amt8 rest amt idx L Z
+    s += roll(5, 2) + _rewrite_conv()                                          # .. amt idx L Z sc
+    s += roll(4) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4                         # .. idx L Z              | .. ns nsc os osc
+    s += ["OP_ELSE"]                                                           # -- a leaf or empty --
+    s += ["OP_TOALTSTACK"] * 6                                                 # .. new_slot            | .. Z L idx C_old
+    s += ["OP_IF"] + _leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]   # .. C_new(3)
+    s += ["OP_FROMALTSTACK"] * 6                                               # .. C_new(3) C_old(6)   | .. Z L idx
+    s += [4, "OP_PICK", 8, "OP_PICK", "OP_EQUAL",                              # same_rest
+          6, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",                             # same_amt8
+          "OP_BOOLAND", "OP_NOTIF",                                            # -- changed --
+          4, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",          # -- old is a leaf --
+          7, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",          # -- new is a leaf: rewrite --
+          4, "OP_PICK", 8, "OP_PICK", "OP_EQUAL",                              # same_rest
+          "OP_OVER", 8, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",         # .. and amt_o <= amt_n
+          2, "OP_PICK", "OP_NOT", "OP_BOOLAND",                                # .. and seq != SEQ_FINAL
+          "OP_NOTIF"] + _rewrite_owner_auth(exit_consent) + ["OP_ENDIF",
+          "OP_ELSE"] + _rewrite_owner_auth(exit_consent) + _rewrite_pay() + [  # -- new is empty: exit --
+          "OP_ENDIF",
+          "OP_ENDIF",                                                          # (old empty: a join, operator only)
+          "OP_ENDIF"]                                                          # (unchanged)
+    s += ["OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK"]           # .. amt8_n rest_n amt_n amt8_o rest_o amt_o
+    s += ["OP_FROMALTSTACK"] * 3                                               # .. amt8_n rest_n amt_n amt8_o rest_o amt_o idx L Z
+    s += roll(8, 2) + _rewrite_conv()                                          # .. amt_n amt8_o rest_o amt_o idx L Z nsc
+    s += roll(7) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                          # .. amt8_o rest_o amt_o idx L Z   | .. ns nsc
+    s += roll(5, 2) + _rewrite_conv()                                          # .. amt_o idx L Z osc
+    s += roll(4) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                          # .. idx L Z                       | .. ns nsc os osc
+    return s + ["OP_ENDIF"]
+
+
+def _rewrite_hash_step2(t, root):
+    """[T .. Rosc Ros Rnsc Rns Losc Los Lnsc Lns] -> [T .. posc pos pnsc pns]
+    (or [T .. poh pos pnh pns] at the root): the sweep's HASH_STEP on the
+    old pair, then on the new pair, with FULL's HASH_STEP2 shuffles. The
+    leaf pops and the step's output share one layout (old pair below new),
+    so the step composes at every height. t is the number of elements
+    above T on entry; each non-root step takes a pad pair from directly
+    below T, so the old node's pair sits above the new node's in the
+    witness."""
+    return (["OP_2SWAP"] + roll(7, 2) + ["OP_2SWAP"] +                         # Rnsc Rns Lnsc Lns Rosc Ros Losc Los
+            _evict_hash_step(t, root) +                                        # Rnsc Rns Lnsc Lns posc pos
+            ["OP_2SWAP"] + roll(5, 2) + ["OP_2SWAP"] +                         # posc pos Rnsc Rns Lnsc Lns
+            _evict_hash_step(t - 2, root))                                     # posc pos pnsc pns
+
+
+def rewrite_script(depth, height, operator_key, exit_consent=False):
+    """REWRITE_h (7.9, dense) in the MID tier, or REWRITE_h^x with exit_consent.
+
+    witness (bottom..top):
+      zf wf zi wi [levels h..D-1] [pad pairs: for each internal node in
+      reverse consumption order, the new sum's pair then the old sum's]
+      block_{2^h-1} .. block_0 sig_op r m
+      block_i = [xsig_i] [sig_i] new_slot_i old_slot_i, a slot being leaf(10)
+      0x01 or one empty element, and new_slot_i may be the one-byte marker
+      REWRITE_SAME for an unchanged position; sig_i only where 7.9 rule 3
+      requires it, xsig_i only under ^x and only where sig_i is present.
+    """
+    assert 1 <= height <= depth
+    s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]                       # .. blocks            | m r
+    s += ["OP_1", F.LEAF_PREFIX, E0_SC]                                        # .. blocks idx L Z
+    for _ in range(1 << height):
+        s += _rewrite_step(exit_consent)                                       # .. idx' L Z          | m r (ns nsc os osc)*
+    s += ["OP_2DROP", "OP_DROP", F.NODE_PREFIX]                                # T
+    t = [0]
+
+    def gen(k, root):
+        if k == 0:
+            s.extend(["OP_FROMALTSTACK"] * 4)                                  # T .. osc os nsc ns
+            t[0] += 4
+            return
+        gen(k - 1, False)                                                      # right child first
+        gen(k - 1, False)
+        s.extend(_rewrite_hash_step2(t[0], root))
+        t[0] -= 4
+    gen(height, True)                                                          # T oh os nh ns
+    s += levels(False, depth, height)
+    return s + check_old(False) + final(depth)
+
+
+def w_rewrite_slot(leaf):
+    """Witness items for one REWRITE slot (bottom..top)."""
+    if leaf is None:
+        return [b""]
+    return w_leaf(leaf) + [b"\x01"]
+
+
+def w_rewrite(tree, depth, height, idx, new, sigs, marker=True):
+    """Everything MID REWRITE_h consumes below sig_op r m, for the subtree
+    `idx` of `tree`: final pads, input-amount pads, levels, node pads and
+    the position blocks. `new` maps offset -> Leaf or None (the new
+    element of every position); `sigs` maps offset -> [sig] or [sig, xsig]
+    for the positions that carry one. With marker, an unchanged leaf's new
+    slot is the one-byte REWRITE_SAME; without it, a second copy of the
+    leaf. Mirrors rewrite_script's layout."""
+    n = 1 << height
+    base = idx << height
+    t1 = lt.Tree(depth)
+    t1.leaves = {p: l for p, l in tree.leaves.items() if not base <= p < base + n}
+    for i, lf in new.items():
+        if lf is not None:
+            t1.leaves[base + i] = lf
+    root, r1 = tree.root(), t1.root()
+    old_node, new_node = tree.subtree(height, idx), t1.subtree(height, idx)
+    path = tree.path(base, height=height)
+    items = list(pad(r1[1])) + list(pad(root[1]))
+    items += w_levels(path, old_node, new_node, False, height)
+    for k, i in reversed(evict_subtree_pad_nodes(height)):
+        sub = (idx << (height - k)) + i
+        items += list(pad(t1.subtree(k, sub)[1])) + list(pad(tree.subtree(k, sub)[1]))
+    for j in reversed(range(n)):
+        items += list(reversed(sigs.get(j, [])))                               # xsig below sig
+        o, nw = tree.leaves.get(base + j), new.get(j)
+        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+            items.append(REWRITE_SAME)
+        else:
+            items += w_rewrite_slot(nw)
+        items += w_rewrite_slot(o)
+    return items
+
+
 def all_scripts(depth, operator_key, sparse=False, join_heights=(0, 2), exit_ks=(1, 2), join_ks=(2,),
                 tree_id=None, dust_min=lt.DUST_MIN):
     """The reference script set (spec 6.2) under MID; tree_id is the

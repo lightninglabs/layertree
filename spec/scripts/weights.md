@@ -45,15 +45,15 @@ The difference column is measured minus model. For a row whose shape is the mode
 | FULL/D | 16 | EVICT_SUBTREE_2 (3 swept) | 2709 | 1051 | 37 | 4835 | 1209 | 40 | 1219 | 344 | 5219 | 1305 | +96 | 2 in / 5 out (4 P2TR, 1 P2WPKH) |
 | FULL/D | 16 | EVICT_SUBTREE_4 (13 swept) | 5281 | 2129 | 45 | 8485 | 2122 | 48 | 2134 | 2064 | 10597 | 2650 | +528 | 2 in / 15 out (14 P2TR, 1 P2WPKH) |
 | FULL/D | 16 | EVICT_SUBTREE_6 (51 swept) | 16097 | 6455 | 89 | 23627 | 5907 | 92 | 5930 | 8600 | 32319 | 8080 | +2173 | 2 in / 53 out (52 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_2 (exit, 4 changed) | 2775 | 1423 | 45 | 5273 | 1319 | 48 | 1331 | 516 | 5837 | 1460 | +141 | 2 in / 6 out (5 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_2 (update, 4 changed) | 2775 | 1887 | 45 | 5737 | 1435 | 48 | 1447 | -172 | 5613 | 1404 | -31 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_2 (mixed, 3 changed) | 2775 | 1643 | 43 | 5493 | 1374 | 46 | 1385 | 0 | 5539 | 1385 | +11 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_4 (exit, 16 changed) | 5512 | 3501 | 77 | 10088 | 2522 | 80 | 2542 | 2580 | 12748 | 3187 | +665 | 2 in / 18 out (17 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_4 (update, 16 changed) | 5512 | 5357 | 77 | 11944 | 2986 | 80 | 3006 | -172 | 11852 | 2963 | -23 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_4 (mixed, 13 changed) | 5512 | 4329 | 70 | 10916 | 2729 | 73 | 2748 | 172 | 11161 | 2791 | +62 | 2 in / 4 out (3 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_6 (exit, 64 changed) | 17148 | 12059 | 217 | 30282 | 7571 | 220 | 7626 | 10836 | 41338 | 10335 | +2764 | 2 in / 66 out (65 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_6 (update, 64 changed) | 17148 | 19483 | 217 | 37706 | 9427 | 220 | 9482 | -172 | 37754 | 9439 | +12 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
-| FULL/D | 16 | REWRITE_6 (mixed, 51 changed) | 17148 | 15139 | 189 | 33362 | 8341 | 192 | 8389 | 1376 | 34930 | 8733 | +392 | 2 in / 11 out (10 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_2 (exit, 4 changed) | 2803 | 1423 | 45 | 5301 | 1326 | 48 | 1338 | 516 | 5865 | 1467 | +141 | 2 in / 6 out (5 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_2 (update, 4 changed) | 2803 | 1887 | 45 | 5765 | 1442 | 48 | 1454 | -172 | 5641 | 1411 | -31 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_2 (mixed, 3 changed) | 2803 | 1528 | 43 | 5406 | 1352 | 46 | 1363 | 0 | 5452 | 1363 | +11 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_4 (exit, 16 changed) | 5624 | 3501 | 77 | 10200 | 2550 | 80 | 2570 | 2580 | 12860 | 3215 | +665 | 2 in / 18 out (17 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_4 (update, 16 changed) | 5624 | 5357 | 77 | 12056 | 3014 | 80 | 3034 | -172 | 11964 | 2991 | -23 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_4 (mixed, 13 changed) | 5624 | 4099 | 70 | 10798 | 2700 | 73 | 2718 | 172 | 11043 | 2761 | +61 | 2 in / 4 out (3 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_6 (exit, 64 changed) | 17596 | 12059 | 217 | 30730 | 7683 | 220 | 7738 | 10836 | 41786 | 10447 | +2764 | 2 in / 66 out (65 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_6 (update, 64 changed) | 17596 | 19483 | 217 | 38154 | 9539 | 220 | 9594 | -172 | 38202 | 9551 | +12 | 2 in / 2 out (1 P2TR, 1 P2WPKH) |
+| FULL/D | 16 | REWRITE_6 (mixed, 51 changed) | 17596 | 14104 | 189 | 32775 | 8194 | 192 | 8242 | 1376 | 34343 | 8586 | +392 | 2 in / 11 out (10 P2TR, 1 P2WPKH) |
 | FULL/D | 16 | DETACH_8 | 1548 | 497 | 23 | 3120 | 780 | 26 | 787 | 0 | 3146 | 787 | +7 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
 | FULL/D | 8 | EXIT_1 from the detached tree (owner) | 1397 | 573 | 23 | 3045 | 762 | 26 | 768 | -124 | 2947 | 737 | -25 | 2 in / 2 out (2 P2TR, 0 P2WPKH) |
 | MID/D | 16 | EXIT_1 (owner) | 3367 | 978 | 167 | 5420 | 1355 | 170 | 1398 | 0 | 5590 | 1398 | +43 | 2 in / 3 out (2 P2TR, 1 P2WPKH) |
@@ -123,12 +123,12 @@ The measured transaction divided by the leaves that leave or change (`EVICT_SUBT
 | EVICT_SUBTREE_2 (3 swept) | 3 | 1305 | 435.0 | 431.7 |
 | EVICT_SUBTREE_4 (13 swept) | 13 | 2650 | 203.8 | 202.9 |
 | EVICT_SUBTREE_6 (51 swept) | 51 | 8080 | 158.4 | 158.0 |
-| REWRITE_2 (exit, 4 changed) | 4 | 1460 | 365.0 | 362.0 |
-| REWRITE_2 (update, 4 changed) | 4 | 1404 | 351.0 | 358.8 |
-| REWRITE_2 (mixed, 3 changed) | 3 | 1385 | 461.7 | 458.0 |
-| REWRITE_4 (exit, 16 changed) | 16 | 3187 | 199.2 | 197.9 |
-| REWRITE_4 (update, 16 changed) | 16 | 2963 | 185.2 | 186.6 |
-| REWRITE_4 (mixed, 13 changed) | 13 | 2791 | 214.7 | 213.2 |
-| REWRITE_6 (exit, 64 changed) | 64 | 10335 | 161.5 | 160.6 |
-| REWRITE_6 (update, 64 changed) | 64 | 9439 | 147.5 | 147.3 |
-| REWRITE_6 (mixed, 51 changed) | 51 | 8733 | 171.2 | 170.3 |
+| REWRITE_2 (exit, 4 changed) | 4 | 1467 | 366.8 | 363.8 |
+| REWRITE_2 (update, 4 changed) | 4 | 1411 | 352.8 | 360.5 |
+| REWRITE_2 (mixed, 3 changed) | 3 | 1363 | 454.3 | 450.7 |
+| REWRITE_4 (exit, 16 changed) | 16 | 3215 | 200.9 | 199.7 |
+| REWRITE_4 (update, 16 changed) | 16 | 2991 | 186.9 | 188.4 |
+| REWRITE_4 (mixed, 13 changed) | 13 | 2761 | 212.4 | 211.0 |
+| REWRITE_6 (exit, 64 changed) | 64 | 10447 | 163.2 | 162.4 |
+| REWRITE_6 (update, 64 changed) | 64 | 9551 | 149.2 | 149.0 |
+| REWRITE_6 (mixed, 51 changed) | 51 | 8586 | 168.4 | 167.4 |

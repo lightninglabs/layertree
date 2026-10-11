@@ -82,7 +82,7 @@ def full_macros():
 
 
 PARAM_FAMILIES = ("LEVEL_S(", "HASH_STEP(", "HASH_STEP2(", "REWRITE_STEP(", "REWRITE_STEP_X(",
-                  "OWNER_AUTH(", "OWNER_AUTH_X(", "ELEM_NODE(")
+                  "OWNER_AUTH(", "OWNER_AUTH_X(", "ELEM_NODE(", "REWRITE_HASH_STEP2(", "REWRITE_HASH_ROOT2(")
 
 
 def mid_macros():
@@ -102,6 +102,15 @@ def mid_macros():
     t += [("EVICT_LEAF_STEP", M._evict_leaf_step(OP_KEY))]
     t += [(f"EVICT_HASH_STEP({k})", M._evict_hash_step(k, False)) for k in range(4, 40)]
     t += [(f"EVICT_HASH_ROOT({k})", M._evict_hash_step(k, True)) for k in range(4, 6)]
+    # REWRITE_h (8.9 under MID): the slot joins, the per-position step and
+    # the double hash step; the step is one token sequence whatever the
+    # position, since the pre-pass runs at the top of the stack.
+    t += [("LEAF_JOIN_OLD", M._leaf_join_old()), ("LEAF_JOIN_NEW", M._leaf_join_new()),
+          ("REWRITE_CONV", M._rewrite_conv()), ("REWRITE_PAY", M._rewrite_pay()),
+          ("OWNER_AUTH_MID", M._rewrite_owner_auth(False)), ("OWNER_AUTH_MID_X", M._rewrite_owner_auth(True)),
+          ("REWRITE_STEP_MID", M._rewrite_step(False)), ("REWRITE_STEP_MID_X", M._rewrite_step(True))]
+    t += [(f"REWRITE_HASH_STEP2({k})", M._rewrite_hash_step2(k, False)) for k in range(8, 40, 4)]
+    t += [(f"REWRITE_HASH_ROOT2({k})", M._rewrite_hash_step2(k, True)) for k in range(8, 12, 4)]
     return [(n, words(x, "c0")) for n, x in t]
 
 
@@ -252,6 +261,8 @@ def macro_file(tier, macros, notes):
             shown = "ELEM_NODE(d)   [shown for d = 0; picks L at d+4 and Z at d+3 for the old element, one deeper for the new]"
         if key == "FINAL":
             shown = "FINAL   [shown for D = 4; <EMPTY_D> is the empty root of the tree's depth]"
+        if key in ("REWRITE_HASH_STEP2", "REWRITE_HASH_ROOT2"):
+            shown = f"{key}(t)   [shown for t = 8; the EVICT_HASH_STEP depths are t and t-2]"
         items = collapse(ws, macros, exclude=name)
         lines.append(f"## {shown}" + (f"   ({notes[key]})" if key in notes else ""))
         lines += render(items)
@@ -317,6 +328,16 @@ NOTES_MID = {
     "EVICT_LEAF_STEP": "cohort sweep pre-pass: [slot idx] -> [idx'] | s sc, paying the next output",
     "EVICT_HASH_STEP": "cohort sweep: [Rsc Rs Lsc Ls] -> [psc ps], one PADZ pad pair from below T",
     "EVICT_HASH_ROOT": "cohort sweep: [Rsc Rs Lsc Ls] -> [oh os] at the subtree root",
+    "LEAF_JOIN_OLD": "cohort rewrite: [amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest ek ok fin amt], fin = (seq == SEQ_FINAL)",
+    "LEAF_JOIN_NEW": "cohort rewrite: [amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest amt]",
+    "REWRITE_CONV": "cohort rewrite: [idx L Z amt8 rest] -> [idx L Z sc], a leaf's 41-byte node or Z (E_0) for the empty element",
+    "REWRITE_PAY": "cohort rewrite: output idx pays exactly old.amt8 to P2TR(old.ek), idx advances (7.9 rule 5)",
+    "OWNER_AUTH_MID": "cohort rewrite: the next witness element (nine deep) is a signature by old.ok",
+    "OWNER_AUTH_MID_X": "OWNER_AUTH_MID plus a signature by old.ek (REWRITE_h^x)",
+    "REWRITE_STEP_MID": "cohort rewrite pre-pass: [new_slot old_slot idx L Z] -> [idx' L Z] | ns nsc os osc, with 7.9 rules 3 and 5",
+    "REWRITE_STEP_MID_X": "REWRITE_STEP_MID with OWNER_AUTH_MID_X",
+    "REWRITE_HASH_STEP2": "cohort rewrite: [Rosc Ros Rnsc Rns Losc Los Lnsc Lns] -> [posc pos pnsc pns], two pad pairs from below T",
+    "REWRITE_HASH_ROOT2": "cohort rewrite: the same at the subtree root, -> [oh os nh ns]",
 }
 
 CCV = ccv_macros()
@@ -360,6 +381,9 @@ open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w").write(
 open(os.path.join(OUT, "DETACH_2_D8.txt"), "w").write(
     structured("DETACH_2 (dense, D=8): detach a 4-position subtree into its own tree output",
                F.detach_script(8, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2", FULL))
+open(os.path.join(OUT, "CCV_DETACH_2_D8.txt"), "w").write(
+    structured("DETACH_2 (CCV tier, dense, D=8): detach a 4-position subtree into its own tree output",
+               CV.detach_script_ccv(8, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2")), "c2", CCV))
 open(os.path.join(OUT, "EXIT_1_MIN_D4.txt"), "w").write(
     structured("EXIT_1 (minimal inventory, dense, D=4)", F.exit_script_min(D), "c2", FULL))
 for name, toks in M.all_scripts(D, OP_KEY, False, tree_id=TREE_ID).items():
@@ -373,6 +397,9 @@ open(os.path.join(OUT, f"MID_SPLIT_D{D}.txt"), "w").write(
 open(os.path.join(OUT, f"MID_EVICT_SUBTREE_2_D{D}.txt"), "w").write(
     structured(f"EVICT_SUBTREE_2 (MID tier, cohort sweep of a 4-position subtree, dense, D={D})",
                M.evict_subtree_script(D, 2, OP_KEY), "c0", MID))
+open(os.path.join(OUT, f"MID_REWRITE_2_D{D}.txt"), "w").write(
+    structured(f"REWRITE_2 (MID tier, cohort rewrite of a 4-position subtree, dense, D={D})",
+               M.rewrite_script(D, 2, OP_KEY), "c0", MID))
 open(os.path.join(OUT, f"MIN_EXIT_1_D{D}.txt"), "w").write(
     structured(f"EXIT_1 (MIN tier, dense, D={D})", N.exit_script(D), "c0", MIN))
 open(os.path.join(OUT, f"MIN_SPLIT_D{D}.txt"), "w").write(

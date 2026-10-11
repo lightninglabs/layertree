@@ -59,13 +59,13 @@ TREE_EXIT_VB = 2511
 # batch size. "Owner exits" is measured (spec/fee-analysis.md, one and two
 # leaves); the cohort rewrite exits are the measured REWRITE_2/4/6 with
 # every position leaving, priced by the fee analysis model with one 43 vB
-# payout per leaf (362, 198 and 161 vB per leaf at 4, 16 and 64
+# payout per leaf (364, 200 and 162 vB per leaf at 4, 16 and 64
 # positions, spec 11's table; the serialised transactions are in
 # spec/scripts/weights.md); the operator sweeps are the measured
 # EVICT_SUBTREE_4/6/8 sizes divided by the leaves they remove (13, 51
 # and 206), spec/scripts/sizes.md, with the same model.
 OWNER_EXITS = [(1, 1020), (2, 842)]
-REWRITE_EXITS = [(4, 362), (16, 198), (64, 161)]
+REWRITE_EXITS = [(4, 364), (16, 200), (64, 162)]
 OPERATOR_SWEEPS = [(13, 203), (51, 158), (206, 147)]
 # The sweeps at D = 16 only, h = 2, 4 and 6 (3, 13 and 51 leaves swept),
 # for the cohort figure; EVICT_SUBTREE_2 is 3,889 WU of witness, 1,295 vB.
@@ -99,7 +99,7 @@ LN_OPEN_VB = 154
 # on-chain.
 LIFETIME_GROUPS = [
     ("Enters in a batch, never exits alone", [3, 1644, 197, 86, 154]),
-    ("Enters in a batch, exits in a batch", [161, 3108, 197, 86, 154]),
+    ("Enters in a batch, exits in a batch", [162, 3108, 197, 86, 154]),
     ("Enters in a batch, exits alone", [1023, 3281, 573, 2554, 154]),
 ]
 
@@ -607,11 +607,11 @@ def fig_radix(png_dir):
 
 # The batching shapes share the axes of the exit-amortisation figure. The
 # cohort rewrite point is the measured REWRITE_6 with every key rotated
-# (147 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
+# (148 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
 # after a DETACH_8 (780 vB once); the depth-8 EXIT_1 is 762 vB by the
 # fee analysis model (spec 11's table rounds it to 765). The other series
 # reuse the constants above.
-COHORT_REWRITE = [(64, 147)]
+COHORT_REWRITE = [(64, 148)]
 DETACH_EXIT = [(256, 762)]
 VIOLET = "#4a3aa7"
 

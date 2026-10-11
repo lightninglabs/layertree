@@ -66,6 +66,17 @@ for hl, nm in ((False, "CLAIM"), (True, "CLAIM_H")):
     add("CCV0", "D", 4, nm, CV._claim_script_ccv0(4, TREE_ID, False, hl), "c0")
     add("CCV0", "S", 8, nm, CV._claim_script_ccv0(8, TREE_ID, True, hl), "c0")
 add("CCV", "D", 4, "UPDATE_X", CV.update_script_ccv(4, OP_KEY, "D", exit_consent=True), "c2")
+# The 0xC0 reference set itself (EXIT_K, JOIN_h, JOINK_K, UPDATE), so that the
+# Go ports a CCV0 DETACH_h's m_h is built from are checked one by one.
+for name, toks in CV.all_scripts_ccv(4, OP_KEY, (0, 2), (1, 2), "D", (2,), "c0").items():
+    if not name.startswith("EVICT_SUBTREE_"):
+        add("CCV0", "D", 4, name, toks, "c0")
+for name, toks in CV.all_scripts_ccv(8, OP_KEY, (0,), (1,), "S", (2,), "c0").items():
+    add("CCV0", "S", 8, name, toks, "c0")
+add("CCV0", "D", 4, "UPDATE_X", CV._update_script_ccv0(4, OP_KEY, False, exit_consent=True), "c0")
+# DETACH_2 (7.10) in both numerics, over the reference option set at depth 2.
+add("CCV", "D", 4, "DETACH_2", CV.detach_script_ccv(4, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c2")), "c2")
+add("CCV0", "D", 4, "DETACH_2", CV._detach_script_ccv0(4, 2, OP_KEY, CV.detached_taptree_root_ccv(2, OP_KEY, "c0")), "c0")
 
 # Tree-creation variants: UPDATE^x, the exit-consent UPDATE (spec 7.4 rule 5),
 # CLAIM^h the hash-locked voucher (7.5.1), SPLIT the owner-authorised
@@ -96,6 +107,8 @@ add("FULL", "D", 4, "CLAIM_HX", F.claim_script(4, TREE_ID, "D", hashlock=True, e
 add("FULL", "S", 8, "CLAIM_HX", F.claim_script(8, TREE_ID, "S", hashlock=True, exit_consent=True), "c2")
 add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
+add("MID", "D", 4, "REWRITE_2", M.rewrite_script(4, 2, OP_KEY), "c0")
+add("MID", "D", 4, "REWRITE_X_2", M.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c0")
 add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2")
 # EXIT_1^= (7.2 rule 6) and the DETACH_2 of a channel-hosting parent (exact
 # payouts, CLAIM^h, DETACH_2): its m_h is that option set compiled at depth

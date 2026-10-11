@@ -814,6 +814,241 @@ func midEvictBody(height int, operatorKey [32]byte, pay []Token) []Token {
 	return append(s, Data(midEmptyNodeHash(height)), Op(txscript.OP_0))
 }
 
+// ---------------------------------------------------------------------------
+// Cohort rewrite: REWRITE_h (dense profile, spec 7.9, 8.9) under MID
+// numerics, a port of tools/layertree_mid.py's rewrite_script. Built like
+// the MID sweep: a pre-pass at the top of the stack reduces every position
+// in order and parks (ns, nsc, os, osc) on the altstack, then a hash pass
+// folds the parked nodes in mirrored post-order with two HASH_STEPs per
+// internal node. Each slot (a MID leaf of ten elements plus a presence
+// flag, or one empty element) is reduced to a canonical form built from
+// its fields before they are re-joined: the old slot to [amt8 rest ek ok
+// fin amt], the new to [amt8 rest amt]. The TAG_LEAF prefix and E_0's
+// node travel with the output index as [idx L Z] on top of the remaining
+// witness and are parked while a position's slots are reduced.
+// ---------------------------------------------------------------------------
+
+// midSeqFinal is the MID tier's SEQ_FINAL marker (spec 4.5), le32(0x7FFFFFFF).
+var midSeqFinal = []byte{0xff, 0xff, 0xff, 0x7f}
+
+// midRewriteSame is the MID "unchanged" marker (spec 7.9): a new slot of one
+// element 0x02 (0x01 being a slot's presence flag) stands for the old slot.
+var midRewriteSame = []byte{0x02}
+
+// midLeafJoinOld: [amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest
+// ek ok fin amt]. LEAF_JOIN with the fields the rewrite rules need kept
+// beside the re-joined rest (leaf[8:]): copies of ek and ok, fin = (seq ==
+// SEQ_FINAL) and the amount as a non-negative number.
+func midLeafJoinOld() []Token {
+	s := []Token{Num(2), Op(txscript.OP_PICK)}
+	s = append(s, midNonneg()...)
+	s = append(s, Op(txscript.OP_TOALTSTACK))
+	s = append(s, midLe64()...)
+	s = append(s, Num(7), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY))
+	s = append(s, midFieldSizeChecks()...)
+	s = append(s,
+		Op(txscript.OP_DUP), Data(midSeqFinal), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_TOALTSTACK),
+		Num(5), Op(txscript.OP_PICK), Num(5), Op(txscript.OP_PICK),
+		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK),
+	)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 5)...)
+	return append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 4)...)
+}
+
+// midLeafJoinNew: [amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest amt].
+func midLeafJoinNew() []Token {
+	s := []Token{Num(2), Op(txscript.OP_PICK)}
+	s = append(s, midNonneg()...)
+	s = append(s, Op(txscript.OP_TOALTSTACK))
+	s = append(s, midLe64()...)
+	s = append(s, Num(7), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY))
+	s = append(s, midFieldSizeChecks()...)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 5)...)
+	return append(s, Op(txscript.OP_FROMALTSTACK))
+}
+
+// midFieldSizeChecks are LEAF_JOIN's seven field size checks over
+// [amt8 ek ok evk ea nonce seq].
+func midFieldSizeChecks() []Token {
+	var s []Token
+	for _, f := range midFieldSizes {
+		d, size := f[0], f[1]
+		if d != 0 {
+			s = append(s, Num(d), Op(txscript.OP_PICK))
+		} else {
+			s = append(s, Op(txscript.OP_DUP))
+		}
+		s = append(s, Op(txscript.OP_SIZE), Num(size),
+			Op(txscript.OP_EQUALVERIFY), Op(txscript.OP_DROP))
+	}
+	return s
+}
+
+// midRewriteOwnerAuth: [sig C_new(3) C_old(6)] -> [C_new(3) C_old(6)]; the
+// next witness element, nine deep, is a signature by old.ok, and under ^x
+// one more by old.ek.
+func midRewriteOwnerAuth(exitConsent bool) []Token {
+	s := []Token{Num(9), Op(txscript.OP_ROLL), Num(3), Op(txscript.OP_PICK),
+		Op(txscript.OP_CHECKSIGVERIFY)}
+	if exitConsent {
+		s = append(s, Num(9), Op(txscript.OP_ROLL), Num(4), Op(txscript.OP_PICK),
+			Op(txscript.OP_CHECKSIGVERIFY))
+	}
+	return s
+}
+
+// midRewritePay: output idx pays exactly old.amt8 to P2TR(old.ek) and idx
+// advances on the altstack (spec 7.9 rule 5).
+func midRewritePay() []Token {
+	return []Token{
+		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_DUP), Op(txscript.OP_1ADD),
+		Op(txscript.OP_TOALTSTACK),
+		Num(SelOutSingle), Op(OP_TX),
+		Data(midP2TRPrefix), Num(6), Op(txscript.OP_PICK), Op(txscript.OP_CAT),
+		Op(txscript.OP_EQUALVERIFY),
+		Num(6), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+	}
+}
+
+// midRewriteConv: [idx L Z amt8 rest] -> [idx L Z sc], a leaf's 41-byte node
+// H_leaf(amt8||rest) || amt8 || 01, or Z for the empty element.
+func midRewriteConv() []Token {
+	return []Token{
+		Op(txscript.OP_SIZE), Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
+		Op(txscript.OP_2DUP), Op(txscript.OP_CAT),
+		Num(4), Op(txscript.OP_PICK), Op(txscript.OP_SWAP), Op(txscript.OP_CAT),
+		Op(txscript.OP_SHA256),
+		Op(txscript.OP_NIP), Op(txscript.OP_SWAP), Data([]byte{0x01}),
+		Op(txscript.OP_CAT), Op(txscript.OP_CAT),
+		Op(txscript.OP_ELSE), Op(txscript.OP_2DROP), Op(txscript.OP_DUP),
+		Op(txscript.OP_ENDIF),
+	}
+}
+
+// midRewriteStep is one position of the pre-pass:
+// [.. {xsig} {sig} new_slot old_slot idx L Z] -> [.. idx' L Z] | .. ns nsc os osc.
+// A new slot that is the one-byte marker parks the old slot's node twice;
+// otherwise the depths in the decision block, from the top, are amt_o 0,
+// fin 1, ok 2, ek 3, rest_o 4, amt8_o 5, amt_n 6, rest_n 7, amt8_n 8, the
+// next witness element 9.
+func midRewriteStep(exitConsent bool) []Token {
+	s := midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 3)
+	s = append(s, Op(txscript.OP_IF))
+	s = append(s, midLeafJoinOld()...)
+	s = append(s, Op(txscript.OP_ELSE))
+	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, 6)...)
+	s = append(s, Op(txscript.OP_ENDIF))
+	// The marker: new = old, so the old node is parked as both pairs.
+	s = append(s,
+		Num(6), Op(txscript.OP_PICK), Data(midRewriteSame), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_IF),
+		Num(6), Op(txscript.OP_ROLL), Op(txscript.OP_DROP),
+		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
+		Op(txscript.OP_FROMALTSTACK),
+		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK),
+		Op(txscript.OP_FROMALTSTACK),
+	)
+	s = append(s, midRoll(5, 2)...)
+	s = append(s, midRewriteConv()...)
+	s = append(s, midRoll(4, 1)...)
+	s = append(s, Op(txscript.OP_2DUP))
+	s = append(s, midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 4)...)
+	s = append(s, Op(txscript.OP_ELSE))
+	s = append(s, midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 6)...)
+	s = append(s, Op(txscript.OP_IF))
+	s = append(s, midLeafJoinNew()...)
+	s = append(s, Op(txscript.OP_ELSE))
+	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, 3)...)
+	s = append(s, Op(txscript.OP_ENDIF))
+	s = append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 6)...)
+	s = append(s,
+		Num(4), Op(txscript.OP_PICK), Num(8), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
+		Num(6), Op(txscript.OP_PICK), Num(10), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_BOOLAND), Op(txscript.OP_NOTIF),
+		Num(4), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
+		Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
+		Num(7), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
+		Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
+		Num(4), Op(txscript.OP_PICK), Num(8), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_OVER), Num(8), Op(txscript.OP_PICK),
+		Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_BOOLAND),
+		Num(2), Op(txscript.OP_PICK), Op(txscript.OP_NOT), Op(txscript.OP_BOOLAND),
+		Op(txscript.OP_NOTIF),
+	)
+	s = append(s, midRewriteOwnerAuth(exitConsent)...)
+	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ELSE))
+	s = append(s, midRewriteOwnerAuth(exitConsent)...)
+	s = append(s, midRewritePay()...)
+	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF))
+	s = append(s,
+		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
+		Op(txscript.OP_FROMALTSTACK),
+	)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 3)...)
+	s = append(s, midRoll(8, 2)...)
+	s = append(s, midRewriteConv()...)
+	s = append(s, midRoll(7, 1)...)
+	s = append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
+	s = append(s, midRoll(5, 2)...)
+	s = append(s, midRewriteConv()...)
+	s = append(s, midRoll(4, 1)...)
+	s = append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
+	return append(s, Op(txscript.OP_ENDIF))
+}
+
+// midRewriteHashStep2: [T .. Rosc Ros Rnsc Rns Losc Los Lnsc Lns] ->
+// [T .. posc pos pnsc pns] (or [T .. poh pos pnh pns] at the root): the
+// sweep's hash step on the old pair, then on the new pair, with the FULL
+// tier's HASH_STEP2 shuffles. t is the number of elements above T on entry.
+func midRewriteHashStep2(t int64, root bool) []Token {
+	s := []Token{Op(txscript.OP_2SWAP)}
+	s = append(s, midRoll(7, 2)...)
+	s = append(s, Op(txscript.OP_2SWAP))
+	s = append(s, midEvictHashStep(t, root)...)
+	s = append(s, Op(txscript.OP_2SWAP))
+	s = append(s, midRoll(5, 2)...)
+	s = append(s, Op(txscript.OP_2SWAP))
+	return append(s, midEvictHashStep(t-2, root)...)
+}
+
+// MidRewriteScript is REWRITE_h (spec 7.9, dense) in the MID tier, or
+// REWRITE_h^x with exitConsent. Like FULL's it stays out of MidAllScripts.
+//
+// witness (bottom..top) = zf wf zi wi [levels h..D-1] [pad pairs, new then
+// old per internal node in reverse consumption order] block_{2^h-1} ..
+// block_0 sig_op r m; block_i = [xsig_i] [sig_i] new_slot_i old_slot_i, a
+// slot being leaf(10) 0x01 or one empty element, and new_slot_i possibly
+// the one-byte marker 0x02 for an unchanged position.
+func MidRewriteScript(depth, height int, operatorKey [32]byte,
+	exitConsent bool) []Token {
+
+	s := midPrologue()
+	s = append(s, Data(operatorKey[:]), Op(txscript.OP_CHECKSIGVERIFY))
+	s = append(s, Op(txscript.OP_1), Data(midLeafPrefix), Data(midEvictE0Sc))
+	for i := 0; i < 1<<height; i++ {
+		s = append(s, midRewriteStep(exitConsent)...)
+	}
+	s = append(s, Op(txscript.OP_2DROP), Op(txscript.OP_DROP), Data(midNodePrefix))
+	var t int64
+	var gen func(k int, root bool)
+	gen = func(k int, root bool) {
+		if k == 0 {
+			s = append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 4)...)
+			t += 4
+			return
+		}
+		gen(k-1, false)
+		gen(k-1, false)
+		s = append(s, midRewriteHashStep2(t, root)...)
+		t -= 4
+	}
+	gen(height, true)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, midCheckOld(false)...)
+	return append(s, midFinal(depth)...)
+}
+
 // MidAllScripts builds the MID-tier script set for one profile, keyed as
 // layertree_mid.all_scripts keys them. treeID is the tree's voucher
 // binding (spec 6.2), which CLAIM carries as a constant.

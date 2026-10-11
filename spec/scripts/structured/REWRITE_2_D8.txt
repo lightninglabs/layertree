@@ -1,4 +1,4 @@
-# REWRITE_2 (dense, D=8): cohort rewrite of a 4-position subtree: 2071 bytes
+# REWRITE_2 (dense, D=8): cohort rewrite of a 4-position subtree: 2099 bytes
 # macros in CAPITALS are defined in MACROS_FULL.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

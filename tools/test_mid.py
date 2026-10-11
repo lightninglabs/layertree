@@ -856,6 +856,262 @@ def test_evict_subtree(depth, height, verbose=True, full=False):
     return it, script, wit
 
 
+def _needs_owner_sig_mid(old, new):
+    """Spec 7.9 rule 3 under MID's SEQ_FINAL (0x7FFFFFFF), computed
+    independently of the script."""
+    if old is None or (new is not None and old.serialize() == new.serialize()):
+        return False
+    if (new is not None and new.serialize()[8:] == old.serialize()[8:] and new.amount >= old.amount
+            and old.seq != M.SEQ_FINAL):
+        return False
+    return True
+
+
+def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
+    """Build a MID REWRITE_h spend for one of test_scripts._rewrite_plan's
+    scenarios. Returns a dict with the world, the plan, the context and a
+    `witness(old, new, ctx, signer_op, sign)` builder, so the negatives can
+    rebuild the witness from a mutated plan."""
+    name = f"REWRITE_X_{height}" if exit_consent else f"REWRITE_{height}"
+    w = MidWorld(depth, False)
+    toks = M.rewrite_script(depth, height, w.op_pk, exit_consent)
+    bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+    check(not bad, f"MID {name}: opcodes outside the MID set: {sorted(bad)}")
+    script = assemble(toks, mode="c0")
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    base, old, new = TS._rewrite_plan(w, height, scenario)
+    idx = base >> height
+    w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    n = 1 << height
+
+    def outputs_for(old_, new_, tree=None):
+        tree = tree or w.tree
+        t1 = lt.Tree(depth); t1.leaves = dict(tree.leaves)
+        for i, lf in new_.items():
+            if lf:
+                t1.leaves[base + i] = lf
+            else:
+                t1.leaves.pop(base + i, None)
+        r1 = t1.root()
+        outs = [(r1[1], w.spk(r1))]
+        for i in range(n):
+            if old_[i] and new_[i] is None:
+                outs.append((old_[i].amount, lt.p2tr_spk(old_[i].exit_key)))
+        return outs + [(400, P2WPKH)], r1[1] - tree.root()[1]
+
+    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, m=None, marker=True):
+        tree = tree or w.tree
+        sigs = {}
+        for i in range(n):
+            if sign and _needs_owner_sig_mid(old_[i], new_[i]):
+                sigs[i] = [schnorr_sign(ctx.sighash(), sk(f"c{i}-owner"))]
+                if exit_consent:
+                    sigs[i].append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
+        body = M.w_rewrite(tree, depth, height, idx, new_, sigs, marker)
+        sig_op = schnorr_sign(ctx.sighash(), signer_op or w.op_sk)
+        return body + [sig_op, tree.root()[0], m or w.m], sigs
+
+    outputs, delta = outputs_for(old, new)
+    ctx = w.ctx(outputs, (max(delta, 0) + 5_000, P2WPKH))
+    wit, sigs = witness(old, new, ctx)
+    return dict(name=name, w=w, script=script, wit=wit, ctx=ctx, base=base, idx=idx, old=old, new=new,
+                sigs=sigs, outputs=outputs, delta=delta, outputs_for=outputs_for, witness=witness)
+
+
+def test_rewrite(depth, height, exit_consent=False, verbose=True, scenario="mixed"):
+    """MID REWRITE_h (spec 7.9): the cohort rewrite over the MID witness,
+    mirroring test_scripts.test_rewrite (same mixed cohort, same negatives)
+    plus the MID-specific ones (a malformed node pad, a wrong m, a leaf
+    whose amount field and number disagree). Returns (interp, script,
+    witness); interp and witness are None when the witness exceeds the
+    1,000-element stack limit, in which case the run is checked to fail."""
+    c = rewrite_case_mid(depth, height, scenario, exit_consent)
+    w, name, ctx, wit, outputs = c["w"], c["name"], c["ctx"], c["wit"], c["outputs"]
+    old, new, sigs, base, delta = c["old"], c["new"], c["sigs"], c["base"], c["delta"]
+    outputs_for, witness = c["outputs_for"], c["witness"]
+    n = 1 << height
+    root = w.tree.root()
+    # BIP-342 caps stack plus altstack at 1,000 elements after every opcode;
+    # the pre-pass peaks four above the witness (NONNEG's two copies over the
+    # picked amount while idx, L and Z are parked), see spec 4.5.
+    if len(wit) + 4 > 1000:
+        expect_fail(lambda: w.run(name, wit, ctx),
+                    f"mid: {name} ({scenario}) with {len(wit)} witness elements exceeds 1,000 stack elements")
+        if verbose:
+            print(f"MID {name} D={depth} ({scenario}): {n} positions, script {len(c['script'])} B, "
+                  f"witness {len(wit)} elements, over the 1,000-element limit (rejected)")
+        return None, c["script"], None
+    it = None
+    try:
+        it = w.run(name, wit, ctx)
+        check(True, f"mid: {name} D={depth}: {scenario} rewrite of {n} positions")
+    except ScriptError as e:
+        check(False, f"mid: {name} positive: {str(e)[:120]}")
+        return None, c["script"], wit
+    check(outputs[0][0] == root[1] + delta, f"mid: {name} output 0 is S + (sum new - sum old)")
+    if scenario != "mixed":
+        if verbose:
+            print(f"MID {name} D={depth} ({scenario}): {n} positions, {len(sigs)} owner signatures, "
+                  f"script {len(c['script'])} B, witness {sum(len(x) for x in wit)} B ({len(wit)} elements), "
+                  f"maxdepth {it.max_depth}")
+        return it, c["script"], wit
+
+    def run_plan(old_, new_, tree=None, sign=True, signer_op=None, m=None, mutate=None, outs=None, marker=True):
+        tree = tree or w.tree
+        o, d = outputs_for(old_, new_, tree)
+        o = outs or o
+        ctx_ = w.ctx(o, (max(d, 0) + 5_000, P2WPKH)) if tree is w.tree else \
+            TxContext([(tree.root()[1], w.spk(tree.root())), (max(d, 0) + 5_000, P2WPKH)], o)
+        wit_, sigs_ = witness(old_, new_, ctx_, signer_op, sign, tree, m, marker)
+        if mutate:
+            wit_ = mutate(wit_, sigs_, ctx_)
+        return w.run(name, wit_, ctx_)
+
+    # the unchanged position: its new slot is the one-byte marker, or a full
+    # second copy, which the script also accepts
+    i_same = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() == new[i].serialize())
+    check(wit.count(M.REWRITE_SAME) >= 1, f"mid: {name} the unchanged position's new slot is the one-byte marker")
+    run_plan(old, new, marker=False)
+    check(True, f"mid: {name} an unchanged leaf supplied twice in full also passes")
+
+    def slot_to_marker(leaf):
+        """Replace the eleven-element slot of `leaf` in the witness with the marker."""
+        slot = M.w_rewrite_slot(leaf)
+
+        def mut(wit_, sigs_, ctx_):
+            at = next(j for j in range(len(wit_) - len(slot) + 1) if wit_[j:j + len(slot)] == slot)
+            return wit_[:at] + [M.REWRITE_SAME] + wit_[at + len(slot):]
+        return mut
+    # a marker as the old slot is a leaf of one element; a marker in place
+    # of a changed leaf hides nothing, since the fold then sees the old leaf
+    expect_fail(lambda: run_plan(old, new, mutate=slot_to_marker(old[i_same])), f"mid: {name} the marker as an old slot")
+    i_chg = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() != new[i].serialize())
+    expect_fail(lambda: run_plan(old, new, mutate=slot_to_marker(new[i_chg])), f"mid: {name} the marker in place of a changed leaf")
+    # rule 3: a changed leaf without its owner's signature
+    i_rot = next(i for i in range(n) if old[i] and new[i] and _needs_owner_sig_mid(old[i], new[i]))
+
+    def drop_sig(i):
+        def mut(wit_, sigs_, ctx_):
+            wit_ = list(wit_)
+            del wit_[wit_.index(sigs_[i][0])]
+            if exit_consent:
+                del wit_[wit_.index(sigs_[i][1])]
+            return wit_
+        return mut
+    expect_fail(lambda: run_plan(old, new, mutate=drop_sig(i_rot)), f"mid: {name} changed leaf without the owner signature")
+    # rule 3: a key rotation disguised as an amount-only increase
+    i_inc = next(i for i in range(n) if old[i] and new[i] and not _needs_owner_sig_mid(old[i], new[i])
+                 and new[i].amount > old[i].amount)
+    lf = old[i_inc]
+    disguised = dict(new)
+    disguised[i_inc] = lt.Leaf(lf.amount + 500, lf.exit_key, pubkey_x(sk("mallory")), lf.evictor_key,
+                               lf.evict_after, lf.nonce, lf.seq)
+    expect_fail(lambda: run_plan(old, disguised, mutate=drop_sig(i_inc)), f"mid: {name} key rotation disguised as an amount increase")
+    run_plan(old, disguised)
+    check(True, f"mid: {name} the same rotation with the owner's signature succeeds")
+    # rule 3: an amount decrease and an exit-key change without a signature
+    decreased = dict(new); decreased[i_inc] = lf.with_amount_seq(lf.amount - 1, lf.seq)
+    expect_fail(lambda: run_plan(old, decreased, mutate=drop_sig(i_inc)), f"mid: {name} amount decrease without the owner signature")
+    rekeyed = dict(new); rekeyed[i_inc] = lt.Leaf(lf.amount + 500, pubkey_x(sk("mallory")), lf.owner_key,
+                                                 lf.evictor_key, lf.evict_after, lf.nonce, lf.seq)
+    expect_fail(lambda: run_plan(old, rekeyed, mutate=drop_sig(i_inc)), f"mid: {name} exit-key change without the owner signature")
+    # rule 3: the exemption stops at a SEQ_FINAL leaf (0x7FFFFFFF in MID):
+    # raising its amount by 1 sat needs the owner's signature too
+    t_f = w.clone()
+    final_old, final_new = dict(old), dict(new)
+    final_old[i_inc] = lf.with_amount_seq(lf.amount, M.SEQ_FINAL)
+    final_new[i_inc] = lf.with_amount_seq(lf.amount + 1, M.SEQ_FINAL)
+    t_f.leaves[base + i_inc] = final_old[i_inc]
+    expect_fail(lambda: run_plan(final_old, final_new, tree=t_f, mutate=drop_sig(i_inc)),
+                f"mid: {name} SEQ_FINAL leaf raised by 1 sat without the owner signature")
+    run_plan(final_old, final_new, tree=t_f)
+    check(True, f"mid: {name} the same raise with the owner's signature succeeds")
+    # FULL's SEQ_FINAL (0xFFFFFFFF) is not the MID marker: the exemption applies there
+    t_g = w.clone()
+    g_old, g_new = dict(old), dict(new)
+    g_old[i_inc] = lf.with_amount_seq(lf.amount, 0xFFFFFFFF)
+    g_new[i_inc] = lf.with_amount_seq(lf.amount + 1, 0xFFFFFFFF)
+    t_g.leaves[base + i_inc] = g_old[i_inc]
+    run_plan(g_old, g_new, tree=t_g)
+    check(True, f"mid: {name} a seq of 0xFFFFFFFF is not MID's SEQ_FINAL: the amount-only exemption applies")
+    # rule 3: a spurious signature where none is due is consumed as the next element
+    def add_sig(wit_, sigs_, ctx_):
+        wit_ = list(wit_)
+        at = wit_.index(sigs_[i_rot][0])
+        wit_.insert(at, schnorr_sign(ctx_.sighash(), sk(f"c{i_inc}-owner")))
+        return wit_
+    expect_fail(lambda: run_plan(old, new, mutate=add_sig), f"mid: {name} spurious signature on an exempt position")
+    # rule 5: a shortchanged exit payout, and one paid to the wrong key
+    i_exit = next(i for i in range(n) if old[i] and new[i] is None)
+    k = 1 + sum(1 for i in range(i_exit) if old[i] and new[i] is None)
+    outs_s = list(outputs); outs_s[k] = (outs_s[k][0] - 1, outs_s[k][1])
+    expect_fail(lambda: run_plan(old, new, outs=outs_s), f"mid: {name} shortchanged exit payout")
+    outs_k = list(outputs); outs_k[k] = (outs_k[k][0], lt.p2tr_spk(pubkey_x(sk("mallory"))))
+    expect_fail(lambda: run_plan(old, new, outs=outs_k), f"mid: {name} exit paid to the wrong key")
+    # rule 5: an exit without its owner's signature
+    expect_fail(lambda: run_plan(old, new, mutate=drop_sig(i_exit)), f"mid: {name} exit without the owner signature")
+    # rule 4: no operator signature
+    expect_fail(lambda: run_plan(old, new, signer_op=sk("alice-owner")), f"mid: {name} without the operator signature")
+    # rule 6: output 0 not conserved (under and over)
+    for off in (-1, +1):
+        outs_u = list(outputs); outs_u[0] = (outs_u[0][0] + off, outs_u[0][1])
+        expect_fail(lambda: run_plan(old, new, outs=outs_u), f"mid: {name} output 0 off by {off:+d}")
+    # rule 1: a stale path and a forged old leaf
+    t_s = w.clone(); t_s.leaves[0] = mk_leaf("alice", 51_000)
+
+    def stale_path(wit_, sigs_, ctx_):
+        good = M.w_rewrite(w.tree, depth, height, c["idx"], new, sigs_)
+        stale = M.w_rewrite(t_s, depth, height, c["idx"], new, sigs_)
+        return stale + wit_[len(good):]
+    expect_fail(lambda: run_plan(old, new, mutate=stale_path), f"mid: {name} stale path")
+    forged = dict(old); forged[i_rot] = old[i_rot].with_amount_seq(old[i_rot].amount + 1, old[i_rot].seq)
+    t_forged = w.clone(); t_forged.leaves[base + i_rot] = forged[i_rot]
+
+    def forge(wit_, sigs_, ctx_):
+        return M.w_rewrite(t_forged, depth, height, c["idx"], new, sigs_) + wit_[-3:]
+    expect_fail(lambda: run_plan(old, new, mutate=forge), f"mid: {name} forged old leaf")
+    # MID-specific: the amount field and its number disagree in an old leaf
+    def bad_amount(wit_, sigs_, ctx_):
+        wit_ = list(wit_)
+        at = len(wit_) - 3 - 1 - 3            # position 0's old slot: flag, then wa za amt_num
+        assert wit_[at] == M.scriptnum(old[0].amount)
+        wit_[at] = M.scriptnum(old[0].amount + 256)
+        return wit_
+    expect_fail(lambda: run_plan(old, new, mutate=bad_amount), f"mid: {name} old leaf amount field and number disagree")
+    # MID-specific: a malformed node pad, a wrong m, an occupied position presented as empty
+    if height >= 2:
+        at = 4 + M.LEVEL_WITNESS * (depth - height)      # the last-consumed pad pair (the first node's new sum)
+
+        def swap_pad(wit_, sigs_, ctx_):
+            b = list(wit_); b[at], b[at + 1] = b[at] + b"\x00", b[at + 1][1:]
+            return b
+        expect_fail(lambda: run_plan(old, new, mutate=swap_pad), f"mid: {name} with a malformed node pad")
+    expect_fail(lambda: run_plan(old, new, m=lt.sha256(b"evil")), f"mid: {name} with a wrong m")
+    hidden = dict(old); hidden[i_rot] = None
+    t_h = w.clone(); del t_h.leaves[base + i_rot]
+
+    def hide(wit_, sigs_, ctx_):
+        return M.w_rewrite(t_h, depth, height, c["idx"], new, sigs_) + wit_[-3:]
+    expect_fail(lambda: run_plan(old, new, mutate=hide), f"mid: {name} presents an occupied position as empty")
+    if exit_consent:
+        # rule 7: the exit key of a changed leaf must sign too
+        def drop_x(wit_, sigs_, ctx_):
+            wit_ = list(wit_); del wit_[wit_.index(sigs_[i_rot][1])]; return wit_
+        expect_fail(lambda: run_plan(old, new, mutate=drop_x), f"mid: {name} changed leaf without the exit-key signature")
+
+        def wrong_x(wit_, sigs_, ctx_):
+            wit_ = list(wit_); wit_[wit_.index(sigs_[i_rot][1])] = sigs_[i_rot][0]; return wit_
+        expect_fail(lambda: run_plan(old, new, mutate=wrong_x), f"mid: {name} exit-key signature by the owner key")
+    if verbose:
+        print(f"MID {name} D={depth} ({scenario}): {n} positions, {len(sigs)} owner signatures, "
+              f"script {len(c['script'])} B, witness {sum(len(x) for x in wit)} B ({len(wit)} elements), "
+              f"maxdepth {it.max_depth}")
+    return it, c["script"], wit
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
@@ -871,5 +1127,12 @@ if __name__ == "__main__":
         test_evict_subtree(16, h)
     for h in (5, 6):   # every position occupied: h = 6 exceeds the stack limit (spec 4.5)
         test_evict_subtree(16, h, full=True)
+    for h in (2, 4):
+        test_rewrite(16, h)
+    test_rewrite(16, 4, exit_consent=True)
+    for scenario in ("update", "exit"):   # every position occupied at h = 5 fits the stack limit
+        test_rewrite(16, 5, scenario=scenario)
+    for scenario in ("mixed", "exit"):    # h = 6 does not, at the suite's occupancies (spec 4.5)
+        test_rewrite(16, 6, scenario=scenario)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)

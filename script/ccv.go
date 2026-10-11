@@ -468,6 +468,351 @@ func CCV0SplitScript(depth int, sparse bool) []Token {
 	return append(s, ccv0CarveBody(depth, sparse)...)
 }
 
+// ------------------------------------------------- 0xC0 reference set --
+// The CCV tier's 0xC0 EXIT_K, JOIN_h / JOINK_K and UPDATE / UPDATE^x are
+// the MID tier's scripts with the two key bindings replaced by CCV calls
+// and the payout check by a DEDUCT call, ports of tools/layertree_ccv.py's
+// _exit_script_ccv0, _join_script_ccv0 and _update_script_ccv0. They are
+// what a 0xC0 CCV tree's taptree is built from, and so what the m_h of its
+// DETACH_h commits to.
+
+// ccv0Pay is the exit-block payout under 0xC0: a CHECK_OUTPUT|DEDUCT call
+// on the leaf's exit-key element (ten deep under the OP_TX pair) plus the
+// exact amount compare, in place of MID's scriptPubKey check
+// (tools/layertree_ccv.py _pay_ccv0).
+func ccv0Pay(outIndex int) []Token {
+	return []Token{
+		Num(int64(outIndex)), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP), // leaf10 amt1
+		Op(ts.OP_TOALTSTACK),                 // leaf10 | amt1
+		Data(ccvEmpty), Num(int64(outIndex)), // data index
+		Num(10), Op(ts.OP_PICK), // ek element (pk slot)
+		Data(ccvEmpty), Num(ccvModeDeductOut), Op(OP_CHECKCONTRACTVERIFY),
+		Op(ts.OP_FROMALTSTACK),                         // leaf10 amt1
+		Num(10), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY), // amt1 == leaf amt8
+		Op(ts.OP_FROMALTSTACK), Op(ts.OP_DROP), // leaf10 (is_evict gone)
+	}
+}
+
+// ccv0ExitBlock is MID's exit block with the payout check replaced by
+// ccv0Pay (tools/layertree_ccv.py _exit_block_ccv0).
+func ccv0ExitBlock(sparse bool, depth, outIndex int) []Token {
+	s := []Token{
+		Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), Op(ts.OP_IF),
+		Num(3), Op(ts.OP_PICK), Op(ts.OP_CHECKLOCKTIMEVERIFY), Op(ts.OP_DROP),
+		Num(10), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY),
+	}
+	s = append(s, midPadz()...)
+	s = append(s,
+		Num(6), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_ELSE), Num(11), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY),
+		Op(ts.OP_2DROP), Op(ts.OP_DROP),
+		Op(ts.OP_ENDIF),
+	)
+	s = append(s, ccv0Pay(outIndex)...)
+	s = append(s, midLeafJoin()...)
+	s = append(s, midTagged(midLeafPrefix)...)
+	s = append(s, Op(ts.OP_FROMALTSTACK))
+	if sparse {
+		s = append(s, midRoll(5, 4)...)
+		s = append(s, midSparseSetup()...)
+	}
+	s = append(s, Data(midNodePrefix), Op(ts.OP_ROT), Op(ts.OP_ROT),
+		Data(midEmptyLeafHash), Op(ts.OP_0))
+	return append(s, midLevels(sparse, depth, 0)...)
+}
+
+// CCV0ExitScript is EXIT_K under the CCV tier's 0xC0 numerics: MID's
+// chained blocks bound by CHECK_INPUT and the assign-mode output check.
+// Witness: MID's minus r and m.
+func CCV0ExitScript(depth, k int, sparse bool) []Token {
+	s := ccv0ExitBlock(sparse, depth, 1)
+	s = append(s, ccv0CheckOld(sparse)...)
+	for i := 2; i <= k; i++ {
+		s = append(s, Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), Op(ts.OP_TOALTSTACK),
+			Op(ts.OP_DROP))
+		s = append(s, ccv0ExitBlock(sparse, depth, i)...)
+		s = append(s, midCheckPrev(sparse)...)
+	}
+	return append(s, ccv0Final(depth)...)
+}
+
+// CCV0JoinScript is JOIN_h / JOINK_K under the CCV tier's 0xC0 numerics.
+func CCV0JoinScript(depth, height int, operatorKey [32]byte, sparse bool,
+	k int) []Token {
+
+	s := []Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)}
+	s = append(s, midJoinBlock(sparse, depth, height)...)
+	s = append(s, ccv0CheckOld(sparse)...)
+	for i := 2; i <= k; i++ {
+		s = append(s, Op(ts.OP_SWAP), Op(ts.OP_TOALTSTACK), Op(ts.OP_TOALTSTACK),
+			Op(ts.OP_DROP))
+		s = append(s, midJoinBlock(sparse, depth, height)...)
+		s = append(s, midCheckPrev(sparse)...)
+	}
+	return append(s, ccv0Final(depth)...)
+}
+
+// CCV0UpdateScript is UPDATE under the CCV tier's 0xC0 numerics, and
+// CCV0UpdateXScript its exit-consent form (spec 7.4 rule 5).
+func CCV0UpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
+	return ccv0UpdateScript(depth, operatorKey, sparse, false)
+}
+
+// CCV0UpdateXScript is UPDATE^x under the CCV tier's 0xC0 numerics.
+func CCV0UpdateXScript(depth int, operatorKey [32]byte, sparse bool) []Token {
+	return ccv0UpdateScript(depth, operatorKey, sparse, true)
+}
+
+func ccv0UpdateScript(depth int, operatorKey [32]byte, sparse,
+	exitConsent bool) []Token {
+
+	var s []Token
+	if exitConsent {
+		s = append(s, Num(21), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY))
+	}
+	s = append(s, Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY),
+		Num(18), Op(ts.OP_PICK), Op(ts.OP_CHECKSIGVERIFY))
+	if sparse {
+		s = append(s,
+			Num(8), Op(ts.OP_PICK), Num(19), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY),
+			Num(5), Op(ts.OP_PICK), Num(16), Op(ts.OP_PICK), Op(ts.OP_EQUALVERIFY))
+	}
+	s = append(s, midLeafJoin()...)
+	s = append(s, Op(ts.OP_TOALTSTACK))
+	s = append(s, midLeafJoin()...)
+	s = append(s, midTagged(midLeafPrefix)...)
+	s = append(s, Op(ts.OP_FROMALTSTACK), Op(ts.OP_FROMALTSTACK),
+		Op(ts.OP_FROMALTSTACK), Op(ts.OP_SWAP))
+	s = append(s, midTagged(midLeafPrefix)...)
+	s = append(s, Op(ts.OP_SWAP))
+	if sparse {
+		s = append(s, midRoll(7, 4)...)
+		s = append(s, midSparseSetup()...)
+	}
+	s = append(s, Data(midNodePrefix))
+	s = append(s, midRoll(4, 4)...)
+	s = append(s, midLevels(sparse, depth, 0)...)
+	s = append(s, ccv0CheckOld(sparse)...)
+	return append(s, ccv0Final(depth)...)
+}
+
+// ------------------------------------------------------ DETACH_h (7.10) --
+
+// CCVDetachScript is DETACH_h (spec 7.10) under the CCV tier (0xC2): the
+// FULL tier's detach with the second output check as a CCV call. Output 1
+// is checked by CHECK_OUTPUT in the DEDUCT mode with data R_h, the NUMS
+// key and the taptree mH, so it is the CCV tree output of a depth-h tree
+// at root R_h under the detached option set, and its amount is deducted
+// from the residual output 0 then receives; the exact equality with sum_h
+// is one OP_TX read. mH is the parent's option set compiled at depth h
+// (7.10 rule 3, CCVDetachedTaptreeRoot).
+//
+// witness (bottom..top) = [dir sc]*(D-h) R_h sum_h8 sig.
+func CCVDetachScript(depth, height int, operatorKey [32]byte,
+	mH [32]byte) []Token {
+
+	eH := tree.EmptyNode(height).Hash
+	s := []Token{
+		Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY), // R_h sum8
+		Op(ts.OP_SIZE), Num(8), Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_OVER), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY),
+		Op(ts.OP_DROP), // R_h sum8
+		// output 1: CHECK_OUTPUT|DEDUCT, data R_h, index 1, pk empty, taptree m_h
+		Op(ts.OP_OVER), Num(1), Data(ccvEmpty), Data(mH[:]), Num(ccvModeDeductOut),
+		Op(OP_CHECKCONTRACTVERIFY),                           // R_h sum8
+		Num(1), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP), // R_h sum8 amt1
+		Op(ts.OP_OVER), Op(ts.OP_NUMEQUALVERIFY), // R_h sum8 (output 1 pays sum_h exactly)
+		Data(fullNodePrefix), Op(ts.OP_ROT), Op(ts.OP_ROT), // T R_h sum8
+		Data(eH[:]), Op(ts.OP_0), // T R_h sum8 E_h 0
+	}
+	return fullCat(s, fullLevels(false, depth, height), ccvCheckOld(false), ccvFinal(depth))
+}
+
+// CCV0DetachScript is DETACH_h under the CCV tier's 0xC0 numerics: the
+// subtree sum arrives as a minimal number with its PADZ pad, NONNEG keeps
+// it non-negative before it enters the fold, and le64 of it is compared
+// with output 1's amount as bytes (tools/layertree_ccv.py
+// _detach_script_ccv0).
+//
+// witness (bottom..top) = zf wf zi wi [levels h..D-1] R_h sum_num zs ws sig.
+func CCV0DetachScript(depth, height int, operatorKey [32]byte,
+	mH [32]byte) []Token {
+
+	s := []Token{
+		Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY), // R_h sum zs ws
+		Num(2), Op(ts.OP_PICK),
+	}
+	s = append(s, midNonneg()...)
+	s = append(s, Op(ts.OP_TOALTSTACK)) // R_h sum zs ws | sum
+	s = append(s, midLe64()...)         // R_h le64(sum)
+	s = append(s,
+		Op(ts.OP_OVER), Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY), Op(ts.OP_DROP),
+		Op(ts.OP_OVER), Num(1), Data(ccvEmpty), Data(mH[:]), Num(ccvModeDeductOut),
+		Op(OP_CHECKCONTRACTVERIFY),                                                  // R_h le64
+		Num(1), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP), Op(ts.OP_EQUALVERIFY), // R_h
+		Op(ts.OP_FROMALTSTACK), // R_h sum
+		Data(midNodePrefix), Op(ts.OP_ROT), Op(ts.OP_ROT),
+		Data(midEmptyNodeHash(height)), Op(ts.OP_0), // T R_h sum E_h 0
+	)
+	s = append(s, midLevels(false, depth, height)...)
+	s = append(s, ccv0CheckOld(false)...)
+	return append(s, ccv0Final(depth)...)
+}
+
+// CCVTreeOptions are a CCV tree's creation parameters other than its depth
+// (spec 6.2, 4.6): the numerics (C0 for the MID encoding), the profile,
+// the operator key, tree_id, the JOIN heights, EXIT_K sizes, JOINK sizes
+// and sweep heights, and the variants a CCV taptree may carry: UPDATE^x in
+// place of UPDATE, CLAIM and CLAIM^h, SPLIT and DETACH_h. Scripts
+// compiles the set for one depth, which is what the parent's taptree is
+// built from and what a DETACH_h child MUST be built from at depth h
+// (7.10 rule 3; tools/layertree_ccv.py CCVTreeOptions).
+type CCVTreeOptions struct {
+	OperatorKey  [32]byte
+	TreeID       [32]byte
+	C0           bool
+	Sparse       bool
+	JoinHeights  []int
+	ExitKs       []int
+	JoinKs       []int
+	EvictHeights []int
+
+	UpdateX       bool
+	Claim         bool
+	ClaimH        bool
+	Split         bool
+	DetachHeights []int
+}
+
+// CCVReferenceOptions are the set CCVAllScripts builds by default: EXIT_1,
+// JOIN_0, JOINK_2, UPDATE and the sweeps at heights 1 and 2.
+func CCVReferenceOptions(operatorKey [32]byte, c0 bool) CCVTreeOptions {
+	return CCVTreeOptions{
+		OperatorKey: operatorKey, C0: c0,
+		JoinHeights: []int{0}, ExitKs: []int{1}, JoinKs: []int{2},
+		EvictHeights: []int{1, 2},
+	}
+}
+
+// Scripts compiles the option set for a tree of the given depth, in the
+// order tools/layertree_ccv.py CCVTreeOptions.at_depth emits it: the
+// reference members (EXIT_K, JOIN_h, JOINK_K, UPDATE or UPDATE_X in its
+// place, EVICT_SUBTREE_h), then CLAIM, CLAIM_H, SPLIT and DETACH_h.
+// Heights that do not fit the depth are dropped.
+func (o CCVTreeOptions) Scripts(depth int) []FullNamedScript {
+	var out []FullNamedScript
+	add := func(name string, toks []Token) {
+		out = append(out, FullNamedScript{Name: name, Tokens: toks})
+	}
+	for _, k := range o.ExitKs {
+		if o.C0 {
+			add(itoa("EXIT_", k), CCV0ExitScript(depth, k, o.Sparse))
+		} else {
+			add(itoa("EXIT_", k), CCVExitScript(depth, k, o.Sparse))
+		}
+	}
+	heights := o.JoinHeights
+	if o.Sparse {
+		heights = []int{0}
+	}
+	for _, h := range heights {
+		if h > depth {
+			continue
+		}
+		if o.C0 {
+			add(itoa("JOIN_", h), CCV0JoinScript(depth, h, o.OperatorKey, o.Sparse, 1))
+		} else {
+			add(itoa("JOIN_", h), CCVJoinScript(depth, h, o.OperatorKey, o.Sparse, 1))
+		}
+	}
+	for _, k := range o.JoinKs {
+		if o.C0 {
+			add(itoa("JOINK_", k), CCV0JoinScript(depth, 0, o.OperatorKey, o.Sparse, k))
+		} else {
+			add(itoa("JOINK_", k), CCVJoinScript(depth, 0, o.OperatorKey, o.Sparse, k))
+		}
+	}
+	switch {
+	case o.UpdateX && o.C0:
+		add("UPDATE_X", CCV0UpdateXScript(depth, o.OperatorKey, o.Sparse))
+	case o.UpdateX:
+		add("UPDATE_X", CCVUpdateXScript(depth, o.OperatorKey, o.Sparse))
+	case o.C0:
+		add("UPDATE", CCV0UpdateScript(depth, o.OperatorKey, o.Sparse))
+	default:
+		add("UPDATE", CCVUpdateScript(depth, o.OperatorKey, o.Sparse))
+	}
+	if !o.Sparse {
+		for _, h := range o.EvictHeights {
+			if h > depth {
+				continue
+			}
+			if o.C0 {
+				add(itoa("EVICT_SUBTREE_", h), CCV0EvictSubtreeScript(depth, h, o.OperatorKey))
+			} else {
+				add(itoa("EVICT_SUBTREE_", h), CCVEvictSubtreeScript(depth, h, o.OperatorKey))
+			}
+		}
+	}
+	for _, c := range []struct {
+		name string
+		hl   bool
+		on   bool
+	}{{"CLAIM", false, o.Claim}, {"CLAIM_H", true, o.ClaimH}} {
+		if !c.on {
+			continue
+		}
+		if o.C0 {
+			add(c.name, CCV0ClaimScript(depth, o.TreeID, o.Sparse, c.hl))
+		} else {
+			add(c.name, CCVClaimScript(depth, o.TreeID, o.Sparse, c.hl))
+		}
+	}
+	if o.Split {
+		if o.C0 {
+			add("SPLIT", CCV0SplitScript(depth, o.Sparse))
+		} else {
+			add("SPLIT", CCVSplitScript(depth, o.Sparse))
+		}
+	}
+	if !o.Sparse {
+		for _, h := range o.DetachHeights {
+			if h >= depth {
+				continue
+			}
+			mH := o.TapTreeRoot(h)
+			if o.C0 {
+				add(itoa("DETACH_", h), CCV0DetachScript(depth, h, o.OperatorKey, mH))
+			} else {
+				add(itoa("DETACH_", h), CCVDetachScript(depth, h, o.OperatorKey, mH))
+			}
+		}
+	}
+	return out
+}
+
+// TapTreeRoot is the tree identifier m of a CCV tree of the given depth
+// created with these options (spec 6.2); for a DETACH_h child it is m_h.
+func (o CCVTreeOptions) TapTreeRoot(depth int) [32]byte {
+	scripts := o.Scripts(depth)
+	mode, version := ModeC2, byte(0xc2)
+	if o.C0 {
+		mode, version = ModeC0, 0xc0
+	}
+	leaves := make([][32]byte, 0, len(scripts))
+	for _, s := range scripts {
+		leaves = append(leaves, TapLeafHash(MustAssemble(s.Tokens, mode), version))
+	}
+	return TapTreeRoot(leaves)
+}
+
+// CCVDetachedTaptreeRoot is m_h for DETACH_h under CCV (spec 7.10 rule 3):
+// the parent's option set compiled for depth h in the parent's numerics
+// (tools/layertree_ccv.py detached_taptree_root_ccv).
+func CCVDetachedTaptreeRoot(height int, opts CCVTreeOptions) [32]byte {
+	return opts.TapTreeRoot(height)
+}
+
 // CCVAllScripts returns the CCV-tier script set for a tree: exit_ks
 // sequential exits, the join heights (dense) or JOIN_0 (sparse), the
 // JOINK batch sizes, UPDATE and the EVICT_SUBTREE heights. CLAIM and

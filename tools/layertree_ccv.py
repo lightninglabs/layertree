@@ -564,37 +564,161 @@ def _carve_body_ccv0(depth, sparse, dust_min=lt.DUST_MIN):
     return s + M.carve_claim(depth, sparse) + _final_ccv0(depth)
 
 
+# ------------------------------------------------------ DETACH_h (7.10) --
+# FULL's DETACH_h (8.10) with the second output check as a CCV call: output
+# 1 is checked by CHECK_OUTPUT in the DEDUCT mode with data = R_h, the NUMS
+# key and the taptree m_h, so it is the CCV tree output of a depth-h tree
+# at root R_h under the detached option set, and its amount is deducted
+# from the residual that output 0 then receives; the exact equality with
+# sum_h is one OP_TX read, as every amount check in this tier is. The old
+# node (R_h, sum_h) folds up the path, the new node is E_h.
+
+def detach_script_ccv(depth, height, operator_key, m_h):
+    """DETACH_h (7.10) under CCV (0xC2).
+
+    witness (bottom..top) = [dir sc]*(D-h) R_h sum_h8 sig. No r, no m. m_h
+    is the parent's option set compiled at depth h (7.10 rule 3), from
+    detached_taptree_root_ccv or CCVTreeOptions.taptree_root."""
+    assert len(m_h) == 32
+    e_h = lt.empty_node(height)[0]
+    s = prologue_ccv() + [operator_key, "OP_CHECKSIGVERIFY"]        # R_h sum8
+    s += ["OP_SIZE", 8, "OP_EQUALVERIFY",
+          "OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",     # R_h sum8
+          # output 1: CHECK_OUTPUT|DEDUCT, data R_h, index 1, pk empty (NUMS), taptree m_h
+          "OP_OVER", 1, b"", m_h, 2, CCV,                            # R_h sum8
+          1, SEL_OUT_SINGLE, "OP_TX", "OP_DROP",                     # R_h sum8 amt1
+          "OP_OVER", "OP_NUMEQUALVERIFY",                            # R_h sum8          (output 1 pays sum_h exactly)
+          F.NODE_PREFIX, "OP_ROT", "OP_ROT",                         # T R_h sum8
+          e_h, "OP_0"]                                               # T R_h sum8 E_h 0
+    s += F.levels("D", depth, height)
+    return s + check_old_ccv("D") + final_ccv(depth)
+
+
+def _detach_script_ccv0(depth, height, operator_key, m_h):
+    """DETACH_h (7.10) under the CCV tier's 0xC0 numerics.
+
+    witness (bottom..top) = zf wf zi wi [levels h..D-1 (MID)] R_h sum_num
+    zs ws sig: the subtree sum arrives as a minimal number with its PADZ
+    pad, as every number does in this encoding; NONNEG keeps it
+    non-negative before it enters the fold, and le64 of it is compared
+    with output 1's amount as bytes."""
+    assert len(m_h) == 32
+    e_h = lt.empty_node(height)[0]
+    s = [operator_key, "OP_CHECKSIGVERIFY"]                          # R_h sum zs ws
+    s += [2, "OP_PICK"] + M.nonneg() + ["OP_TOALTSTACK"]              # R_h sum zs ws     | sum
+    s += M.le64()                                                     # R_h le64(sum)
+    s += ["OP_OVER", "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_DROP",      # R_h le64
+          "OP_OVER", 1, b"", m_h, 2, CCV,                             # R_h le64          (output 1 under m_h, DEDUCT)
+          1, SEL_OUT_SINGLE, "OP_TX", "OP_DROP", "OP_EQUALVERIFY",    # R_h               (amt1 == le64(sum_h))
+          "OP_FROMALTSTACK",                                          # R_h sum
+          F.NODE_PREFIX, "OP_ROT", "OP_ROT", e_h, "OP_0"]             # T R_h sum E_h 0
+    s += M.levels(False, depth, height)
+    return s + _check_old_ccv0(False) + _final_ccv0(depth)
+
+
+class CCVTreeOptions:
+    """A CCV tree's creation parameters other than its depth (spec 6.2,
+    4.6), as F.TreeOptions is for FULL: the numerics ("c2" or "c0"), the
+    profile, OPERATOR_KEY, tree_id, DUST_MIN, the JOIN heights, EXIT_K
+    sizes, JOINK sizes and sweep heights, and the variants a CCV taptree
+    may carry: UPDATE^x (in place of UPDATE), CLAIM and CLAIM^h (which
+    need tree_id), SPLIT and DETACH_h. at_depth(D) compiles the set for a
+    tree of depth D, which is what the parent's taptree is built from and
+    what a DETACH_h child MUST be built from at depth h (7.10 rule 3).
+    Heights that do not fit the depth are dropped. The defaults are
+    all_scripts_ccv's: EXIT_1, JOIN_0, JOINK_2, UPDATE and the sweeps at
+    heights 1 and 2."""
+
+    def __init__(self, operator_key, numeric="c2", profile="D", tree_id=None, join_heights=(0,),
+                 exit_ks=(1,), join_ks=(2,), evict_heights=(1, 2), update_x=False, claim=False,
+                 claim_h=False, split=False, detach_heights=(), dust_min=lt.DUST_MIN):
+        assert numeric in ("c2", "c0")
+        self.operator_key, self.numeric, self.profile, self.tree_id = operator_key, numeric, profile, tree_id
+        self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
+        self.evict_heights, self.update_x = tuple(evict_heights), update_x
+        self.claim, self.claim_h, self.split = claim, claim_h, split
+        self.detach_heights, self.dust_min = tuple(detach_heights), dust_min
+
+    def at_depth(self, depth):
+        """Ordered dict name -> token list: the set compiled for depth `depth`,
+        the reference members in all_scripts_ccv's order, then the variants
+        in a fixed order."""
+        op, prof, c0 = self.operator_key, self.profile, self.numeric == "c0"
+        sparse = prof == "S"
+        out = all_scripts_ccv(depth, op, self.join_heights, self.exit_ks, prof, self.join_ks,
+                              self.numeric, self.evict_heights)
+        if self.update_x:
+            upd_x = (_update_script_ccv0(depth, op, sparse, exit_consent=True) if c0
+                     else update_script_ccv(depth, op, prof, exit_consent=True))
+            out = {("UPDATE_X" if k == "UPDATE" else k): (upd_x if k == "UPDATE" else v) for k, v in out.items()}
+        for name, hl, on in (("CLAIM", False, self.claim), ("CLAIM_H", True, self.claim_h)):
+            if on:
+                out[name] = (_claim_script_ccv0(depth, self.tree_id, sparse, hl, self.dust_min) if c0
+                             else claim_script_ccv(depth, self.tree_id, prof, hl, self.dust_min))
+        if self.split:
+            out["SPLIT"] = (_split_script_ccv0(depth, sparse, self.dust_min) if c0
+                            else split_script_ccv(depth, prof, self.dust_min))
+        if prof == "D":
+            for h in self.detach_heights:
+                if h < depth:
+                    m_h = self.taptree_root(h)
+                    out[f"DETACH_{h}"] = (_detach_script_ccv0(depth, h, op, m_h) if c0
+                                          else detach_script_ccv(depth, h, op, m_h))
+        return out
+
+    def taptree_root(self, depth):
+        """The tree identifier m of a CCV tree of depth `depth` created with
+        these options (6.2); for a DETACH_h child this is m_h."""
+        from script_sim import assemble
+        version = 0xc0 if self.numeric == "c0" else 0xc2
+        return lt.taptree_root([lt.tapleaf_hash(assemble(t, self.numeric), version)
+                                for t in self.at_depth(depth).values()])
+
+
+def detached_taptree_root_ccv(height, operator_key, numeric="c2", options=None):
+    """m_h for DETACH_h under CCV (7.10 rule 3): the parent's option set
+    compiled for depth h in the parent's numerics. With no options this is
+    all_scripts_ccv's set (EXIT_1, JOIN_0, JOINK_2, UPDATE, EVICT_SUBTREE_1
+    and _2); a parent created with more passes its CCVTreeOptions."""
+    if options is None:
+        options = CCVTreeOptions(operator_key, numeric)
+    assert options.operator_key == operator_key and options.numeric == numeric
+    return options.taptree_root(height)
+
+
 def all_scripts_ccv(depth, operator_key, join_heights=(0,), exit_ks=(1,),
-                    profile="D", join_ks=(2,), numeric="c2"):
+                    profile="D", join_ks=(2,), numeric="c2", evict_heights=(1, 2)):
     """Ordered dict name -> token list for a CCV-tier tree's taptree.
 
     CLAIM and CLAIM^h are not generated here: they take the tree's
     tree_id (claim_script_ccv, _claim_script_ccv0), and they are the only
     CCV scripts that need OP_CHECKSIGFROMSTACK. A tree adds them at
-    creation, as it does SPLIT and UPDATE^x.
+    creation, as it does SPLIT, UPDATE^x and DETACH_h (CCVTreeOptions).
     """
     c0 = numeric == "c0"
     if c0:
         sparse = profile == "S"
         out = {f"EXIT_{k}": _exit_script_ccv0(depth, k, sparse) for k in exit_ks}
         for h in (join_heights if profile == "D" else (0,)):
-            out[f"JOIN_{h}"] = _join_script_ccv0(depth, h, operator_key, sparse)
+            if h <= depth:
+                out[f"JOIN_{h}"] = _join_script_ccv0(depth, h, operator_key, sparse)
         for k in join_ks:
             out[f"JOINK_{k}"] = _join_script_ccv0(depth, 0, operator_key, sparse, k)
         out["UPDATE"] = _update_script_ccv0(depth, operator_key, sparse)
         if profile == "D":
-            for h in (1, 2):
+            for h in evict_heights:
                 if h <= depth:
                     out[f"EVICT_SUBTREE_{h}"] = _evict_subtree_script_ccv0(depth, h, operator_key)
         return out
     out = {f"EXIT_{k}": exit_script_ccv(depth, k, profile) for k in exit_ks}
     for h in (join_heights if profile == "D" else (0,)):
-        out[f"JOIN_{h}"] = join_script_ccv(depth, h, operator_key, profile)
+        if h <= depth:
+            out[f"JOIN_{h}"] = join_script_ccv(depth, h, operator_key, profile)
     for k in join_ks:
         out[f"JOINK_{k}"] = join_script_ccv(depth, 0, operator_key, profile, k)
     out["UPDATE"] = update_script_ccv(depth, operator_key, profile)
     if profile == "D":
-        for h in (1, 2):
+        for h in evict_heights:
             if h <= depth:
                 out[f"EVICT_SUBTREE_{h}"] = evict_subtree_script_ccv(depth, h, operator_key)
     return out
