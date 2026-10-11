@@ -691,6 +691,94 @@ the lenient-tree consequence and that a channel-hosting tree SHOULD use
 `SEQ_FINAL`. The audit's other text item, naming the offerer's deadline
 in C.5.6, is fixed with it.
 
+### F37. The Go fold wraps at 2^64, so a Go member can be sold a leaf nobody can pay
+
+`tree.Parent` added sums in `uint64`, so a sibling node of sum
+`2^64 - a + 330` folded with a leaf of amount `a` to a parent of sum 330,
+and `msg.Proof.Verify` and `JoinOffer.VerifyMember`, the Go form of 9.2
+step 3(c), accepted the path where the Python reference raises and every
+script rejects the later spend (`design/audit/go.md`, G1). Reachable by a
+malicious operator selling an operator-funded leaf to a member who pays
+off-chain after the verification 9.2 tells it to run; the member loses
+the payment and the leaf can never exit. Fixed: `tree.Fold` returns an
+error on carry (`tree.AddSum`, `bits.Add64`) and `msg.decodeNode`
+rejects any node sum of 2^51 or more (`tree.MaxSum`); regression tests
+`TestFoldRejectsOverflow`, `TestVerifyMemberRejectsWrappedSum`,
+`TestDecodeNodeRejectsLargeSum`. The golden scripts are untouched, since
+the generators fold no sums.
+
+### F38. The Go join verification never looked at the unsigned transaction
+
+`JoinOffer.VerifyMember` checked the leaf and both paths but not 9.2 step
+3(d): output 0 is `TREE_SPK(r', m)` with amount `S + new_sum`, so a
+self-funding member could sign an offer whose transaction paid output 0
+anywhere (G2). Fixed: the offer's `UnsignedTx` is deserialised and output
+0 compared against the recomputed root and sum; the offer carries no
+spent output, so step 3(a) stays with the caller and the doc comment says
+so. Regression test `TestVerifyMemberChecksOutput0`.
+
+### F39. Every Go message decoder allocated from the untrusted length
+
+The `msg` decoders used `tlv.Stream.Decode` without a record cap and
+`DVarBytes` allocated the declared length, so a ten-byte stream claiming
+2^62 bytes panicked and one claiming 2^31 allocated two gigabytes before
+failing (G3). Reachable by any peer that sends a message. Fixed:
+`boundedVarBytes` rejects a declared length over its cap before
+allocating, `decodeLimited` wraps each message in an `io.LimitReader`,
+and `JoinOffer.Decode` no longer uses `DecodeWithParsedTypes`, which
+allocated for unknown types too. `msg/chan.go` still uses the unbounded
+helpers: open, with G7, for the channel follow-up. Regression test
+`TestDecodeRejectsOversizedRecords`.
+
+### F40. The Go exit builder accepted a fee in an exact-payout tree
+
+`FullTreeOptions{Exact: true}` compiled `EXIT_K^=` under the name
+`EXIT_K`, and `BuildExit` with a fee built, signed and verified a
+transaction the script rejects (G4), which is exactly the channel-hosting
+configuration. Fixed: `TreeState` carries the options it was compiled
+with (`NewTreeState` compiles the taptree from them, so `m` and `tree_id`
+agree with the options by construction) and `BuildExit` refuses a fee
+under `Exact`; three exact-exit positives replay through the simulator
+(45 `txn` cases).
+
+### F41. Four more inputs the Go builders accepted and the scripts reject
+
+A timestamp-range lock time on an eviction or sweep, a claim whose
+voucher does not verify, a claim position outside the tree, and leaves
+that fail 5.2 (G5). Fixed in the builders with one negative each in
+`TestBuilderRejects`; two pre-existing sweep negatives that failed on a
+missing script rather than on their rule now fail on the rule.
+
+### F42. `PosLoMinimal` ignored the depth
+
+The MID sparse scripts require `pos_lo < 2^D` as well as a minimal
+encoding; the Go helper checked only the encoding, accepting about 44,000
+of 100,000 nonces at `D = 28` that the Python `pos_ok` rejects (G6).
+Fixed: `PosLoMinimal(depth)`, pinned against the Python rule.
+
+### F43. Three validation edges in the Go channel messages
+
+`SettleCollationLen` counts both balances when one is trimmed, so a valid
+eight-HTLC single-balance state is refused under `0xC0`;
+`RebindAnnounce.Decode` lets the state number wrap past `ChanStateBase`;
+no decoder requires its mandatory fields (G7). Low. Status: open, queued
+for the channel follow-up with the F39 caps for `msg/chan.go`.
+
+### F44. One Go field named two identifiers
+
+`TreeID` held `m` in `ChanParams`, `ChanOpen` and `JoinOffer` and
+`tree_id` in `Voucher` and `TreeState` (G8). Fixed: `chan_id` now binds
+`tree_id` (F35), so the channel fields hold what they say; `JoinOffer`'s
+field is `TaptreeRoot` (wire format unchanged); `TreeState.TreeID` is tied
+to the compiled `CLAIM` constant through `NewTreeState`.
+
+### F45. `DUST_MIN` is a constant in Go
+
+The Go generators and `buildCarve` fix `DUST_MIN` at 330 where the Python
+takes `dust_min`, so a tree created with a higher floor cannot be built
+or mirrored (G9). Low, a gap rather than a bug. Status: open, queued
+behind the MID and CCV generator work in flight.
+
 ## 3. Things deliberately left out
 
 * Aggregate per-node keys for cooperative subtree replacement (spec 13.5):
