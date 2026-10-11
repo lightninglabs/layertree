@@ -1758,7 +1758,9 @@ def test_detach(depth, height, verbose=True):
         b = list(wit); b[-4] = b[-4][:31]
         return b
     expect_fail(lambda: run(outputs, mutate=short_root), f"{tag} a 31-byte R_h")
-    forged = w.clone(); forged.leaves[0] = mk_leaf("alice", 50_001)
+    # Same amount, different key: the sums still fold to the input amount,
+    # so only the root-hash compare can reject it.
+    forged = w.clone(); forged.leaves[0] = mk_leaf("mallory", 50_000)
     expect_fail(lambda: run(outputs, tree=forged), f"{tag} a forged path over the non-empty subtree")
 
     # the detached tree: the same options at depth h
