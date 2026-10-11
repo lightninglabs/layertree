@@ -441,6 +441,14 @@ unmerged work. Both were killed by the session spend limit, not by errors.
 
 ## Pointers
 
+- Site, published: https://layertree.lightning.wiki/ (Litbucket, team
+  `labs`, slug `layertree`; bundle = root redirect + `site/` + `spec/` +
+  `design/` + `formal/README.md`, built and pushed by the orchestrator's
+  scratch script `publish-site.sh`, run from the owner's terminal because
+  the harness classifier blocks the upload from the agent shell).
+  Republish after every site change that lands on main; each publish
+  appends a version and moves the team link.
+
 - Conventions and gotchas: `CLAUDE.md` (identical to `AGENTS.md`).
 - Spec: `spec/layertree.md`; channel leaves: `spec/channel-leaves.md`.
 - Numbers: `spec/scripts/sizes.md`, `spec/fee-analysis.md`.
