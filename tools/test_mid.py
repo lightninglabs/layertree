@@ -1112,12 +1112,127 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True, scenario="mixe
     return it, c["script"], wit
 
 
+def test_exit_tower(depth, sparse, verbose=True):
+    """MID EXIT_K^t (spec 7.2 rule 7): the owner branch takes an off-chain
+    signature over H_exit(tree_id || leaf), checked by
+    OP_CHECKSIGFROMSTACK over the leaf rejoined from its seven field
+    elements, in place of a transaction signature. The FULL suite's
+    scenario: a tower exits on the authorisation with its own fee input,
+    rebuilds it against a new root after a competing spend, and the voucher
+    tag, another tree_id, a changed leaf, a transaction signature, an empty
+    element and an inexact payout all fail; the evict branch is unchanged;
+    EXIT_2^t runs on two authorisations, or one and an eviction. Swapped
+    into the taptree as EXIT_1 and EXIT_2, a tree-creation parameter."""
+    w = MidWorld(depth, sparse)
+    S = sparse
+    toks = {k: M.exit_script(depth, k, sparse, tower=True, tree_id=TREE_ID) for k in (1, 2)}
+    for k, t in toks.items():
+        bad = {x for x in t if isinstance(x, str)} - MID_OPCODES
+        check(not bad, f"MID EXIT_{k}^t: opcodes outside the MID set: {sorted(bad)}")
+    check("OP_CHECKSIGFROMSTACK" in toks[1], "mid: EXIT_1^t checks the authorisation with OP_CHECKSIGFROMSTACK")
+    w.compiled = dict(w.compiled)
+    for k, t in toks.items():
+        w.compiled[f"EXIT_{k}"] = assemble(t, mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    script = w.compiled["EXIT_1"]
+    alice = mk_leaf("alice", 50_000, sparse=S)
+    bob = mk_leaf("bob", 125_000, w.op_pk, 800_000, sparse=S)
+    oper = mk_leaf("operator", 1_000_000, sparse=S)
+    s_a, s_b, s_o = w.slot(alice, 0), w.slot(bob, 5), w.slot(oper, (1 << depth) - 1)
+    base = {s_a: alice, s_b: bob, s_o: oper}
+    auth = schnorr_sign(lt.exit_auth_msg(TREE_ID, bob), sk("bob-owner"))
+    other_tid = lt.tree_id(lt.sha256(b"another-tree"), 0)
+
+    def exit_tx(leaves, leaf, slot, amount=None, locktime=0):
+        """The tower's exit of `leaf` from a tree holding `leaves`: the
+        context (a fee input of the tower's own, the payout exact unless
+        `amount` says otherwise) and the witness below the authorisation."""
+        w.tree = lt.Tree(depth); w.tree.leaves = dict(leaves)
+        root = w.tree.root()
+        path = w.tree.path(slot)
+        t1 = w.clone(); del t1.leaves[slot]; r1 = t1.root()
+        pay = leaf.amount if amount is None else amount
+        ctx = w.ctx([(r1[1], w.spk(r1)), (pay, lt.p2tr_spk(leaf.exit_key))], (5_000, P2WPKH), locktime=locktime)
+        below = (list(M.pad(r1[1])) + w.pads_for(root[1]) + M.w_levels(path, leaf.node(), lt.EMPTY_NODE, S) +
+                 w.pos(leaf) + M.w_leaf_exit(leaf))
+        return ctx, below, root
+
+    ctx, below, root = exit_tx(base, bob, s_b)
+    wit = below + [auth, b"", root[0], w.m]
+    it = w.run("EXIT_1", wit, ctx)
+    check(True, "mid: EXIT_1^t, a tower exits the leaf on the owner's authorisation")
+    sizes = (it, len(script), sum(len(x) for x in wit))
+    expect_fail(lambda: w.run("EXIT_1", below + [schnorr_sign(ctx.sighash(), sk("bob-owner")), b"", root[0], w.m], ctx),
+                "mid: EXIT_1^t, a transaction signature is not an authorisation")
+    expect_fail(lambda: w.run("EXIT_1", below + [b"", b"", root[0], w.m], ctx), "mid: EXIT_1^t, empty authorisation")
+    voucher_tagged = schnorr_sign(lt.tagged_hash(lt.TAG_VOUCHER, TREE_ID + bob.serialize()), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", below + [voucher_tagged, b"", root[0], w.m], ctx),
+                "mid: EXIT_1^t, an authorisation under the voucher tag")
+    expect_fail(lambda: w.run("EXIT_1", below + [schnorr_sign(lt.exit_auth_msg(other_tid, bob), sk("bob-owner")), b"", root[0], w.m], ctx),
+                "mid: EXIT_1^t, an authorisation for another tree_id")
+    expect_fail(lambda: w.run("EXIT_1", below + [schnorr_sign(lt.exit_auth_msg(TREE_ID, bob), sk("alice-owner")), b"", root[0], w.m], ctx),
+                "mid: EXIT_1^t, an authorisation by another owner")
+    ctx_lo, below_lo, root_lo = exit_tx(base, bob, s_b, amount=bob.amount - 1)
+    expect_fail(lambda: w.run("EXIT_1", below_lo + [auth, b"", root_lo[0], w.m], ctx_lo), "mid: EXIT_1^t, payout below the amount")
+    ctx_hi, below_hi, root_hi = exit_tx(base, bob, s_b, amount=bob.amount + 1)
+    expect_fail(lambda: w.run("EXIT_1", below_hi + [auth, b"", root_hi[0], w.m], ctx_hi), "mid: EXIT_1^t, payout above the amount")
+    # a competing spend (alice exits) confirms first: the same authorisation against the new root
+    after = dict(base); del after[s_a]
+    ctx2, below2, root2 = exit_tx(after, bob, s_b)
+    w.run("EXIT_1", below2 + [auth, b"", root2[0], w.m], ctx2)
+    check(True, "mid: EXIT_1^t, the authorisation is rebuilt against a new root after a competing spend")
+    # the leaf changed (seq advanced): the authorisation is void until re-issued
+    bob2 = bob.with_amount_seq(bob.amount, 1)
+    changed = dict(base); changed[s_b] = bob2
+    ctx3, below3, root3 = exit_tx(changed, bob2, s_b)
+    expect_fail(lambda: w.run("EXIT_1", below3 + [auth, b"", root3[0], w.m], ctx3),
+                "mid: EXIT_1^t, an authorisation for the leaf before it changed")
+    w.run("EXIT_1", below3 + [schnorr_sign(lt.exit_auth_msg(TREE_ID, bob2), sk("bob-owner")), b"", root3[0], w.m], ctx3)
+    check(True, "mid: EXIT_1^t, a fresh authorisation over the changed leaf")
+    # the evict branch is unchanged
+    ctx_e, below_e, root_e = exit_tx(base, bob, s_b, locktime=800_000)
+    w.run("EXIT_1", below_e + [schnorr_sign(ctx_e.sighash(), w.op_sk), b"\x01", root_e[0], w.m], ctx_e)
+    check(True, "mid: EXIT_1^t, eviction")
+    expect_fail(lambda: w.run("EXIT_1", below_e + [auth, b"\x01", root_e[0], w.m], ctx_e),
+                "mid: EXIT_1^t, a stack authorisation in the evict branch")
+    ctx_early, below_early, root_early = exit_tx(base, bob, s_b, locktime=799_999)
+    expect_fail(lambda: w.run("EXIT_1", below_early + [schnorr_sign(ctx_early.sighash(), w.op_sk), b"\x01", root_early[0], w.m], ctx_early),
+                "mid: EXIT_1^t, eviction before the lease")
+    # EXIT_2^t: two authorisations, then one authorisation and an eviction
+    w.tree = lt.Tree(depth); w.tree.leaves = dict(base)
+    root = w.tree.root()
+    t7 = w.clone()
+    path_a = t7.path(s_a); del t7.leaves[s_a]
+    path_b = t7.path(s_b); del t7.leaves[s_b]
+    r7 = t7.root()
+    auth_a = schnorr_sign(lt.exit_auth_msg(TREE_ID, alice), sk("alice-owner"))
+    outs = [(r7[1], w.spk(r7)), (alice.amount, lt.p2tr_spk(alice.exit_key)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+    ctx7 = w.ctx(outs, (5_000, P2WPKH))
+    b2 = M.w_levels(path_b, bob.node(), lt.EMPTY_NODE, S) + w.pos(bob) + M.w_leaf_exit(bob)
+    b1 = (w.pads_for(root[1]) + M.w_levels(path_a, alice.node(), lt.EMPTY_NODE, S) + w.pos(alice) +
+          M.w_leaf_exit(alice) + [auth_a, b""])
+    w.run("EXIT_2", list(M.pad(r7[1])) + b2 + [auth, b""] + b1 + [root[0], w.m], ctx7)
+    check(True, "mid: EXIT_2^t, two authorisations")
+    expect_fail(lambda: w.run("EXIT_2", list(M.pad(r7[1])) + b2 + [auth_a, b""] + b1 + [root[0], w.m], ctx7),
+                "mid: EXIT_2^t, alice's authorisation presented for bob")
+    ctx8 = w.ctx(outs, (5_000, P2WPKH), locktime=800_000)
+    w.run("EXIT_2", list(M.pad(r7[1])) + b2 + [schnorr_sign(ctx8.sighash(), w.op_sk), b"\x01"] + b1 + [root[0], w.m], ctx8)
+    check(True, "mid: EXIT_2^t, one authorisation and one eviction")
+    if verbose:
+        plain = len(assemble(M.exit_script(depth, 1, sparse), mode="c0"))
+        print(f"MID EXIT_1^t {'S' if S else 'D'} D={depth}: script {len(script)} B (EXIT_1 {plain} B), "
+              f"witness {sizes[2]} B")
+    return sizes
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
     test_sign_rules(16)
     test_update_x(16, False)
     test_update_x(31, True)
+    test_exit_tower(16, False)
+    test_exit_tower(31, True)
     test_claim_h(16, False)
     test_claim_h(31, True)
     test_split(16, False)

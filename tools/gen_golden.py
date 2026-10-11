@@ -85,7 +85,8 @@ add("CCV0", "D", 4, "DETACH_2", CV._detach_script_ccv0(4, 2, OP_KEY, CV.detached
 # None is part of the reference taptree, so all are added after the sets
 # above and excluded from taptree_full_d4 below.
 VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT", "CLAIM_X", "CLAIM_HX",
-            "REWRITE_2", "REWRITE_X_2", "DETACH_2", "EXIT_1_EXACT", "DETACH_2_HOST")
+            "REWRITE_2", "REWRITE_X_2", "DETACH_2", "EXIT_1_EXACT", "DETACH_2_HOST",
+            "EXIT_1_TOWER", "EXIT_2_TOWER")
 add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
@@ -116,6 +117,18 @@ add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree
 add("FULL", "D", 4, "EXIT_1_EXACT", F.exit_script(4, 1, "D", exact=True), "c2")
 HOST = F.TreeOptions(OP_KEY, TREE_ID, exact=True, claim_h=True, detach_heights=(2,))
 add("FULL", "D", 4, "DETACH_2_HOST", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID, HOST)), "c2")
+# EXIT_K^t (7.2 rule 7), the tower-delegable exit, in every tier that has
+# OP_CHECKSIGFROMSTACK (FULL, MID, CCV in both numerics), over the same
+# tree_id as CLAIM; a constant of the script, as there.
+add("FULL", "D", 4, "EXIT_1_TOWER", F.exit_script(4, 1, "D", tower=True, tree_id=TREE_ID), "c2")
+add("FULL", "D", 4, "EXIT_2_TOWER", F.exit_script(4, 2, "D", tower=True, tree_id=TREE_ID), "c2")
+add("FULL", "S", 8, "EXIT_1_TOWER", F.exit_script(8, 1, "S", tower=True, tree_id=TREE_ID), "c2")
+add("MID", "D", 4, "EXIT_1_TOWER", M.exit_script(4, 1, False, tower=True, tree_id=TREE_ID), "c0")
+add("MID", "S", 8, "EXIT_1_TOWER", M.exit_script(8, 1, True, tower=True, tree_id=TREE_ID), "c0")
+add("CCV", "D", 4, "EXIT_1_TOWER", CV.exit_script_ccv(4, 1, "D", tower=True, tree_id=TREE_ID), "c2")
+add("CCV", "S", 8, "EXIT_1_TOWER", CV.exit_script_ccv(8, 1, "S", tower=True, tree_id=TREE_ID), "c2")
+add("CCV0", "D", 4, "EXIT_1_TOWER", CV._exit_script_ccv0(4, 1, False, tower=True, tree_id=TREE_ID), "c0")
+add("CCV0", "S", 8, "EXIT_1_TOWER", CV._exit_script_ccv0(8, 1, True, tower=True, tree_id=TREE_ID), "c0")
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()

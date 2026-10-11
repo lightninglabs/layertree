@@ -1775,6 +1775,136 @@ def test_audit_negatives(depth, verbose=True):
         print(f"audit negatives D={depth}: EXIT, JOIN, REWRITE_2 and EVICT_SUBTREE_2 mutations rejected")
 
 
+def test_exit_tower(depth, profile, verbose=True):
+    """EXIT_K^t (spec 7.2 rule 7): the exact-payout exit whose owner branch
+    takes an off-chain BIP-340 signature over H_exit(tree_id || leaf),
+    checked by OP_CHECKSIGFROMSTACK, in place of a transaction signature.
+
+    A tower, not the owner, builds and broadcasts the exit with its own fee
+    input; the same authorisation is rebuilt against a new root after a
+    competing spend; an authorisation under the voucher tag, for another
+    tree_id, for a changed leaf (seq advanced), a transaction signature or
+    an empty element in the owner branch, and a payout below or above the
+    amount all fail; the evict branch still takes the evictor's transaction
+    signature under the lock time, and rejects a stack authorisation; and
+    EXIT_2^t runs on two authorisations, or one and an eviction. The
+    variant is a tree-creation parameter (TreeOptions tower=True), which
+    implies exact payouts and is kept by a detached child (7.10 rule 3).
+    """
+    opts = ls.TreeOptions(pubkey_x(sk("operator")), TREE_ID, profile=profile,
+                          join_heights=(0, 2), exit_ks=(1, 2), tower=True)
+    check(opts.exact, "EXIT^t implies exact payouts")
+    scripts = opts.at_depth(depth)
+    w = World(depth, profile, scripts=scripts)
+    tower = w.compiled["EXIT_1"]
+    check(tower == assemble(ls.exit_script(depth, 1, profile, tower=True, tree_id=TREE_ID)),
+          "TreeOptions compiles EXIT_1^t")
+    check(tower != assemble(ls.exit_script(depth, 1, profile, exact=True)), "EXIT_1^t differs from EXIT_1^=")
+    check("OP_CHECKSIGFROMSTACK" in scripts["EXIT_1"], "EXIT_1^t checks the authorisation with OP_CHECKSIGFROMSTACK")
+    if profile == "D" and depth > 2:
+        child = opts.at_depth(2)["EXIT_1"]
+        check(assemble(child) == assemble(ls.exit_script(2, 1, "D", tower=True, tree_id=TREE_ID)),
+              "a detached child keeps EXIT_1^t (7.10 rule 3)")
+    D = depth
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    oper = mk_leaf("operator", 1_000_000)
+    s_alice, s_bob, s_oper = w.slot(alice, 0), w.slot(bob, 5), w.slot(oper, (1 << D) - 1)
+    w.tree.leaves = {s_alice: alice, s_bob: bob, s_oper: oper}
+    other_tid = lt.tree_id(lt.sha256(b"another-tree"), 0)
+    auth = schnorr_sign(lt.exit_auth_msg(TREE_ID, bob), sk("bob-owner"))
+
+    def exit_tx(tree, leaf, slot, amount=None, locktime=0):
+        """The tower's exit of `leaf` from `tree`: a context paying the leaf
+        exactly from a fee input of the tower's own, and the witness below
+        the authorisation."""
+        root = tree.root()
+        path = tree.path(slot)
+        t1 = lt.Tree(D); t1.leaves = dict(tree.leaves); lt.apply_exit(t1, slot); r1 = t1.root()
+        w.tree = tree
+        ctx = w.ctx([(r1[1], w.spk(r1)), (leaf.amount if amount is None else amount, lt.p2tr_spk(leaf.exit_key))],
+                    extra_in=(600, P2WPKH), locktime=locktime)
+        return ctx, w.path_witness(path), root, t1
+
+    # the tower broadcasts with the owner's authorisation and its own fee input
+    tree0 = w.clone()
+    ctx, pw, root, t1 = exit_tx(tree0, bob, s_bob)
+    wit = pw + [bob.serialize(), auth, b"", root[0], w.m]
+    it = w.run("EXIT_1", wit, ctx)
+    check(True, "EXIT_1^t: a tower exits the leaf on the owner's authorisation")
+    sizes = (it, len(tower), sum(len(x) for x in wit))
+    # negatives against the same transaction
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), schnorr_sign(ctx.sighash(), sk("bob-owner")), b"", root[0], w.m], ctx),
+                "EXIT_1^t: a transaction signature is not an authorisation")
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), b"", b"", root[0], w.m], ctx),
+                "EXIT_1^t: empty authorisation")
+    voucher_tagged = schnorr_sign(lt.tagged_hash(lt.TAG_VOUCHER, TREE_ID + bob.serialize()), sk("bob-owner"))
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), voucher_tagged, b"", root[0], w.m], ctx),
+                "EXIT_1^t: an authorisation under the voucher tag")
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), schnorr_sign(lt.exit_auth_msg(other_tid, bob), sk("bob-owner")), b"", root[0], w.m], ctx),
+                "EXIT_1^t: an authorisation for another tree_id")
+    expect_fail(lambda: w.run("EXIT_1", pw + [bob.serialize(), schnorr_sign(lt.exit_auth_msg(TREE_ID, bob), sk("alice-owner")), b"", root[0], w.m], ctx),
+                "EXIT_1^t: an authorisation by another owner")
+    # a payout below or above the amount: the variant is exact-payout only
+    ctx_lo, pw_lo, root_lo, _ = exit_tx(tree0, bob, s_bob, amount=bob.amount - 500)
+    expect_fail(lambda: w.run("EXIT_1", pw_lo + [bob.serialize(), auth, b"", root_lo[0], w.m], ctx_lo),
+                "EXIT_1^t: payout below the amount")
+    ctx_hi, pw_hi, root_hi, _ = exit_tx(tree0, bob, s_bob, amount=bob.amount + 1)
+    expect_fail(lambda: w.run("EXIT_1", pw_hi + [bob.serialize(), auth, b"", root_hi[0], w.m], ctx_hi),
+                "EXIT_1^t: payout above the amount")
+    # a competing spend confirms first (alice exits): the tower rebuilds
+    # the same authorisation against the new root
+    tree2 = w.clone(); lt.apply_exit(tree2, s_alice)
+    ctx2, pw2, root2, t3 = exit_tx(tree2, bob, s_bob)
+    w.run("EXIT_1", pw2 + [bob.serialize(), auth, b"", root2[0], w.m], ctx2)
+    check(True, "EXIT_1^t: the authorisation is rebuilt against a new root after a competing spend")
+    # the leaf changed (seq advanced by an UPDATE): the authorisation is void
+    bob2 = bob.with_amount_seq(bob.amount, 1)
+    tree3 = lt.Tree(D); tree3.leaves = {s_alice: alice, s_bob: bob2, s_oper: oper}
+    ctx3, pw3, root3, _ = exit_tx(tree3, bob2, s_bob)
+    expect_fail(lambda: w.run("EXIT_1", pw3 + [bob2.serialize(), auth, b"", root3[0], w.m], ctx3),
+                "EXIT_1^t: an authorisation for the leaf before it changed")
+    auth2 = schnorr_sign(lt.exit_auth_msg(TREE_ID, bob2), sk("bob-owner"))
+    w.run("EXIT_1", pw3 + [bob2.serialize(), auth2, b"", root3[0], w.m], ctx3)
+    check(True, "EXIT_1^t: a fresh authorisation over the changed leaf")
+    # the evict branch is unchanged: the evictor signs the transaction under the lock time
+    ctx_e, pw_e, root_e, _ = exit_tx(tree0, bob, s_bob, locktime=800_000)
+    esig = schnorr_sign(ctx_e.sighash(), w.op_sk)
+    w.run("EXIT_1", pw_e + [bob.serialize(), esig, b"\x01", root_e[0], w.m], ctx_e)
+    check(True, "EXIT_1^t: eviction")
+    expect_fail(lambda: w.run("EXIT_1", pw_e + [bob.serialize(), auth, b"\x01", root_e[0], w.m], ctx_e),
+                "EXIT_1^t: a stack authorisation in the evict branch")
+    ctx_early, pw_early, root_early, _ = exit_tx(tree0, bob, s_bob, locktime=799_999)
+    expect_fail(lambda: w.run("EXIT_1", pw_early + [bob.serialize(), schnorr_sign(ctx_early.sighash(), w.op_sk), b"\x01", root_early[0], w.m], ctx_early),
+                "EXIT_1^t: eviction before the lease")
+    # EXIT_2^t: two authorisations, then one authorisation and an eviction
+    w.tree = w.clone(); w.tree.leaves = dict(tree0.leaves)
+    root = w.tree.root()
+    t7 = w.clone()
+    path_a = t7.path(s_alice); del t7.leaves[s_alice]
+    path_b = t7.path(s_bob); del t7.leaves[s_bob]
+    r7 = t7.root()
+    auth_a = schnorr_sign(lt.exit_auth_msg(TREE_ID, alice), sk("alice-owner"))
+    outs = [(r7[1], w.spk(r7)), (alice.amount, lt.p2tr_spk(alice.exit_key)), (bob.amount, lt.p2tr_spk(bob.exit_key))]
+    ctx7 = w.ctx(outs, extra_in=(600, P2WPKH))
+    block2 = w.path_witness(path_b) + [bob.serialize(), auth, b""]
+    block1 = w.path_witness(path_a) + [alice.serialize(), auth_a, b""]
+    w.run("EXIT_2", block2 + block1 + [root[0], w.m], ctx7)
+    check(True, "EXIT_2^t: two authorisations, anyone assembles the transaction")
+    expect_fail(lambda: w.run("EXIT_2", block2 + w.path_witness(path_a) + [alice.serialize(), auth, b""] + [root[0], w.m], ctx7),
+                "EXIT_2^t: bob's authorisation presented for alice")
+    ctx8 = w.ctx(outs, extra_in=(600, P2WPKH), locktime=800_000)
+    esig8 = schnorr_sign(ctx8.sighash(), w.op_sk)
+    w.run("EXIT_2", w.path_witness(path_b) + [bob.serialize(), esig8, b"\x01"] + block1 + [root[0], w.m], ctx8)
+    check(True, "EXIT_2^t: one authorisation and one eviction")
+    if verbose:
+        plain = len(assemble(ls.exit_script(depth, 1, profile)))
+        exact = len(assemble(ls.exit_script(depth, 1, profile, exact=True)))
+        print(f"EXIT_1^t {profile} D={depth}: script {len(tower)} B (EXIT_1 {plain} B, EXIT_1^= {exact} B), "
+              f"witness {sizes[2]} B")
+    return sizes
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
@@ -1815,6 +1945,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_sibling_sum_binding(d, prof)
     for prof, d in (("D", 4), ("D", 16), ("S", 8)):
         test_update_x(d, prof)
+        test_exit_tower(d, prof)
         test_claim_h(d, prof)
         test_claim_x(d, prof)
         test_claim_x(d, prof, hashlock=True)

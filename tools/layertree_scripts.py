@@ -28,6 +28,7 @@ NODE_PREFIX = lt.tag_prefix(lt.TAG_NODE)
 STATE_PREFIX = lt.tag_prefix(lt.TAG_STATE)
 VOUCHER_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER)
 VOUCHER_H_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER_H)
+EXIT_PREFIX = lt.tag_prefix(lt.TAG_EXIT)
 POS_PREFIX = lt.tag_prefix(lt.TAG_POS)
 TAPTWEAK_PREFIX = lt.tag_prefix(lt.TAG_TAPTWEAK)
 NUMS33 = lt.compress(lt.NUMS)
@@ -52,7 +53,7 @@ SEQ_FINAL_BYTES = lt.le32(SEQ_FINAL)
 CONST_NAMES = {
     LEAF_PREFIX: "<TAG_LEAF>", NODE_PREFIX: "<TAG_NODE>", STATE_PREFIX: "<TAG_STATE>",
     VOUCHER_PREFIX: "<TAG_VOUCHER>", VOUCHER_H_PREFIX: "<TAG_VOUCHER_H>",
-    POS_PREFIX: "<TAG_POS>",
+    EXIT_PREFIX: "<TAG_EXIT>", POS_PREFIX: "<TAG_POS>",
     TAPTWEAK_PREFIX: "<TAG_TAPTWEAK>", NUMS33: "<NUMS>", ZERO8: "<ZERO8>",
     ZERO4: "<ZERO4>", P2TR_PREFIX: "<0x5120>", lt.EMPTY_LEAF_HASH: "<EMPTY_LEAF>",
     (1 << 64).to_bytes(9, "little"): "<2^64>", lt.enc64(0): "<ENC0>",
@@ -244,21 +245,58 @@ def final_output(depth):
              "OP_NUMEQUAL", "OP_ENDIF"])
 
 
-def exit_block(profile, depth, out_index, exact=False):
-    """One exit. Stack: [path] leaf sig is_evict | ... -> T oh os nh ns (after levels).
+def tower_auth(tree_id):
+    """The owner branch of EXIT_K^t (spec 7.2 rule 7), shared with the CCV
+    tier's 0xC2 scripts: [leaf sig] -> [leaf], where sig MUST be a BIP-340
+    signature by leaf.owner_key over H_exit(tree_id || leaf), checked with
+    OP_CHECKSIGFROMSTACK. The message names the leaf and the lineage, not
+    the transaction, so whoever holds the signature can assemble the exit
+    against any later root; the covenant fixes everything else (the leaf
+    against the root, output 0, the exact payout). tree_id is a constant of
+    the script, as in CLAIM."""
+    assert len(tree_id) == 32
+    return (["OP_OVER", tree_id, "OP_SWAP", "OP_CAT"] +      # leaf sig (tree_id||leaf)
+            tagged(EXIT_PREFIX) +                            # leaf sig msg
+            [2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",   # leaf sig msg owner_key
+             "OP_CHECKSIGFROMSTACK", "OP_VERIFY"])           # leaf
 
-    exact=True is the EXIT_K^= variant (spec 7.2 rule 6): the payout must
-    equal leaf.amount for owner exits as well as evictions, which trees
-    hosting channel leaves use (Appendix C.6.1)."""
+
+def exit_auth(tower=False, tree_id=None):
+    """The authorisation of one exit block: [leaf sig is_evict] -> [leaf].
+
+    The eviction branch checks a transaction signature by evictor_key
+    under the lock time; the owner branch checks a transaction signature
+    by owner_key, or with tower=True (EXIT_K^t, spec 7.2 rule 7) the
+    off-chain authorisation of tower_auth. The plain form is byte for
+    byte the one every tier shipped before 0.12.1."""
     s = ["OP_DUP", "OP_TOALTSTACK",                     # | ... is_evict
          "OP_IF",
          "OP_OVER", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
          "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
-         "OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR",
-         "OP_ELSE",
-         "OP_OVER", OFF_OWNER_KEY, 32, "OP_SUBSTR",
-         "OP_ENDIF",
-         "OP_CHECKSIGVERIFY",                           # leaf
+         "OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR"]
+    if tower:
+        s += ["OP_CHECKSIGVERIFY",                      # leaf
+              "OP_ELSE"] + tower_auth(tree_id) + ["OP_ENDIF"]
+    else:
+        s += ["OP_ELSE",
+              "OP_OVER", OFF_OWNER_KEY, 32, "OP_SUBSTR",
+              "OP_ENDIF",
+              "OP_CHECKSIGVERIFY"]                      # leaf
+    return s
+
+
+def exit_block(profile, depth, out_index, exact=False, tower=False, tree_id=None):
+    """One exit. Stack: [path] leaf sig is_evict | ... -> T oh os nh ns (after levels).
+
+    exact=True is the EXIT_K^= variant (spec 7.2 rule 6): the payout must
+    equal leaf.amount for owner exits as well as evictions, which trees
+    hosting channel leaves use (Appendix C.6.1). tower=True is EXIT_K^t
+    (7.2 rule 7): the owner's authorisation is the off-chain signature of
+    tower_auth over tree_id, and the payout is exact (the variant implies
+    exact; there is no transaction signature to consent to a shortfall)."""
+    if tower:
+        exact = True
+    s = exit_auth(tower, tree_id) + [                   # leaf
          "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
          out_index, SEL_OUT_SINGLE, "OP_TX",            # leaf out_amt out_spk
          P2TR_PREFIX, 3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CAT",
@@ -278,18 +316,24 @@ def exit_block(profile, depth, out_index, exact=False):
     return s + levels(profile, depth)
 
 
-def exit_script(depth, k=1, profile="D", exact=False):
+def exit_script(depth, k=1, profile="D", exact=False, tower=False, tree_id=None):
     """EXIT_K: K sequential exits paying outputs 1..K.
 
     witness (bottom..top) = [block_K] ... [block_1] root m
     block_i = [dir sc]*D (dense) or [sc]*D (sparse), then leaf_i sig_i is_evict_i
     exact=True selects the exact-payout variant (spec 7.2 rule 6).
+    tower=True selects EXIT_K^t (7.2 rule 7), the exact-payout exit whose
+    owner branch takes the off-chain authorisation over tree_id (a
+    constant of the script) in place of a transaction signature; one
+    authorisation per block, so anyone holding K of them assembles the
+    transaction.
     """
+    assert not tower or tree_id is not None
     s = prologue()
-    s += exit_block(profile, depth, 1, exact) + check_old_root_from_alt(profile)   # T nh ns | m
+    s += exit_block(profile, depth, 1, exact, tower, tree_id) + check_old_root_from_alt(profile)   # T nh ns | m
     for i in range(2, k + 1):
         s += ["OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK", "OP_DROP"]  # | m nh ns
-        s += exit_block(profile, depth, i, exact) + check_prev_root_from_alt(profile)
+        s += exit_block(profile, depth, i, exact, tower, tree_id) + check_prev_root_from_alt(profile)
     return s + final_output(depth)
 
 
@@ -849,7 +893,9 @@ class TreeOptions:
     """A tree's creation parameters other than its depth (spec 6.2): the
     profile, OPERATOR_KEY, tree_id, DUST_MIN, the JOIN heights, EXIT_K
     sizes and JOINK sizes, and the variants a taptree may carry (7.6): exact payouts
-    (7.2 rule 6, in place of EXIT_K), UPDATE^x (7.4 rule 5, in place of
+    (7.2 rule 6, in place of EXIT_K), the tower-delegable exit EXIT_K^t
+    (7.2 rule 7, in place of EXIT_K; it implies exact payouts), UPDATE^x
+    (7.4 rule 5, in place of
     UPDATE), the four CLAIM forms (7.5, 7.5.1, 7.5.3), SPLIT (7.5.2),
     EVICT_SUBTREE_h (7.7), REWRITE_h and REWRITE_h^x (7.9) and DETACH_h
     (7.10). at_depth(D) compiles the set for a tree of depth D, which is
@@ -862,13 +908,13 @@ class TreeOptions:
     JOINK_2, UPDATE, CLAIM."""
 
     def __init__(self, operator_key, tree_id, profile="D", join_heights=(0,), exit_ks=(1, 2),
-                 join_ks=(2,), exact=False, update_x=False, claim=True, claim_h=False,
+                 join_ks=(2,), exact=False, tower=False, update_x=False, claim=True, claim_h=False,
                  claim_x=False, claim_hx=False, split=False, evict_heights=(),
                  rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN):
         self.operator_key, self.tree_id, self.profile = operator_key, tree_id, profile
         self.dust_min = dust_min
         self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
-        self.exact, self.update_x = exact, update_x
+        self.exact, self.tower, self.update_x = exact or tower, tower, update_x
         self.claim, self.claim_h, self.claim_x, self.claim_hx = claim, claim_h, claim_x, claim_hx
         self.split = split
         self.evict_heights, self.rewrite_heights = tuple(evict_heights), tuple(rewrite_heights)
@@ -880,7 +926,8 @@ class TreeOptions:
         variants in a fixed order, so the taptree root is a function of the
         options and the depth alone."""
         op, prof = self.operator_key, self.profile
-        out = {f"EXIT_{k}": exit_script(depth, k, prof, exact=self.exact) for k in self.exit_ks}
+        out = {f"EXIT_{k}": exit_script(depth, k, prof, exact=self.exact, tower=self.tower, tree_id=self.tree_id)
+               for k in self.exit_ks}
         for h in (self.join_heights if prof == "D" else (0,)):
             if h <= depth:
                 out[f"JOIN_{h}"] = join_script(depth, h, op, prof)

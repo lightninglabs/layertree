@@ -13,6 +13,9 @@
 ## TAGGED(VOUCHER)
 <TAG_VOUCHER> OP_SWAP OP_CAT OP_SHA256
 
+## TAGGED(EXIT)
+<TAG_EXIT> OP_SWAP OP_CAT OP_SHA256
+
 ## TAGGED(POS)
 <TAG_POS> OP_SWAP OP_CAT OP_SHA256
 
@@ -68,6 +71,11 @@ OP_SIZE 116 OP_EQUALVERIFY OP_SWAP OP_SIZE 116 OP_EQUALVERIFY OP_SWAP OP_2DUP
 ## DRAIN_RULE   ([.. nh ns] -> [.. nh' ns]: a zero residual makes the new node E_0, any other is at least DUST_MIN (7.5 rules 2 and 6))
 OP_DUP OP_NOT OP_IF OP_SWAP OP_DROP <EMPTY_0> OP_SWAP OP_ELSE 330 OP_OVER
   OP_LESSTHANOREQUAL OP_VERIFY OP_ENDIF
+
+## TOWER_AUTH   ([leaf sig] -> [leaf]: sig is a BIP-340 signature by leaf.owner_key over H_exit(tree_id || leaf), checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7))
+OP_OVER <TREE_ID> OP_SWAP OP_CAT
+TAGGED(EXIT)
+OP_2 OP_PICK 40 32 OP_SUBSTR OP_CHECKSIGFROMSTACK OP_VERIFY
 
 ## LEVEL   (dense level: dir sc T oh os nh ns -> T oh' os' nh' ns')
 OP_6 OP_ROLL OP_6 OP_ROLL OP_SIZE 41 OP_EQUALVERIFY OP_DUP 32 OP_8 OP_SUBSTR

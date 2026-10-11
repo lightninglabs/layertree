@@ -55,13 +55,14 @@ def words(tokens, mode):
 def full_macros():
     t = []
     for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("STATE", F.STATE_PREFIX),
-                     ("VOUCHER", F.VOUCHER_PREFIX), ("POS", F.POS_PREFIX), ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
+                     ("VOUCHER", F.VOUCHER_PREFIX), ("EXIT", F.EXIT_PREFIX), ("POS", F.POS_PREFIX),
+                     ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
         t.append((f"TAGGED({tag})", F.tagged(pre)))
     t += [("PAD8", F.PAD8), ("LE64", F.LE64), ("PAD4", F.PAD4),
           ("TREE_SPK", F.tree_spk()), ("TREE_SPK_MIN", F.tree_spk_min()),
           ("LEAF_ACC", F.leaf_acc()), ("LEAF_POS", F.leaf_pos()),
           ("PROLOGUE", F.prologue()), ("CARVE_RULES", F.carve_leaf_rules()),
-          ("DRAIN_RULE", F.drain_rule()),
+          ("DRAIN_RULE", F.drain_rule()), ("TOWER_AUTH", F.tower_auth(TREE_ID)),
           ("LEVEL", F.level_dense()), ("LEVEL_MIN", F.level_min()),
           ("SPARSE_SETUP", F.sparse_setup()), ("SPARSE_TEARDOWN", F.sparse_teardown()),
           ("CHECK_OLD", F.check_old_root_from_alt("D")), ("CHECK_OLD_S", F.check_old_root_from_alt("S")),
@@ -88,8 +89,10 @@ PARAM_FAMILIES = ("LEVEL_S(", "HASH_STEP(", "HASH_STEP2(", "REWRITE_STEP(", "REW
 def mid_macros():
     t = []
     for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("STATE", F.STATE_PREFIX),
-                     ("VOUCHER", F.VOUCHER_PREFIX), ("POS", F.POS_PREFIX), ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
+                     ("VOUCHER", F.VOUCHER_PREFIX), ("EXIT", F.EXIT_PREFIX), ("POS", F.POS_PREFIX),
+                     ("TAPTWEAK", F.TAPTWEAK_PREFIX)):
         t.append((f"TAGGED({tag})", M.tagged(pre)))
+    t += [("TOWER_AUTH_MID", M.tower_auth(TREE_ID))]
     t += [("NONNEG", M.nonneg()), ("PADZ", M.padz()), ("ENC64", M.enc64()), ("LE64", M.le64()),
           ("TREE_SPK_MIN", F.tree_spk_min()), ("PROLOGUE", M.prologue()),
           ("LEVEL_MID", M.level(False)), ("LEVEL_MID_S", M.level(True)),
@@ -118,9 +121,10 @@ def ccv_macros():
     t = []
     for tag, pre in (("LEAF", F.LEAF_PREFIX), ("NODE", F.NODE_PREFIX), ("POS", F.POS_PREFIX),
                      ("TAPTWEAK", F.TAPTWEAK_PREFIX), ("VOUCHER", F.VOUCHER_PREFIX),
-                     ("VOUCHER_H", F.VOUCHER_H_PREFIX)):
+                     ("VOUCHER_H", F.VOUCHER_H_PREFIX), ("EXIT", F.EXIT_PREFIX)):
         t.append((f"TAGGED({tag})", F.tagged(pre)))
-    t += [("CCV_CHECK_INPUT", CV.ccv_check_input()),
+    t += [("TOWER_AUTH", F.tower_auth(TREE_ID)),
+          ("CCV_CHECK_INPUT", CV.ccv_check_input()),
           ("CCV_PAYOUT(1)", CV.ccv_payout_fixed(1)),
           ("CCV_PAYOUT(2)", CV.ccv_payout_fixed(2)),
           ("LEAF_ACC", F.leaf_acc()), ("LEAF_POS", F.leaf_pos()),
@@ -304,6 +308,7 @@ NOTES_FULL = {
     "REWRITE_STEP": "cohort rewrite: old and new elements of one position -> oh os nh ns, with 7.9 rules 3 and 5",
     "REWRITE_STEP_X": "REWRITE_STEP with OWNER_AUTH_X",
     "HASH_STEP2": "cohort rewrite: two old and two new child nodes -> old and new parent nodes",
+    "TOWER_AUTH": "[leaf sig] -> [leaf]: sig is a BIP-340 signature by leaf.owner_key over H_exit(tree_id || leaf), checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7)",
 }
 NOTES_MID = {
     "TAGGED": "[msg] -> [H_tag(msg)]",
@@ -338,6 +343,7 @@ NOTES_MID = {
     "REWRITE_STEP_MID_X": "REWRITE_STEP_MID with OWNER_AUTH_MID_X",
     "REWRITE_HASH_STEP2": "cohort rewrite: [Rosc Ros Rnsc Rns Losc Los Lnsc Lns] -> [posc pos pnsc pns], two pad pairs from below T",
     "REWRITE_HASH_ROOT2": "cohort rewrite: the same at the subtree root, -> [oh os nh ns]",
+    "TOWER_AUTH_MID": "[leaf(10) ea_num ze we sig] -> [leaf(10) ea_num ze we]: sig is a BIP-340 signature by ok over H_exit(tree_id || leaf), the leaf rejoined from its seven fields, checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7)",
 }
 
 CCV = ccv_macros()
@@ -349,6 +355,7 @@ NOTES_CCV = {
     "CHECK_OLD": "the input-amount equality plus one CCV_CHECK_INPUT on the folded old root",
     "FINAL": "output 0 is the CCV assign-mode tree output with amount == ns, unless nh == E_D",
     "PROLOGUE_CCV": "empty: CCV's -1 index binds the current input without OP_TX",
+    "TOWER_AUTH": "[leaf sig] -> [leaf]: sig is a BIP-340 signature by leaf.owner_key over H_exit(tree_id || leaf), checked by OP_CHECKSIGFROMSTACK (EXIT_K^t, 7.2 rule 7)",
 }
 with open(os.path.join(OUT, "MACROS_FULL.txt"), "w") as f:
     f.write(macro_file("FULL", FULL, NOTES_FULL))
@@ -370,6 +377,19 @@ open(os.path.join(OUT, f"SPLIT_D{D}.txt"), "w").write(
     structured(f"SPLIT (owner-authorised carve, dense, D={D})", F.split_script(D, "D"), "c2", FULL))
 open(os.path.join(OUT, f"CLAIM_X_D{D}.txt"), "w").write(
     structured(f"CLAIM_X (exit-key consent, dense, D={D})", F.claim_script(D, TREE_ID, "D", exit_consent=True), "c2", FULL))
+# EXIT_K^t (7.2 rule 7), the tower-delegable exit, in the three tiers that carry it.
+open(os.path.join(OUT, f"EXIT_1_TOWER_D{D}.txt"), "w").write(
+    structured(f"EXIT_1_TOWER (tower-delegable exit, dense, D={D})",
+               F.exit_script(D, 1, "D", tower=True, tree_id=TREE_ID), "c2", FULL))
+open(os.path.join(OUT, f"MID_EXIT_1_TOWER_D{D}.txt"), "w").write(
+    structured(f"EXIT_1_TOWER (MID tier, tower-delegable exit, dense, D={D})",
+               M.exit_script(D, 1, False, tower=True, tree_id=TREE_ID), "c0", MID))
+open(os.path.join(OUT, f"CCV_EXIT_1_TOWER_D{D}.txt"), "w").write(
+    structured(f"EXIT_1_TOWER (CCV tier, tower-delegable exit, dense, D={D})",
+               CV.exit_script_ccv(D, 1, "D", tower=True, tree_id=TREE_ID), "c2", CCV))
+open(os.path.join(OUT, f"CCV0_EXIT_1_TOWER_D{D}.txt"), "w").write(
+    structured(f"EXIT_1_TOWER (CCV with 0xC0 numerics, in MID macros, dense, D={D})",
+               CV._exit_script_ccv0(D, 1, False, tower=True, tree_id=TREE_ID), "c0", MID))
 for name, toks in F.all_scripts(8, OP_KEY, (0,), (1,), "S", tree_id=TREE_ID).items():
     open(os.path.join(OUT, f"{name}_S8.txt"), "w").write(structured(f"{name} (sparse, D=8)", toks, "c2", FULL))
 open(os.path.join(OUT, "EVICT_SUBTREE_2_D8.txt"), "w").write(
