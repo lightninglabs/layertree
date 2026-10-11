@@ -13,8 +13,9 @@
 %    of each party (short-trust.tex), the opcode tiers, channel leaves,
 %    costs and prior work, and says in one short section what is proved.
 %    It carries no ideal functionality, simulator, Lean listings or proof
-%    appendices; its only appendix holds the assumption and size tables
-%    (appendix-short.tex).
+%    appendices; its appendices hold the assumption and size tables
+%    (appendix-short.tex) and the cost comparison against bare UTXOs,
+%    Lightning, Ark and transaction trees (appendix-compare.tex).
 %  - main-full.pdf, the full version (\fullversiontrue), for academics and
 %    agents: functionality first (the ideal functionality, the abstract
 %    protocol and its covenant predicates, the tiers, the UC theorem with
@@ -26,9 +27,10 @@
 %    appendices.
 % Text both versions carry is in body-*.tex (the tree and the tree output,
 % the tier table, the evaluation, related work, the discussion, the
-% channel deadline budget, the receive flow and the credit leaf) and
-% table-sizes.tex, so a number is fixed in one place; main.tex holds the
-% two section sequences.
+% channel deadline budget, the receive flow, the credit leaf and the
+% lifetime paragraph) and table-*.tex (sizes, batch shapes, lifetime,
+% comparison, the transaction-tree model), so a number is fixed in one
+% place; main.tex holds the two section sequences.
 % The switch is the job name: `make` runs latexmk once as main and once
 % with -jobname=main-full, and the preamble sets \fullversiontrue when the
 % job name is main-full. To build the full version by hand:
@@ -863,7 +865,7 @@ compose, and a P model~\cite{plang}.\fi
 \appendix
 % The full version carries the Lean development, the script listings,
 % the measurements and fee tables and the complete structured listings;
-% the short one only the assumption and size tables.
+% the short one the assumption and size tables and the cost comparison.
 \iffullversion
 \input{appendix-lean}
 \input{appendix-scripts}
@@ -871,6 +873,7 @@ compose, and a P model~\cite{plang}.\fi
 \input{appendix-listings}
 \else
 \input{appendix-short}
+\input{appendix-compare}
 \fi
 
 \end{document}

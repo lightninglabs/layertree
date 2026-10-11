@@ -76,43 +76,9 @@ signs to itself.
 
 \subsection{Comparisons}
 
-\begin{table}[tbp]
-\centering
-\caption{Comparison with shared-output constructions. Pools: \texttt{OP\_TAPLEAF\_\allowbreak UPDATE\_\allowbreak VERIFY}~\cite{tluv}, CoinPool's \op{MERKLESUB}~\cite{coinpool}, \op{EVICT}~\cite{opevict}. GSR: the string opcodes BIP-441 restores; APO: \texttt{SIGHASH\_ANYPREVOUT}. LayerTree's interactive signing: the covenant needs the operator only; a self-funded cohort's funders sign one transaction together.}
-\label{tab:compare}
-\setlength{\tabcolsep}{3pt}\scriptsize
-\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\begin{tabular}{@{}L{1.7cm}L{2.4cm}L{1.45cm}L{1.55cm}L{1.4cm}L{1.3cm}L{1.1cm}@{}}
-\toprule
- & LayerTree & Pools & Ark (deployed) & Ark (covenant) & Timeout tree & Factory \\
-\midrule
-Unilateral exit & 1 tx, $O(D)$ bytes & 1 tx & $O(\log N)$ txs & $O(\log N)$ txs & $O(\log N)$ txs & $O(\log N)$ txs \\
-Evict one member & 1 tx after its lease & 1 tx (\texttt{EVICT}) & round expires & round expires & tree expires & no \\
-Member position expiry & lease, renewed by the operator; eviction pays the member & none & per round; operator reclaims & per round & per tree & none \\
-Interactive signing & operator only; a self-funded cohort once & all, to update & round participants & funders, per round & none or all & all \\
-Shared output expiry & none & none & per round & per round & per tree & none \\
-Batch add & 1 tx, any subtree & re-sign & per round & per round & per tree & re-sign all \\
-Opcodes & FULL: GSR, TX, CSFS, EC; MID: CAT, TX, CSFS, TWEAKADD; MIN: CAT, TWEAKADD; CCV: CCV, TX & a pool opcode (and APO for CoinPool) & none & CTV or CCV & CTV & none \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{table-compare}
 
-\begin{table}[tbp]
-\centering
-\caption{The transaction-tree model across round sizes $N$. A level is one key-path P2TR input and $r$ P2TR outputs, $68 + 43r\vB$ (154 at radix 2, used as 150; 240 at radix 4); the claim is a plain P2TR spend, $111\vB$; anchors and their fee children are omitted, which favours the tree. Mass exit: the tree's interior shared by all members, against LayerTree's \tr{REWRITE}$_6$ or sweep of a 64-slot cohort. LayerTree is measured at $D = \log_2 N$.}
-\label{tab:ark}
-\setlength{\tabcolsep}{5pt}\scriptsize
-\begin{tabular}{@{}lrrr@{}}
-\toprule
- & LayerTree, dense & radix-2 tree & radix-4 tree \\
-\midrule
-isolated exit, $N = 2^{8}$ & 762 & 1{,}311 & 1{,}071 \\
-isolated exit, $N = 2^{12}$ & 891 & 1{,}911 & 1{,}551 \\
-isolated exit, $N = 2^{16}$ & 1{,}020 & 2{,}511 & 2{,}031 \\
-mass exit, per member & 158 to 161 & $\approx 261$ & $\approx 191$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{table-ark}
 
 \subsection{Fee Tables}
 

@@ -1,0 +1,420 @@
+% Short version only: what LayerTree costs against a bare UTXO, Lightning,
+% Ark and transaction trees, condensed from design/cost-comparison.md
+% for the developer reader. Every number is spec 0.12.1's (sections 4.5
+% and 11, spec/scripts/sizes.md, spec/scripts/weights.md,
+% spec/fee-analysis.md). The figures are the PDF twins of
+% design/figures/*.svg, written by tools/gen_cost_figures.py --pdf-dir
+% paper/figures. Tables both versions carry are table-*.tex; the full
+% version prints them in its cost section and Appendix C instead.
+\section{Costs Against the Alternatives}\label{app:compare}
+
+Joining, updating and leaving a shared output each cost more bytes than
+the same operation on a bare UTXO. What the sharing buys is a different
+placement of the cost. Entry is close to free in bulk, value moves
+off-chain for nothing, a bulk exit costs about a bare spend, and a solo
+exit costs about nine times one but is a single transaction with no
+timelock and no counterparty. This appendix walks through each of those
+claims with the measured figures, then says where LayerTree loses and how
+the numbers are made (\S\ref{app:cmp-model}).
+
+\subsection{The Unit of Cost}\label{app:cmp-unit}
+
+Every LayerTree operation is one transaction that spends the tree output
+and recreates it. The witness carries a leaf and its Merkle path, and the
+script folds the path twice, once to check the old root and once to
+compute the new one. Each level costs 88 bytes of script and 41 of
+witness in FULL, 129 weight units or about $32\vB$. The depth $D$ is fixed
+when the tree is created, so an exit from a given tree is a constant size
+whatever the population: $1{,}020\vB$ at $D = 16$, which holds 65{,}536
+slots.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/exit-anatomy.pdf}
+\caption{One unilateral exit by variant. The skeleton ($236.5\vB$) and
+control block ($32.25\vB$) are the same in every LayerTree row; the
+script dominates because tapscript has no loops and the levels are
+unrolled. The sparse and native-opcode rows are measured on the
+simulator's six-leaf tree.}
+\label{fig:cmp-anatomy}
+\end{figure}
+
+Figure~\ref{fig:cmp-anatomy} splits the exit into its parts, and
+Table~\ref{tab:cmp-exit} lists every variant against a bare spend. MID
+and MIN pay more for the same work because they lack the restored
+arithmetic and point opcodes; CCV saves about a tenth by letting
+\op{CHECKCONTRACTVERIFY} bind the state. The hypothetical native
+Merkle-sum opcode of spec~13 item~12 is a measurement, never a tier: on
+the simulator's six-leaf tree its exit is $388\vB$, with 252 bytes of
+script at any depth, but the witness still carries one 40-byte sibling
+per occupied level, so a full depth-16 tree costs about $520\vB$. That is
+the floor for any design that publishes a proof and checks it in script.
+The transaction-tree row is the model of \S\ref{sec:eval}: $D$
+transactions of about $150\vB$ to unroll the branch, plus a $111\vB$
+claim. It flatters the tree, since it omits the relative timelock at the
+leaf and the fee each of the 16 transactions pays separately;
+Table~\ref{tab:ark} gives the same model at other round sizes and radix~4.
+
+\begin{table}[htbp]
+\centering
+\caption{One exit, dense $D = 16$ unless noted. Model: the transaction model of \S\ref{app:cmp-model}. Serialised: the real transaction the test suites build, with the witness length prefixes the model leaves out (\texttt{spec/scripts/weights.md}).}
+\label{tab:cmp-exit}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+variant & model (vB) & serialised (vB) \\
+\midrule
+bare P2TR spend, one input and one output & 111 & \\
+one P2TR output inside a batch transaction & 43 & \\
+FULL \tr{EXIT}$_1$ & 1{,}020 & 1{,}030 \\
+FULL, fee taken from the payout & 921 & \\
+FULL, $D = 8$ and $D = 20$ & 762 and 1{,}149 & \\
+FULL tower exit \tr{EXIT}$_1^{t}$ & 1{,}046 & \\
+FULL sparse $D = 32$, six-leaf tree & 1{,}637 & 1{,}648 \\
+FULL sparse $D = 32$, $2^{16}$ members (estimate) & $\approx 1{,}780$ & \\
+MID & 1{,}355 & 1{,}398 \\
+MIN & 1{,}473 & 1{,}518 \\
+CCV, tapleaf \texttt{0xC2} & 908 & 918 \\
+native Merkle-sum opcode (hypothetical), six-leaf tree & 388 & \\
+native Merkle-sum opcode (hypothetical), full $D = 16$ tree & $\approx 520$ & \\
+radix-2 transaction-tree exit (model) & 2{,}511 & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\input{table-ark}
+
+\subsection{Exits in Bulk}\label{app:cmp-bulk}
+
+A single exit is the expensive case. The cost per leaf falls as more
+leaves leave in one transaction, and how far it falls depends on who has
+to sign (Figure~\ref{fig:cmp-amortise}, Table~\ref{tab:batch}).
+
+\emph{Owners who coordinate} leave together with \tr{EXIT}$_K$. Each leaf
+still carries its own path, so \tr{EXIT}$_2$ is $1{,}684\vB$: $842\vB$ a
+leaf, and $665\vB$ for the second exit alone. \emph{The operator} sweeps
+an aligned cohort of expired leases with \tr{EVICT\_SUBTREE}$_h$, which
+publishes the cohort's leaves once and shares the path above it: $203\vB$
+a leaf for 13 leaves at $h = 4$, $158\vB$ for 51 at $h = 6$, and about
+$147\vB$ for the 205 leaves of a height-8 cohort at $D = 20$. The sweep
+needs no member, but it only works on leaves whose evictor is the
+operator and whose lease has run out. A leaf with the \NUMS{} evictor, or
+with a lease far in the future, blocks the sweep of its whole cohort
+(spec~7.7), so the operator's cheap removal is something members opt
+into at join time by accepting a lease.
+
+\emph{Owners who want the sweep's price without a lease} use the cohort
+rewrite \tr{REWRITE}$_h$ (\S\ref{sec:ops}) with every position leaving.
+It is the same post-order fold, authorised by one plain signature per
+leaf and the operator's, with no nonce round. At $D = 16$ four owners
+leaving a height-2 cohort pay $364\vB$ each, sixteen at $h = 4$ pay
+$200\vB$, and sixty-four at $h = 6$ pay $162\vB$, within four vbytes of
+the operator's sweep. The same script settles a cohort in place:
+rotating every key of a height-6 cohort is $148\vB$ per changed leaf
+against $1{,}030\vB$ for an \tr{UPDATE} each, and a position that does
+not change costs about $92\vB$ and needs no signature, so an absent
+member is carried through rather than excluded.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/exit-amortisation.pdf}
+\caption{Cost per leaf against leaves removed in one transaction (log
+scale): owner exits (\tr{EXIT}$_1$, \tr{EXIT}$_2$), owners leaving by
+\tr{REWRITE}$_h$ ($364$, $200$ and $162\vB$ at 4, 16 and 64 positions),
+and operator sweeps (\tr{EVICT\_SUBTREE}$_{4,6,8}$: 13, 51 and 205
+leaves).}
+\label{fig:cmp-amortise}
+\end{figure}
+
+\input{table-batch}
+
+Batching changes what the chain limit counts. Every transition spends
+the same output, so unconfirmed transitions form a chain, and relay
+policy caps it: 25 transactions under the ancestor and descendant limits
+of Bitcoin Core before 31.0~\cite{corepolicy}, at most 64 under cluster
+mempool~\cite{clustermempool} ($\kappa$ of \S\ref{sec:liveness}). The cap
+counts transactions, not leaves, so a 51-leaf sweep is one entry. About
+25 exits a block is the worst case, strangers leaving one at a time; a
+deployment that expects more shards into several trees, each sized by
+exit throughput rather than by depth. Each batch shape is its own
+tapleaf, and each doubling of the taptree adds $8\vB$ to every spend,
+so a tree that carries the sweeps and rewrites (16 to 32 tapleaves) pays
+8 to $16\vB$ more on every exit.
+
+\subsection{Entry}\label{app:cmp-entry}
+
+\tr{JOIN}$_h$ grafts a prebuilt subtree of height $h$ into an empty slot
+and walks only the $D - h$ levels above it, so a bigger cohort is a
+cheaper transaction (Figure~\ref{fig:cmp-join}). At $D = 16$ with no
+payout output, as spec~11 prices a join, one member costs $937\vB$, a
+four-member graft $872\vB$ ($218\vB$ a member), a 256-member graft
+$679\vB$ ($2.7\vB$) and a 1{,}024-member graft about $614\vB$ (an
+estimate, $0.6\vB$), against $43\vB$ for one output in an on-chain batch
+and about $154\vB$ for a channel opened in its own transaction.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/join-amortisation.pdf}
+\caption{Entry cost per member against members admitted in one
+transaction (log-log). The figure prices each join with one payout
+output, $43\vB$ above the no-payout pricing of spec~11 that the text and
+Table~\ref{tab:batch} use: its 980 and 1{,}644 are 937 and 1{,}601 there.
+The dense points above 4 members are extrapolated from the measured
+\tr{JOIN}$_2$ at 129 weight units a level.}
+\label{fig:cmp-join}
+\end{figure}
+
+Who funds the value grafted in decides who has to be online. When the
+operator funds it from the transaction's fee input, the graft needs the
+operator's signature alone, and the whole cohort costs nothing beyond
+the figure; members pay for their balances off-chain after the graft
+confirms, or beforehand with a hash-locked voucher (\S\ref{sec:vouchers}).
+When each member funds its own leaf, each adds a key-path input of about
+$58\vB$, the saving against an on-chain batch shrinks to the output side,
+and the cohort becomes a signing round among the funders: every signature
+commits to the new root, so a joiner who drops out invalidates the others
+and the operator collects again (\S\ref{sec:parties}). Either way, a
+member checks its own path inside the subtree before funding, because a
+grafted node with no real tree behind it freezes its value. The sparse
+profile cannot graft at all: a sparse join is one leaf for $1{,}601\vB$.
+
+\subsection{Moving Value}\label{app:cmp-move}
+
+On-chain transitions are the wrong path for payments. An \tr{UPDATE} at
+$D = 16$ is $1{,}030\vB$ and a voucher redemption with \tr{CLAIM}
+$1{,}617\vB$, priced as spec~11 prices them, without a payout output
+($1{,}073$ and $1{,}660\vB$ on the skeleton that carries one), against
+$111\vB$ for a bare spend. A member who moved value by rewriting its leaf
+would pay about nine times what separate UTXOs pay per payment
+(Table~\ref{tab:cmp-move}).
+
+Value moves off-chain instead, and the chain carries only membership
+changes and the exercise of exit rights. Payments between channel leaves
+are ordinary HTLC forwards; their funding outputs do not exist until a
+leaf exits (\S\ref{sec:channels}). A voucher is one signed message from
+payer to payee, credit until redeemed, and an issuer usually settles it
+off-chain rather than the holder redeeming it (\S\ref{sec:vouchers}).
+\tr{UPDATE} is maintenance: resizing a balance, renewing a lease,
+rotating a key. When a cohort's balances do have to settle on-chain,
+\tr{REWRITE}$_h$ does it for about $148\vB$ per changed leaf with only the
+changed leaves' owners signing, which is the settlement an Ark round
+performs without the round.
+
+\begin{table}[htbp]
+\centering
+\caption{1{,}000 members who each make 1{,}000 payments, entry and exit included where a design has them. The Lightning row opens and closes each channel cooperatively in its own transaction; the Ark row boards and leaves as outputs of round transactions, whose shared overhead is left out; the LayerTree rows enter by one 1{,}024-slot graft.}
+\label{tab:cmp-move}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lr@{}}
+\toprule
+how value moves & on-chain bytes \\
+\midrule
+bare UTXOs, one spend per payment & 111\,MvB \\
+LayerTree, one on-chain \tr{UPDATE} per payment & 1{,}030\,MvB \\
+Lightning channels, payments off-chain & 308\,kvB \\
+Ark, payments off-chain, plus a round transaction per refresh & 86\,kvB \\
+LayerTree, payments off-chain, members leave by cohort exit or sweep & about 160\,kvB \\
+LayerTree, payments off-chain, members never exit (balances sold by voucher) & under 1\,kvB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The Lightning Baseline and Lifetime per Member}\label{app:cmp-lifetime}
+
+The Lightning figures are a simple taproot channel~\cite{taprootchans}
+priced on the same model as the LayerTree rows, fee-bumping children
+included (Table~\ref{tab:cmp-ln}). The non-taproot anchor commitment of
+BOLT~3~\cite{bolt3} is $281\vB$ in place of the 240 used here.
+
+\begin{table}[htbp]
+\centering
+\caption{A simple taproot channel on the transaction model.}
+\label{tab:cmp-ln}
+\setlength{\tabcolsep}{4pt}\scriptsize
+\begin{tabular}{@{}lr@{}}
+\toprule
+transaction & vB \\
+\midrule
+funding: one P2TR key-path input, the funding output and change & 154 \\
+cooperative close: the MuSig2 key-path spend of the funding output & 154 \\
+commitment: a MuSig2 key-path input, two balance outputs and two anchors & 240 \\
+anchor child that pays the commitment's fee & 152 \\
+delayed sweep of the broadcaster's output after the CSV & 138 \\
+force close: commitment, anchor child and sweep & 530 \\
+\midrule
+lifetime, open alone and force close & 684 \\
+lifetime, open alone and cooperative close & 308 \\
+lifetime, open as one output of a batch and cooperative close & 197 \\
+lifetime, open as one output of a batch and force close & 573 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Against this baseline a member who leaves a dense $D = 16$ tree alone
+pays $1{,}020\vB$, about twice a channel's force close and 1.5 times its
+684-byte lifetime. A channel leaf inside the tree costs its exit plus an
+update, a settlement and their two anchor children, about $1{,}681\vB$ in
+all, against $684\vB$ for a channel with its own funding output, because
+materialising the funding output carries the Merkle-sum proof. The fair
+comparison adds entry and exit for one member and asks how the member
+leaves (Figure~\ref{fig:cmp-lifetime}, Table~\ref{tab:lifetime}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/lifetime.pdf}
+\caption{Lifetime on-chain bytes per member, entry plus exit. The dense,
+Lightning, Ark and bare rows are those of Table~\ref{tab:lifetime}. The
+sparse bars price the join with a payout output and the exit on the
+six-leaf tree (1{,}644, 3{,}108 and 3{,}281); the table prices the join
+without one and the exit at $2^{16}$ members (1{,}601, 3{,}209 and
+3{,}382).}
+\label{fig:cmp-lifetime}
+\end{figure}
+
+\input{table-lifetime}
+
+\input{body-lifetime}
+Members who hold a lease and let the operator sweep them, or who sell
+their balance by voucher and never exit, pay almost nothing; members who
+insist on leaving alone pay for the proof.
+
+\subsection{Time and Liveness}\label{app:cmp-time}
+
+Bytes are half of an exit's cost. The other half is how long it takes and
+who has to be online (Table~\ref{tab:cmp-time}). A LayerTree exit has no
+pre-signed transaction to lose, no counterparty to wait for, no timelock
+and no expiry: the covenant checks a proof and pays. A plain exit's
+signature commits to the tree outpoint, which every operation changes, so
+the owner has to be online to build it and to rebuild it after a
+competing spend. The tower exit \tr{EXIT}$_K^{t}$ (\S\ref{sec:ops}) lifts
+that: the owner signs the leaf and the tree's identifier once, in
+advance, and whoever holds the signature builds and rebuilds the exit
+against whatever root is current. A channel leaf gives up some of the
+rest in exchange for free payments.
+
+\begin{table}[htbp]
+\centering
+\caption{The unilateral exit's latency and liveness. Ark is a round of $2^{16}$ members; the channel leaf and the Lightning channel close by force.}
+\label{tab:cmp-time}
+\setlength{\tabcolsep}{2.5pt}\scriptsize
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\begin{tabular}{@{}L{1.5cm}L{1.9cm}L{1.95cm}L{2.0cm}L{1.85cm}L{2.0cm}@{}}
+\toprule
+ & LayerTree \tr{EXIT}$_K$ & LayerTree \tr{EXIT}$_K^{t}$ & LayerTree channel leaf & Lightning & Ark \\
+\midrule
+transactions & 1 & 1 & 3, plus fee children & 3: commitment, anchor child, sweep & 16, plus the claim \\
+blocks until spendable & 1 & 1 & about 146 & about 145 & 16 plus the leaf timelock \\
+timelock & none & none & CSV on the settlement & CSV on the commitment & relative lock at the leaf \\
+who must be online & the owner, to build, sign and rebuild if outbid & nobody: a tower holds a one-time authorisation & the closer; a tower can finish & a tower, for stale states & the member, before the round expires \\
+what expires & nothing; leases are optional & nothing; a changed leaf voids the authorisation & nothing & nothing & the round: refresh or forfeit \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The exit is one column of a wider question: who has to be awake for
+each thing a member does. Table~\ref{tab:cmp-awake} answers it for the
+designs of \S\ref{sec:related}, and Table~\ref{tab:compare} sets their
+structure side by side. Across LayerTree's row the only party ever needed
+for \emph{another} member's operation is the operator, and only to add
+members, co-sign an \tr{UPDATE} or settle a cohort; no member is needed
+for another's exit, join, payment or eviction. Pre-signed designs need
+the whole set at creation because the interior is signatures, and the
+round-based ones make every member come back before an expiry.
+Covenant trees remove the signatures but keep the $O(\log N)$ exit. The
+pools match the one-transaction exit, each with a purpose-built opcode
+and with every change to the pool signed by every participant.
+
+\begin{table}[htbp]
+\centering
+\caption{Who has to be awake, by operation. ``All'' is every member of the shared output; a round is a signing session that restarts if one signer drops.}
+\label{tab:cmp-awake}
+\setlength{\tabcolsep}{2.5pt}\scriptsize
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\begin{tabular}{@{}L{1.9cm}L{1.85cm}L{1.6cm}L{1.75cm}L{1.45cm}L{1.55cm}L{1.0cm}@{}}
+\toprule
+ & join & pay off-chain & settle on-chain & exit & evict & expiry \\
+\midrule
+LayerTree & operator alone, or a round among self-funders & one message (voucher), or two parties (channel) & \tr{UPDATE}: one exchange; \tr{REWRITE}$_h$: the changed owners & alone, 1 tx & operator alone, after the lease; member paid & none \\
+Lightning~\cite{lightning} & two parties & two parties & two parties & alone & n/a & none \\
+Factory~\cite{factories} & all & two parties, in a channel & all, every state & $O(\log N)$ pre-signed txs & no & none \\
+Ark, pre-signed~\cite{ark} & the round, in a window & server co-signs, trusted until the next round & the next round, with everyone & $O(\log N)$ txs plus a timelock & no; the round expires & every round \\
+Ark, covenant~\cite{clark} & funders sign their inputs & as above & the next round & $O(\log N)$ txs & no; the round expires & every round \\
+Timeout tree~\cite{timeouttrees} & all at creation, or CTV & channels inside & a new tree & $O(\log N)$ txs & no; the tree expires & per tree \\
+Payment pool~\cite{tluv,coinpool,opevict} & all sign the new state & all sign & all sign & alone, 1 tx & \op{EVICT}: the others sign & none \\
+CTV or CCV tree~\cite{bip119,matt} & operator builds the templates & varies & a new tree & $O(\log N)$ txs & no & per design \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\input{table-compare}
+
+\subsection{Dense or Sparse}\label{app:cmp-profiles}
+
+The sparse profile is a key-value store: a leaf's position is a hash of
+its owner key and nonce, so nobody allocates slots, the root does not
+depend on insertion order, and absence is an inclusion proof of an empty
+node. It is not the cheaper profile on-chain
+(Figure~\ref{fig:cmp-profiles}). A sparse proof elides empty siblings to
+one byte, so its witness is small, 326 bytes at $D = 32$ on the six-leaf
+tree against 902 for dense at $D = 16$. But the script dominates. Random
+positions need about twice the depth of allocated ones to keep collisions
+rare, and a sparse level is 135 bytes of script against 88, because it
+derives the direction bit from the position and computes the empty node.
+The exit is $1{,}637\vB$ on six leaves and about $1{,}780\vB$ at $2^{16}$
+members, 1.75 times dense, and the profile gives up grafts and sweeps. So
+the sparse profile buys properties, not bytes. Raising the radix does not
+help either: sibling bytes per exit grow from $41D$ at radix~2 to about
+$61.5D$ at radix~4, and a measured radix-4 level brings the dense exit
+to $1{,}042\vB$ and radix~8 to $1{,}257\vB$, against $1{,}020\vB$ at
+radix~2. With a native opcode the per-level cost would be the sibling
+alone, and radix~2 would be optimal outright.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/exit-profiles.pdf}
+\caption{\tr{EXIT}$_1$ bytes by profile and depth, FULL tier: dense
+proofs are small scripts, sparse proofs small witnesses. Sparse rows are
+measured on the six-leaf tree.}
+\label{fig:cmp-profiles}
+\end{figure}
+
+\subsection{Where LayerTree Loses}\label{app:cmp-loses}
+
+A member who never leaves alone pays almost nothing: about $3\vB$ for a
+share of a graft, and about $160\vB$ in all if it leaves with its
+cohort. A member
+who does leave alone pays $1{,}020\vB$, about nine times a bare spend and
+about twice a Lightning force close; the proof is the price of the shared
+output. An on-chain update is $1{,}030\vB$, so payments must be off-chain
+or batched. Everything serialises through one output, at about 25
+uncoordinated exits a block in the worst case, which bounds how many
+time-sensitive leaves one tree should host; fee pinning on that output is
+outside the model. The sparse profile costs 1.7 to 2.8 times the dense
+one and cannot graft or sweep. The MID tier caps a tree at $2^{31}$
+satoshis. And the opcodes do not exist: every tier needs proposals that
+are not active, three of them in a tapleaf version their proposals do
+not define (Table~\ref{tab:assume}).
+
+\subsection{How the Numbers Are Made}\label{app:cmp-model}
+
+Every figure is a whole transaction on one model, the same in spec~11,
+\path{spec/fee-analysis.md}, the evaluation of \S\ref{sec:eval} and
+here: the measured script and witness and a 129-byte control block (the
+eight-leaf reference taptree), plus a $946\WU$ skeleton (the tree input,
+a P2WPKH fee input, the tree output, one P2TR payout and a P2WPKH change
+output) and $172\WU$ per further payout, with
+$\mathrm{vB} = \lceil \mathrm{WU}/4 \rceil$ once per transaction. A
+transition without a payout (\tr{JOIN}, \tr{UPDATE}, \tr{CLAIM},
+\tr{SPLIT}, a rewrite that only updates) is priced on $774\WU$, and the
+fee-from-payout exit on $550\WU$. The model leaves out the witness item
+count and the per-item length prefixes; \path{tools/measure_weight.py}
+serialises the transactions the suites build and measures them
+(\path{spec/scripts/weights.md}): $10.5\vB$ on a FULL \tr{EXIT}$_1$ at
+$D = 16$, 10 in CCV, and 42.5 and 44.75 in MID and MIN, whose witnesses
+carry each sibling as several small elements. The sizes come from
+\path{tools/gen_listings.py} (\path{spec/scripts/sizes.md}), the fee
+tables from \path{tools/fee_analysis.py}, and the figures of this
+appendix from \path{tools/gen_cost_figures.py}; the baselines are models,
+not measurements. The suites behind the sizes run 1{,}154 FULL, 466 MID,
+55 MIN, 1{,}344 CCV and 220 channel-leaf checks, and 61 for the
+hypothetical opcode, which stays out of every tier.

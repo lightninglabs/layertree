@@ -1,0 +1,25 @@
+% The lifetime table, shared by both versions: the full version's cost
+% section (full-cost.tex) and the short version's cost appendix
+% (appendix-compare.tex).
+
+\begin{table}[tbp]
+\centering
+\caption{Lifetime on-chain bytes per member, by how it leaves, and the unilateral exit's latency (a tower watches for stale states; an Ark member must refresh before expiry). LayerTree rows are dense at $D = 16$ unless marked sparse. Entry is one $43\vB$ output in a shared transaction; for LayerTree it is a share of a 256-slot operator-funded graft, or that plus the member's $58\vB$ input when self-funded. LayerTree's batch exit is the 51-leaf sweep, which requires a lease. The sparse row enters by one sparse \tr{JOIN}$_0$ ($1{,}601\vB$, no payout output) and exits at the $2^{16}$-member estimate ($1{,}781\vB$), not the six-leaf measurement. Lightning is a simple taproot channel: cooperative close $154\vB$; force close a $240\vB$ commitment, its $152\vB$ anchor child and a $138\vB$ sweep. Ark's unilateral exit is the radix-2 unroll of its round.}
+\label{tab:lifetime}
+\setlength{\tabcolsep}{3pt}\scriptsize
+\begin{tabular}{@{}lrrrlll@{}}
+\toprule
+ & \multicolumn{3}{c}{vB per member, leaving} & \multicolumn{3}{c}{unilateral exit} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+ & never alone & in a batch & alone & txs & blocks & online \\
+\midrule
+LayerTree, operator-funded & 3 & 162 & 1{,}023 & 1 & 1 & nobody \\
+LayerTree, self-funded & 61 & 220 & 1{,}081 & 1 & 1 & nobody \\
+LayerTree sparse, $D = 32$ & 1{,}601 & 3{,}209 & 3{,}382 & 1 & 1 & nobody \\
+Lightning channel & 197 & 197 & 573 & 3 & $\approx 145$ & tower \\
+Ark, round of 256 & 86 & 86 & 1{,}354 & 9 & $8 +$ timelock & member \\
+Ark, round of 65{,}536 & 86 & 86 & 2{,}554 & 17 & $16 +$ timelock & member \\
+bare UTXO & 154 & 154 & 154 & 1 & 1 & nobody \\
+\bottomrule
+\end{tabular}
+\end{table}

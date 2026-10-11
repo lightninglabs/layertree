@@ -16,7 +16,7 @@ templates~\cite{clark} but keeps the tree, its unrolled exit and its expiry. Tim
 trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
 expiries and Decker-Wattenhofer factories; MATT-style
 trees~\cite{matt,bip443} replace signatures by templates.
-\iffullversion Table~\ref{tab:compare} (Appendix~\ref{app:eval}) compares them. \fi\emph{Beyond Bitcoin.} Plasma's forced exits~\cite{plasma} prove a
+Table~\ref{tab:compare} (Appendix~\ref{\iffullversion app:eval\else app:compare\fi}) compares them. \emph{Beyond Bitcoin.} Plasma's forced exits~\cite{plasma} prove a
 balance against a committed root, enforced by a contract. Proofs of
 liabilities~\cite{gpol,brokensolvency} use Merkle-sum trees, where a node
 that hashes only its children's total admits the inflation that hashing

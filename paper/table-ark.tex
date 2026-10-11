@@ -1,0 +1,20 @@
+% The transaction-tree model across round sizes, shared by both versions:
+% Appendix C of the full version (appendix-eval.tex) and the short
+% version's cost appendix (appendix-compare.tex).
+
+\begin{table}[tbp]
+\centering
+\caption{The transaction-tree model across round sizes $N$. A level is one key-path P2TR input and $r$ P2TR outputs, $68 + 43r\vB$ (154 at radix 2, used as 150; 240 at radix 4); the claim is a plain P2TR spend, $111\vB$; anchors and their fee children are omitted, which favours the tree. Mass exit: the tree's interior shared by all members, against LayerTree's \tr{REWRITE}$_6$ or sweep of a 64-slot cohort. LayerTree is measured at $D = \log_2 N$.}
+\label{tab:ark}
+\setlength{\tabcolsep}{5pt}\scriptsize
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & LayerTree, dense & radix-2 tree & radix-4 tree \\
+\midrule
+isolated exit, $N = 2^{8}$ & 762 & 1{,}311 & 1{,}071 \\
+isolated exit, $N = 2^{12}$ & 891 & 1{,}911 & 1{,}551 \\
+isolated exit, $N = 2^{16}$ & 1{,}020 & 2{,}511 & 2{,}031 \\
+mass exit, per member & 158 to 162 & $\approx 261$ & $\approx 191$ \\
+\bottomrule
+\end{tabular}
+\end{table}
