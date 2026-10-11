@@ -273,6 +273,23 @@ def run_ccv():
             with quiet():
                 it, sl, wl = test_ccv.test_claim_x_ccv(d, prof, "c2", hl)
             measure(tier, d, "CLAIM_HX" if hl else "CLAIM_X", it, sl, wl)
+    # The cohort rewrite (7.9) in both numerics, on the FULL rows' cohorts:
+    # 0xC2 at h = 2, 4, 6 and 0xC0 at h = 2, 4 and the full 32-position
+    # cohort at h = 5, the largest the stack limit admits (spec 4.5).
+    for numeric, tier, heights in (("c2", "CCV/D", (2, 4, 6)), ("c0", "CCV-c0/D", (2, 4, 5))):
+        for h in heights:
+            for scenario in ("exit", "update", "mixed"):
+                if numeric == "c0" and h == 5 and scenario == "mixed":
+                    continue
+                with quiet():
+                    c = test_ccv.rewrite_case_ccv(16, h, numeric, scenario)
+                    it = c["w"].run(c["name"], c["wit"], c["ctx"])
+                changed = sum(1 for i in c["old"]
+                              if (c["old"][i] is not None or c["new"][i] is not None)
+                              and (c["old"][i] is None or c["new"][i] is None or
+                                   c["old"][i].serialize() != c["new"][i].serialize()))
+                measure(tier, 16, "REWRITE_%d (%s, %d changed)" % (h, scenario, changed), it,
+                        len(c["script"]), sum(len(x) for x in c["wit"]), leaves=changed)
 
 
 def write(path):
