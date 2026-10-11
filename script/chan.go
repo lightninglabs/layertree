@@ -74,7 +74,11 @@ var P2ASpk = []byte{0x51, 0x02, 0x4e, 0x73}
 
 // ChanParams are the inputs of chan_id (C.2.2).
 type ChanParams struct {
-	// TreeID is m, the tree's taptree merkle root.
+	// TreeID is the host tree's tree_id (6.2): the per-lineage creation
+	// parameter that vouchers bind, unique by construction and inherited
+	// by a tree created with DETACH_h. It is not m, the taptree merkle
+	// root, which names a rule set that every tree created with the same
+	// parameters shares.
 	TreeID [32]byte
 
 	// OwnerKey and Nonce identify the leaf within the tree (5.2).
@@ -94,8 +98,8 @@ type ChanParams struct {
 	CsvDelay uint32
 }
 
-// ChanID is H_chanid(m || owner_key || le32(nonce) || x(P_chan) || le64(C)
-// || le32(epoch) || le32(csv_delay)).
+// ChanID is H_chanid(tree_id || owner_key || le32(nonce) || x(P_chan)
+// || le64(C) || le32(epoch) || le32(csv_delay)).
 func (p *ChanParams) ChanID() [32]byte {
 	return tree.TaggedHash(TagChanID, p.TreeID[:], p.OwnerKey[:],
 		tree.Le32(p.Nonce), p.PChan[:], tree.Le64(p.Capacity),

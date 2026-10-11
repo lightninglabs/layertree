@@ -135,14 +135,16 @@ out["tree_spk_vector"] = {"root_hash": root_hash.hex(), "merkle_root": m,
 # Channel leaves (Appendix C): the C.2.2 context, the C.3 scripts in both
 # tapleaf versions, the C.4.1 HTLC leaves, the funding and update output
 # keys, and the [C-A1] collations with their signed messages.
+# chan_id binds the host tree's tree_id (C.2.2, spec 6.2), the same
+# constant the vouchers above bind, so this section no longer moves with
+# the D4 merkle root.
 import layertree_chan as CH  # noqa: E402
-_m = bytes.fromhex(out["taptree_full_d4"]["merkle_root"])
 _p = pubkey_x(lt.sha256(b"P_chan"))
 _owner = pubkey_x(lt.sha256(b"alice-owner"))
-_ch = CH.Channel(_m, _owner, 7, _p, 1_000_000, 0, 144)
+_ch = CH.Channel(TREE_ID, _owner, 7, _p, 1_000_000, 0, 144)
 _ph, _yk, _xk = lt.sha256(b"htlc-preimage"), pubkey_x(lt.sha256(b"V-claim")), pubkey_x(lt.sha256(b"U-claim"))
 _n = 5
-chan = {"params": {"m": _m.hex(), "owner_key": _owner.hex(), "nonce": 7, "p_chan": _p.hex(),
+chan = {"params": {"tree_id": TREE_ID.hex(), "owner_key": _owner.hex(), "nonce": 7, "p_chan": _p.hex(),
                    "capacity": 1_000_000, "epoch": 0, "csv_delay": 144, "state": _n,
                    "payment_hash": _ph.hex(), "htlc_claim_key": _yk.hex(), "htlc_refund_key": _xk.hex(),
                    "cltv_expiry": 800_400},

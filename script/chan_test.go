@@ -30,7 +30,7 @@ type goldenChanTx struct {
 // goldenChan is spec/golden.json's "chan" section.
 type goldenChan struct {
 	Params struct {
-		M             string `json:"m"`
+		TreeID        string `json:"tree_id"`
 		OwnerKey      string `json:"owner_key"`
 		Nonce         uint32 `json:"nonce"`
 		PChan         string `json:"p_chan"`
@@ -93,7 +93,7 @@ func mustHex(t *testing.T, s string) []byte {
 
 func chanParams(t *testing.T, g *goldenChan) *ChanParams {
 	return &ChanParams{
-		TreeID:   hex32(t, g.Params.M),
+		TreeID:   hex32(t, g.Params.TreeID),
 		OwnerKey: hex32(t, g.Params.OwnerKey),
 		Nonce:    g.Params.Nonce,
 		PChan:    hex32(t, g.Params.PChan),
@@ -119,7 +119,7 @@ func TestChanContext(t *testing.T) {
 	// Every chan_id input is committed (C.2.2, C.9.1).
 	base := p.ChanID()
 	for label, mut := range map[string]func(q *ChanParams){
-		"m":        func(q *ChanParams) { q.TreeID[0] ^= 1 },
+		"tree_id":  func(q *ChanParams) { q.TreeID[0] ^= 1 },
 		"owner":    func(q *ChanParams) { q.OwnerKey[0] ^= 1 },
 		"nonce":    func(q *ChanParams) { q.Nonce++ },
 		"P_chan":   func(q *ChanParams) { q.PChan[0] ^= 1 },

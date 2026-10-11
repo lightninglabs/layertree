@@ -1462,9 +1462,10 @@ A member's proof in the detached tree is its proof in the parent truncated
 to the lower `h` levels; no member needs new data. The detached tree's
 leaves are byte for byte the parent's, so an `EXIT` from it pays the same
 `P2TR(exit_key)`, and channel leaves (Appendix C) are unaffected: `chan_id`
-binds the parent's `m` as a creation-time constant of the channel scripts,
-not as anything a tree script re-derives. Vouchers are unaffected as
-well: they bind `tree_id`, which the detached tree inherits (6.2) and
+binds `tree_id` (C.2.2), which the detached tree inherits, as a
+creation-time constant of the channel scripts, not as anything a tree
+script re-derives. Vouchers are unaffected for the same reason: they bind
+`tree_id`, which the detached tree inherits (6.2) and
 whose `CLAIM` scripts carry the same constant, so a voucher issued against
 a leaf of the cohort redeems in the detached tree as issued (9.6),
 provided the detached tree has an empty position for the claim leaf
@@ -2479,8 +2480,9 @@ security considerations. Rules from Appendix C that bind the tree layer:
   HTLCs SHALL set `evict_after = 0`, since the counterparty cannot enforce
   an HTLC on-chain before `evict_after`;
 * lease renewal and splicing are `UPDATE`s co-signed by owner and
-  operator; the channel identifier commits to the capacity epoch, so
-  states of an earlier capacity cannot be replayed after a splice.
+  operator; the channel identifier commits to `tree_id` (6.2) and to the
+  capacity epoch, so states of one lineage cannot be replayed in another
+  and states of an earlier capacity cannot be replayed after a splice.
 
 Intra-tree payments between channel leaves are ordinary HTLC or PTLC
 forwards through the operator and never touch the tree output; a tree of `N`

@@ -3,7 +3,7 @@
 ```
 Title:    LayerTree Channel Leaves
 Status:   Draft (normative appendix; spec/layertree.md 9.8 summarises it)
-Version:  0.4.0
+Version:  0.5.0
 Requires: spec/layertree.md 0.11.0, FULL or MID tier (section C.7)
 License:  BSD-3-Clause
 ```
@@ -166,7 +166,7 @@ therefore prefixes a 32-byte **context** constant that is baked into the
 script:
 
 ```
-chan_id  = H_chanid( m || owner_key || le32(nonce) || x(P_chan)
+chan_id  = H_chanid( tree_id || owner_key || le32(nonce) || x(P_chan)
                        || le64(C) || le32(epoch) || le32(csv_delay) )
 ctx_upd  = H_chanupd( chan_id )
 ctx_set  = H_chanset( chan_id )
@@ -190,15 +190,22 @@ script. `ctx_*` MUST be a script constant, not a witness element.
 
 Signers MUST include `chan_id` as specified. It binds:
 
-* the **tree** (`m`) — a state signed for one tree cannot be replayed in
-  another;
-* the **leaf identity** (`owner_key`, `nonce`) — 5.2 requires these to be
+* the **lineage** (`tree_id`, 6.2): a state signed for a channel in one
+  tree cannot be replayed in another. `tree_id` is unique per lineage by
+  construction, for the reason 7.5 gives for binding vouchers to it. The
+  taptree root `m` was not enough: `m` names a rule set, and every tree
+  created with the same parameters shares it (6.2), so binding `m`
+  separated channels across rule sets rather than across trees. A
+  `DETACH_h` (7.10) moves the leaf under a tree whose root is `m_h`, but
+  the detached tree inherits `tree_id`, so `chan_id` keeps naming the tree
+  the leaf is in and every signed state stays valid;
+* the **leaf identity** (`owner_key`, `nonce`): 5.2 requires these to be
   unique per tree;
-* the **channel key** and the **capacity** — a state signed for capacity `C`
+* the **channel key** and the **capacity**: a state signed for capacity `C`
   is unusable at any other capacity;
-* the **epoch** — incremented by every splice (C.5.2), so states of an
+* the **epoch**: incremented by every splice (C.5.2), so states of an
   earlier capacity cannot be replayed after a splice;
-* the **role** — `ctx_upd` and `ctx_set` are different constants, so an
+* the **role**: `ctx_upd` and `ctx_set` are different constants, so an
   update signature can never be accepted where a settlement signature is
   required and vice versa, even though both are verified against `P_chan`.
 
@@ -1072,8 +1079,9 @@ one UTXO.
 A `SEL_CHAN_UPD` signature commits to no prevout, no input script and no
 input amount. Its entire binding to a particular channel is `ctx_upd`, so:
 
-* `chan_id` MUST include `m`, `owner_key`, `nonce`, `x(P_chan)`, `C` and
-  `epoch` as specified in C.2.2;
+* `chan_id` MUST include `tree_id`, `owner_key`, `nonce`, `x(P_chan)`, `C`,
+  `epoch` and `csv_delay` as specified in C.2.2; `tree_id` rather than `m`,
+  because two trees can share `m` (6.2) and a detached tree keeps `tree_id`;
 * `P_chan` MUST NOT be reused across channels, and `exit_key` MUST NOT be
   reused across epochs (C.5.2). Reuse plus a reorganisation that briefly
   creates two funding outputs with the same script would otherwise expose the
@@ -1243,7 +1251,7 @@ normative script claim above is backed by one of these files.
 |---|---|
 | `tools/script_sim.py` | `OP_CHECKSEQUENCEVERIFY` (BIP-112, the script half) and `OP_TX` with `TXSELECT_COLLATE` laid out as [C-A1]; `collate()` is also the off-chain serialiser |
 | `tools/layertree_chan.py` | generators for `UPD_F`, `REBIND_n` and `SETTLE_n` with stack comments, `chan_id` / `ctx_upd` / `ctx_set`, `msg_upd` / `msg_set`, the funding and update output keys, the update and settlement templates of C.3.3 and C.3.4, HTLC outputs (the C.4.1 leaves are imported from `tools/layertree_scripts.py`), and the two deadline budgets of C.4.4 |
-| `tools/test_chan.py` | the whole state machine on a chain model: 210 checks |
+| `tools/test_chan.py` | the whole state machine on a chain model: 220 checks |
 | `script/chan.go` | the Go mirror, byte-exact against the `chan` section of `spec/golden.json` in both tapleaf versions, with `ChanCollate` and the signed messages |
 | `msg/chan.go` | TLV messages: `ChanOpen` (with `DUST_CHAN`), `StateProposal` whose `Validate` applies the dust floor of C.3.4 and the `0xC0` collation limit of C.7, `StateSig` with the `SigningRound` order check of C.3.6, `HtlcAdd` with `CheckDeadline` counting the C.4.4 budget from the lease when it is later than the tip (C.6.4), `HtlcFulfill`, `HtlcFail`, `RebindAnnounce` (C.5.4) and `SpliceProposal` (C.5.2) |
 
@@ -1270,11 +1278,17 @@ modelled. The test covers, in both tapleaf versions:
   `settle_n` waits a full `csv_delay` from `U_n`;
 * **negatives**: altered balances, `nSequence < csv_delay`, an update
   signature as a settlement witness and the reverse, each collation signed
-  under the other context, states signed for a `chan_id` with another `m`,
-  capacity, epoch, nonce, `owner_key` or `csv_delay` (C.9.1), a changed `nLockTime`, `nVersion` or output, a
-  height-range `nLockTime` (C.3.5), `settle_n` against the funding output,
-  and two funding outputs with the same script spent by one transaction
-  (C.2.3);
+  under the other context, states signed for a `chan_id` with another
+  `tree_id`, capacity, epoch, nonce, `owner_key` or `csv_delay` (C.9.1), a
+  changed `nLockTime`, `nVersion` or output, a height-range `nLockTime`
+  (C.3.5), `settle_n` against the funding output, and two funding outputs
+  with the same script spent by one transaction (C.2.3);
+* **`tree_id` binding**: C.2.2, two trees created without `CLAIM` share `m`
+  and differ in `tree_id`; the same channel parameters under each give
+  different `chan_id`s and `exit_key`s, the other tree's channel state fails
+  against this tree's funding output, this channel's update template signed
+  under the other tree's context fails, and the state signed for the leaf's
+  own `tree_id` binds;
 * **dust floor**: C.3.4 on the single-funded state 1, a 329-sat balance, a
   200-sat HTLC and a sub-dust balance beside a sub-dust HTLC: each is
   trimmed into the anchor, the settlement still pays `C`, and the untrimmed

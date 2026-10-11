@@ -269,21 +269,25 @@ changes everyone's exit path, so it is the operator's decision, like
 `JOIN_h`; a per-cohort parameter chosen at graft time would be a format
 change for no gain, since a detach can only shorten a member's path.
 
-Channel leaves need nothing. `chan_id` (C.2.2) binds `m`, but as a
-constant baked into the channel scripts of the leaf's `exit_key` at
-creation, not as a value any script re-derives from the tree that is
-spent. `DETACH_h` leaves every leaf's bytes unchanged, so an `EXIT_1` from
-the detached tree creates the same `P2TR(exit_key)` funding output, the
-same `UPD_F` script runs with the same `ctx_upd`, and every signed state
-remains valid. The `m` in `chan_id` is therefore a creation-time domain
-separator. It is also worth keeping. Without it, two channels that reuse
+Channel leaves need nothing. `chan_id` (C.2.2) binds `tree_id`, which the
+detached tree inherits (6.2), and binds it as a constant baked into the
+channel scripts of the leaf's `exit_key` at creation, not as a value any
+script re-derives from the tree that is spent. `DETACH_h` leaves every
+leaf's bytes unchanged, so an `EXIT_1` from the detached tree creates the
+same `P2TR(exit_key)` funding output, the same `UPD_F` script runs with the
+same `ctx_upd`, and every signed state remains valid. Until Appendix C
+0.5.0 the separator was `m`, which survived a detach for the same reason,
+but `m` names a rule set that every tree created with the same parameters
+shares (6.2), so it separated channels across rule sets rather than across
+trees; `tree_id` is unique per lineage (status.md decision 24). The
+separator is worth having. Without it, two channels that reuse
 `(owner_key, nonce, P_chan, C, epoch)` across two trees would accept each
 other's states, so a stale state from one could be presented against the
-other; C.1.1 already forbids reusing `P_chan`, and `m` makes a violation
-of that rule harmless instead of fatal. The replay it does not prevent is
-harmless anyway: anyone can graft a byte-identical copy of a channel leaf
-into another tree only by funding it, and the copy's states pay the
-channel's two parties out of the grafter's money.
+other; C.1.1 already forbids reusing `P_chan`, and `tree_id` makes a
+violation of that rule harmless instead of fatal. The replay neither
+separator prevents is harmless anyway: anyone can graft a byte-identical
+copy of a channel leaf into another tree only by funding it, and the
+copy's states pay the channel's two parties out of the grafter's money.
 
 The Lean model has one tree output; `DETACH_h` conserves value across two,
 `S = (S − sum_h) + sum_h`, so the model needs a two-output step or a

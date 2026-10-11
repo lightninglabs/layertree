@@ -119,7 +119,9 @@ func varBytes(typ tlv.Type, b *[]byte) tlv.Record {
 // ChanOpen carries the parameters both parties agree before the channel
 // leaf exists (C.5.1 step 1). Everything chan_id commits is here.
 type ChanOpen struct {
-	// TreeID is m.
+	// TreeID is the host tree's tree_id (6.2), the per-lineage constant
+	// chan_id binds in place of m (C.2.2); a detached tree inherits it,
+	// so every signed state stays valid across DETACH_h.
 	TreeID [32]byte
 
 	// OwnerKey and Nonce are the leaf's owner_key and nonce.

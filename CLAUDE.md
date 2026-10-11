@@ -90,8 +90,10 @@ section 7 are right; the tests show the *scripts* implement the rules.
    of 7.5 rule 5 was added. The root went from
    `4c41f0a6ee029f07e34656dd8030f5bcfdbff3533e508bc4e52406b64b4a9265` to
    `eff4a173a4c87afe72b378ef18e8e9ee4ffeb3e3118dd1881cf9c075fef86305`.
-   The `sighash_vector`, `tree_spk_vector` and `chan` entries derive
-   from it and move with it.
+   The `sighash_vector` and `tree_spk_vector` entries derive from it and
+   move with it. The `chan` entries derive from the golden `tree_id`
+   (Appendix C 0.5.0: `chan_id` binds `tree_id`, not `m`) and move only
+   when the channel reference changes.
 4. Mirror the generator in Go (`script/full.go`, `script/mid.go`,
    `script/min.go`, `script/ccv.go`) and add the golden-key comparison test. Run `gofmt -l .`.
 5. Update the spec: the listing in section 8, the size table in 8.8 and
@@ -211,7 +213,7 @@ python3 tools/test_scripts.py      # FULL tier, both profiles (1,054 checks)
 python3 tools/test_mid.py          # MID tier (268 checks)
 python3 tools/test_min.py          # MIN tier (55 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (972 checks)
-python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (210 checks)
+python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (220 checks)
 python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (61 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
