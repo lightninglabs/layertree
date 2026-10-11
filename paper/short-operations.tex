@@ -44,10 +44,8 @@ after checking its path against the confirmed root, or through a
 hash-locked voucher (\S\ref{sec:hashlock}).
 
 \paragraph{\tr{JOINK}$_K$: batched single joins.} $K$ single-leaf joins
-in sequence under one operator signature. It is the batching primitive of
-the sparse profile, where a leaf's position is derived from its key and
-cannot be grafted as part of a subtree, and costs $1{,}494\vB$ for two
-in the dense profile.
+under one operator signature, the batching primitive of the sparse
+profile, which cannot graft; $1{,}494\vB$ for two.
 
 \subsection{Moving Value}
 
@@ -81,10 +79,9 @@ position under the intermediate root, which receives the new leaf.
 leaf keeps the source's evictor key and a lease no later than the
 source's, and neither it nor a non-zero residual may be below
 $\mathsf{DUST\_MIN}$ (both rules are shared with \tr{CLAIM},
-\S\ref{sec:voucher-def}). $1{,}586\vB$. \tr{SPLIT} is the right shape
-when the payer is the one broadcasting and paying the fee; it leaves no
-outstanding promise behind, and it is the one member-to-member transfer
-the MIN tier supports. Its deferred counterpart, a voucher redeemed by
+\S\ref{sec:voucher-def}). $1{,}586\vB$. \tr{SPLIT} suits a payer that broadcasts and pays the fee itself, leaves
+no outstanding promise, and is the one member-to-member transfer MIN
+supports. Its deferred counterpart, a voucher redeemed by
 \tr{CLAIM}, is the subject of \S\ref{sec:vouchers}.
 
 \subsection{Settling a Cohort}
@@ -101,8 +98,7 @@ within a cohort needs only the payer's, and a leaf nobody signs for passes
 through unchanged. \emph{Proves} the old
 subtree, every leaf of it published, against the root, and computes the
 new one. \emph{On chain} each emptied leaf is paid exactly its amount at
-its exit key, so the operator cannot use the rewrite to remove a leaf
-without its owner's signature and its payout. At $h = 6$ a mass exit
+its exit key. At $h = 6$ a mass exit
 costs $162\vB$ per leaf, about what a sweep costs the operator, and
 rewriting every balance $148\vB$ per leaf against $1{,}030\vB$ for an
 \tr{UPDATE} each; a position whose leaf does not change is published

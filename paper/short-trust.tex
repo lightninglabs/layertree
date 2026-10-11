@@ -8,7 +8,7 @@ and every script path needs a proof against the committed root plus the
 affected owner's signature, the evictor's after the lease (paying the
 leaf in full), or the operator's for operations that only add value or
 move a cohort intact.
-Table~\ref{tab:trust} lists what each party can and cannot do.
+Table~\ref{tab:trust} lists each party's powers.
 
 \begin{table}[tbp]
 \centering
@@ -49,10 +49,9 @@ since~\cite{corepolicy,clustermempool}, as low as 1 once anyone hangs
 descendants off a payout); $\beta$ is the adversary's fee budget against
 the honest bid. Under [C] an honest spend with $q$ others queued ahead
 confirms within $\lat(q) = \lat_L(\lceil (\beta + q)/\kappa \rceil + 1)$
-blocks, $\lat_L$ being the chain's own delay. We use $\kappa = 25$,
-since a deployment assumes the lowest limit its relay peers enforce
-(spec 10.5): cooperatively a tree drains 25 exits per block (64 once
-peers run cluster mempool), so 10{,}000 leaves closing at once take 400
-blocks (157): a tree is sized by exit throughput, not depth. The operator
+blocks, $\lat_L$ being the chain's own delay. We use $\kappa = 25$, the
+lowest limit relay peers may enforce (spec 10.5): cooperatively
+10{,}000 leaves leaving at once take 400 blocks (157 at 64), so a tree
+is sized by exit throughput, not depth. The operator
 can evict any leaf once its lease passes, so a member who wants a longer
 guarantee needs a later lease at entry; no carve extends one.

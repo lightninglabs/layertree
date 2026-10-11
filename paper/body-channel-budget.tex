@@ -10,11 +10,10 @@ with $\mathsf{csv\_delay}$ the settlement's relative delay,
 $G_{\mathrm{sweep}}$ the time to confirm an HTLC sweep,
 $G_{\mathrm{exit}}$ the time to confirm the exit, $\lat(q)$ under [C],
 and $\beta_{\mathrm{chan}}$ the stale updates the counterparty confirms
-ahead of the honest one, one block each, which it buys at about
-$313\vB$ a block against the honest party's bid (spec C.4.4). For a
-leaf that receives, the binding value is the hub's
-$\mathsf{min\_final\_cltv\_expiry\_delta}$ in the invoice; for one that
-pays, the hub's delta on the leaf-facing hop. With
+first, a block each at about $313\vB$ a block (spec C.4.4). A leaf that
+receives sets it as the invoice's
+$\mathsf{min\_final\_cltv\_expiry\_delta}$; for one that pays it is the
+hub's delta on the leaf-facing hop. With
 $\mathsf{csv\_delay} = 144$, $G_{\mathrm{sweep}} = 2$,
 $G_{\mathrm{exit}} = 72$ and $\beta_{\mathrm{chan}} = 0$ this is about
 220 blocks, against lnd's default of 80~\cite{lnd}. At $\lat_L = 1$, $G_{\mathrm{exit}} = 72$ needs
@@ -24,5 +23,5 @@ The counterparty is normally the operator, which can issue competing
 spends, so the budget holds only while the member can outbid them, which
 is what $\beta$ and $\beta_{\mathrm{chan}}$ assume; both parties keep a
 confirmed fee coin and a reserve that grows with the HTLC value in
-flight (spec C.5.5). MID allows seven HTLCs per state beside two balances
-(the 520-byte element limit) and $2^{31}$ satoshis per tree.
+flight (spec C.5.5).\iffullversion{} MID allows seven HTLCs per state beside two balances
+(the 520-byte element limit) and $2^{31}$ satoshis per tree.\fi

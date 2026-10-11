@@ -6,8 +6,9 @@ per-user balances whose one-transaction withdrawal rests on a new opcode,
 output with the leaver's key and leaf removed, and \op{EVICT}~\cite{opevict}
 removes unresponsive members. LayerTree reaches one-transaction exit
 from opcodes proposed as general primitives, holds balances in a
-Merkle-sum tree rather than keys in a taptree, and adds lease-based
-eviction, cohort grafts, channel leaves and a composable statement.
+Merkle-sum tree rather than keys in a taptree, and adds \iffullversion lease-based
+eviction, cohort grafts, channel leaves and a composable statement\else
+leases, grafts and channel leaves\fi.
 \emph{Transaction trees.} Channel factories~\cite{factories} need all $N$
 members to sign every change. Ark~\cite{ark}, deployed today~\cite{arkd},
 batches users into rounds whose outputs are leaves of a pre-signed MuSig2
@@ -26,8 +27,8 @@ channel functionalities of~\cite{genchannels,gscn}.\fi{} \emph{Components.}
 The Merkle-sum sparse Merkle tree is Taproot Assets'~\cite{mssmt},
 truncated and verified in script; the data-tweaked key follows
 BIP-443~\cite{bip443}; the generator-key signature is
-Poelstra's~\cite{catschnorr}, and its ECDSA analogue has been used on
+Poelstra's~\cite{catschnorr}\iffullversion, and its ECDSA analogue has been used on
 Bitcoin Cash as \texttt{OP\_PUSH\_TX}. Liquid's tapscript~\cite{elements} has \op{CAT}, CSFS, per-field
 introspection and 64-bit arithmetic, so MID is close to expressible
 there; Simplicity~\cite{simplicity} would express the predicates
-directly.
+directly\fi.
