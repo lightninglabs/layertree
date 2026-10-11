@@ -119,8 +119,8 @@
         ]
       },
       {
-        "title": "Hypothetical floor: about 388 vB",
-        "caption": "Not a tier. If Bitcoin had one opcode that verifies a Merkle-sum path and returns the root with a leaf replaced, the whole unrolled fold would collapse into it: 252 bytes of script at any depth, about 388 vB for the exit. The repository measures this in its simulator to show where the floor is; LayerTree composes proposals that exist and does not propose this one.",
+        "title": "Hypothetical floor: about 390 to 520 vB",
+        "caption": "Not a tier. If Bitcoin had one opcode that verifies a Merkle-sum path and returns the root with a leaf replaced, the whole unrolled fold would collapse into it: 252 bytes of script at any depth, and a witness of one sibling per occupied level, so about 388 vB for the exit in a small tree and about 520 vB in a full depth-16 tree. The repository measures this in its simulator to show where the floor is; LayerTree composes proposals that exist and does not propose this one.",
         "ops": [
           {"op": "path", "pos": 2},
           {"op": "checks", "items": [
@@ -156,7 +156,7 @@
         <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code>; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree)</td><td class="num">3,367 / 978</td><td class="num">1,355</td></tr>
         <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,640 / 1,175</td><td class="num">1,473</td></tr>
         <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>all but the cohort rewrite, the detach and <code>CLAIM^x</code></td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
-        <tr><td><em>Hypothetical floor</em></td><td>CCV plus one purpose-built Merkle-sum opcode (<code>OP_MERKLESUMUPDATE</code>, not proposed; <code>design/native-opcodes.md</code>)</td><td>measured for the exit and the single join only; script size is constant in depth</td><td class="num">252 / 225</td><td class="num">388</td></tr>
+        <tr><td><em>Hypothetical floor</em></td><td>CCV plus one purpose-built Merkle-sum opcode (<code>OP_MERKLESUMUPDATE</code>, not proposed; <code>design/native-opcodes.md</code>)</td><td>measured for the exit and the single join only; script size is constant in depth</td><td class="num">252 / 225 (six-leaf tree)</td><td class="num">388, about 520 in a full tree</td></tr>
       </tbody>
     </table>
   </div>
@@ -207,10 +207,12 @@
   <h2 id="floor">The floor, measured</h2>
   <p>One opcode built for Merkle-sum trees, verifying a path and returning the
   root with one leaf replaced, would remove the unrolled fold that is most of
-  every script above: the exit becomes 252 bytes of script at any depth and about
-  388 vB in all, and the sparse profile stops costing more than the dense one,
-  since the proof carries one sibling per occupied level and nothing per empty
-  one. The repository measures this in its simulator (61 checks) to show where the
+  every script above: the exit becomes 252 bytes of script at any depth, and the
+  witness carries one 40-byte sibling per occupied level and nothing per empty
+  one, so the sparse profile stops costing more than the dense one. The
+  simulator measures 388 vB on its six-leaf tree; a full depth-16 tree has
+  thirteen more occupied levels, about 10 vB each, so about 520 vB, against
+  1,020 in FULL. The repository measures this in its simulator (61 checks) to show where the
   floor is and how far each tier sits from it. It is a measurement only, kept out
   of every tier, the golden vectors and the spec, because LayerTree composes
   existing proposals and invents none.</p>

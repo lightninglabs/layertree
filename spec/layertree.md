@@ -3505,11 +3505,12 @@ exits in a batch" as `EXIT_K` (section 13).
 12. **A native Merkle-sum opcode.** *(informative, measurement only)* One
     opcode that verifies a Merkle-sum path and returns the root with one
     leaf replaced would collapse the unrolled fold that is most of every
-    script above: `EXIT_1` measures 252 bytes of script and 225 of witness
-    at any depth, about 388 vB on the model of section 11, against 1,716 /
-    838 for CCV and 2,101 / 902 for FULL, and the sparse profile stops
-    costing more than the dense one because the proof carries one sibling
-    per occupied level. `design/native-opcodes.md` specifies the
+    script above: `EXIT_1` measures 252 bytes of script at any depth and
+    225 of witness on the simulator's six-leaf tree, about 388 vB on the
+    model of section 11; the witness carries one 40-byte sibling per
+    occupied level, so a full depth-16 tree costs about 520 vB, against
+    1,716 / 838 (908 vB) for CCV and 2,101 / 902 (1,020 vB) for FULL, and
+    the sparse profile stops costing more than the dense one. `design/native-opcodes.md` specifies the
     hypothetical semantics and `tools/layertree_msu.py` measures them
     behind the simulator's `hypothetical=True` flag (61 checks,
     `tools/test_msu.py`). It is not a tier and never enters

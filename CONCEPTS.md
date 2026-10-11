@@ -320,9 +320,11 @@ in the FULL tier, against 111 vB for a bare spend and 2,511 vB to
 unroll a transaction-tree branch of the same size. The MID and MIN tiers
 cost 1,355 and 1,473 vB, CCV 908. That is the price of the proof, and it
 is a constant: it does not grow with the number of members. The floor,
-measured in the simulator and never a tier, is about 388 vB: one
-purpose-built Merkle-sum opcode would replace the unrolled fold with 252
-bytes of script at any depth (`design/native-opcodes.md`).
+measured in the simulator and never a tier, is about 520 vB for a full
+depth-16 tree (388 on the simulator's six-leaf tree): one purpose-built
+Merkle-sum opcode would replace the unrolled fold with 252 bytes of script
+at any depth and one 40-byte sibling of witness per occupied level
+(`design/native-opcodes.md`).
 
 **Per-leaf cost falls with batch size.** Owners who exit together each
 still carry a full path, so two batched exits average 842 vB. The
