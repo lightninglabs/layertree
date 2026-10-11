@@ -50,6 +50,16 @@ func ccvScriptFor(profile string, depth int, name string,
 		}
 		return CCVDetachScript(depth, n, key,
 			CCVDetachedTaptreeRoot(n, CCVReferenceOptions(key, false))), nil
+	case strings.HasPrefix(name, "REWRITE_X_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_X_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCVRewriteScript(depth, n, key, true), nil
+	case strings.HasPrefix(name, "REWRITE_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCVRewriteScript(depth, n, key, false), nil
 	}
 	return nil, fmt.Errorf("unknown CCV script name %q", name)
 }
@@ -259,8 +269,58 @@ func ccv0ScriptFor(profile string, depth int, name string,
 		}
 		return CCV0DetachScript(depth, n, key,
 			CCVDetachedTaptreeRoot(n, CCVReferenceOptions(key, true))), nil
+	case strings.HasPrefix(name, "REWRITE_X_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_X_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0RewriteScript(depth, n, key, true), nil
+	case strings.HasPrefix(name, "REWRITE_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_%d", &n); err != nil {
+			return nil, err
+		}
+		return CCV0RewriteScript(depth, n, key, false), nil
 	}
 	return nil, fmt.Errorf("unknown CCV0 script name %q", name)
+}
+
+// TestCCVRewrite checks REWRITE_h and REWRITE_h^x under CCV in both
+// numerics (spec 7.9) against the golden vectors, that CCVTreeOptions
+// compiles them in the generator's order (after SPLIT, before DETACH_h) and
+// keeps them in a detached child that fits them (7.10 rule 3), and that
+// they stay out of CCVAllScripts as every tree-creation parameter does.
+func TestCCVRewrite(t *testing.T) {
+	g, key := midLoadGolden(t)
+	ccvCheckC2(t, g, "CCV/D/D4/REWRITE_2", CCVRewriteScript(4, 2, key, false))
+	ccvCheckC2(t, g, "CCV/D/D4/REWRITE_X_2", CCVRewriteScript(4, 2, key, true))
+	midCheckScript(t, g, "CCV0/D/D4/REWRITE_2", CCV0RewriteScript(4, 2, key, false))
+	midCheckScript(t, g, "CCV0/D/D4/REWRITE_X_2", CCV0RewriteScript(4, 2, key, true))
+	for _, c0 := range []bool{false, true} {
+		opts := CCVReferenceOptions(key, c0)
+		opts.Split, opts.RewriteHeights, opts.RewriteX = true, []int{2, 3}, true
+		opts.DetachHeights = []int{3}
+		var names []string
+		for _, s := range opts.Scripts(4) {
+			names = append(names, s.Name)
+		}
+		want := "EXIT_1 JOIN_0 JOINK_2 UPDATE EVICT_SUBTREE_1 EVICT_SUBTREE_2 SPLIT " +
+			"REWRITE_2 REWRITE_X_2 REWRITE_3 REWRITE_X_3 DETACH_3"
+		if got := joinNames(names); got != want {
+			t.Errorf("c0=%v: Scripts(4) = %q, want %q", c0, got, want)
+		}
+		// The detached child at depth 2 keeps REWRITE_2 and drops REWRITE_3.
+		names = names[:0]
+		for _, s := range opts.Scripts(2) {
+			names = append(names, s.Name)
+		}
+		want = "EXIT_1 JOIN_0 JOINK_2 UPDATE EVICT_SUBTREE_1 EVICT_SUBTREE_2 SPLIT REWRITE_2 REWRITE_X_2"
+		if got := joinNames(names); got != want {
+			t.Errorf("c0=%v: Scripts(2) = %q, want %q", c0, got, want)
+		}
+	}
+	set := CCVAllScripts(4, key, false, []int{0, 2}, []int{1, 2}, []int{2}, []int{1, 2})
+	if _, ok := set["REWRITE_2"]; ok {
+		t.Error("REWRITE_2 must stay out of CCVAllScripts")
+	}
 }
 
 // TestCCV0ScriptsMatchGolden assembles every CCV0 golden vector (the CCV

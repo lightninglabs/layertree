@@ -631,6 +631,100 @@ def _detach_script_ccv0(depth, height, operator_key, m_h):
     return s + _check_old_ccv0(False) + _final_ccv0(depth)
 
 
+# ------------------------------------------------------- REWRITE_h (7.9) --
+# The cohort rewrite under CCV: FULL's post-order machine (8.9) under 0xC2
+# numerics and MID's element-based pre-pass under 0xC0, each with the two
+# tree bindings replaced as in every CCV transition (CHECK_INPUT on the
+# folded old root, the assign-mode output check on the new one) and the
+# exit payout of 7.9 rule 5 replaced by one CHECK_OUTPUT|DEDUCT call on the
+# old leaf's exit key at the dynamic output index, as the sweep's payout
+# is. The rules of 7.9 (the per-position signatures, the amount-only
+# exemption and its SEQ_FINAL stop, the unchanged marker, conservation)
+# are decided by the tier's own REWRITE_STEP, token for token; only the
+# payout differs. No r, no m, no prologue.
+
+def _rewrite_pay_ccv():
+    """The exit payout of REWRITE_STEP under CCV (0xC2): [old new] | .. idx
+    -> [old new] | .. idx+1. The index is advanced on the altstack and a
+    copy parked for the OP_TX read, as in leaf_step_ccv; the CCV call
+    takes data empty, the index, old.exit_key (old is three deep under
+    the index once the empty data operand is in place), taptree empty and
+    the DEDUCT mode, and the exact amount compare follows."""
+    return ["OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",   # old new idx       | .. idx+1
+            "OP_DUP", "OP_TOALTSTACK",                                  # old new idx       | .. idx+1 idx
+            b"", "OP_SWAP",                                             # old new "" idx
+            3, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR",              # old new "" idx ek
+            b"", 2, CCV,                                                # old new           DEDUCT payout
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",      # old new amt       | .. idx+1
+            2, "OP_PICK", 8, "OP_LEFT", "OP_NUMEQUALVERIFY"]            # old new   (exact payout)
+
+
+def rewrite_script_ccv(depth, height, operator_key, exit_consent=False):
+    """REWRITE_h (7.9), or REWRITE_h^x with exit_consent, under CCV (0xC2).
+
+    witness (bottom..top) = [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op,
+    block_i = [xsig_i] [sig_i] new_i old_i as in FULL (8.9): FULL's witness
+    minus r and m. The machine is FULL's POSTORDER2(h) with the exit payout
+    of REWRITE_STEP as _rewrite_pay_ccv; the hoisted constants Z, L, T and
+    the machine depth d are FULL's, so every roll depth is the same.
+    """
+    assert 1 <= height <= depth
+    s = prologue_ccv() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks
+    s += ["OP_1", "OP_TOALTSTACK",                                #            | idx
+          lt.EMPTY_LEAF_HASH, F.LEAF_PREFIX, F.NODE_PREFIX]       # Z L T      (hoisted constants)
+    d = [0]
+    pay = _rewrite_pay_ccv()
+
+    def gen(h):
+        if h == 0:
+            s.extend(F._rewrite_step(d[0], exit_consent, pay))
+            d[0] += 4
+        else:
+            gen(h - 1); gen(h - 1)
+            s.extend(F._hash_step2(d[0]))
+            d[0] -= 4
+    gen(height)                                                  # Z L T oh os nh ns   | idx
+    s += ["OP_FROMALTSTACK", "OP_DROP",                          # drop idx
+          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]      # T oh os nh ns       (drop Z, L)
+    s += F.levels("D", depth, height)
+    return s + check_old_ccv("D") + final_ccv(depth)
+
+
+def _rewrite_pay_ccv0():
+    """The exit payout of MID's REWRITE_STEP under the CCV tier's 0xC0
+    numerics, in place of M._rewrite_pay: [C_new(3) C_old(6)] | .. idx ->
+    [C_new(3) C_old(6)] | .. idx+1. The old slot's canonical form keeps
+    its exit-key element (ek, five deep once the empty data operand and
+    the index are in place) and its amount field (amt8, six deep under
+    the OP_TX amount), so the DEDUCT call takes ek as its key and the
+    amount compare is one byte equality, as every 0xC0 payout is."""
+    return ["OP_FROMALTSTACK", "OP_DUP", "OP_1ADD", "OP_TOALTSTACK",   # C_new C_old idx     | .. idx+1
+            "OP_DUP", "OP_TOALTSTACK",                                  # C_new C_old idx     | .. idx+1 idx
+            b"", "OP_SWAP",                                             # C_new C_old "" idx
+            5, "OP_PICK",                                               # C_new C_old "" idx ek
+            b"", 2, CCV,                                                # C_new C_old         DEDUCT payout
+            "OP_FROMALTSTACK", SEL_OUT_SINGLE, "OP_TX", "OP_DROP",      # C_new C_old amt     | .. idx+1
+            6, "OP_PICK", "OP_EQUALVERIFY"]                             # C_new C_old   (amt == amt8_o)
+
+
+def _rewrite_script_ccv0(depth, height, operator_key, exit_consent=False):
+    """REWRITE_h (7.9), or REWRITE_h^x with exit_consent, under the CCV
+    tier's 0xC0 numerics: MID's rewrite_body (the element-based pre-pass
+    and the mirrored post-order hash pass of 8.9) with the exit payout as
+    _rewrite_pay_ccv0, then CHECK_INPUT and the assign-mode output check.
+
+    witness (bottom..top) = MID's (8.9) minus r and m: zf wf zi wi
+    [levels h..D-1] [pad pairs] block_{2^h-1} .. block_0 sig_op. The
+    1,000-element stack bound of 4.5 applies with the two elements r and m
+    and the prologue's three pushes to spare.
+    """
+    assert 1 <= height <= depth
+    s = [operator_key, "OP_CHECKSIGVERIFY"]                               # .. blocks
+    s += M.rewrite_body(height, exit_consent, _rewrite_pay_ccv0())        # T oh os nh ns
+    s += M.levels(False, depth, height)
+    return s + _check_old_ccv0(False) + _final_ccv0(depth)
+
+
 class CCVTreeOptions:
     """A CCV tree's creation parameters other than its depth (spec 6.2,
     4.6), as F.TreeOptions is for FULL: the numerics ("c2" or "c0"), the
@@ -638,8 +732,8 @@ class CCVTreeOptions:
     sizes, JOINK sizes and sweep heights, and the variants a CCV taptree
     may carry: the tower-delegable exit EXIT_K^t (7.2 rule 7, in place of
     EXIT_K; it needs tree_id), UPDATE^x (in place of UPDATE), the four
-    CLAIM forms (7.5, 7.5.1, 7.5.3; they need tree_id), SPLIT and
-    DETACH_h. at_depth(D) compiles the set for a
+    CLAIM forms (7.5, 7.5.1, 7.5.3; they need tree_id), SPLIT, REWRITE_h
+    with its ^x form (7.9) and DETACH_h. at_depth(D) compiles the set for a
     tree of depth D, which is what the parent's taptree is built from and
     what a DETACH_h child MUST be built from at depth h (7.10 rule 3).
     Heights that do not fit the depth are dropped. The defaults are
@@ -649,7 +743,7 @@ class CCVTreeOptions:
     def __init__(self, operator_key, numeric="c2", profile="D", tree_id=None, join_heights=(0,),
                  exit_ks=(1,), join_ks=(2,), evict_heights=(1, 2), tower=False, update_x=False, claim=False,
                  claim_h=False, split=False, detach_heights=(), dust_min=lt.DUST_MIN, claim_x=False,
-                 claim_hx=False):
+                 claim_hx=False, rewrite_heights=(), rewrite_x=False):
         assert numeric in ("c2", "c0")
         assert not tower or tree_id is not None
         self.operator_key, self.numeric, self.profile, self.tree_id = operator_key, numeric, profile, tree_id
@@ -657,6 +751,7 @@ class CCVTreeOptions:
         self.evict_heights, self.tower, self.update_x = tuple(evict_heights), tower, update_x
         self.claim, self.claim_h, self.split = claim, claim_h, split
         self.claim_x, self.claim_hx = claim_x, claim_hx
+        self.rewrite_heights, self.rewrite_x = tuple(rewrite_heights), rewrite_x
         self.detach_heights, self.dust_min = tuple(detach_heights), dust_min
 
     def at_depth(self, depth):
@@ -685,6 +780,13 @@ class CCVTreeOptions:
             out["SPLIT"] = (_split_script_ccv0(depth, sparse, self.dust_min) if c0
                             else split_script_ccv(depth, prof, self.dust_min))
         if prof == "D":
+            for h in self.rewrite_heights:
+                if h <= depth:
+                    out[f"REWRITE_{h}"] = (_rewrite_script_ccv0(depth, h, op) if c0
+                                           else rewrite_script_ccv(depth, h, op))
+                    if self.rewrite_x:
+                        out[f"REWRITE_X_{h}"] = (_rewrite_script_ccv0(depth, h, op, exit_consent=True) if c0
+                                                 else rewrite_script_ccv(depth, h, op, exit_consent=True))
             for h in self.detach_heights:
                 if h < depth:
                     m_h = self.taptree_root(h)

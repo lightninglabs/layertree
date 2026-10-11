@@ -27,6 +27,7 @@ import layertree_ref as lt  # noqa: E402
 import layertree_scripts as ls  # noqa: E402
 import layertree_ccv as C  # noqa: E402
 import layertree_mid as M  # noqa: E402
+import test_scripts as TS  # noqa: E402  (the rewrite cohort plan of 7.9's tests)
 from script_sim import (Interp, ScriptError, TxContext, assemble, pubkey_x,  # noqa: E402
                         schnorr_sign)
 
@@ -39,6 +40,7 @@ P2WPKH = b"\x00\x14" + bytes(20)
 NEG_LEASE_EA = (b"\x01\x00\x00\x81", b"", bytes(4))
 
 BIP342_OPS = {"OP_0", "OP_1", "OP_2DROP", "OP_2DUP", "OP_2SWAP", "OP_ABS", "OP_ADD", "OP_1ADD",
+              "OP_BOOLAND",
               "OP_CHECKLOCKTIMEVERIFY", "OP_CHECKSIGVERIFY", "OP_CHECKSIG", "OP_DROP",
               "OP_DUP", "OP_ELSE", "OP_ENDIF", "OP_EQUAL", "OP_EQUALVERIFY",
               "OP_FROMALTSTACK", "OP_IF", "OP_LESSTHANOREQUAL", "OP_NIP", "OP_NOT",
@@ -1789,6 +1791,582 @@ def test_detach_ccv(depth, height, numeric="c2"):
     return it, len(w.compiled[name]), sum(len(x) for x in wit)
 
 
+def _needs_owner_sig_ccv(old, new, numeric):
+    """Spec 7.9 rule 3 under the numerics' SEQ_FINAL (FULL's 0xFFFFFFFF in
+    0xC2, MID's 0x7FFFFFFF in 0xC0), computed independently of the script."""
+    seq_final = M.SEQ_FINAL if numeric == "c0" else ls.SEQ_FINAL
+    if old is None or (new is not None and old.serialize() == new.serialize()):
+        return False
+    if (new is not None and new.serialize()[8:] == old.serialize()[8:] and new.amount >= old.amount
+            and old.seq != seq_final):
+        return False
+    return True
+
+
+def _rewrite_blocks_c2(old, new, sigs, n, marker=True):
+    """The position blocks of the 0xC2 REWRITE_h witness (bottom..top):
+    block_{n-1} .. block_0, block_i = [xsig_i] [sig_i] new_i old_i, with
+    the one-byte marker for an unchanged leaf's new element unless
+    marker=False (FULL's layout, 8.9)."""
+    items = []
+    for i in reversed(range(n)):
+        o, nw = old[i], new[i]
+        items += list(reversed(sigs.get(i, [])))                # xsig below sig
+        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+            items.append(ls.REWRITE_SAME)
+        else:
+            items.append(nw.serialize() if nw else b"")
+        items.append(o.serialize() if o else b"")
+    return items
+
+
+def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent=False):
+    """Build a CCV REWRITE_h spend in either numerics for one of
+    test_scripts._rewrite_plan's scenarios. Returns a dict with the world,
+    the plan, the context, the positive witness and a `witness(old, new,
+    ctx, ...)` builder, so the negatives can rebuild the witness from a
+    mutated plan. The script is compiled through CCVTreeOptions, which
+    carries rewrite_heights and rewrite_x as FULL's TreeOptions does."""
+    c0 = numeric == "c0"
+    name = f"REWRITE_X_{height}" if exit_consent else f"REWRITE_{height}"
+    if c0:
+        w = WorldC0(depth, "D")
+        toks = C._rewrite_script_ccv0(depth, height, w.op_pk, exit_consent)
+        allowed, mode, lv = C0_OPCODES, "c0", 0xc0
+    else:
+        w = World(depth, "D")
+        toks = C.rewrite_script_ccv(depth, height, w.op_pk, exit_consent)
+        allowed, mode, lv = ALLOWED, "c2", 0xc2
+    tag = f"{numeric}: {name} D={depth}"
+    bad = {t for t in toks if isinstance(t, str)} - allowed
+    check(not bad, f"{tag} opcodes outside the CCV set: {sorted(bad)}")
+    opts = C.CCVTreeOptions(w.op_pk, numeric, "D", rewrite_heights=(height,), rewrite_x=exit_consent)
+    check(assemble(opts.at_depth(depth)[name], mode=mode) == assemble(toks, mode=mode),
+          f"{tag} CCVTreeOptions compiles {name}")
+    script = assemble(toks, mode=mode)
+    w.compiled = dict(w.compiled); w.compiled[name] = script
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    base, old, new = TS._rewrite_plan(w, height, scenario)
+    idx = base >> height
+    w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    n = 1 << height
+
+    def outputs_for(old_, new_, tree=None):
+        tree = tree or w.tree
+        t1 = lt.Tree(depth); t1.leaves = dict(tree.leaves)
+        for i, lf in new_.items():
+            if lf:
+                t1.leaves[base + i] = lf
+            else:
+                t1.leaves.pop(base + i, None)
+        r1 = t1.root()
+        outs = [(r1[1], w.spk(r1))]
+        for i in range(n):
+            if old_[i] and new_[i] is None:
+                outs.append((old_[i].amount, lt.p2tr_spk(old_[i].exit_key)))
+        return outs + [(400, P2WPKH)], r1[1] - tree.root()[1]
+
+    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, marker=True, path_tree=None):
+        """The whole witness for the plan (old_, new_) on `tree` (the
+        current tree by default): under 0xC2 FULL's layout minus r and m,
+        under 0xC0 MID's minus r and m. path_tree supplies the path (and
+        the pads) from another tree, for the stale-path case."""
+        tree = tree or w.tree
+        sigs = {}
+        for i in range(n):
+            if sign and _needs_owner_sig_ccv(old_[i], new_[i], numeric):
+                sigs[i] = [schnorr_sign(ctx.sighash(), sk(f"c{i}-owner"))]
+                if exit_consent:
+                    sigs[i].append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
+        sig_op = schnorr_sign(ctx.sighash(), signer_op or w.op_sk)
+        if c0:
+            body = M.w_rewrite(path_tree or tree, depth, height, idx, new_, sigs, marker)
+        else:
+            path = (path_tree or tree).path(base, height=height)
+            body = w.path_witness(path, height) + _rewrite_blocks_c2(old_, new_, sigs, n, marker)
+        return body + [sig_op], sigs
+
+    outputs, delta = outputs_for(old, new)
+    ctx = w.ctx(outputs, (max(delta, 0) + 5_000, P2WPKH))
+    wit, sigs = witness(old, new, ctx)
+    return dict(name=name, tag=tag, w=w, script=script, wit=wit, ctx=ctx, base=base, idx=idx, old=old, new=new,
+                sigs=sigs, outputs=outputs, delta=delta, outputs_for=outputs_for, witness=witness, c0=c0)
+
+
+def test_rewrite_ccv(depth, height, numeric="c2", exit_consent=False, scenario="mixed"):
+    """REWRITE_h (spec 7.9) under CCV in either numerics, mirroring
+    test_scripts.test_rewrite and test_mid.test_rewrite on the same mixed
+    cohort: the positives (the rewrite, the unchanged leaf supplied once
+    as the marker or twice in full), the negatives of every rule (a
+    changed leaf without its owner's signature, a key rotation disguised
+    as an amount increase, an operator-only amount decrease or exit-key
+    change, a SEQ_FINAL leaf raised by one satoshi, a spurious signature,
+    a shortchanged or misdirected exit, an exit without its owner, a
+    missing operator signature, output 0 off by one either way, a stale
+    path, a forged old leaf, an occupied position presented as empty, the
+    marker misused three ways), the CCV-specific ones (output 0 under a
+    wrong taptree or the FULL-tier key, a payout to a tweaked exit key)
+    and under 0xC0 MID's (a leaf whose amount field and number disagree,
+    a malformed node pad) plus the exemption's independence from the
+    other numerics' SEQ_FINAL. Returns (interp, script bytes, witness);
+    interp and witness are None when the 0xC0 witness exceeds the
+    1,000-element stack limit, in which case the run is checked to fail
+    at that limit, as the MID suite does (spec 4.5)."""
+    c = rewrite_case_ccv(depth, height, numeric, scenario, exit_consent)
+    w, name, tag, ctx, wit, outputs = c["w"], c["name"], c["tag"], c["ctx"], c["wit"], c["outputs"]
+    old, new, sigs, base, delta, c0 = c["old"], c["new"], c["sigs"], c["base"], c["delta"], c["c0"]
+    outputs_for, witness = c["outputs_for"], c["witness"]
+    n = 1 << height
+    root = w.tree.root()
+    same = M.REWRITE_SAME if c0 else ls.REWRITE_SAME
+    if c0 and len(wit) + 4 > 1000:
+        # The pre-pass peaks four above the witness (spec 4.5); the rejection
+        # must come from the stack size limit itself.
+        try:
+            w.run(name, wit, ctx)
+            check(False, f"{tag} ({scenario}) with {len(wit)} witness elements ran past the 1,000-element stack limit")
+        except ScriptError as e:
+            check("stack size limit" in str(e),
+                  f"{tag} ({scenario}) with {len(wit)} witness elements is rejected by the stack size limit: {str(e)[:60]}")
+        return None, c["script"], None
+    it = None
+    try:
+        it = w.run(name, wit, ctx)
+        check(True, f"{tag}: {scenario} rewrite of {n} positions")
+    except ScriptError as e:
+        check(False, f"{tag} positive: {str(e)[:120]}")
+        return None, c["script"], wit
+    check(outputs[0][0] == root[1] + delta, f"{tag} output 0 is S + (sum new - sum old)")
+    if scenario != "mixed":
+        return it, c["script"], wit
+
+    def run_plan(old_, new_, tree=None, sign=True, signer_op=None, mutate=None, outs=None, marker=True,
+                 path_tree=None, extra=None):
+        tree = tree or w.tree
+        o, d = outputs_for(old_, new_, tree)
+        o = outs or o
+        saved = w.tree
+        w.tree = tree
+        try:
+            ctx_ = w.ctx(o, (extra if extra is not None else max(d, 0) + 5_000, P2WPKH))
+            wit_, sigs_ = witness(old_, new_, ctx_, signer_op, sign, tree, marker, path_tree)
+        finally:
+            w.tree = saved
+        if mutate:
+            wit_ = mutate(wit_, sigs_, ctx_)
+        return w.run(name, wit_, ctx_)
+
+    # the unchanged position: published once with the marker, or twice in
+    # full, which the script also accepts
+    i_same = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() == new[i].serialize())
+    check(wit.count(same) >= 1, f"{tag} the unchanged position's new element is the one-byte marker")
+    run_plan(old, new, marker=False)
+    check(True, f"{tag} an unchanged leaf supplied twice in full also passes")
+
+    def slot_items(leaf):
+        return M.w_rewrite_slot(leaf) if c0 else [leaf.serialize()]
+
+    def replace_slot(leaf, with_items):
+        """Replace the first occurrence of `leaf`'s slot in the witness."""
+        slot = slot_items(leaf)
+
+        def mut(wit_, sigs_, ctx_):
+            at = next(j for j in range(len(wit_) - len(slot) + 1) if wit_[j:j + len(slot)] == slot)
+            return wit_[:at] + with_items + wit_[at + len(slot):]
+        return mut
+    # the marker as the old element is a one-element old leaf; in place of a
+    # changed leaf it hides nothing, since the fold then sees the old leaf
+    expect_fail(lambda: run_plan(old, new, mutate=replace_slot(old[i_same], [same])), f"{tag} the marker as an old element")
+    i_chg = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() != new[i].serialize())
+    expect_fail(lambda: run_plan(old, new, mutate=replace_slot(new[i_chg], [same])),
+                f"{tag} the marker in place of a changed leaf")
+    if not c0:
+        expect_fail(lambda: run_plan(old, new, mutate=replace_slot(new[i_chg], [b"\x01\x01"])), f"{tag} a 2-byte new element")
+    # rule 3: a changed leaf without its owner's signature
+    i_rot = next(i for i in range(n) if old[i] and new[i] and _needs_owner_sig_ccv(old[i], new[i], numeric))
+
+    def drop_sig(i):
+        def mut(wit_, sigs_, ctx_):
+            wit_ = list(wit_)
+            del wit_[wit_.index(sigs_[i][0])]
+            if exit_consent:
+                del wit_[wit_.index(sigs_[i][1])]
+            return wit_
+        return mut
+    expect_fail(lambda: run_plan(old, new, mutate=drop_sig(i_rot)), f"{tag} changed leaf without the owner signature")
+    # rule 3: a key rotation disguised as an amount-only increase
+    i_inc = next(i for i in range(n) if old[i] and new[i] and not _needs_owner_sig_ccv(old[i], new[i], numeric)
+                 and new[i].amount > old[i].amount)
+    lf = old[i_inc]
+    disguised = dict(new)
+    disguised[i_inc] = lt.Leaf(lf.amount + 500, lf.exit_key, pubkey_x(sk("mallory")), lf.evictor_key,
+                               lf.evict_after, lf.nonce, lf.seq)
+    expect_fail(lambda: run_plan(old, disguised, mutate=drop_sig(i_inc)), f"{tag} key rotation disguised as an amount increase")
+    run_plan(old, disguised)
+    check(True, f"{tag} the same rotation with the owner's signature succeeds")
+    # rule 3: the operator alone cannot decrease an amount or change a
+    # non-amount field (here the exit key, with an increase)
+    decreased = dict(new); decreased[i_inc] = lf.with_amount_seq(lf.amount - 1, lf.seq)
+    expect_fail(lambda: run_plan(old, decreased, mutate=drop_sig(i_inc)), f"{tag} amount decrease without the owner signature")
+    rekeyed = dict(new); rekeyed[i_inc] = lt.Leaf(lf.amount + 500, pubkey_x(sk("mallory")), lf.owner_key,
+                                                 lf.evictor_key, lf.evict_after, lf.nonce, lf.seq)
+    expect_fail(lambda: run_plan(old, rekeyed, mutate=drop_sig(i_inc)), f"{tag} exit-key change without the owner signature")
+    # rule 3: the exemption stops at the numerics' SEQ_FINAL (0xFFFFFFFF
+    # under 0xC2, 0x7FFFFFFF under 0xC0): raising such a leaf by 1 sat
+    # needs the owner's signature too; the other numerics' marker is an
+    # ordinary seq here, so the exemption applies
+    seq_final, other_final = (M.SEQ_FINAL, ls.SEQ_FINAL) if c0 else (ls.SEQ_FINAL, M.SEQ_FINAL)
+    t_f = w.clone()
+    final_old, final_new = dict(old), dict(new)
+    final_old[i_inc] = lf.with_amount_seq(lf.amount, seq_final)
+    final_new[i_inc] = lf.with_amount_seq(lf.amount + 1, seq_final)
+    t_f.leaves[base + i_inc] = final_old[i_inc]
+    expect_fail(lambda: run_plan(final_old, final_new, tree=t_f, mutate=drop_sig(i_inc)),
+                f"{tag} SEQ_FINAL leaf raised by 1 sat without the owner signature")
+    run_plan(final_old, final_new, tree=t_f)
+    check(True, f"{tag} the same raise with the owner's signature succeeds")
+    t_g = w.clone()
+    g_old, g_new = dict(old), dict(new)
+    g_old[i_inc] = lf.with_amount_seq(lf.amount, other_final)
+    g_new[i_inc] = lf.with_amount_seq(lf.amount + 1, other_final)
+    t_g.leaves[base + i_inc] = g_old[i_inc]
+    run_plan(g_old, g_new, tree=t_g)
+    check(True, f"{tag} a seq of {other_final:#x} is not this numerics' SEQ_FINAL: the amount-only exemption applies")
+
+    # rule 3: a spurious signature where none is due is consumed as the next element
+    def add_sig(wit_, sigs_, ctx_):
+        wit_ = list(wit_)
+        at = wit_.index(sigs_[i_rot][0])
+        wit_.insert(at, schnorr_sign(ctx_.sighash(), sk(f"c{i_inc}-owner")))
+        return wit_
+    expect_fail(lambda: run_plan(old, new, mutate=add_sig), f"{tag} spurious signature on an exempt position")
+    # rule 5: a shortchanged exit payout, one paid to the wrong key, one paid
+    # to the exit key under a taptree (CCV checks a bare P2TR), and an exit
+    # without its owner's signature
+    i_exit = next(i for i in range(n) if old[i] and new[i] is None)
+    k = 1 + sum(1 for i in range(i_exit) if old[i] and new[i] is None)
+    outs_s = list(outputs); outs_s[k] = (outs_s[k][0] - 1, outs_s[k][1])
+    expect_fail(lambda: run_plan(old, new, outs=outs_s), f"{tag} shortchanged exit payout")
+    outs_k = list(outputs); outs_k[k] = (outs_k[k][0], lt.p2tr_spk(pubkey_x(sk("mallory"))))
+    expect_fail(lambda: run_plan(old, new, outs=outs_k), f"{tag} exit paid to the wrong key")
+    outs_t = list(outputs); outs_t[k] = (outs_t[k][0], lt.tree_spk_ccv(old[i_exit].exit_key, w.m))
+    expect_fail(lambda: run_plan(old, new, outs=outs_t), f"{tag} exit paid to a tweaked exit key")
+    expect_fail(lambda: run_plan(old, new, mutate=drop_sig(i_exit)), f"{tag} exit without the owner signature")
+    # rule 4: no operator signature
+    expect_fail(lambda: run_plan(old, new, signer_op=sk("alice-owner")), f"{tag} without the operator signature")
+    # rule 6: output 0 not conserved (under and over), and the CCV binding
+    # of output 0: a wrong taptree, the FULL-tier key
+    for off in (-1, +1):
+        outs_u = list(outputs); outs_u[0] = (outs_u[0][0] + off, outs_u[0][1])
+        expect_fail(lambda: run_plan(old, new, outs=outs_u, extra=max(delta, 0) + 5_000 + max(off, 0)),
+                    f"{tag} output 0 off by {off:+d}")
+    t1 = w.clone()
+    for i, x in new.items():
+        if x:
+            t1.leaves[base + i] = x
+        else:
+            t1.leaves.pop(base + i, None)
+    r1 = t1.root()
+    outs_w = list(outputs); outs_w[0] = (outs_w[0][0], lt.tree_spk_ccv(r1[0], lt.sha256(b"wrong-taptree")))
+    expect_fail(lambda: run_plan(old, new, outs=outs_w), f"{tag} output 0 under a wrong taptree")
+    outs_f = list(outputs); outs_f[0] = (outs_f[0][0], lt.tree_spk(r1[0], w.m))
+    expect_fail(lambda: run_plan(old, new, outs=outs_f), f"{tag} output 0 with the FULL-tier key")
+    # rule 1: a stale path (from a change elsewhere in the tree), a forged
+    # old leaf and an occupied position presented as empty
+    t_s = w.clone(); t_s.leaves[0] = mk_leaf("alice", 51_000)
+    expect_fail(lambda: run_plan(old, new, path_tree=t_s), f"{tag} stale path")
+    forged = dict(old); forged[i_rot] = old[i_rot].with_amount_seq(old[i_rot].amount + 1, old[i_rot].seq)
+    t_forged = w.clone(); t_forged.leaves[base + i_rot] = forged[i_rot]
+
+    def forge(wit_, sigs_, ctx_):
+        return witness(forged, new, ctx_, None, True, t_forged)[0]
+    expect_fail(lambda: run_plan(old, new, mutate=forge), f"{tag} forged old leaf")
+    hidden = dict(old); hidden[i_rot] = None
+    t_h = w.clone(); del t_h.leaves[base + i_rot]
+
+    def hide(wit_, sigs_, ctx_):
+        return witness(hidden, new, ctx_, None, True, t_h)[0]
+    expect_fail(lambda: run_plan(old, new, mutate=hide), f"{tag} presents an occupied position as empty")
+    if c0:
+        # MID-specific: the amount field and its number disagree in an old leaf
+        def bad_amount(wit_, sigs_, ctx_):
+            wit_ = list(wit_)
+            at = len(wit_) - 1 - 1 - 3            # position 0's old slot: sig_op, flag, then wa za amt_num
+            assert wit_[at] == M.scriptnum(old[0].amount)
+            wit_[at] = M.scriptnum(old[0].amount + 256)
+            return wit_
+        expect_fail(lambda: run_plan(old, new, mutate=bad_amount), f"{tag} old leaf amount field and number disagree")
+        if height >= 2:
+            at = 4 + M.LEVEL_WITNESS * (depth - height)      # the last-consumed pad pair (the first node's new sum)
+
+            def swap_pad(wit_, sigs_, ctx_):
+                b = list(wit_); b[at], b[at + 1] = b[at] + b"\x00", b[at + 1][1:]
+                return b
+            expect_fail(lambda: run_plan(old, new, mutate=swap_pad), f"{tag} with a malformed node pad")
+    if exit_consent:
+        # rule 7: the exit key of a changed leaf must sign too
+        def drop_x(wit_, sigs_, ctx_):
+            wit_ = list(wit_); del wit_[wit_.index(sigs_[i_rot][1])]; return wit_
+        expect_fail(lambda: run_plan(old, new, mutate=drop_x), f"{tag} changed leaf without the exit-key signature")
+
+        def wrong_x(wit_, sigs_, ctx_):
+            wit_ = list(wit_); wit_[wit_.index(sigs_[i_rot][1])] = sigs_[i_rot][0]; return wit_
+        expect_fail(lambda: run_plan(old, new, mutate=wrong_x), f"{tag} exit-key signature by the owner key")
+    return it, c["script"], wit
+
+
+def test_rewrite_negative_amount_ccv0(depth):
+    """NONNEG in the 0xC0 REWRITE_h (spec 4.5, 10.6): a joined leaf whose
+    amount is 2^31 + 2^24, supplied as the negative CScriptNum its le32
+    is, with every accumulator above it encoded the same signed way (the
+    MID suite's levels_signed), so that the only check standing between
+    a leaf that claims 2^31 sat more than the tree holds and output 0 is
+    the NONNEG on the new slot's amount number. A height-1 rewrite at
+    depth `depth` joins the leaf beside an unchanged one."""
+    import test_mid as TM
+    w = WorldC0(depth, "D")
+    name = "REWRITE_1"
+    w.compiled = dict(w.compiled); w.compiled[name] = assemble(C._rewrite_script_ccv0(depth, 1, w.op_pk), mode="c0")
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
+    base, idx = 2, 1
+    keeper = mk_leaf("keeper", 20_000, w.op_pk, 800_000)
+    w.tree.leaves = {0: mk_leaf("alice", 50_000), base + 1: keeper, (1 << depth) - 1: mk_leaf("operator", 100_000_000)}
+    root = w.tree.root()
+    S = root[1]
+    BIG = (1 << 31) + (1 << 24)
+    NEG = TM.snum(-(1 << 24))
+    assert NEG[0] == lt.le32(BIG)
+    big = TM.big_leaf("big", BIG, w.op_pk, 900_000, 7)
+    # the new subtree node as the script computes it: H_node over the two
+    # leaf nodes (le64(BIG) is what the slot's amt8 says), sum read signed
+    new_hash = lt.node_hash(big.node(), keeper.node())
+    new_sum = keeper.amount - (1 << 24)
+    old_node = w.tree.subtree(1, idx)
+    path = w.tree.path(base, height=1)
+    r1 = TM.fold_signed(new_hash, new_sum, path)
+    check(r1[1] == S - (1 << 24), "c0: the signed fold of the rewritten subtree reaches S - 2^24")
+    ctx = w.ctx([(r1[1], w.spk(r1)), (400, P2WPKH)], (5_000, P2WPKH))
+    wit = (list(M.pad(r1[1])) + list(M.pad(S)) + TM.levels_signed(path, old_node[1], new_sum) +
+           [M.REWRITE_SAME] + M.w_rewrite_slot(keeper) +                     # position 1: unchanged
+           TM.leaf10_signed(big, NEG) + [b"\x01", b""] +                      # position 0: the big leaf joins E_0
+           [schnorr_sign(ctx.sighash(), w.op_sk)])
+    expect_fail(lambda: w.run(name, wit, ctx), f"c0: {name} D={depth} joins a leaf of 2^31 + 2^24 sat as a negative amount (NONNEG)")
+
+
+def test_voucher_topup_ccv(depth, numeric="c2"):
+    """CCV: vouchers and exit authorisations survive an amount-only
+    REWRITE_h (spec 7.5, 7.2 rule 7, 7.9 rule 3), the FULL and MID suites'
+    test_voucher_topup in either numerics. A tree created with CLAIM,
+    EXIT_K^t and REWRITE_2 (CCVTreeOptions): the operator tops up a cohort
+    with its signature alone, then a voucher and a tower authorisation
+    signed before the rewrite redeem and exit against the topped-up
+    leaves, the voucher for its own amount, for more than the balance at
+    issuance and for the whole balance at issuance; an over-claim against
+    the new balance, a payout of the old amount and a whole-balance
+    voucher after a sub-dust top-up (7.5 rule 6) fail."""
+    c0 = numeric == "c0"
+    tag = f"{numeric}: top-up D={depth}"
+    opts = C.CCVTreeOptions(pubkey_x(sk("operator")), numeric, "D", TREE_ID, join_heights=(0, 2),
+                            exit_ks=(1, 2), tower=True, claim=True, rewrite_heights=(2,))
+    if c0:
+        w = WorldC0(depth, "D")
+        allowed, mode, lv = C0_OPCODES | CSFS_OPS, "c0", 0xc0
+    else:
+        w = World(depth, "D")
+        allowed, mode, lv = ALLOWED | CSFS_OPS, "c2", 0xc2
+    w.scripts = opts.at_depth(depth)
+    for nm, toks in w.scripts.items():
+        bad = {t for t in toks if isinstance(t, str)} - allowed
+        check(not bad, f"{tag}: {nm} opcodes outside the CCV set: {sorted(bad)}")
+    w.compiled = {k: assemble(v, mode=mode) for k, v in w.scripts.items()}
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    check("REWRITE_2" in w.compiled and "CLAIM" in w.compiled, f"{tag}: the option set carries REWRITE_2 and CLAIM")
+    base, old, new = TS._rewrite_plan(w, 2, "topup")
+    idx = base >> 2
+    w.tree.leaves = {base + i: lf for i, lf in old.items()}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    path = w.tree.path(base, height=2)
+    # signed before the rewrite, against the leaves as they stand
+    src = old[3]
+    holder = carve_of(src, "holder", 4_000)
+    vsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, holder), sk("c3-owner"))
+    auth = schnorr_sign(lt.exit_auth_msg(TREE_ID, old[1]), sk("c1-owner"))
+    t1 = w.clone()
+    for i, lf in new.items():
+        t1.leaves[base + i] = lf
+    r1 = t1.root()
+    delta = r1[1] - root[1]
+    ctx = w.ctx([(r1[1], w.spk(r1)), (400, P2WPKH)], (delta + 5_000, P2WPKH))
+    if c0:
+        body = M.w_rewrite(w.tree, depth, 2, idx, new, {}, True)
+    else:
+        body = w.path_witness(path, 2) + _rewrite_blocks_c2(old, new, {}, 4)
+    w.run("REWRITE_2", body + [schnorr_sign(ctx.sighash(), w.op_sk)], ctx)
+    check(True, f"{tag}: REWRITE_2, the operator tops up every leaf of the cohort alone")
+    w.tree = t1
+    s_src = base + 3
+    topped = new[3]
+    check(topped.body() == src.body() and topped.amount == src.amount + 500, f"{tag}: the top-up changed the amount and nothing else")
+
+    def claim_after(lf, sig, tree=None, src_leaf=None):
+        tree = tree or w.tree
+        src_leaf = src_leaf or topped
+        s_c = 2
+        t2 = lt.Tree(depth); t2.leaves = dict(tree.leaves)
+        amt_new = src_leaf.amount - lf.amount
+        if amt_new > 0:
+            t2.leaves[s_src] = src_leaf.with_amount_seq(amt_new, src_leaf.seq + 1)
+        else:
+            del t2.leaves[s_src]
+        new_src = t2.leaves[s_src].node() if s_src in t2.leaves else lt.EMPTY_NODE
+        spath = tree.path(s_src)
+        t2.leaves[s_c] = lf
+        r2 = t2.root()
+        ctx2 = TxContext([(tree.root()[1], w.spk(tree.root())), (600, P2WPKH)], [(r2[1], w.spk(r2))],
+                         internal_key=lt.ccv_internal_key(tree.root()[0]), taptree_root=w.m)
+        if c0:
+            wit = (list(M.pad(r2[1])) + M.w_levels(t2.path(s_c), lt.EMPTY_NODE, lf.node(), False) +
+                   list(M.pad(tree.root()[1])) + M.w_levels(spath, src_leaf.node(), new_src, False) +
+                   M.w_leaf(src_leaf) + M.w_leaf(lf) + M.w_carve_extras(src_leaf, lf, amt_new=max(amt_new, 0)) + [sig])
+        else:
+            wit = w.path_witness(t2.path(s_c)) + w.path_witness(spath) + [src_leaf.serialize(), lf.serialize(), sig]
+        return wit, ctx2
+
+    w.run("CLAIM", *claim_after(holder, vsig))
+    check(True, f"{tag}: CLAIM, a voucher signed before the top-up redeems against the topped-up leaf")
+    bigger = carve_of(src, "bigger", src.amount + 100)
+    w.run("CLAIM", *claim_after(bigger, schnorr_sign(lt.voucher_msg(TREE_ID, src, bigger), sk("c3-owner"))))
+    check(True, f"{tag}: CLAIM, after the top-up a voucher may draw more than the balance at issuance")
+    whole = carve_of(src, "whole", src.amount)
+    wsig = schnorr_sign(lt.voucher_msg(TREE_ID, src, whole), sk("c3-owner"))
+    w.run("CLAIM", *claim_after(whole, wsig))
+    check(True, f"{tag}: CLAIM, a whole-balance voucher redeems after a top-up of at least DUST_MIN")
+    over = carve_of(src, "over", topped.amount + 1)
+    expect_fail(lambda: w.run("CLAIM", *claim_after(over, schnorr_sign(lt.voucher_msg(TREE_ID, src, over), sk("c3-owner")))),
+                f"{tag}: CLAIM, over-claim against the topped-up balance")
+    sub = src.with_amount_seq(src.amount + 1, src.seq)
+    t_sub = w.clone(); t_sub.leaves[s_src] = sub
+    expect_fail(lambda: w.run("CLAIM", *claim_after(whole, wsig, tree=t_sub, src_leaf=sub)),
+                f"{tag}: CLAIM, a whole-balance voucher after a top-up below DUST_MIN (7.5 rule 6)")
+    # the tower exits the other leaf for its new amount on the old authorisation
+    s_b = base + 1
+    up1 = new[1]
+    t5 = w.clone(); del t5.leaves[s_b]; r5 = t5.root()
+    path_b = w.tree.path(s_b)
+    if c0:
+        below = (list(M.pad(r5[1])) + list(M.pad(r1[1])) + M.w_levels(path_b, up1.node(), lt.EMPTY_NODE, False) +
+                 M.w_leaf_exit(up1))
+    else:
+        below = w.path_witness(path_b) + [up1.serialize()]
+    ctx5 = w.ctx([(r5[1], w.spk(r5)), (up1.amount, lt.p2tr_spk(up1.exit_key))], (5_000, P2WPKH))
+    w.run("EXIT_1", below + [auth, b""], ctx5)
+    check(True, f"{tag}: EXIT_1^t, an authorisation signed before the top-up exits the topped-up leaf for its new amount")
+    ctx6 = w.ctx([(r5[1], w.spk(r5)), (old[1].amount, lt.p2tr_spk(up1.exit_key))], (5_000, P2WPKH))
+    expect_fail(lambda: w.run("EXIT_1", below + [auth, b""], ctx6), f"{tag}: EXIT_1^t, the exit after a top-up pays the amount at signing")
+
+
+def test_credit_topup_ccv(depth, numeric="c2"):
+    """CCV: the dedicated credit leaf end to end (spec 7.5.3, 7.9 rules 3
+    and 7, 10.3) in either numerics, the MID suite's test_credit_topup.
+    The tree carries UPDATE^x, CLAIM^x and REWRITE_2^x and no plain
+    REWRITE_2 (7.9 rule 7). The operator (owner of the credit leaf) issues
+    cumulative vouchers to the recipient (its exit key), then tops the
+    leaf up by an amount-only REWRITE_2^x with no signature but its own;
+    the recipient still redeems the vouchers signed before the top-up
+    with CLAIM^x, one for more than the balance at issuance, the operator
+    can redeem none of them and cannot move the exit key alone."""
+    c0 = numeric == "c0"
+    tag = f"{numeric}: credit leaf D={depth}"
+    opts = C.CCVTreeOptions(pubkey_x(sk("operator")), numeric, "D", TREE_ID, join_heights=(0, 2),
+                            exit_ks=(1, 2), update_x=True, claim_x=True, rewrite_heights=(2,), rewrite_x=True)
+    if c0:
+        w = WorldC0(depth, "D")
+        allowed, mode, lv = C0_OPCODES | CSFS_OPS, "c0", 0xc0
+    else:
+        w = World(depth, "D")
+        allowed, mode, lv = ALLOWED | CSFS_OPS, "c2", 0xc2
+    w.scripts = opts.at_depth(depth)
+    check("REWRITE_X_2" in w.scripts and "CLAIM_X" in w.scripts and "UPDATE_X" in w.scripts and "CLAIM" not in w.scripts,
+          f"{tag}: the option set carries UPDATE^x, CLAIM^x and REWRITE_2^x and no plain CLAIM")
+    del w.scripts["REWRITE_2"]                    # a tree with CLAIM^x carries REWRITE_h^x in its place (7.9 rule 7)
+    for nm, toks in w.scripts.items():
+        bad = {t for t in toks if isinstance(t, str)} - allowed
+        check(not bad, f"{tag}: {nm} opcodes outside the CCV set: {sorted(bad)}")
+    w.compiled = {k: assemble(v, mode=mode) for k, v in w.scripts.items()}
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    base, idx = 4, 1
+    credit = lt.Leaf(10_000, pubkey_x(sk("recipient-exit")), w.op_pk, w.op_pk, 800_000,
+                     int.from_bytes(lt.sha256(b"credit")[:4], "little"), 0)
+    old = {0: credit}
+    for i in (1, 2, 3):
+        old[i] = mk_leaf(f"c{i}", 10_000 + 7 * i, w.op_pk, 800_000)
+    w.tree.leaves = {base + i: lf for i, lf in old.items()}
+    w.tree.leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
+    root = w.tree.root()
+    path = w.tree.path(base, height=2)
+    s_credit = base
+    v1 = carve_of(credit, "holder1", 4_000)
+    v2 = carve_of(credit, "holder2", 10_100)
+    sig1 = schnorr_sign(lt.voucher_msg(TREE_ID, credit, v1), w.op_sk)
+    sig2 = schnorr_sign(lt.voucher_msg(TREE_ID, credit, v2), w.op_sk)
+    topped = credit.with_amount_seq(credit.amount + 500, credit.seq)
+    new = {0: topped, 1: old[1], 2: old[2], 3: old[3]}
+    t1 = w.clone(); t1.leaves[s_credit] = topped; r1 = t1.root()
+
+    def rewrite(new_, ctx_, sigs):
+        if c0:
+            body = M.w_rewrite(w.tree, depth, 2, idx, new_, sigs, True)
+        else:
+            body = w.path_witness(path, 2) + _rewrite_blocks_c2(old, new_, sigs, 4)
+        return w.run("REWRITE_X_2", body + [schnorr_sign(ctx_.sighash(), w.op_sk)], ctx_)
+    ctx = w.ctx([(r1[1], w.spk(r1))], (500 + 5_000, P2WPKH))
+    rewrite(new, ctx, {})
+    check(True, f"{tag}: REWRITE_2^x, the operator tops up the credit leaf with its signature alone")
+    rotated = lt.Leaf(topped.amount, pubkey_x(sk("operator-exit")), credit.owner_key, credit.evictor_key,
+                      credit.evict_after, credit.nonce, credit.seq)
+    t_r = w.clone(); t_r.leaves[s_credit] = rotated; r_r = t_r.root()
+    ctx_r = w.ctx([(r_r[1], w.spk(r_r))], (500 + 5_000, P2WPKH))
+    new_r = dict(new); new_r[0] = rotated
+    expect_fail(lambda: rewrite(new_r, ctx_r, {0: [schnorr_sign(ctx_r.sighash(), w.op_sk)]}),
+                f"{tag}: REWRITE_2^x, the operator cannot move the credit leaf's exit key without the recipient")
+    w.tree = t1
+
+    def claim_x(lf, vsig, xkey, src=topped, s_c=2):
+        t2 = w.clone()
+        amt_new = max(src.amount - lf.amount, 0)
+        if amt_new > 0:
+            t2.leaves[s_credit] = src.with_amount_seq(amt_new, src.seq + 1)
+        else:
+            del t2.leaves[s_credit]
+        new_src = t2.leaves[s_credit].node() if s_credit in t2.leaves else lt.EMPTY_NODE
+        t2.leaves[s_c] = lf
+        r2 = t2.root()
+        ctx2 = w.ctx([(r2[1], w.spk(r2))], (600, P2WPKH))
+        if c0:
+            wit = (list(M.pad(r2[1])) + M.w_levels(t2.path(s_c), lt.EMPTY_NODE, lf.node(), False) +
+                   list(M.pad(w.tree.root()[1])) + M.w_levels(w.tree.path(s_credit), src.node(), new_src, False) +
+                   M.w_leaf(src) + M.w_leaf(lf) + M.w_carve_extras(src, lf, amt_new=amt_new))
+        else:
+            wit = w.path_witness(t2.path(s_c)) + w.path_witness(w.tree.path(s_credit)) + [src.serialize(), lf.serialize()]
+        return wit + [vsig, schnorr_sign(ctx2.sighash(), xkey)], ctx2, t2
+
+    expect_fail(lambda: w.run("CLAIM_X", *claim_x(v1, sig1, w.op_sk)[:2]),
+                f"{tag}: CLAIM^x, the operator cannot redeem its own voucher against the credit leaf")
+    wit, ctx2, t2 = claim_x(v2, sig2, sk("recipient-exit"))
+    expect_fail(lambda: w.run("CLAIM_X", wit[:-1], ctx2), f"{tag}: CLAIM^x without the recipient's signature")
+    w.run("CLAIM_X", wit, ctx2)
+    check(True, f"{tag}: CLAIM^x, the recipient redeems the latest cumulative voucher, signed before the top-up, "
+                "for more than the balance at issuance")
+    w.tree = t2
+    expect_fail(lambda: w.run("CLAIM_X", *claim_x(v1, sig1, sk("recipient-exit"), src=t2.leaves[s_credit], s_c=3)[:2]),
+                f"{tag}: CLAIM^x, the earlier cumulative voucher is void once the later one has redeemed")
+
+
 def test_audit_negatives_ccv(depth):
     """Negative cases from the byte-level audit (design/audit/script.md).
 
@@ -2054,6 +2632,25 @@ def main():
         for depth, h in ((8, 2), (16, 8)):
             test_detach_ccv(depth, h, numeric)
         print(f"  D (DETACH, {numeric}): {CHECKS - before} checks")
+    # REWRITE_h and REWRITE_h^x in both numerics (spec 7.9): the mixed cohort
+    # at h = 2 and 4, the top-ups that vouchers and authorisations survive,
+    # and the credit leaf; under 0xC0 the full 32-position cohort at h = 5
+    # (the largest that fits the stack limit) and the h = 6 rejection.
+    for numeric in ("c2", "c0"):
+        before = CHECKS
+        for depth, h, x in ((4, 2, False), (16, 2, False), (16, 4, False), (16, 4, True)):
+            test_rewrite_ccv(depth, h, numeric, exit_consent=x)
+        if numeric == "c0":
+            for scenario in ("update", "exit"):
+                test_rewrite_ccv(16, 5, "c0", scenario=scenario)
+            test_rewrite_ccv(16, 6, "c0", scenario="update")      # over the 1,000-element limit
+            test_rewrite_negative_amount_ccv0(4)
+        else:
+            for scenario in ("update", "exit"):
+                test_rewrite_ccv(16, 6, "c2", scenario=scenario)   # no stack bound under 0xC2
+        test_voucher_topup_ccv(16, numeric)
+        test_credit_topup_ccv(16, numeric)
+        print(f"  D (REWRITE, {numeric}): {CHECKS - before} checks")
     before = CHECKS
     test_audit_negatives_ccv(8)
     print(f"  D/8 audit negatives (c2, c0): {CHECKS - before} checks")
