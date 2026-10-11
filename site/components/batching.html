@@ -82,7 +82,7 @@
       },
       {
         "title": "One fold, one transaction",
-        "caption": "The script rebuilds the old subtree from the old slots and checks it against the committed root, then rebuilds the new subtree and folds it up the same path. A is paid exactly 5, N's 4 comes from a funding input, and the tree output holds 20. With 64 slots at depth 16, a rewrite in which everyone changes costs about 147 vB per leaf.",
+        "caption": "The script rebuilds the old subtree from the old slots and checks it against the committed root, then rebuilds the new subtree and folds it up the same path. A is paid exactly 5, N's 4 comes from a funding input, and the tree output holds 20. With 64 slots at depth 16, a rewrite in which everyone changes costs about 148 vB per leaf.",
         "ops": [
           {"op": "fold", "pos": 1, "h": 2},
           {"op": "chip", "id": "payA", "kind": "payout", "label": "Payout to A", "amount": 5},
@@ -163,17 +163,17 @@
         <tr><td>Rewrite of 4 slots, every leaf leaves</td><td class="num">about 370</td></tr>
         <tr><td>Rewrite of 16 slots, every leaf leaves</td><td class="num">about 198</td></tr>
         <tr><td>Rewrite of 64 slots, every leaf leaves</td><td class="num">about 159</td></tr>
-        <tr><td>Rewrite of 64 slots, every key rotated</td><td class="num">about 147</td></tr>
+        <tr><td>Rewrite of 64 slots, every key rotated</td><td class="num">about 148</td></tr>
         <tr><td>One <code>UPDATE</code> per leaf instead</td><td class="num">1,073</td></tr>
         <tr><td>Operator's sweep of 51 expired leaves, for comparison</td><td class="num">158</td></tr>
       </tbody>
     </table>
   </div>
   <p>Sixty-four owners who leave together pay what the operator pays to sweep
-  them. A slot that does not change still costs about 120 vB, because it is
-  published twice, so the rewrite suits cohorts that settle together; with only a
-  few changes it beats separate <code>UPDATE</code>s from about three leaves
-  up.</p>
+  them. A slot that does not change costs about 92 vB: its leaf is published
+  once, with a one-byte marker in place of the second copy, so a rewrite with
+  only a few changes beats separate <code>UPDATE</code>s from about two or
+  three leaves up.</p>
 
   <h2 id="detach">Detaching a cohort</h2>
   <p>Nothing in a script can refer to an earlier transaction's witness, so the
@@ -197,7 +197,7 @@
   <h2 id="floor">The floor no batch removes</h2>
   <p>A leaf that leaves must be published, must authorise its exit, and must be
   paid: about 100 vB in every shape. A leaf that stays in a rewritten subtree costs
-  about 120. Batching moves the fixed and shared costs out of the way; it leaves
+  about 92. Batching moves the fixed and shared costs out of the way; it leaves
   this one. The remaining lever is the leaf itself: a leaf format in which an exit
   reveals only the exit key and amount plus a hash of the other fields would
   publish about 72 bytes instead of 116, saving about 11 vB per leaf in every

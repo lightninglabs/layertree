@@ -87,10 +87,10 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | D | 16 | EXIT_64 (evictions, for comparison) | 105847 | - | 129 | - | - | 64 |
 | D/subtree | 20 | EVICT_SUBTREE_8 (256 positions) | 60242 | 24401 | 129 | 84772 | 7239651 | 1 |
 | D | 20 | EXIT_256 (evictions, for comparison) | 512184 | - | 129 | - | - | 256 |
-| D/subtree | 16 | REWRITE_2 (4 positions, mixed) | 2775 | 1643 | 129 | 4547 | 3578314 | 3 |
-| D/subtree | 16 | REWRITE_4 (16 positions, mixed) | 5512 | 4329 | 129 | 9970 | 7526729 | 10 |
-| D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 17148 | 15139 | 129 | 32416 | 22938912 | 37 |
-| D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 5810 | 4905 | 129 | 10844 | 12036341 | 19 |
+| D/subtree | 16 | REWRITE_2 (4 positions, mixed) | 2803 | 1528 | 129 | 4460 | 3578668 | 3 |
+| D/subtree | 16 | REWRITE_4 (16 positions, mixed) | 5624 | 4099 | 129 | 9852 | 7527451 | 10 |
+| D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 17596 | 14104 | 129 | 31829 | 22942146 | 37 |
+| D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 5922 | 4675 | 129 | 10726 | 12037063 | 19 |
 | D/subtree | 16 | DETACH_8 | 1548 | 497 | 129 | 2174 | 3152083 | 1 |
 | MID/D | 16 | EXIT_1 (owner) | 3367 | 978 | 129 | 4474 | n/a (0xC0) | 1 |
 | MID/D | 16 | EXIT_1 (evict) | 3367 | 979 | 129 | 4475 | n/a (0xC0) | 1 |
@@ -114,11 +114,11 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7977 | 2417 | 129 | 10523 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24169 | 7461 | 129 | 31759 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13321 | 4907 | 129 | 18357 | n/a (0xC0) | 1 |
-| MID/D | 16 | REWRITE_2 (4 positions, mixed) | 4599 | 1764 | 129 | 6492 | n/a (0xC0) | 3 |
-| MID/D | 16 | REWRITE_4 (16 positions, mixed) | 9764 | 4680 | 129 | 14573 | n/a (0xC0) | 10 |
-| MID/D | 16 | REWRITE_X_4 (16 positions, mixed) | 9924 | 5256 | 129 | 15309 | n/a (0xC0) | 19 |
-| MID/D | 16 | REWRITE_5 (32 positions, update) | 16938 | 10787 | 129 | 27854 | n/a (0xC0) | 33 |
-| MID/D | 16 | REWRITE_5 (32 positions, exit) | 16938 | 6851 | 129 | 23918 | n/a (0xC0) | 33 |
+| MID/D | 16 | REWRITE_2 (4 positions, mixed) | 4787 | 1642 | 129 | 6558 | n/a (0xC0) | 3 |
+| MID/D | 16 | REWRITE_4 (16 positions, mixed) | 10516 | 4436 | 129 | 15081 | n/a (0xC0) | 10 |
+| MID/D | 16 | REWRITE_X_4 (16 positions, mixed) | 10676 | 5012 | 129 | 15817 | n/a (0xC0) | 19 |
+| MID/D | 16 | REWRITE_5 (32 positions, update) | 18442 | 10787 | 129 | 29358 | n/a (0xC0) | 33 |
+| MID/D | 16 | REWRITE_5 (32 positions, exit) | 18442 | 6851 | 129 | 25422 | n/a (0xC0) | 33 |
 | MIN/D | 16 | EXIT_1 (owner) | 3640 | 1175 | 129 | 4944 | n/a (0xC0) | 2 |
 | MIN/D | 16 | SPLIT | 6651 | 2018 | 129 | 8798 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |

@@ -596,9 +596,14 @@ def w_evict_subtree(tree, depth, height, idx):
 #
 # MID's SEQ_FINAL is 0x7FFFFFFF (spec 4.5): the raw seq field of the old
 # leaf is compared with the constant as bytes.
+#
+# An unchanged position publishes its leaf once: the new slot may be the
+# single one-byte element REWRITE_SAME (0x02 here, since 0x01 is a slot's
+# presence flag), and the step then converts the old slot's node twice.
 SEQ_FINAL = 0x7FFFFFFF
 SEQ_FINAL_BYTES = lt.le32(SEQ_FINAL)
 REWRITE_SLOT_WITNESS = LEAF_WITNESS + 1
+REWRITE_SAME = b"\x02"
 
 
 def _leaf_join_old():
@@ -660,14 +665,23 @@ def _rewrite_step(exit_consent):
     """One position of the pre-pass:
     [.. {xsig} {sig} new_slot old_slot idx L Z] | .. -> [.. idx' L Z] | .. ns nsc os osc
 
-    A slot is leaf(10) 0x01 or one empty element. The old slot is reduced
-    first, parked, then the new slot; with both canonical forms on the
-    stack (new below old) the step applies 7.9 rules 3 and 5 and converts
-    both to nodes. Depths in the decision block, from the top: amt_o 0,
-    fin 1, ok 2, ek 3, rest_o 4, amt8_o 5, amt_n 6, rest_n 7, amt8_n 8,
-    and the next witness element 9."""
+    A slot is leaf(10) 0x01 or one empty element, and the new slot may be
+    the one-byte marker REWRITE_SAME, in which case the old slot's node is
+    parked twice and nothing else happens (7.9: unchanged). Otherwise the
+    old slot is reduced first, parked, then the new slot; with both
+    canonical forms on the stack (new below old) the step applies 7.9
+    rules 3 and 5 and converts both to nodes. Depths in the decision
+    block, from the top: amt_o 0, fin 1, ok 2, ek 3, rest_o 4, amt8_o 5,
+    amt_n 6, rest_n 7, amt8_n 8, and the next witness element 9."""
     s = ["OP_TOALTSTACK"] * 3                                                  # .. new_slot old_slot   | .. Z L idx
     s += ["OP_IF"] + _leaf_join_old() + ["OP_ELSE"] + ["OP_0"] * 6 + ["OP_ENDIF"]   # .. new_slot C_old(6)
+    s += [6, "OP_PICK", REWRITE_SAME, "OP_EQUAL", "OP_IF",                     # -- the marker: new = old --
+          6, "OP_ROLL", "OP_DROP",                                             # .. C_old(6)
+          "OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK",           # .. amt8 rest amt
+          "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK"]             # .. amt8 rest amt idx L Z
+    s += roll(5, 2) + _rewrite_conv()                                          # .. amt idx L Z sc
+    s += roll(4) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4                         # .. idx L Z              | .. ns nsc os osc
+    s += ["OP_ELSE"]                                                           # -- a leaf or empty --
     s += ["OP_TOALTSTACK"] * 6                                                 # .. new_slot            | .. Z L idx C_old
     s += ["OP_IF"] + _leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]   # .. C_new(3)
     s += ["OP_FROMALTSTACK"] * 6                                               # .. C_new(3) C_old(6)   | .. Z L idx
@@ -689,7 +703,8 @@ def _rewrite_step(exit_consent):
     s += roll(8, 2) + _rewrite_conv()                                          # .. amt_n amt8_o rest_o amt_o idx L Z nsc
     s += roll(7) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                          # .. amt8_o rest_o amt_o idx L Z   | .. ns nsc
     s += roll(5, 2) + _rewrite_conv()                                          # .. amt_o idx L Z osc
-    return s + roll(4) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                    # .. idx L Z                       | .. ns nsc os osc
+    s += roll(4) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                          # .. idx L Z                       | .. ns nsc os osc
+    return s + ["OP_ENDIF"]
 
 
 def _rewrite_hash_step2(t, root):
@@ -715,8 +730,9 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
       reverse consumption order, the new sum's pair then the old sum's]
       block_{2^h-1} .. block_0 sig_op r m
       block_i = [xsig_i] [sig_i] new_slot_i old_slot_i, a slot being leaf(10)
-      0x01 or one empty element; sig_i only where 7.9 rule 3 requires it,
-      xsig_i only under ^x and only where sig_i is present.
+      0x01 or one empty element, and new_slot_i may be the one-byte marker
+      REWRITE_SAME for an unchanged position; sig_i only where 7.9 rule 3
+      requires it, xsig_i only under ^x and only where sig_i is present.
     """
     assert 1 <= height <= depth
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]                       # .. blocks            | m r
@@ -747,12 +763,14 @@ def w_rewrite_slot(leaf):
     return w_leaf(leaf) + [b"\x01"]
 
 
-def w_rewrite(tree, depth, height, idx, new, sigs):
+def w_rewrite(tree, depth, height, idx, new, sigs, marker=True):
     """Everything MID REWRITE_h consumes below sig_op r m, for the subtree
     `idx` of `tree`: final pads, input-amount pads, levels, node pads and
     the position blocks. `new` maps offset -> Leaf or None (the new
     element of every position); `sigs` maps offset -> [sig] or [sig, xsig]
-    for the positions that carry one. Mirrors rewrite_script's layout."""
+    for the positions that carry one. With marker, an unchanged leaf's new
+    slot is the one-byte REWRITE_SAME; without it, a second copy of the
+    leaf. Mirrors rewrite_script's layout."""
     n = 1 << height
     base = idx << height
     t1 = lt.Tree(depth)
@@ -770,7 +788,12 @@ def w_rewrite(tree, depth, height, idx, new, sigs):
         items += list(pad(t1.subtree(k, sub)[1])) + list(pad(tree.subtree(k, sub)[1]))
     for j in reversed(range(n)):
         items += list(reversed(sigs.get(j, [])))                               # xsig below sig
-        items += w_rewrite_slot(new.get(j)) + w_rewrite_slot(tree.leaves.get(base + j))
+        o, nw = tree.leaves.get(base + j), new.get(j)
+        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+            items.append(REWRITE_SAME)
+        else:
+            items += w_rewrite_slot(nw)
+        items += w_rewrite_slot(o)
     return items
 
 

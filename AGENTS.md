@@ -209,8 +209,8 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (1,054 checks)
-python3 tools/test_mid.py          # MID tier (401 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (1,069 checks)
+python3 tools/test_mid.py          # MID tier (413 checks)
 python3 tools/test_min.py          # MIN tier (55 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (1,160 checks)
 python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (210 checks)

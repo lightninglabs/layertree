@@ -858,7 +858,9 @@ func FullEvictSubtreeScript(depth, height int, operatorKey [32]byte) []Token {
 // Signatures are consumed only where the rules require them: the next
 // witness element is always directly below T and every roll depth is a
 // constant, so a branch that needs a signature rolls one more element and a
-// branch that does not leaves the witness untouched.
+// branch that does not leaves the witness untouched. A new element of one
+// byte is the "unchanged" marker (spec 7.9): the step replaces it with a
+// copy of the old element, so an unchanged leaf is published once.
 // ---------------------------------------------------------------------------
 
 // fullElemNode: [elem] -> [h s]; a 116-byte leaf gives (H_leaf, amount), the
@@ -903,6 +905,8 @@ func fullRewriteStep(d int, exitConsent bool) []Token {
 	return fullCat(
 		[]Token{
 			Num(int64(d + 3)), Op(ts.OP_ROLL), Num(int64(d + 4)), Op(ts.OP_ROLL), // old new
+			Op(ts.OP_SIZE), Op(ts.OP_1), Op(ts.OP_EQUAL), // new is the one-byte marker?
+			Op(ts.OP_IF), Op(ts.OP_DROP), Op(ts.OP_DUP), Op(ts.OP_ENDIF), // marker: new := old
 			Op(ts.OP_2DUP), Op(ts.OP_EQUAL), Op(ts.OP_NOTIF), // changed?
 			Op(ts.OP_OVER), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
 			Op(ts.OP_IF), // old is a leaf?
@@ -969,8 +973,9 @@ func fullHashStep2(d int) []Token {
 //
 // witness (bottom..top) = [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op r m,
 // block_i = [xsig_i] [sig_i] new_i old_i (old_i on top; each element is a
-// 116-byte leaf or empty; sig_i only where 7.9 rule 3 requires it, xsig_i
-// only under ^x and only where sig_i is present).
+// 116-byte leaf or empty, and new_i may be the one-byte marker 0x01 for
+// "the old element"; sig_i only where 7.9 rule 3 requires it, xsig_i only
+// under ^x and only where sig_i is present).
 func FullRewriteScript(depth, height int, operatorKey [32]byte,
 	exitConsent bool) []Token {
 

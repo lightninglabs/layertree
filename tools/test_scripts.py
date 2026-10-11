@@ -696,9 +696,11 @@ def _needs_owner_sig(old, new):
     return True
 
 
-def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent, sign=True):
+def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent, sign=True, marker=True):
     """Witness (bottom..top) for REWRITE_h: path, blocks for position 2^h-1 .. 0, sig_op, r, m.
-    Returns (witness, signatures) where signatures maps offset -> [sig, xsig]."""
+    Returns (witness, signatures) where signatures maps offset -> [sig, xsig].
+    With marker, an unchanged leaf's new element is the one-byte marker
+    REWRITE_SAME (7.9); without it, a second copy of the leaf."""
     n = 1 << height
     sigs = {}
     blocks = []
@@ -711,7 +713,11 @@ def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent,
                 s.append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
             sigs[i] = s
             block += list(reversed(s))           # xsig below sig
-        block += [nw.serialize() if nw else b"", o.serialize() if o else b""]
+        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+            block.append(ls.REWRITE_SAME)
+        else:
+            block.append(nw.serialize() if nw else b"")
+        block.append(o.serialize() if o else b"")
         blocks += block
     return w.path_witness(path, height) + blocks + [sig_op, root[0], w.m], sigs
 
@@ -765,9 +771,29 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True):
     check(True, f"{name} D={depth}: mixed rewrite of {n} positions")
     check(c["ctx"].outputs[0][0] == root[1] + c["delta"], f"{name} output 0 is S + (sum new - sum old)")
 
-    def rebuild(old_, new_, ctx_=ctx, path_=path, root_=root, sig_op_=None, sign=True):
+    def rebuild(old_, new_, ctx_=ctx, path_=path, root_=root, sig_op_=None, sign=True, marker=True):
         so = sig_op_ if sig_op_ is not None else schnorr_sign(ctx_.sighash(), w.op_sk)
-        return _rewrite_witness(w, height, path_, old_, new_, ctx_, root_, so, exit_consent, sign)[0]
+        return _rewrite_witness(w, height, path_, old_, new_, ctx_, root_, so, exit_consent, sign, marker)[0]
+
+    # the unchanged position: published once with the marker (the witness
+    # above), or twice as a full copy, which the script also accepts
+    i_same = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() == new[i].serialize())
+    check(wit.count(ls.REWRITE_SAME) >= 1, f"{name} the unchanged position's new element is the one-byte marker")
+    w.run(name, rebuild(old, new, marker=False), ctx)
+    check(True, f"{name} an unchanged leaf supplied twice in full also passes")
+    # the marker cannot stand in for a change: as the old element it is a
+    # 1-byte old leaf, and a 2-byte new element is neither marker nor leaf
+    wit_mo = list(wit)
+    wit_mo[wit_mo.index(old[i_same].serialize())] = ls.REWRITE_SAME
+    expect_fail(lambda: w.run(name, wit_mo, ctx), f"{name} the marker as an old element")
+    wit_2b = list(wit)
+    wit_2b[wit_2b.index(old[i_same].serialize()) - 1] = b"\x01\x01"
+    expect_fail(lambda: w.run(name, wit_2b, ctx), f"{name} a 2-byte new element")
+    # the marker under a changed position hides nothing: the fold still sees
+    # the old leaf, so output 0 built for the change fails
+    wit_mc = list(wit)
+    wit_mc[wit_mc.index(old[i_rot_m := next(i for i in range(n) if old[i] and new[i] and old[i].serialize() != new[i].serialize())].serialize()) - 1] = ls.REWRITE_SAME
+    expect_fail(lambda: w.run(name, wit_mc, ctx), f"{name} the marker in place of a changed leaf")
 
     # rule 3: a changed leaf without its owner's signature
     i_rot = next(i for i in range(n) if old[i] and new[i] and _needs_owner_sig(old[i], new[i]))
@@ -1693,7 +1719,7 @@ def test_audit_negatives(depth, verbose=True):
         ctx_ = wr.ctx(outs, extra_in=(max(delta, 0) + 5_000, P2WPKH))
         wit, _ = _rewrite_witness(wr, 2, path_r, old_, new_, ctx_, rootr, schnorr_sign(ctx_.sighash(), wr.op_sk), False, sign)
         if extra_sig_at is not None:
-            pos = wit.index(new_[extra_sig_at].serialize() if new_[extra_sig_at] else b"")
+            pos = wit.index(old_[extra_sig_at].serialize()) - 1       # below the position's new element
             wit = wit[:pos] + [schnorr_sign(ctx_.sighash(), sk(f"c{extra_sig_at}-owner"))] + wit[pos:]
         return wr.run(name, wit, ctx_)
     i_same = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() == new[i].serialize())
@@ -1713,9 +1739,9 @@ def test_audit_negatives(depth, verbose=True):
     expect_fail(lambda: run_rewrite(sw_old, sw_new), f"{name} old and new elements swapped at an exit position")
 
     def one_byte():
-        wit = list(c["wit"]); wit[wit.index(lf.serialize())] = b"\x01"
+        wit = list(c["wit"]); wit[wit.index(lf.serialize())] = ls.REWRITE_SAME
         return wr.run(name, wit, c["ctx"])
-    expect_fail(one_byte, f"{name} a 1-byte old element")
+    expect_fail(one_byte, f"{name} a 1-byte old element (the marker is for the new element only)")
 
     # EVICT_SUBTREE_2 (7.7): positions and payouts out of order, an empty slot as 116 zero bytes
     we = World(depth, "D")

@@ -902,7 +902,7 @@ def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
                 outs.append((old_[i].amount, lt.p2tr_spk(old_[i].exit_key)))
         return outs + [(400, P2WPKH)], r1[1] - tree.root()[1]
 
-    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, m=None):
+    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, m=None, marker=True):
         tree = tree or w.tree
         sigs = {}
         for i in range(n):
@@ -910,7 +910,7 @@ def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
                 sigs[i] = [schnorr_sign(ctx.sighash(), sk(f"c{i}-owner"))]
                 if exit_consent:
                     sigs[i].append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
-        body = M.w_rewrite(tree, depth, height, idx, new_, sigs)
+        body = M.w_rewrite(tree, depth, height, idx, new_, sigs, marker)
         sig_op = schnorr_sign(ctx.sighash(), signer_op or w.op_sk)
         return body + [sig_op, tree.root()[0], m or w.m], sigs
 
@@ -959,17 +959,37 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True, scenario="mixe
                   f"maxdepth {it.max_depth}")
         return it, c["script"], wit
 
-    def run_plan(old_, new_, tree=None, sign=True, signer_op=None, m=None, mutate=None, outs=None):
+    def run_plan(old_, new_, tree=None, sign=True, signer_op=None, m=None, mutate=None, outs=None, marker=True):
         tree = tree or w.tree
         o, d = outputs_for(old_, new_, tree)
         o = outs or o
         ctx_ = w.ctx(o, (max(d, 0) + 5_000, P2WPKH)) if tree is w.tree else \
             TxContext([(tree.root()[1], w.spk(tree.root())), (max(d, 0) + 5_000, P2WPKH)], o)
-        wit_, sigs_ = witness(old_, new_, ctx_, signer_op, sign, tree, m)
+        wit_, sigs_ = witness(old_, new_, ctx_, signer_op, sign, tree, m, marker)
         if mutate:
             wit_ = mutate(wit_, sigs_, ctx_)
         return w.run(name, wit_, ctx_)
 
+    # the unchanged position: its new slot is the one-byte marker, or a full
+    # second copy, which the script also accepts
+    i_same = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() == new[i].serialize())
+    check(wit.count(M.REWRITE_SAME) >= 1, f"mid: {name} the unchanged position's new slot is the one-byte marker")
+    run_plan(old, new, marker=False)
+    check(True, f"mid: {name} an unchanged leaf supplied twice in full also passes")
+
+    def slot_to_marker(leaf):
+        """Replace the eleven-element slot of `leaf` in the witness with the marker."""
+        slot = M.w_rewrite_slot(leaf)
+
+        def mut(wit_, sigs_, ctx_):
+            at = next(j for j in range(len(wit_) - len(slot) + 1) if wit_[j:j + len(slot)] == slot)
+            return wit_[:at] + [M.REWRITE_SAME] + wit_[at + len(slot):]
+        return mut
+    # a marker as the old slot is a leaf of one element; a marker in place
+    # of a changed leaf hides nothing, since the fold then sees the old leaf
+    expect_fail(lambda: run_plan(old, new, mutate=slot_to_marker(old[i_same])), f"mid: {name} the marker as an old slot")
+    i_chg = next(i for i in range(n) if old[i] and new[i] and old[i].serialize() != new[i].serialize())
+    expect_fail(lambda: run_plan(old, new, mutate=slot_to_marker(new[i_chg])), f"mid: {name} the marker in place of a changed leaf")
     # rule 3: a changed leaf without its owner's signature
     i_rot = next(i for i in range(n) if old[i] and new[i] and _needs_owner_sig_mid(old[i], new[i]))
 

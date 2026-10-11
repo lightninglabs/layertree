@@ -831,6 +831,10 @@ func midEvictBody(height int, operatorKey [32]byte, pay []Token) []Token {
 // midSeqFinal is the MID tier's SEQ_FINAL marker (spec 4.5), le32(0x7FFFFFFF).
 var midSeqFinal = []byte{0xff, 0xff, 0xff, 0x7f}
 
+// midRewriteSame is the MID "unchanged" marker (spec 7.9): a new slot of one
+// element 0x02 (0x01 being a slot's presence flag) stands for the old slot.
+var midRewriteSame = []byte{0x02}
+
 // midLeafJoinOld: [amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest
 // ek ok fin amt]. LEAF_JOIN with the fields the rewrite rules need kept
 // beside the re-joined rest (leaf[8:]): copies of ek and ok, fin = (seq ==
@@ -924,9 +928,10 @@ func midRewriteConv() []Token {
 
 // midRewriteStep is one position of the pre-pass:
 // [.. {xsig} {sig} new_slot old_slot idx L Z] -> [.. idx' L Z] | .. ns nsc os osc.
-// Depths in the decision block, from the top: amt_o 0, fin 1, ok 2, ek 3,
-// rest_o 4, amt8_o 5, amt_n 6, rest_n 7, amt8_n 8, the next witness
-// element 9.
+// A new slot that is the one-byte marker parks the old slot's node twice;
+// otherwise the depths in the decision block, from the top, are amt_o 0,
+// fin 1, ok 2, ek 3, rest_o 4, amt8_o 5, amt_n 6, rest_n 7, amt8_n 8, the
+// next witness element 9.
 func midRewriteStep(exitConsent bool) []Token {
 	s := midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 3)
 	s = append(s, Op(txscript.OP_IF))
@@ -934,6 +939,22 @@ func midRewriteStep(exitConsent bool) []Token {
 	s = append(s, Op(txscript.OP_ELSE))
 	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, 6)...)
 	s = append(s, Op(txscript.OP_ENDIF))
+	// The marker: new = old, so the old node is parked as both pairs.
+	s = append(s,
+		Num(6), Op(txscript.OP_PICK), Data(midRewriteSame), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_IF),
+		Num(6), Op(txscript.OP_ROLL), Op(txscript.OP_DROP),
+		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
+		Op(txscript.OP_FROMALTSTACK),
+		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK),
+		Op(txscript.OP_FROMALTSTACK),
+	)
+	s = append(s, midRoll(5, 2)...)
+	s = append(s, midRewriteConv()...)
+	s = append(s, midRoll(4, 1)...)
+	s = append(s, Op(txscript.OP_2DUP))
+	s = append(s, midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 4)...)
+	s = append(s, Op(txscript.OP_ELSE))
 	s = append(s, midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 6)...)
 	s = append(s, Op(txscript.OP_IF))
 	s = append(s, midLeafJoinNew()...)
@@ -972,7 +993,8 @@ func midRewriteStep(exitConsent bool) []Token {
 	s = append(s, midRoll(5, 2)...)
 	s = append(s, midRewriteConv()...)
 	s = append(s, midRoll(4, 1)...)
-	return append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
+	s = append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
+	return append(s, Op(txscript.OP_ENDIF))
 }
 
 // midRewriteHashStep2: [T .. Rosc Ros Rnsc Rns Losc Los Lnsc Lns] ->
@@ -996,7 +1018,8 @@ func midRewriteHashStep2(t int64, root bool) []Token {
 // witness (bottom..top) = zf wf zi wi [levels h..D-1] [pad pairs, new then
 // old per internal node in reverse consumption order] block_{2^h-1} ..
 // block_0 sig_op r m; block_i = [xsig_i] [sig_i] new_slot_i old_slot_i, a
-// slot being leaf(10) 0x01 or one empty element.
+// slot being leaf(10) 0x01 or one empty element, and new_slot_i possibly
+// the one-byte marker 0x02 for an unchanged position.
 func MidRewriteScript(depth, height int, operatorKey [32]byte,
 	exitConsent bool) []Token {
 

@@ -95,9 +95,9 @@ carries the subtree's leaves, the exiting owners' signatures, and the
 siblings of the shared path above the subtree, so leaves in the same
 subtree share the levels above it. It is built as the exit-only case of
 the cohort rewrite `REWRITE_h` (spec 7.9), and measured at `D = 16`:
-four owners leaving a height-2 subtree pay about 362 vbytes per leaf,
-sixteen leaving a height-4 subtree about 198, and sixty four leaving a
-height-6 subtree about 161, within three vbytes of the operator's sweep.
+four owners leaving a height-2 subtree pay about 364 vbytes per leaf,
+sixteen leaving a height-4 subtree about 200, and sixty four leaving a
+height-6 subtree about 162, within four vbytes of the operator's sweep.
 `design/batching.md` has the shape and two more.
 
 What a script fixes is the height and alignment of the subtree, not
@@ -216,10 +216,11 @@ Four things reduce it, in increasing order of change.
 - The subtree rewrite of 13.5 publishes a subtree's old and new leaves and
   folds each once, so the per-leaf cost approaches the sweep's: the
   interior is paid once and each rewritten leaf adds its 116 bytes twice
-  and a signature, about 120 vbytes. Leaves in the subtree that do not
-  change need no signature; they are supplied for the fold or stand behind
-  a sibling hash. This is `REWRITE_h` (spec 7.9), measured at about 147
-  vbytes per changed leaf and 120 per unchanged position at `h = 6`
+  and a signature, about 138 vbytes. Leaves in the subtree that do not
+  change need no signature; they are supplied once for the fold, with a
+  one-byte marker in place of the second copy, or stand behind a sibling
+  hash. This is `REWRITE_h` (spec 7.9), measured at about 148 vbytes per
+  changed leaf and 92 per unchanged position at `h = 6`
   (`design/batching.md`).
 
 The subtree rewrite is also a batch of intra-tree payments: moving an
@@ -267,7 +268,7 @@ member leaves.
 
 | vbytes per member, enters in a batch | Never exits alone | Exits in a batch | Exits alone |
 |---|---|---|---|
-| LayerTree dense `D = 16` | 3 | 161 | 1,023 |
+| LayerTree dense `D = 16` | 3 | 162 | 1,023 |
 | LayerTree sparse `D = 32` | 1,644 | 3,108 | 3,281 |
 | Lightning channel | 197 | 197 | 573 |
 | Ark round tree `D = 16` | 86 | 86 | 2,554 |
