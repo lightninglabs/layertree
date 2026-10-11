@@ -8,21 +8,44 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 
+	"github.com/roasbeef/layertree/script"
 	"github.com/roasbeef/layertree/tree"
 )
 
 // TreeState is a tree output as the transition builders see it: the
-// off-chain tree it commits to, its profile, its taptree (whose root is m),
-// the operator key and tree_id its scripts embed, and the outpoint that
-// holds it. TreeID is the voucher binding of spec 6.2: its CLAIM scripts
-// carry it as a constant, and SignVoucher signs over it.
+// off-chain tree it commits to, the creation parameters its scripts were
+// compiled from, its taptree (whose root is m), and the outpoint that
+// holds it.
+//
+// Options is what the builders consult about the rules: the profile, the
+// operator key the JOIN, UPDATE and sweep scripts check, the tree_id of
+// spec 6.2 that the CLAIM scripts carry as a constant and SignVoucher signs
+// over, and whether the exits are the exact-payout EXIT_K^= of 7.2 rule 6.
+// NewTreeState compiles TapTree from Options, so the two agree by
+// construction. A TreeState assembled by hand must keep them consistent:
+// Options has to describe the scripts in TapTree, or the builders will
+// sign what the scripts reject (design/audit/go.md G4, G8).
 type TreeState struct {
-	Tree        *tree.Tree
-	Sparse      bool
-	TapTree     *TapTree
-	OperatorKey [32]byte
-	TreeID      [32]byte
-	OutPoint    wire.OutPoint
+	Tree     *tree.Tree
+	Options  script.FullTreeOptions
+	TapTree  *TapTree
+	OutPoint wire.OutPoint
+}
+
+// NewTreeState returns the state of the tree output at outPoint holding tr,
+// created with opts: the taptree is compiled from opts at the tree's depth,
+// so its m is opts.TapTreeRoot(depth) and the tree_id its CLAIM scripts
+// check is the one the builders sign vouchers over.
+func NewTreeState(tr *tree.Tree, opts script.FullTreeOptions,
+	outPoint wire.OutPoint) (*TreeState, error) {
+
+	tt, err := NewFullTapTree(tr.Depth, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &TreeState{
+		Tree: tr, Options: opts, TapTree: tt, OutPoint: outPoint,
+	}, nil
 }
 
 // Input returns the tree input: TREE_SPK(r, m) holding the root's sum.
@@ -39,7 +62,7 @@ func (st *TreeState) Input() TreeInput {
 // pathWitness renders a sibling path in the tree's profile. height is the
 // height of the path's first level.
 func (st *TreeState) pathWitness(path []tree.PathStep, height int) [][]byte {
-	if st.Sparse {
+	if st.Options.Sparse {
 		return SparsePathWitness(path, height)
 	}
 	return DensePathWitness(path)
@@ -49,7 +72,7 @@ func (st *TreeState) pathWitness(path []tree.PathStep, height int) [][]byte {
 // derives (spec 5.4): the scripts derive the position themselves, so any
 // other position would fail.
 func (st *TreeState) checkPos(pos uint64, leaf *tree.Leaf) error {
-	if !st.Sparse {
+	if !st.Options.Sparse {
 		return nil
 	}
 	if want := leaf.Position(st.Tree.Depth); pos != want {
@@ -164,8 +187,9 @@ type ExitStep struct {
 	Evict bool
 
 	// Fee is the part of the leaf's amount an owner exit leaves to the
-	// transaction (7.2 rule 3). It must be zero for an eviction and for
-	// a tree with exact-payout EXIT_K^= scripts.
+	// transaction (7.2 rule 3). BuildExit rejects a non-zero fee on an
+	// eviction and in a tree whose Options.Exact is set, since EXIT_K^=
+	// (7.2 rule 6) pays the whole leaf.
 	Fee int64
 }
 
@@ -197,6 +221,11 @@ func BuildExit(st *TreeState, steps []ExitStep, opts *TxOpts) (*Spend,
 		if step.Fee < 0 || uint64(step.Fee) > leaf.Amount {
 			return nil, nil, fmt.Errorf("txn: exit step %d: fee "+
 				"%d out of range", i+1, step.Fee)
+		}
+		if step.Fee != 0 && st.Options.Exact {
+			return nil, nil, fmt.Errorf("txn: exit step %d: the "+
+				"tree's EXIT_K^= scripts pay out exactly (spec 7.2 "+
+				"rule 6)", i+1)
 		}
 		keys[i] = leaf.OwnerKey
 		if step.Evict {
@@ -265,7 +294,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 			index)
 	case len(leaves) == 0:
 		return nil, nil, errors.New("txn: a join needs a leaf")
-	case st.Sparse && (height != 0 || len(leaves) != 1):
+	case st.Options.Sparse && (height != 0 || len(leaves) != 1):
 		return nil, nil, errors.New("txn: the sparse profile joins " +
 			"one leaf at height 0")
 	}
@@ -291,7 +320,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 	in := st.Input()
 	path := st.pathWitness(cur.Path(index<<uint(height), height), height)
 	var stack [][]byte
-	if st.Sparse {
+	if st.Options.Sparse {
 		stack = JoinLeafWitness(
 			path, leaf, sigPlaceholder(), in.RootHash, in.MerkleRoot,
 		)
@@ -302,7 +331,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 		)
 	}
 	sigs := []SigSlot{{
-		Index: len(stack) - 3, Key: st.OperatorKey, Role: "operator",
+		Index: len(stack) - 3, Key: st.Options.OperatorKey, Role: "operator",
 	}}
 
 	name := fmt.Sprintf("JOIN_%d", height)
@@ -337,7 +366,7 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 			return nil, nil, err
 		}
 		path := st.pathWitness(cur.Path(j.Pos, 0), 0)
-		if st.Sparse {
+		if st.Options.Sparse {
 			blocks[i] = JoinBlock(path, tree.Node{}, j.Leaf)
 		} else {
 			blocks[i] = JoinBlock(path, j.Leaf.Node(), nil)
@@ -350,7 +379,7 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 		blocks, sigPlaceholder(), in.RootHash, in.MerkleRoot,
 	)
 	sigs := []SigSlot{{
-		Index: len(stack) - 3, Key: st.OperatorKey, Role: "operator",
+		Index: len(stack) - 3, Key: st.Options.OperatorKey, Role: "operator",
 	}}
 
 	name := fmt.Sprintf("JOINK_%d", len(joins))
@@ -415,7 +444,7 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 	ownerIdx := len(path) + 2
 	sigs := []SigSlot{
 		{Index: ownerIdx, Key: old.OwnerKey, Role: "owner"},
-		{Index: ownerIdx + 1, Key: st.OperatorKey, Role: "operator"},
+		{Index: ownerIdx + 1, Key: st.Options.OperatorKey, Role: "operator"},
 	}
 	if exitConsent {
 		sigs = append(sigs, SigSlot{
@@ -597,7 +626,7 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 
 	cur := st.Tree
 	switch {
-	case st.Sparse:
+	case st.Options.Sparse:
 		return nil, nil, errors.New("txn: EVICT_SUBTREE_h is a dense " +
 			"profile script")
 	case height < 0 || height > cur.Depth:
@@ -622,7 +651,7 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 		if leaf == nil {
 			continue
 		}
-		if leaf.EvictorKey != st.OperatorKey {
+		if leaf.EvictorKey != st.Options.OperatorKey {
 			return nil, nil, fmt.Errorf("txn: the leaf at %d is not "+
 				"evictable by the operator", pos)
 		}
@@ -647,7 +676,7 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 		sigPlaceholder(), in.RootHash, in.MerkleRoot,
 	)
 	sigs := []SigSlot{{
-		Index: len(stack) - 3, Key: st.OperatorKey, Role: "operator",
+		Index: len(stack) - 3, Key: st.Options.OperatorKey, Role: "operator",
 	}}
 
 	name := fmt.Sprintf("EVICT_SUBTREE_%d", height)

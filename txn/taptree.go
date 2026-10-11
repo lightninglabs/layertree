@@ -126,6 +126,22 @@ func FullReferenceLeaves(depth int, operatorKey, treeID [32]byte, sparse bool,
 	return leaves, nil
 }
 
+// NewFullTapTree compiles the FULL-tier taptree of a tree of the given
+// depth created with opts, in the order script.FullTreeOptions.Scripts
+// emits it, so its Root is opts.TapTreeRoot(depth), the m of spec 6.2.
+func NewFullTapTree(depth int, opts script.FullTreeOptions) (*TapTree, error) {
+	scripts := opts.Scripts(depth)
+	leaves := make([]TapLeaf, 0, len(scripts))
+	for _, s := range scripts {
+		leaf, err := FullLeaf(s.Name, s.Tokens)
+		if err != nil {
+			return nil, err
+		}
+		leaves = append(leaves, leaf)
+	}
+	return NewTapTree(leaves)
+}
+
 // FullLeaf assembles a FULL-tier token list into a 0xC2 taptree leaf.
 func FullLeaf(name string, tokens []script.Token) (TapLeaf, error) {
 	if tokens == nil {
