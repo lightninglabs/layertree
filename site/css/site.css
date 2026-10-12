@@ -92,14 +92,27 @@ strong, b { font-weight: 600; }
 .site-name b { font-weight: 700; }
 .site-name img { width: 28px; height: 28px; display: block; flex: none; }
 .site-name .logo-dark { display: none; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .site-name .logo-light { display: none; }
-  :root:not([data-theme="light"]) .site-name .logo-dark { display: block; }
-}
 :root[data-theme="dark"] .site-name .logo-light { display: none; }
 :root[data-theme="dark"] .site-name .logo-dark { display: block; }
 
 .site-nav { flex: 1 1 24rem; }
+
+/* Theme toggle: light by default, dark on request (js/theme.js). */
+.theme-toggle {
+  flex: none;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: var(--border-width) solid var(--color-border-strong);
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+.theme-toggle:hover { color: var(--color-text); border-color: var(--color-text); }
+.theme-toggle:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .site-nav ul {
   list-style: none;
   margin: 0;
@@ -623,5 +636,5 @@ figcaption::before {
 
 @media print {
   body { background-image: none; }
-  .ta-controls, .site-nav { display: none; }
+  .ta-controls, .site-nav, .theme-toggle { display: none; }
 }

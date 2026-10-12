@@ -36,7 +36,8 @@ load module scripts from `file://` URLs.
 | `components/*.html` | One page per component, each with a two-sentence takeaway, an animation, the explanation and a "Deeper" list of spec sections and design pages |
 | `css/tokens.css` | Every design token: colors for light and dark, fonts, type scale, spacing, motion durations |
 | `css/site.css` | Layout and components, written only in terms of the tokens |
-| `js/tree-anim.js` | The animation engine, the only JavaScript on the site |
+| `js/tree-anim.js` | The animation engine |
+| `js/theme.js` | The light/dark toggle in the header |
 | `assets/` | The logomark and wordmark, copied from `identity/schematic/` (the dark files recoloured to the warm ink, plus a fixed-colour `logo-light.svg` for `<img>` and the favicon) |
 | `identity/` | The record of the three identity explorations (`schematic`, `editorial`, `approachable`), each with its README, tokens, logos and a sample page |
 
@@ -44,9 +45,11 @@ load module scripts from `file://` URLs.
 
 `css/tokens.css` is the only file an identity needs to change. `site.css` and
 the SVG that `tree-anim.js` draws refer to colors, fonts, sizes and durations
-only through its custom properties. Dark mode follows
-`prefers-color-scheme`, and a page can force a theme with
-`data-theme="light"` or `data-theme="dark"` on `<html>`.
+only through its custom properties. Light is the default whatever the OS
+prefers; the header button (`js/theme.js`) sets `data-theme="dark"` on
+`<html>` and stores the choice in `localStorage` under `layertree-theme`.
+A one-line script in each page's `<head>` applies a stored dark choice
+before first paint, so a reload does not flash light.
 
 ## The identity
 

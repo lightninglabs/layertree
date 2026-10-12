@@ -100,39 +100,8 @@
   --motion-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --color-bg: #1a1612;
-    --color-surface: #221d18;
-    --color-surface-2: #2b251e;
-    --color-text: #f0e7d8;
-    --color-text-muted: #bbae9c;
-    --color-border: #3d352c;
-    --color-border-strong: #85786a;
-    --color-rule: #a69886;
-    --color-grid-minor: rgba(240, 231, 216, 0.045);
-    --color-grid-major: rgba(240, 231, 216, 0.09);
-    --color-link: #f2845d;
-    --color-accent: #ec6236;
-    --color-accent-soft: #48261b;
-    --color-accent-ink: #1a1612;
-    --color-sibling: #ec6236;
-    --color-sibling-soft: #221d18;
-    --color-node: #5a8fd0;
-    --color-node-sum: #9dbfea;
-    --color-leaf: #38a586;
-    --color-leaf-exit: #b98418;
-    --color-chain: #9b82d4;
-    --color-good: #5bb56a;
-    --color-good-soft: #1f3121;
-    --color-bad: #f08070;
-    --color-bad-soft: #43201b;
-    --color-pending: #5a8fd0;
-    --color-empty: #5e5448;
-    --color-focus: #8fb5e6;
-  }
-}
-
+/* Dark theme, chosen with the header toggle (js/theme.js). Light is the
+   default whatever the OS prefers. */
 :root[data-theme="dark"] {
   --color-bg: #1a1612;
   --color-surface: #221d18;
