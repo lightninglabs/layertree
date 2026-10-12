@@ -148,12 +148,22 @@
     var body = calc.querySelector("tbody");
     var note = calc.querySelector("#calc-note");
     var order = ["lt", "full", "ark", "ln", "bare"];
+    // Wall-clock time at the 10-minute average block interval.
+    function clock(blocks) {
+      var min = blocks * 10;
+      if (min < 60) return "~" + min + " min";
+      var h = min / 60;
+      if (h < 24) return "~" + (h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)) + " h";
+      var d = Math.round(h / 24);
+      return "~" + d + (d === 1 ? " day" : " days");
+    }
+
     var WAIT = {
-      lt: function () { return "1"; },
-      full: function () { return "1"; },
-      ark: function (k) { return k + " + leaf timelock"; },
-      ln: function () { return "about 145"; },
-      bare: function () { return "1"; }
+      lt: function () { return "1 (" + clock(1) + ")"; },
+      full: function () { return "1 (" + clock(1) + ")"; },
+      ark: function (k) { return k + " (" + clock(k) + ") + leaf timelock"; },
+      ln: function () { return "about 145 (" + clock(145) + ")"; },
+      bare: function () { return "1 (" + clock(1) + ")"; }
     };
 
     function render() {

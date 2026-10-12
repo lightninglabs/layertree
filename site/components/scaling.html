@@ -82,14 +82,14 @@
       <table>
         <caption>One member leaving alone, with nobody's help.</caption>
         <thead>
-          <tr><th scope="col">Design</th><th scope="col" class="num">Exit, vB</th><th scope="col" class="num">Transactions</th><th scope="col" class="num">Blocks until spendable</th><th scope="col" class="num">Fee, sat</th><th scope="col" class="num">Solo exits per block</th></tr>
+          <tr><th scope="col">Design</th><th scope="col" class="num">Exit, vB</th><th scope="col" class="num">Transactions</th><th scope="col" class="num">Blocks until spendable (time)</th><th scope="col" class="num">Fee, sat</th><th scope="col" class="num">Solo exits per block</th></tr>
         </thead>
         <tbody>
-          <tr class="is-ours"><th scope="row">LayerTree, CCV + Merkle-sum opcode</th><td class="num">541</td><td class="num">1</td><td class="num">1</td><td class="num">5,410</td><td class="num">1,848</td></tr>
-          <tr><th scope="row">LayerTree, FULL tier</th><td class="num">1,020</td><td class="num">1</td><td class="num">1</td><td class="num">10,200</td><td class="num">980</td></tr>
-          <tr><th scope="row">Transaction tree (Ark model)</th><td class="num">2,511</td><td class="num">17</td><td class="num">16 + leaf timelock</td><td class="num">25,110</td><td class="num">398</td></tr>
-          <tr><th scope="row">Lightning force close</th><td class="num">530</td><td class="num">3</td><td class="num">about 145</td><td class="num">5,300</td><td class="num">1,886</td></tr>
-          <tr><th scope="row">Bare output</th><td class="num">111</td><td class="num">1</td><td class="num">1</td><td class="num">1,110</td><td class="num">9,009</td></tr>
+          <tr class="is-ours"><th scope="row">LayerTree, CCV + Merkle-sum opcode</th><td class="num">541</td><td class="num">1</td><td class="num">1 (~10 min)</td><td class="num">5,410</td><td class="num">1,848</td></tr>
+          <tr><th scope="row">LayerTree, FULL tier</th><td class="num">1,020</td><td class="num">1</td><td class="num">1 (~10 min)</td><td class="num">10,200</td><td class="num">980</td></tr>
+          <tr><th scope="row">Transaction tree (Ark model)</th><td class="num">2,511</td><td class="num">17</td><td class="num">16 (~2.7 h) + leaf timelock</td><td class="num">25,110</td><td class="num">398</td></tr>
+          <tr><th scope="row">Lightning force close</th><td class="num">530</td><td class="num">3</td><td class="num">about 145 (~1 day)</td><td class="num">5,300</td><td class="num">1,886</td></tr>
+          <tr><th scope="row">Bare output</th><td class="num">111</td><td class="num">1</td><td class="num">1 (~10 min)</td><td class="num">1,110</td><td class="num">9,009</td></tr>
         </tbody>
       </table>
     </div>
@@ -181,7 +181,7 @@
       </thead>
       <tbody>
         <tr><th scope="row">Transactions</th><td>1</td><td>3</td><td>17, each needing its own fee</td></tr>
-        <tr><th scope="row">Blocks until spendable</th><td>1</td><td>about 145</td><td>16, plus the leaf timelock</td></tr>
+        <tr><th scope="row">Blocks until spendable</th><td>1 (~10 min)</td><td>about 145 (~1 day)</td><td>16 (~2.7 h), plus the leaf timelock</td></tr>
         <tr><th scope="row">Timelock on the exit</th><td>none</td><td>on the broadcaster's output</td><td>at the leaf</td></tr>
         <tr><th scope="row">Who must be online</th><td>nobody</td><td>a watchtower, for stale states</td><td>the member, before the round expires</td></tr>
         <tr><th scope="row">What expires</th><td>nothing; leases are optional</td><td>nothing</td><td>the round; funds must be refreshed</td></tr>
