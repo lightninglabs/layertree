@@ -104,13 +104,13 @@ matters for a settle-first credit leaf, whose vouchers have no deadline,
 but it would for any voucher that has one.
 
 The merge claim of `design/pending-receive.md` (R2) removes the need.
-Its voucher raises the recipient's own leaf to a target and can move
-value only from one leaf of the recipient's to another, so it needs no
-consent from anyone and a tower can redeem it. That is the delegation
-the pending-leaf receive depends on: before each window's deadline the
-tower checks that the operator has raised the credit leaf by the settled
-total, and if not, redeems the latest hash-locked merge voucher with the
-preimage the recipient handed it. The tower holds no key of the
+Its voucher raises the source's sibling, a leaf the recipient owns, to a
+target, so it can move value only into a leaf the recipient alone can
+exit, needs no consent from anyone, and a tower can redeem it. That is
+the delegation the pending-leaf receive depends on: before each window's
+deadline the tower checks that the operator has raised the recipient's
+landing leaf by the settled total, and if not, redeems the latest
+hash-locked merge voucher with the preimage the recipient handed it. The tower holds no key of the
 recipient's.
 
 An earlier version of the pending-leaf design made consent delegable
@@ -119,7 +119,11 @@ key under a tag of its own, checked by `OP_CHECKSIGFROMSTACK` as
 `EXIT_K^t` checks its authorisation. That works for a tower, but a carve
 that advances the source's `seq` lets the operator redeem an older,
 smaller voucher and void the newer one, so it needs the merge's target
-semantics anyway. The target form is simpler and covers both.
+semantics anyway. The target form is simpler and covers both. The
+review of that design (`design/pending-receive.md`, *Review*) also
+showed why the target must be the recipient's own sibling and not any
+leaf with its exit key: a target the operator can exit, or graft, is a
+target it can use to void or drain the voucher.
 
 ### Fees and contention
 

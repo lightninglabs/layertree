@@ -369,11 +369,12 @@ which is one transaction and the only one that ever reaches the chain.
 Settling first leaves the recipient exposed for the one payment the
 operator has settled and not yet vouched for. `design/pending-receive.md`
 closes it with an HTLC that lives in the tree as a leaf: payments in
-flight sit in a reclaimable pending leaf, apart from the credit leaf,
-under a hash-locked voucher the recipient can redeem until a deadline,
+flight sit in a reclaimable pending leaf beside a leaf the recipient
+owns, under a hash-locked voucher the recipient can redeem until a deadline,
 after which the operator reclaims what was never paid. It costs no bytes
 per payment and about 375 vbytes per recipient per window, needs two rule
-changes (a reclaimable leaf and a merge claim to a target), and asks the
+changes (a reclaimable leaf and a merge claim into the recipient-owned
+sibling), and asks the
 recipient for one check per window, which a tower holding no key of
 the recipient's can make. `design/towers.md` covers the towers.
 

@@ -279,8 +279,9 @@ ones most likely to move:
 ## Open work, in rough priority
 
 0. **Atomic receive** (`design/pending-receive.md`, proposed). A merge
-   claim to a target (R2) and a reclaimable leaf (R1) turn a hash-locked
-   voucher into an in-tree HTLC and close the settle-first gap of
+   claim into the recipient-owned sibling, to a target (R2), and a
+   reclaimable leaf (R1) turn a hash-locked voucher into an in-tree HTLC
+   and close the settle-first gap of
    `design/receive.md`; R2 is useful alone (no empty position, a
    sibling-pair redemption, tower-redeemable credit vouchers) and is the
    piece to build first. Owner decision pending on R1. `design/towers.md`
