@@ -364,6 +364,19 @@ for stale states. A user can start on the first and move to the second by
 redeeming the voucher into a leaf whose exit key is the channel's 2-of-2,
 which is one transaction and the only one that ever reaches the chain.
 
+## Closing the settle gap
+
+Settling first leaves the recipient exposed for the one payment the
+operator has settled and not yet vouched for. `design/pending-receive.md`
+closes it with an HTLC that lives in the tree as a leaf: payments in
+flight sit in a reclaimable pending leaf, apart from the credit leaf,
+under a hash-locked voucher the recipient can redeem until a deadline,
+after which the operator reclaims what was never paid. It costs no bytes
+per payment and about 375 vbytes per recipient per window, needs two rule
+changes (a reclaimable leaf and a merge claim to a target), and asks the
+recipient for one check per window, which a tower holding no key of
+the recipient's can make. `design/towers.md` covers the towers.
+
 ## What is settled and what is not
 
 The receive flow needs no hash lock: the operator settles the inbound
