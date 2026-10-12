@@ -30,6 +30,7 @@
         <li><a href="evict.html">Eviction</a></li>
         <li><a href="batching.html">Batching</a></li>
         <li><a href="tiers.html" aria-current="page">Tiers</a></li>
+        <li><a href="scaling.html">Scaling</a></li>
       </ul>
     </nav>
     <button type="button" class="theme-toggle" aria-pressed="false">Dark</button>
@@ -122,8 +123,8 @@
         ]
       },
       {
-        "title": "Hypothetical floor: about 390 to 520 vB",
-        "caption": "Not a tier. If Bitcoin had one opcode that verifies a Merkle-sum path and returns the root with a leaf replaced, the whole unrolled fold would collapse into it: 252 bytes of script at any depth, and a witness of one sibling per occupied level, so about 388 vB for the exit in a small tree and about 520 vB in a full depth-16 tree. The repository measures this in its simulator to show where the floor is; LayerTree composes proposals that exist and does not propose this one.",
+        "title": "CCV + Merkle-sum opcode: about 390 to 540 vB",
+        "caption": "Add one opcode that verifies a Merkle-sum path and returns the root with a leaf replaced, and the whole unrolled fold collapses into it: 252 bytes of script at any depth, and a witness of one sibling per occupied level, so about 388 vB for the exit in a small tree, about 540 vB with 65,536 members and 10 vB more per doubling. The opcode is specified and measured in the repository's simulator but nobody has proposed it yet. It is the configuration the scaling page assumes.",
         "ops": [
           {"op": "path", "pos": 2},
           {"op": "checks", "items": [
@@ -150,7 +151,7 @@
   <h2 id="table">The four tiers</h2>
   <div class="table-wrap">
     <table>
-      <caption>Exit size at depth 16, dense profile (spec 4.5 and 11, <code>design/cost-comparison.md</code>). The last row is a measurement, not a tier: the opcode it assumes is not proposed.</caption>
+      <caption>Exit size at depth 16, dense profile (spec 4.5 and 11, <code>design/cost-comparison.md</code>). The last row is not one of the four tiers: it adds an opcode that is specified and measured here but not yet proposed. The <a href="scaling.html">scaling page</a> assumes it.</caption>
       <thead>
         <tr><th>Tier</th><th>Opcodes beyond today's tapscript</th><th>What it supports</th><th class="num">Exit script / witness, bytes</th><th class="num">Exit, vB</th></tr>
       </thead>
@@ -159,7 +160,7 @@
         <tr><td>MID</td><td><code>OP_CAT</code>, <code>OP_TX</code>, <code>OP_CHECKSIGFROMSTACK</code>, <code>OP_TWEAKADD</code> (BIP-449)</td><td>every transition; sums under 2<sup>31</sup> sat (about 21.47 BTC per tree), and a cohort sweep or rewrite of at most 32 full positions per spend</td><td class="num">3,367 / 978</td><td class="num">1,355</td></tr>
         <tr><td>MIN</td><td><code>OP_CAT</code>, <code>OP_TWEAKADD</code></td><td>exit and <code>SPLIT</code> as built; no vouchers, no channel leaves</td><td class="num">3,640 / 1,175</td><td class="num">1,473</td></tr>
         <tr><td>CCV</td><td><code>OP_CHECKCONTRACTVERIFY</code> (BIP-443), <code>OP_TX</code>; <code>OP_CHECKSIGFROMSTACK</code> for vouchers only</td><td>every transition, in either numerics; under the four-byte numerics the same 32-position cap as MID</td><td class="num">1,716 / 838</td><td class="num">908</td></tr>
-        <tr><td><em>Hypothetical floor</em></td><td>CCV plus one purpose-built Merkle-sum opcode (<code>OP_MERKLESUMUPDATE</code>, not proposed; <code>design/native-opcodes.md</code>)</td><td>measured for the exit and the single join only; script size is constant in depth</td><td class="num">252 / 225 (six-leaf tree)</td><td class="num">388, about 520 in a full tree</td></tr>
+        <tr><td><em>CCV + Merkle-sum opcode</em></td><td>CCV plus one purpose-built Merkle-sum opcode (<code>OP_MERKLESUMUPDATE</code>, not yet proposed; <code>design/native-opcodes.md</code>)</td><td>measured for the exit and the single join; script size is constant in depth, so a key-addressed tree can grow past 2<sup>16</sup> (<a href="scaling.html">scaling</a>)</td><td class="num">252 / 225 (six-leaf tree)</td><td class="num">388, about 540 with 65,536 members</td></tr>
       </tbody>
     </table>
   </div>
@@ -207,18 +208,21 @@
   numbers or MID's, and its exit is the smallest of the four. Its vouchers bind a
   per-tree identifier instead of the script-set root.</p>
 
-  <h2 id="floor">The floor, measured</h2>
+  <h2 id="floor">CCV plus a Merkle-sum opcode</h2>
   <p>One opcode built for Merkle-sum trees, verifying a path and returning the
   root with one leaf replaced, would remove the unrolled fold that is most of
   every script above: the exit becomes 252 bytes of script at any depth, and the
   witness carries one 40-byte sibling per occupied level and nothing per empty
   one, so the sparse profile stops costing more than the dense one. The
-  simulator measures 388 vB on its six-leaf tree; a full depth-16 tree has
-  thirteen more occupied levels, about 10 vB each, so about 520 vB, against
-  1,020 in FULL. The repository measures this in its simulator (61 checks) to show where the
-  floor is and how far each tier sits from it. It is a measurement only, kept out
-  of every tier, the golden vectors and the spec, because LayerTree composes
-  existing proposals and invents none.</p>
+  simulator measures 388 vB on its six-leaf tree. With 65,536 members a path
+  has about sixteen occupied levels, 10 vB each, so the exit is about 540 vB,
+  against 1,020 in FULL, and each doubling of the membership adds only 10 vB
+  more. That is what lets one tree grow to millions of members; the
+  <a href="scaling.html">scaling page</a> compares it with transaction trees and
+  Lightning at sizes up to 2<sup>32</sup>. The opcode is specified and measured
+  in the repository's simulator (61 checks) but nobody has proposed it for
+  Bitcoin yet, so it is kept apart from the four tiers and their golden
+  vectors, which use only proposals that exist.</p>
 
   <section class="deeper" aria-labelledby="deeper">
     <h2 id="deeper">Deeper</h2>

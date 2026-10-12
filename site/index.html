@@ -30,6 +30,7 @@
         <li><a href="components/evict.html">Eviction</a></li>
         <li><a href="components/batching.html">Batching</a></li>
         <li><a href="components/tiers.html">Tiers</a></li>
+        <li><a href="components/scaling.html">Scaling</a></li>
       </ul>
     </nav>
     <button type="button" class="theme-toggle" aria-pressed="false">Dark</button>
@@ -181,6 +182,10 @@
       <span class="card__ref" aria-hidden="true"><span>C-08</span><span>SPEC 4.3</span></span>
       <span class="card__title">Opcode tiers</span>
       <span class="card__body">The same transitions built four times, against four sets of proposed opcodes, with what each needs and costs.</span></a></li>
+    <li><a class="card" href="components/scaling.html">
+      <span class="card__ref" aria-hidden="true"><span>C-09</span><span>SPEC 11</span></span>
+      <span class="card__title">Scaling and comparison</span>
+      <span class="card__body">Exit size and transactions to leave from 16 members to four billion, against transaction trees, Lightning and bare outputs, and where LayerTree loses.</span></a></li>
   </ul>
 
   <h2 id="cost">What it costs</h2>
@@ -192,8 +197,10 @@
     <li>Leaving alone costs about 1,020 vB, roughly nine times a bare spend. The
     price is the proof, and it does not grow with the number of members. Leaving
     a tree of transactions of the same size, as in Ark-style designs, costs about
-    2,511 vB. With one purpose-built opcode, which the repository measures but
-    does not propose, the exit would be about 520 vB in a full tree of this size.</li>
+    2,511 vB. With one purpose-built Merkle-sum opcode, which the repository
+    specifies and measures but nobody has proposed yet, the exit is about 540 vB
+    at this size and grows by 10 vB per doubling of members; the
+    <a href="components/scaling.html">scaling page</a> follows it to four billion.</li>
     <li>Joining in a cohort costs under 1 vB per member once the cohort has about
     a thousand members, when the operator funds the graft and members pay for
     their balances off-chain.</li>

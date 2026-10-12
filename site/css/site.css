@@ -240,6 +240,16 @@ th {
   background: var(--color-surface-2);
   border-bottom: var(--border-width) solid var(--color-rule);
 }
+tbody th[scope="row"] {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  background: transparent;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+tr:last-child th[scope="row"] { border-bottom: 0; }
 td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 th.num { font-size: var(--text-xs); }
 
@@ -633,6 +643,50 @@ figcaption::before {
   .ta-legend { padding: var(--space-2) var(--space-3); gap: var(--space-1) var(--space-3); }
   figure svg { padding: var(--space-2); }
 }
+
+/* Scaling page: line charts and the size calculator (js/scaling.js). */
+
+.chart svg { width: 100%; }
+.chart .ch-grid line { stroke: var(--color-border); stroke-width: 1; }
+.chart .ch-grid line.ch-mark { stroke: var(--color-border-strong); stroke-dasharray: 3 3; }
+.chart text { font-family: var(--font-mono); fill: var(--color-text-muted); }
+.chart .ch-tick { font-size: var(--svg-text-sm); }
+.chart .ch-label { font-size: var(--svg-text-sm); letter-spacing: 0.04em; }
+.chart .ch-end { font-size: var(--svg-text-sm); font-weight: 700; }
+.chart .ch-line { fill: none; stroke-width: var(--stroke-strong); stroke-linejoin: round; }
+.chart .ch-line.is-dash { stroke-dasharray: 6 4; stroke-width: var(--stroke); }
+.chart .s-lt { stroke: var(--color-accent); fill: var(--color-accent); }
+.chart .s-full { stroke: var(--color-node); fill: var(--color-node); }
+.chart .s-ark { stroke: var(--color-chain); fill: var(--color-chain); }
+.chart .s-ln { stroke: var(--color-leaf); fill: var(--color-leaf); }
+.chart .s-bare { stroke: var(--color-text-muted); fill: var(--color-text-muted); }
+.chart .ch-line.s-lt, .chart .ch-line.s-full, .chart .ch-line.s-ark,
+.chart .ch-line.s-ln, .chart .ch-line.s-bare { fill: none; }
+
+.calc { max-width: var(--wide); }
+main > .calc { max-width: var(--wide); }
+.calc__controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.calc__controls input[type="range"] { width: 100%; accent-color: var(--color-accent); }
+.calc__controls output { grid-column: 2; font-weight: 700; color: var(--color-text); }
+.calc__controls select {
+  justify-self: start;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  padding: 0.2rem 0.4rem;
+}
+.calc__note { color: var(--color-text-muted); font-size: var(--text-sm); }
+tr.is-ours th, tr.is-ours td { background: var(--color-accent-soft); font-weight: 700; }
+.loses li { margin-bottom: var(--space-3); }
 
 @media print {
   body { background-image: none; }

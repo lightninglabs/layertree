@@ -38,6 +38,7 @@ load module scripts from `file://` URLs.
 | `css/site.css` | Layout and components, written only in terms of the tokens |
 | `js/tree-anim.js` | The animation engine |
 | `js/theme.js` | The light/dark toggle in the header |
+| `js/scaling.js` | The scaling page's cost model, charts and size calculator |
 | `assets/` | The logomark and wordmark, copied from `identity/schematic/` (the dark files recoloured to the warm ink, plus a fixed-colour `logo-light.svg` for `<img>` and the favicon) |
 | `identity/` | The record of the three identity explorations (`schematic`, `editorial`, `approachable`), each with its README, tokens, logos and a sample page |
 
