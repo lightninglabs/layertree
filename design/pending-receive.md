@@ -87,7 +87,9 @@ state. It needs a deadline because a conditional payment always does.
 
 ## The construction
 
-Each recipient holds a **receive pair**, two sibling positions:
+Each recipient holds a **receive pair**, two sibling positions in a
+dense-profile tree (in the sparse profile positions derive from the
+leaf's keys, 5.4, so a pair would have to be ground into place):
 
 | Slot | Leaf | `owner_key` | `exit_key` | `evictor_key`, `evict_after` | Role |
 |---|---|---|---|---|---|
@@ -208,7 +210,16 @@ parties, and only the operator loses by it.
 R2 is useful without R1. A settle-first credit leaf whose sibling is a
 recipient-owned leaf can take its vouchers as merges: no empty position,
 the cheaper sibling-pair redemption, and vouchers a tower can redeem
-with no key of the recipient's.
+with no key of the recipient's. It does add a deadline the settle-first
+voucher lacks: the vouchers bind `L`'s body, so the operator's eviction
+of `L` after its lease, which pays `R` only what `L` already holds, voids
+them and leaves the credit in the operator-owned source, where every
+path out still pays `R` but only the operator can start one. `R` MUST
+therefore redeem, or have `L` renewed, before `L`'s lease. A `NUMS`
+evictor on `L` would remove the deadline, but `R` can carve from its own
+`L`, and every carve would inherit the `NUMS` evictor (7.5 rule 5),
+which is 10.8's unsweepable-leaf problem; a long lease is the better
+trade.
 
 ### R3. Batched transfer (optional)
 
@@ -242,14 +253,21 @@ settled into this pair in the window so far. The instruments are:
 1. `R` draws a preimage, puts `H_k` in an invoice, and the payer's HTLC
    reaches `O`, the last hop, with expiry `E`.
 2. `O` checks that `P`'s deadline `T` satisfies the timing rule below and
-   that `P` holds at least `S + a_k`, with any residual zero or at least
-   `DUST_MIN`, topping `P` up by an amount-only increase if not (operator
-   alone, 7.9 rule 3; neither `P`'s vouchers nor `R`'s targets bind its
-   amount).
+   that `P` holds at least `S + a_k + DUST_MIN`, topping `P` up by an
+   amount-only increase if not (operator alone, 7.9 rule 3; neither `P`'s
+   vouchers nor `R`'s targets bind its amount). The headroom is not
+   optional. A voucher that drains `P` exactly leaves a zero residual,
+   which 7.5 rule 6 allows, but the operator could then top `P` up by one
+   satoshi, leaving a residual below `DUST_MIN` that rule 6 rejects, and
+   reclaim at `T` the payment the voucher can no longer move. A residual
+   of at least `DUST_MIN` stays so under any top-up, and merges into `L`
+   do not change it.
 3. `O` signs `V_k` and sends it. `R` checks it against the confirmed
    tree: `P` is reclaimable and is `L`'s sibling, `L` is `R`'s own and
-   unflagged, `X_k` is `L₀ + S + a_k`, `T` leaves the redemption time
-   *Timing* asks for, and `L`'s lease runs past `T + Delta(q)`.
+   unflagged, `X_k` is `L₀ + S + a_k`, `P`'s confirmed amount exceeds
+   `X_k − L.amount` by at least `DUST_MIN` (9.6's "its amount covers the
+   voucher"), `T` leaves the redemption time *Timing* asks for, and `L`'s
+   lease runs past `T + Delta(q)`.
 4. `R` releases the preimage and hands `V_k` and the preimage to its
    tower.
 5. `O` settles the inbound HTLC. Nothing reaches the chain.
@@ -293,6 +311,7 @@ to meet it.
 | `O` tries to void `V_k` before `T` | every change to `P` but a merge, a top-up or a payout to `R` needs `R`'s exit key, and only `R` can remove `L` before its lease | no path exists |
 | `O` evicts `L` after its lease | `L` is paid to `R` in full, and `V_k` is void | `R`, if it accepted a voucher whose `T + Delta(q)` passed `L`'s lease; step 3 forbids it |
 | `O` grafts another leaf and merges into it | R2 merges only into the sibling, owned by `R` | no path exists |
+| `O` tops `P` up by one satoshi | `V_k`'s residual was at least `DUST_MIN` (step 2) and stays so | no path exists |
 | `O` redeems an older, smaller voucher | `L` rises to the older target; `V_k` still raises it the rest of the way | nobody |
 | `R` redeems `V_k` after `L` reached `X_k` | the merge would move nothing and fails | no path exists |
 | `R` releases two preimages on one pair before a combined voucher | each voucher covers the settled total plus its own payment, so redeeming one leaves the other short | `R`; see *Concurrency* |
@@ -379,7 +398,7 @@ does.
 |---|---|---|---|
 | Atomic | no: one payment exposed between settling and vouching | yes | yes |
 | On-chain bytes per payment | 0 | 0 | 0 |
-| On-chain bytes per window | 0 | about 375 vB with R3, 1,260 without | 0 |
+| On-chain bytes per window | 0 | about 375 vB per pair with R3 (750 for two pairs covering every deadline), 1,260 without | 0 |
 | Recipient liveness | none | a check per window, delegable to a tower that holds no key | a tower for stale states, always |
 | Final-hop expiry | any | at least `W` plus three confirmation times | at least C.4.4's budget, about 220 blocks |
 | Operator capital | what it has vouched for | the window's expected receipts, reclaimed at the deadline | the channel's inbound capacity |
@@ -438,7 +457,12 @@ is now the recipient-owned sibling. And two pending leaves targeting one
 credit leaf paid the larger of two payments, not their sum; each pending
 leaf now has its own landing leaf. The same pass found the
 reclaim-before-fail ordering of *Window close* and the two-sided
-contention note of *Timing*.
+contention note of *Timing*. A second pass over the fixes found one more:
+exact-fit funding of `P` let a one-satoshi top-up push the voucher's
+residual under `DUST_MIN` and block it until the reclaim, closed by the
+`DUST_MIN` headroom of step 2 and the recipient's check in step 3; and it
+noted that merge vouchers give a settle-first credit leaf the deadline of
+`L`'s lease (*R2*).
 
 ## Recommendation
 
