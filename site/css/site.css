@@ -688,6 +688,21 @@ main > .calc { max-width: var(--wide); }
 tr.is-ours th, tr.is-ours td { background: var(--color-accent-soft); font-weight: 700; }
 .loses li { margin-bottom: var(--space-3); }
 
+/* Lean signatures and shell snippets on the verification page. */
+pre.leansig {
+  max-width: var(--wide);
+  overflow-x: auto;
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-rule);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+pre.leansig code { background: none; padding: 0; border: 0; white-space: pre; }
+
 @media print {
   body { background-image: none; }
   .ta-controls, .site-nav, .theme-toggle { display: none; }

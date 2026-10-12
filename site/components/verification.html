@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="../assets/logo-light.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&amp;display=swap">
+<title>Formal verification</title>
+<meta name="description" content="What LayerTree's Lean 4 model proves about the tree and its transition rules, what it assumes, what the proofs changed in the design, and the planned P model of the off-chain protocol.">
+<script>try{if(localStorage.getItem("layertree-theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/site.css">
+<script src="../js/theme.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-name" href="../index.html" aria-label="LayerTree, overview"><img class="logo-light" src="../assets/logo-light.svg" alt="" width="28" height="28"><img class="logo-dark" src="../assets/logo-dark.svg" alt="" width="28" height="28"><span>layer<b>tree</b></span></a>
+    <nav class="site-nav" aria-label="Pages">
+      <ul>
+        <li><a href="../index.html">Overview</a></li>
+        <li><a href="state-machine.html">State machine</a></li>
+        <li><a href="join.html">Join</a></li>
+        <li><a href="exit.html">Exit</a></li>
+        <li><a href="payment.html">Payments</a></li>
+        <li><a href="swap.html">Swaps</a></li>
+        <li><a href="evict.html">Eviction</a></li>
+        <li><a href="batching.html">Batching</a></li>
+        <li><a href="tiers.html">Tiers</a></li>
+        <li><a href="scaling.html">Scaling</a></li>
+        <li><a href="verification.html" aria-current="page">Verification</a></li>
+      </ul>
+    </nav>
+    <button type="button" class="theme-toggle" aria-pressed="false">Dark</button>
+  </div>
+</header>
+
+<main id="main">
+  <p class="eyebrow">Assurance</p>
+  <h1>Formal verification</h1>
+
+  <p class="takeaway">The rules the covenant enforces are proved correct in
+  Lean 4: 61 machine-checked theorems, no unfinished proofs, about 3,500 lines
+  with no external libraries. The central one says that anyone holding a leaf
+  and its path can always build an accepted exit that pays the leaf's amount,
+  without anyone's help and without touching another leaf. The off-chain
+  protocol, where the risks are orderings and timing, has a P model designed
+  but not yet built.</p>
+
+  <h2 id="layers">Three layers, three kinds of check</h2>
+  <p>A proof about the rules says nothing about whether the scripts implement
+  them, and a test of the scripts says nothing about every possible tree. So
+  each layer is checked by the method that fits it, and the layers are tied
+  together by shared data.</p>
+  <div class="table-wrap">
+    <table>
+      <caption>What checks what. Only the first row is a proof; the others are execution and comparison.</caption>
+      <thead>
+        <tr><th scope="col">Layer</th><th scope="col">Question</th><th scope="col">Method</th><th scope="col">Status</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">Transition rules (spec 5, 7, 10.2)</th><td>Do the rules conserve value, bind the right leaf and always allow an exit, for every depth and every tree?</td><td>Lean 4 proofs, <code>formal/</code></td><td>61 theorems, axiom audit clean</td></tr>
+        <tr><th scope="row">Scripts (spec 8)</th><td>Does each script accept exactly the spends its rule allows?</td><td>A tapscript simulator runs every script on real trees with positive and negative cases</td><td>4,687 checks across the four tiers, the channel leaves and the Merkle-sum measurement</td></tr>
+        <tr><th scope="row">Go implementation</th><td>Do the Go scripts and transactions match the reference?</td><td>Byte-for-byte golden vectors, and every Go-built witness replayed through the simulator</td><td>121 golden scripts; 287 end-to-end spends, 0 failures</td></tr>
+        <tr><th scope="row">Off-chain protocol (spec 9, Appendix C)</th><td>Do honest parties stay safe under every message ordering, reorg and adversarial choice?</td><td>Model checking in P</td><td>Designed in <code>design/p-model.md</code>, not built</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="headline">The headline theorem</h2>
+  <p>Section 10.2 of the specification argues that a member can always leave.
+  In Lean that argument is <code>payable</code>: for any tree and any position
+  holding a leaf, the honest witness is a valid step from the current root to
+  the root of the tree without that leaf, the sum drops by exactly the leaf's
+  amount, and no other position changes.</p>
+  <pre class="leansig"><code>theorem payable {d : Nat} (t : Tree d) (p : Pos d 0) (l : Leaf)
+    (hl : t.get p = some l) :
+    (leafStep (t.path p) (some l) none).valid t.root (t.set p none).root ∧
+    (t.set p none).root.sum + l.amount = t.root.sum ∧
+    ∀ q, q ≠ p → (t.set p none).get q = t.get q</code></pre>
+  <p>Paired with <code>ExitK.no_inflation</code>, which says no exit pays out
+  more than the tree holds, and <code>exit_available</code>, which says the
+  exit pays the leaf's own exit key, this is the property the whole design
+  exists for. <code>chain_state</code> lifts it to histories: every root that
+  ever appears on-chain is the root of a tree reachable by the rules, its
+  committed sum is that tree's total, and every leaf in it has an accepted
+  exit.</p>
+
+  <h2 id="proved">What is proved</h2>
+  <dl class="terms">
+    <dt>Conservation</dt>
+    <dd><code>Steps.sum</code>: for any sequence of steps, the new root's sum
+    plus what was removed equals the old root's sum plus what was added. It
+    needs no assumption about the nodes, so the covenant conserves value even
+    against a prover who invents nodes. <code>Reachable.ledger</code> states
+    the same over a whole history.</dd>
+    <dt>Binding</dt>
+    <dd><code>fold_sound</code>: any node and path that fold to the committed
+    root are a real subtree and its real path. A forged leaf or a stale root
+    cannot pass. This is the only theorem that uses the hash assumptions.
+    <code>witness_root_binds</code> and <code>output_binds</code> tie the root
+    to the output key, and <code>CCVTweak.binding</code> proves the same for
+    the CCV tier's key from its two tweak stages.</dd>
+    <dt>Every transition</dt>
+    <dd>Exit, join, update, claim and split, the cohort sweep, the cohort
+    rewrite and the detach each have a soundness theorem: what the old tree
+    held, what output 0 commits to, and how the amounts balance. For example
+    <code>rewrite_payout_conservation</code> covers a rewrite that mixes exits,
+    joins, resizes and unchanged positions.</dd>
+    <dt>Vouchers</dt>
+    <dd><code>voucher_no_replay</code>: once redeemed, a voucher's message never
+    verifies against the tree again, under three stated hypotheses about
+    issuers. <code>voucher_survives_topup</code>: an operator raising the
+    leaf's amount does not void a voucher. <code>voucher_survives_detach</code>:
+    a voucher follows its leaf into a detached tree.</dd>
+    <dt>Eviction cannot be escaped</dt>
+    <dd><code>claim_evictable</code> and <code>Reachable.evictable</code>: no
+    sequence of carves produces a leaf the cohort's sweep cannot remove.</dd>
+    <dt>Path maintenance</dt>
+    <dd><code>path_maintenance</code>: after any transition, every other member's
+    path changes in exactly one entry, which they can compute from the
+    published witness. Staying ready to exit needs no one's help.</dd>
+    <dt>Encodings</dt>
+    <dd>The leaf and node serialisations are injective, the 8-byte sum encoding
+    is the minimal one the scripts compute, and the <code>PADZ</code> gadget of
+    the MID and MIN tiers accepts exactly one pad and caps sums below
+    2<sup>31</sup>.</dd>
+  </dl>
+
+  <h2 id="changed">What the proofs changed</h2>
+  <p>Writing the proofs found places where the specification was wrong,
+  imprecise or relying on something it did not say. Each became a fix, a
+  stated requirement or a test.</p>
+  <ul>
+    <li><strong>Grafted cohorts.</strong> Conservation holds for any node, but
+    exits hold only for nodes with a real tree behind them. A cohort graft whose
+    node has no preimage freezes its value forever. The specification's rule that
+    joiners check their own paths before funding was already there; the proof
+    shows it is load-bearing, and the model carries it as an explicit hypothesis.</li>
+    <li><strong>The self-voucher.</strong> The specification said a redeemed
+    source leaf never recurs. <code>self_voucher_fixed</code> is a
+    counterexample: a voucher whose claim leaf is its source leaf leaves the
+    tree unchanged and verifies again. No value moves, but the sentence was
+    false, and the non-replay theorem now names the hypothesis that excludes
+    it.</li>
+    <li><strong>Different <code>SEQ_FINAL</code> per tier.</strong> Why the final
+    sequence number is <code>0xFFFFFFFF</code> in FULL but <code>0x7FFFFFFF</code>
+    in MID is a theorem about number encodings: <code>ff ff ff ff</code> is a
+    negative number in MID's numerics with a four-byte successor, so it could
+    still be claimed.</li>
+    <li><strong>A fix that reached only the model.</strong> The rule stopping
+    the operator from changing a finalised channel leaf's amount alone was in
+    the Lean model but not yet in the specification or scripts. An audit probe
+    found the gap, and the fix landed everywhere (review finding F34).</li>
+    <li><strong>Vouchers bound to the leaf without its amount.</strong> Spec
+    0.13.0 changed what a voucher signs so that an operator top-up does not void
+    it. <code>voucher_survives_topup</code> proves the new rule, and its
+    proviso exposed the one remaining case: a top-up smaller than the dust
+    floor blocks, but does not void, a voucher for the whole balance.</li>
+    <li><strong>Unconditional facts made explicit.</strong> A claim's position
+    must be empty after the source step, not before, so a drained source can be
+    reused in the same transaction. Published cohorts are grounded by
+    construction, so a cohort admitted by rewrite carries none of the graft
+    caveat.</li>
+  </ul>
+
+  <h2 id="assumptions">What it assumes</h2>
+  <div class="table-wrap">
+    <table>
+      <caption>Every theorem holds for any hash functions with these properties; the right column is how a deployment provides them.</caption>
+      <thead>
+        <tr><th scope="col">Assumption</th><th scope="col">Meaning</th><th scope="col">Provided by</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">Hash injectivity</th><td>The leaf and node hashes never collide</td><td>SHA-256 collision resistance, plus the proved injectivity of the serialisations</td></tr>
+        <tr><th scope="row">Tag separation</th><td>Leaf hashes, node hashes and the empty node never coincide</td><td>Distinct BIP-340 tags</td></tr>
+        <tr><th scope="row">Output binding</th><td>The tree's output key determines its root and script set</td><td>Discrete log on secp256k1 and collision resistance of the tweak hashes; for CCV, derived from the two tweak stages</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="not-proved">What it does not prove</h2>
+  <ul>
+    <li><strong>The bytecode.</strong> The model states the rules as relations
+    on nodes and paths. That the tapscript implements them is shown by running
+    it, not by proof. A verified interpreter for the tapscript subset would
+    close the gap; it is a separate project.</li>
+    <li><strong>Signatures and timelocks.</strong> Authorisation decides who may
+    act, not what the action does to the tree, so it is an opaque proposition.
+    Conservation does not depend on it.</li>
+    <li><strong>Obligations the scripts do not check.</strong> Unique
+    <code>(owner_key, nonce)</code> pairs, positive amounts on admitted leaves,
+    valid curve points and grounded grafts are taken as hypotheses, because
+    they are requirements on creators, not covenant guarantees. The
+    <code>formal/README.md</code> lists each one.</li>
+    <li><strong>Mempool, reorgs, timing and channels.</strong> These belong to
+    the off-chain protocol, below.</li>
+  </ul>
+
+  <h2 id="p-model">The off-chain protocol: a P model, designed</h2>
+  <p>The off-chain failures are interleavings: an eviction landing between an
+  HTLC's acceptance and its expiry, an operator's transaction replacing an
+  owner's exit one block before a deadline, a reorg reverting an exit after a
+  channel's update chain started. A model checker explores those orderings;
+  no theorem about hash trees reaches them. <code>design/p-model.md</code>
+  designs a model in <a href="https://p-org.github.io/P/">P</a> with seven
+  machine types, among them the chain, an honest and a Byzantine operator,
+  owners, channel parties and a watchtower, and these properties:</p>
+  <div class="table-wrap">
+    <table>
+      <caption>Planned properties. P checks safety by assertion and liveness under a fairness assumption on the scheduler.</caption>
+      <thead>
+        <tr><th scope="col">#</th><th scope="col">Property</th><th scope="col">Kind</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">P1</th><td>An owner with a leaf and a path can always build an exit the covenant accepts</td><td>safety</td></tr>
+        <tr><th scope="row">P2</th><td>A channel counterparty's balance is never payable to the owner alone</td><td>safety</td></tr>
+        <tr><th scope="row">P3</th><td>No HTLC is accepted or left outstanding without the exit budget before its expiry</td><td>safety</td></tr>
+        <tr><th scope="row">P4</th><td>A signature for one channel and epoch never verifies for another</td><td>safety</td></tr>
+        <tr><th scope="row">P5</th><td>Eviction and sweeps pay every leaf exactly its amount, to its exit key</td><td>safety</td></tr>
+        <tr><th scope="row">P6</th><td>The settlement that confirms is the latest one both parties signed</td><td>safety</td></tr>
+        <tr><th scope="row">L1</th><td>Every honest exit eventually confirms despite a Byzantine operator</td><td>liveness</td></tr>
+        <tr><th scope="row">L2</th><td>A force close settles within its delay plus a bounded number of contests</td><td>bounded liveness</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The design includes six adversarial scenarios, one of them a fee-reserve
+  exhaustion that is expected to fail, and a requirement that the model's
+  covenant check is differentially tested against the Python reference so it
+  cannot drift into checking a protocol nobody wrote. It is estimated at about
+  seven weeks of work and has not been started. There is no TLA+ or PlusCal
+  model.</p>
+
+  <h2 id="run">Running it</h2>
+  <pre class="leansig"><code>cd formal
+lake build    # compiles every module, then prints the axiom audit</code></pre>
+  <p>The toolchain is pinned (Lean 4.24.0), there are no dependencies to fetch,
+  and the build takes a few seconds. The audit prints the axioms each headline
+  theorem depends on; only Lean's standard ones appear, and any line naming
+  <code>sorryAx</code> would mean an unfinished proof. CI runs the build on
+  every push.</p>
+
+  <section class="deeper" aria-labelledby="deeper">
+    <h2 id="deeper">Deeper</h2>
+    <ul>
+      <li><a href="../../formal/README.md"><code>formal/README.md</code></a>: every theorem, the assumptions, and where the model is weaker than the spec.</li>
+      <li><a href="../../design/p-model.md"><code>design/p-model.md</code></a>: the P model's machines, properties, scenarios and limits.</li>
+      <li><a href="../../design/review.md"><code>design/review.md</code></a>: the review findings, including F18 on what the Lean model made precise.</li>
+      <li><a href="../../spec/layertree.md">Spec 10.2</a>: the security argument the theorems formalise.</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Theorem names are the Lean identifiers in <code>formal/LayerTree/</code>; see <a href="../index.html#numbers">where the numbers come from</a>.</p>
+  </div>
+</footer>
+</body>
+</html>
