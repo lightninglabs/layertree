@@ -161,10 +161,180 @@ chained calls; `EVICT_SUBTREE_h` needs the subtree root from its
   special case of it. If consensus ever takes a generic Merkle-update
   opcode, the measurement here is the benchmark it has to beat.
 
+## The pending-leaf receive under CCV + OP_MERKLESUMUPDATE
+
+Spec 0.14.0 adds the pending-leaf receive of `design/pending-receive.md`
+to the FULL tier: `CLAIM^m` and `CLAIM^hm` (7.5.4), the reclaim form of
+`REWRITE_h` (7.9 rule 8) and `RECLAIM_1` (7.11). This section compiles
+each of them against CCV + MSU in `0xC2` numerics
+(`tools/layertree_msu.py`: `merge_script_msu`, `reclaim_script_msu`,
+`rewrite_script_msu`), runs them in one taptree with the landing leaf's
+`EXIT_1` (`tools/test_msu.py`, 65 checks), and prices every transaction
+the design puts on chain.
+
+### The scripts
+
+* **`CLAIM^hm` and `CLAIM^m`.** The rules are FULL's `merge_script`
+  token for token up to the two new leaves: the voucher by the source's
+  owner over `tree_id`, both bodies and `X`, the target owned by the
+  source's exit key and carrying the same exit key, neither leaf at
+  `SEQ_FINAL`, the target not reclaimable, `d = X − target.amount ≥ 1`,
+  a residual of zero or at least `DUST_MIN`. Then the four leaves become
+  40-byte nodes, the old and new pair nodes are hashed in script (one
+  `OP_ADD` for the pair sum, the 0x01 byte that turns a 40-byte node
+  into `hash || enc64(sum)`), and one MSU call folds both from height 1.
+  `CHECK_INPUT` binds the old root and output 0 is assigned the new one;
+  the merge conserves the pair's total, so the assign mode's floor is
+  exactly right. The `TAG_LEAF` and `TAG_NODE` prefixes are pushed once
+  and picked, which is worth about 250 bytes over pushing them per use.
+* **`RECLAIM_1`.** FULL's `reclaim_script` with the fold replaced:
+  evictor is `RECLAIM_KEY` (the extracted key is the one the signature
+  is checked against, so the constant is pushed once), `CLTV` on
+  `evict_after`, the old node the leaf's, the new node `E_0`.
+* **`REWRITE_h^x`, reclaim form.** FULL's post-order machine
+  (`_rewrite_step` with the R1 and R3 rules, `_hash_step2`) with the CCV
+  tier's `DEDUCT` payout, unchanged except that the right step's transfer
+  absorb also requires the odd sibling's `exit_key` to equal the
+  reclaimable leaf's. It leaves the old and new subtree nodes, which
+  become 40-byte nodes for one MSU call from height `h`.
+
+Two binding details are new to this measurement.
+
+* **Value that leaves the tree without a payout.** CCV's assign mode
+  makes output 0 at least the input's residual, so it cannot express a
+  reclaim, whose value is free for the transaction (7.9 rule 6).
+  `RECLAIM_1` checks output 0 in the `DEDUCT` mode instead, which caps
+  it at the residual; the byte compare `out0.amount == new_root.sum`
+  pins it either way. A rewrite's net change can have either sign, so
+  its witness carries one flag below the proof (empty = assign, `0x01` =
+  deduct). A wrong flag fails the CCV check, a non-minimal one fails
+  `MINIMALIF`, and either bound is safe under the byte compare, so the
+  flag needs no further check. The CCV tier's own `REWRITE_h` has the
+  same limit today: it uses assign, so a rewrite that frees value is not
+  spendable there.
+* **No `os == input amount` check.** As in the measured `EXIT_1` and
+  `JOIN_0`, the scripts rely on the invariant that every transition pins
+  output 0's amount to the new root's sum. Re-checking it would cost
+  about 10 bytes per script.
+
+### The proof of a height-h node
+
+The opcode's empty chain starts at `E_0` whatever the height of the node
+it folds (`op_msu`). A proof from height `h ≥ 1` therefore cannot omit an
+empty sibling: the sibling at its level `k` is `E_{h+k}`, the opcode
+would substitute `E_k`, and the fold would miss the root (pinned by a
+negative in `tools/test_msu.py`; the earlier `build_proof(height=h)`
+helper compressed against `E_{h+k}` and was wrong for that reason, unused
+until now). Two ways out, with the same sibling count:
+
+* a **dense tree of depth exactly `k`**, every position occupied, where
+  no sibling is empty, under the opcode as specified; or
+* a **start-height field** in the proof (one byte, or the depth byte's
+  spare bits), so that a key-addressed tree can omit `E_{h+k}`.
+
+The table assumes one of them. Without either, a height-`h` proof in a
+depth-64 key-addressed tree carries every empty level explicitly, about
+`40 (64 − k)` bytes more: 1,920 bytes at `k = 16`, 480 vB per merge or
+rewrite.
+
+### Measured
+
+Scripts are measured at `D = 8`; none depends on `D` except through the
+32-byte `E_D` constant.
+
+| Script | CCV + MSU (B) | FULL (B) | Witness without the proof (B) |
+|---|---|---|---|
+| `CLAIM^hm` | 645 | 2,622 (D = 16) | 337: two leaves, flag 1, `X` 8, voucher 64, preimage 32 |
+| `CLAIM^m` | 634 | 2,611 (D = 16) | 305 |
+| `RECLAIM_1` | 218 | 2,131 (D = 16) | 180: leaf, signature |
+| `EXIT_1` (landing leaf) | 252 | 2,101 (D = 16) | 180 |
+| `REWRITE_1^x`, reclaim form | 1,260 | 2,910 (D = 16) | 464 per pair transferring, 349 per pair rolling, plus `sig_op` 64 |
+| `REWRITE_2^x` | 2,288 | 3,833 | as above |
+| `REWRITE_4^x` | 8,487 | 9,754 | as above |
+| `REWRITE_6^x` | 33,477 | 34,160 | as above |
+
+The FULL rewrite figures are before the exit-key match (8 bytes per pair
+here). The rewrite does not shrink much because the fold above `h` is a
+small part of it: the machine's per-position step is 465 bytes on the
+left of a pair and 378 on the right, plus 92 per internal node, against
+a fixed 324 (operator check, hoisted constants, the MSU call and both
+CCV checks). That is about 520 bytes of script per position at every
+`h ≥ 4`, published in every rewrite. Each step pushes `RECLAIM_KEY` 2.5
+times on average; hoisting it would save about 77 bytes per position.
+
+### Whole transactions
+
+The spec's fee model: `weight = 946 + 172 (p − 1) + 129 + script +
+witness`, `vB = ceil(weight / 4)` once per transaction, witness length
+prefixes excluded, `p` the payouts (one for the exit, none for the
+rest, so the others start from 774 + 129 = 903 WU). The tree is
+key-addressed at depth 64 with `N = 2^k` members, the scaling page's
+model, built from dense pairs and cohorts: the proof of a height-`h` node
+is `1 + 2 ⌈(64 − h)/8⌉ = 17` bytes of header and `k − h` occupied
+siblings of 40 bytes. The settlement is the design's window close with
+every pair of a height-`h` cohort active: one R3 rewrite in which every
+pair transfers (before `T − G_claim`), then one R1 rewrite in which every
+pair rolls its pending leaf (after `T`), divided by the `2^(h−1)` pairs.
+
+| Transaction | `N = 2^16` | `N = 2^20` | `N = 2^32` | Formula (vB) |
+|---|---|---|---|---|
+| `CLAIM^hm` redemption | 626 | 666 | 786 | `ceil((1,862 + 40k) / 4)` |
+| `CLAIM^m` (the operator's unlocked `U`) | 615 | 655 | 775 | `ceil((1,819 + 40k) / 4)` |
+| `RECLAIM_1` | 490 | 530 | 650 | `ceil((1,318 + 40k) / 4)` |
+| Landing leaf's `EXIT_1` | 541 | 581 | 701 | `381 + 10k` |
+| Settlement per pair, `h = 2` (2 pairs) | 1,161.5 | 1,201.5 | 1,321.5 | two transactions of 1,190 and 1,133 vB at `k = 16` |
+| Settlement per pair, `h = 4` (8 pairs) | 825.2 | 835.2 | 865.2 | 3,416 + 3,186 vB at `k = 16` |
+| Settlement per pair, `h = 6` (32 pairs) | 748.0 | 750.5 | 758.0 | 12,428 + 11,508 vB at `k = 16` |
+
+Derivation of the settlement at `h = 6`, `k = 16`. The transfer
+transaction is 903 WU of skeleton and control block, 33,477 of script,
+17 + 40 × 10 = 417 of proof, 32 × 464 = 14,848 of leaves and 64 of
+`sig_op`: 49,709 WU, 12,428 vB. The roll is the same with 32 × 349 =
+11,168 of leaves (`P`, `P'`, `L` and the one-byte unchanged marker for
+`L`): 46,029 WU, 11,508 vB. Per pair, 748 vB, of which script is about
+523 (1,046 bytes per pair per transaction, twice), leaves about 203, and
+the rest under 25. Each further doubling of `N` adds 40 bytes to two
+proofs shared by 32 pairs, 0.6 vB per pair.
+
+What the numbers say:
+
+* **The unilateral paths are the cheap part.** A redemption under MSU
+  is 626 vB at 65,536 members against 1,136 vB for FULL's `CLAIM^hm` at
+  `D = 16` under the same model, and grows 10 vB per doubling instead of
+  32. `RECLAIM_1` and the landing leaf's exit are within 50 vB of each
+  other.
+* **The batched settlement is dominated by script, not proof.** At
+  `h = 6` the rewrite costs about 748 vB per pair per window, against the
+  design's estimate of about 375 vB with R3 (`design/pending-receive.md`,
+  *Cost*), which priced the leaves and not the reclaim-form step. MSU
+  removes the fold, which was never the large term here; the per-position
+  step is. FULL pays the same step (34,160 bytes at `h = 6`), so the
+  estimate is low in FULL as well.
+* **R3 beats the unbatched settlement only at larger cohorts.** Without
+  R3 a window costs a pair one `CLAIM^m` and one `RECLAIM_1`: 1,105 vB at
+  `k = 16`. R3 at `h = 2` is 5% more (1,162), at `h = 4` 25%
+  less, at `h = 6` 32% less. Its other advantage, needing no signature
+  from the recipient, is unchanged.
+* **Where the remaining bytes are.** Hoisting `RECLAIM_KEY` in the step
+  would save about 77 vB per pair per window. An amount-only element
+  (8 bytes in place of a republished 116-byte leaf, for a new element
+  that differs from its old one only in amount) would save about 54 vB
+  more on the transfer; it is an encoding change to 7.9, not a script
+  optimisation, and is not measured here.
+
+### Reproducing
+
+`python3 tools/test_msu.py` prints the measured sizes, the varops (about
+1.6 M for a redemption, 4.8 M for the `h = 6` transfer) and the table
+above. The quarantine test now also covers the FULL tier's pending-leaf
+script set (`RECLAIM_1`, `CLAIM_M`, `CLAIM_HM`, `REWRITE_R_h`,
+`REWRITE_XR_h`): none of them, and no golden script, contains
+`OP_MERKLESUMUPDATE`, and none of the MSU scripts is in any tier.
+
 ## Reproducing
 
 ```
-python3 tools/test_msu.py      # 61 checks: opcode units, quarantine, scripts
+python3 tools/test_msu.py      # 126 checks: opcode units, quarantine, scripts, pending-leaf receive
 python3 tools/test_ccv.py      # the CCV tier (part 1), 798 checks
 ```
 
