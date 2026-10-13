@@ -116,6 +116,9 @@ exchange of its own, and the operator's `JOIN` signature follows once.
 | `CLAIM`, `CLAIM^h`, `CLAIM^x` | nobody on the transaction (the voucher is the authorisation); `CLAIM^x` adds the exit key, held by the redeemer | 0 | the holder | the issuer is not consulted; the operator is not consulted |
 | Voucher issuance | the issuer, off-chain | 0 (one message, no reply needed) | the issuer | the recipient verifies alone and can redeem alone |
 | `SPLIT` | the payer | 0 | the payer | the payee receives a leaf it can exit later |
+| `CLAIM^m`, `CLAIM^hm` (proposed, `design/pending-receive.md` R2) | nobody on the transaction; the voucher, and the preimage for `CLAIM^hm` | 0 | the holder, or a tower holding no key | the merge lands in the source's sibling, a leaf the source's exit key owns |
+| `RECLAIM_1` and the reclaim rewrite (proposed, R1) | the operator | 0 | the operator, after the leaf's deadline | only a leaf whose evictor is `RECLAIM_KEY` is affected |
+| Window settlement by rewrite (proposed, R3) | the operator | 0 | the operator | the recipient's value moves from its pending leaf to its own landing leaf without it |
 | `UPDATE`, `UPDATE^x` | owner and operator (and the exit key) | 1 exchange | both at the time of signing, not at broadcast | the leaf keeps its old terms; a lease still runs out |
 | Cooperative exit | owner and operator | 1 exchange | both, briefly | the owner exits alone at any time |
 | `JOIN_h`, operator-funded | the operator | 0 on-chain; off-chain payment after the graft confirms, or a hash-locked voucher before | the operator | a member who has not paid holds a leaf it did not pay for; the operator carries the credit |
@@ -194,6 +197,32 @@ exit's own confirmation time (C.4.4).
 | To exit | online once, to build and sign; under `EXIT_K^t` online once to sign in advance, a tower builds and rebuilds | online once to exit, then the pre-signed update chain, a tower can finish; under `EXIT_K^t` the tower can also start it | a tower can publish the commitment | online before the round expires, then `O(log N)` transactions |
 | Before an expiry | nothing; the lease ends with the member paid | nothing | nothing | refresh every round or lose the funds to the server |
 | For other members' operations | never | never | n/a | in every round that includes you |
+
+### Receiving without a round
+
+A wallet's receives are where a round would hurt most, since they happen
+often and the recipient is often asleep. The settle-first credit leaf of
+`design/receive.md` needs no round: the operator signs a voucher after
+each payment. Its price is one payment of trust between settling and
+signing. The pending pairs of `design/pending-receive.md` remove that
+trust and keep the absence of a round. Each payment is one hash-locked
+voucher, a message, and the recipient's only synchronous step is
+releasing the preimage once the voucher is in hand, which it does while
+the payment is arriving anyway. Settlement is the operator's alone: under
+R3 a single rewrite moves every recipient's settled total from its
+pending leaf into its own landing leaf with no recipient signature,
+because that transfer can only pay the recipient. A recipient that
+received nothing in a window is not touched, and one that is offline at
+window close needs nobody: its tower checks the landing leaf and, if the
+operator did not settle, redeems the latest voucher before the deadline,
+holding no key of the recipient's.
+
+Without R3 the same batch is today's `REWRITE_h^x`, which needs each
+recipient's exit-key signature to lower its pending leaf, so the settle
+becomes a round among every recipient in the batch. An Ark wallet's
+refresh is that round, held every round lifetime whether or not the
+wallet received anything. R3 is what turns the settle into an operator
+action.
 
 ## Compared with the alternatives
 

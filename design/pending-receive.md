@@ -93,7 +93,7 @@ leaf's keys, 5.4, so a pair would have to be ground into place):
 
 | Slot | Leaf | `owner_key` | `exit_key` | `evictor_key`, `evict_after` | Role |
 |---|---|---|---|---|---|
-| left | `P`, the pending leaf | operator | recipient | operator, deadline `T` | payments in flight, one window |
+| left | `P`, the pending leaf | operator | recipient | `RECLAIM_KEY`, deadline `T` | payments in flight, one window |
 | right | `L`, the landing leaf | recipient | recipient | operator, a lease well past `T` | settled balance; the recipient's own leaf |
 
 `P` carries the protection of 10.3's credit leaf, so the tree carries the
@@ -123,27 +123,31 @@ being rolled.
 
 ### R1. Reclaimable leaves
 
-A leaf is reclaimable when the top bit of its `nonce` is set. After
-`evict_after`, if its `evictor_key` is `OPERATOR_KEY` and its `seq` is not
-`SEQ_FINAL`, the operator alone MAY remove it with no payout (the value
+A tree that carries R1 names one more key at creation, `RECLAIM_KEY`,
+the operator's and distinct from `OPERATOR_KEY`. A leaf is
+**reclaimable** when its `evictor_key` is `RECLAIM_KEY`. After the leaf's
+`evict_after`, the operator MAY remove it with no payout (the value
 becomes the free decrease of 7.9 rule 6) or replace it with a new leaf.
-The single form is an `EXIT` variant whose evict branch omits rule 4's
-payout for a reclaimable leaf. The batch form is a `REWRITE_h` in which an
-expired reclaimable position needs `sig_op` and nothing else and pays
-nothing when emptied. Before the deadline a reclaimable leaf behaves as
-any other leaf. An ordinary eviction still pays the exit key; the
-operator simply has no reason to use it. The `SEQ_FINAL` exclusion keeps
-R1 away from channel leaves, as 7.9 rule 3's exemption is kept away from
-them.
+The single form, `RECLAIM_1`, is `EXIT_1`'s evict branch with the payout
+check removed: a signature by `RECLAIM_KEY` under a lock time of at least
+`evict_after`, the leaf's position becoming `E_0`. The batch form is a
+`REWRITE_h` variant in which an expired reclaimable position needs
+`sig_op` and nothing else, and pays nothing when emptied. Before the
+deadline a reclaimable leaf behaves as any other leaf, and it is never
+swept by `EVICT_SUBTREE_h`, which requires `OPERATOR_KEY` as the evictor.
 
-The flag is in the leaf, not the position, so the party it can harm
-checks it before accepting the leaf. The recipient checks that `L` is
-unflagged and `P` is flagged; a joiner checks its own leaf (9.2); a
-voucher recipient adds "the claim leaf is unflagged" to 9.6's list; a
-channel-leaf counterparty adds it to C.9.7's. Nobody can set the flag on a
-leaf they do not sign for, since `nonce` changes only by a transition the
-leaf's owner signs, and every carve writes the claim leaf its issuer
-signed.
+The flag is a field of the leaf, so the party it can harm checks it
+before accepting the leaf: the recipient checks that `P`'s evictor is
+`RECLAIM_KEY` and `L`'s is not; a joiner checks its own leaf (9.2); a
+voucher recipient adds "the claim leaf's evictor is not `RECLAIM_KEY`" to
+9.6's list; a channel-leaf counterparty already checks the evictor
+(C.6.3). Nobody can set it on a leaf they do not sign for, since
+`evictor_key` changes only by a transition the leaf's owner signs, and a
+carve writes the evictor of its source (7.5 rule 5), so only a leaf that
+was already reclaimable can carve a reclaimable leaf. An earlier draft
+used the top bit of `nonce` as the flag; the MID tier's four-byte
+numerics cannot isolate a bit of a field, while every tier compares a
+32-byte key.
 
 ### R2. Merge claim into the sibling (`CLAIM^m`, `CLAIM^hm`)
 
@@ -160,7 +164,7 @@ script requires that the target
 * is the leaf at the source's sibling position,
 * is owned by the source's exit key (`target.owner_key = source.exit_key`)
   and has the same exit key,
-* is unflagged, not at `SEQ_FINAL`, and holds less than `X`.
+* is not reclaimable, not at `SEQ_FINAL`, and holds less than `X`.
 
 It raises the target to exactly `X`, lowers the source by the same `d = X
 − target.amount`, leaves the source's residual at zero or at least
@@ -264,7 +268,7 @@ settled into this pair in the window so far. The instruments are:
    do not change it.
 3. `O` signs `V_k` and sends it. `R` checks it against the confirmed
    tree: `P` is reclaimable and is `L`'s sibling, `L` is `R`'s own and
-   unflagged, `X_k` is `L₀ + S + a_k`, `P`'s confirmed amount exceeds
+   not reclaimable, `X_k` is `L₀ + S + a_k`, `P`'s confirmed amount exceeds
    `X_k − L.amount` by at least `DUST_MIN` (9.6's "its amount covers the
    voucher"), `T` leaves the redemption time *Timing* asks for, and `L`'s
    lease runs past `T + Delta(q)`.
@@ -328,6 +332,57 @@ and `R` reveals it only then. The cost is a round trip per payment, not
 a transaction. A recipient that needs real parallelism, or coverage
 across its deadline, holds more pairs; each pair's chain is independent
 because each targets its own `L`.
+
+### One voucher, many payments
+
+Vouchers are cumulative with absolute targets, so a recipient keeps one.
+Say `L` holds 10,000 sat at the start of a window. A 1,000 sat payment
+arrives: `O` signs `V_1`, "raise `L` to 11,000", under `H_1`, and `R`
+reveals. A 2,000 sat payment follows: `O` signs `V_2`, "raise `L` to
+13,000", under `H_2`, and once `R` reveals `H_2`'s preimage `V_2` covers
+both payments. `R` can drop `V_1`. Had the second payment failed, `V_2`
+would be useless without its preimage, but `V_1` would still raise `L`
+to 11,000, because nothing changed `P`'s body. Redeeming `V_1` after
+`V_2` moves nothing. Every payment in the window is off-chain, and the
+chain sees the window's total once.
+
+### Settling a window: three ways
+
+Value in `P` at its deadline is the operator's, which is what makes the
+timeout work, so once per window the settled total moves from `P` to `L`
+on-chain. There are three ways to do it.
+
+| How | Cost per pair | Recipient online? |
+|---|---|---|
+| R2 merge claim, one per pair | the merge claim of *Cost* | no |
+| Today's `REWRITE_h^x`, batched | the batch of *Cost* | yes: lowering `P` needs `R`'s exit-key signature |
+| R3, batched | the batch of *Cost* | no |
+
+R3 does not save bytes over a cooperative rewrite. It removes the
+recipient's signature from the batch, which is safe because the transfer
+can only move value from `P` into `R`'s own `L`. That is what makes
+settlement non-interactive (`design/interactivity.md`). Pairs that
+received nothing in a window cost nothing.
+
+### Compared with an Ark wallet
+
+Wavelength receives over Lightning into an Ark tree, which is the closest
+deployed comparison (`design/receive.md`, *The case*).
+
+| | Ark wallet (Wavelength) | Pending pairs |
+|---|---|---|
+| Receive off-chain | out-of-round VTXO through a swap server, or a ledger credit below the VTXO floor | hash-locked merge voucher, atomic |
+| Trust until settled | sender and server do not collude; a ledger credit is fully trusted | none, under the contention bound [C] |
+| Keep receiving off-chain | yes | yes, within the window |
+| Settle | refresh in a round: the user is online or delegates, and signs forfeits | the operator's batch at window close; nothing from the user under R3 |
+| When settlement is needed | every round lifetime, even with no new receives | only for windows in which the pair received |
+| After settling | a VTXO that expires again | value in `L`, which does not expire (its lease is long and renewable) |
+| Settlement bytes | small; about 86 vB per member in the lifetime model of `design/cost-comparison.md` | the batch of *Cost*, per active pair per window |
+| Unilateral exit | unroll the round tree, about 2,511 vB at `D = 16`, then a timelock | one transaction |
+
+An Ark refresh is cheaper in bytes. Settling a pair is non-interactive,
+trust-free while value is in flight, needed only after activity, and once
+done never needs doing again.
 
 ## Timing
 
@@ -435,9 +490,9 @@ an amount-only increase of the source's sibling, and its soundness is
 `claim_sound` with that step replaced. Its distinctive property needs a
 statement of its own: no sequence of merges moves more into the target
 than the largest target signed, which is what makes replay harmless. R1
-needs a statement that a reclaim removes only a flagged, non-final leaf
+needs a statement that a reclaim removes only a reclaimable leaf
 past its deadline and leaves every other position alone, and a trace
-invariant that no unflagged leaf's value reaches the operator without
+invariant that no other leaf's value reaches the operator without
 its exit key. R3 is `rewrite_sound` with a different authorisation
 predicate. The test obligations follow the cases table: a negative for
 every row whose outcome is "no path exists", the smaller-voucher row as a
