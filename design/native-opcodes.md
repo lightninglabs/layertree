@@ -191,11 +191,10 @@ the design puts on chain.
   evictor is `RECLAIM_KEY` (the extracted key is the one the signature
   is checked against, so the constant is pushed once), `CLTV` on
   `evict_after`, the old node the leaf's, the new node `E_0`.
-* **`REWRITE_h^x`, reclaim form.** FULL's post-order machine
-  (`_rewrite_step` with the R1 and R3 rules, `_hash_step2`) with the CCV
-  tier's `DEDUCT` payout, unchanged except that the right step's transfer
-  absorb also requires the odd sibling's `exit_key` to equal the
-  reclaimable leaf's. It leaves the old and new subtree nodes, which
+* **`REWRITE_h^x`, reclaim form.** FULL's post-order machine, run
+  through `rewrite_machine` (the R1 and R3 rules, `RECLAIM_KEY` hoisted
+  once, the transfer checked from the pair's left step), with the CCV
+  tier's `DEDUCT` payout. It leaves the old and new subtree nodes, which
   become 40-byte nodes for one MSU call from height `h`.
 
 Two binding details are new to this measurement.
@@ -248,19 +247,18 @@ Scripts are measured at `D = 8`; none depends on `D` except through the
 | `CLAIM^m` | 634 | 2,611 (D = 16) | 305 |
 | `RECLAIM_1` | 218 | 2,131 (D = 16) | 180: leaf, signature |
 | `EXIT_1` (landing leaf) | 252 | 2,101 (D = 16) | 180 |
-| `REWRITE_1^x`, reclaim form | 1,260 | 2,910 (D = 16) | 464 per pair transferring, 349 per pair rolling, plus `sig_op` 64 |
-| `REWRITE_2^x` | 2,288 | 3,833 | as above |
-| `REWRITE_4^x` | 8,487 | 9,754 | as above |
-| `REWRITE_6^x` | 33,477 | 34,160 | as above |
+| `REWRITE_1^x`, reclaim form | 967 | | 464 per pair transferring, 349 per pair rolling, plus `sig_op` 64 |
+| `REWRITE_2^x` | 1,666 | | as above |
+| `REWRITE_4^x` | 5,910 | | as above |
+| `REWRITE_6^x` | 23,169 | 24,140 (D = 16) | as above |
 
-The FULL rewrite figures are before the exit-key match (8 bytes per pair
-here). The rewrite does not shrink much because the fold above `h` is a
-small part of it: the machine's per-position step is 465 bytes on the
-left of a pair and 378 on the right, plus 92 per internal node, against
-a fixed 324 (operator check, hoisted constants, the MSU call and both
-CCV checks). That is about 520 bytes of script per position at every
-`h ≥ 4`, published in every rewrite. Each step pushes `RECLAIM_KEY` 2.5
-times on average; hoisting it would save about 77 bytes per position.
+The rewrite does not shrink much under MSU because the fold above `h` is
+a small part of it; the per-position step is the large term, about 362
+bytes of script per position at `h = 6`, published in every rewrite. An
+earlier version of the step cost about 520; the FULL tier's optimisation
+(the transfer checked once from the pair's left step, `RECLAIM_KEY`
+hoisted, one body comparison) is what brought it down, and the MSU
+rewrite reuses that machine.
 
 ### Whole transactions
 
@@ -282,17 +280,17 @@ pair rolls its pending leaf (after `T`), divided by the `2^(h−1)` pairs.
 | `CLAIM^m` (the operator's unlocked `U`) | 615 | 655 | 775 | `ceil((1,819 + 40k) / 4)` |
 | `RECLAIM_1` | 490 | 530 | 650 | `ceil((1,318 + 40k) / 4)` |
 | Landing leaf's `EXIT_1` | 541 | 581 | 701 | `381 + 10k` |
-| Settlement per pair, `h = 2` (2 pairs) | 1,161.5 | 1,201.5 | 1,321.5 | two transactions of 1,190 and 1,133 vB at `k = 16` |
-| Settlement per pair, `h = 4` (8 pairs) | 825.2 | 835.2 | 865.2 | 3,416 + 3,186 vB at `k = 16` |
-| Settlement per pair, `h = 6` (32 pairs) | 748.0 | 750.5 | 758.0 | 12,428 + 11,508 vB at `k = 16` |
+| Settlement per pair, `h = 2` (2 pairs) | 1,006.0 | 1,046.0 | 1,166.0 | two transactions of 1,035 and 977 vB at `k = 16` |
+| Settlement per pair, `h = 4` (8 pairs) | 664.2 | 674.2 | 704.2 | 2,772 + 2,542 vB at `k = 16` |
+| Settlement per pair, `h = 6` (32 pairs) | 586.9 | 589.4 | 596.9 | 9,851 + 8,931 vB at `k = 16` |
 
 Derivation of the settlement at `h = 6`, `k = 16`. The transfer
-transaction is 903 WU of skeleton and control block, 33,477 of script,
+transaction is 903 WU of skeleton and control block, 23,169 of script,
 17 + 40 × 10 = 417 of proof, 32 × 464 = 14,848 of leaves and 64 of
-`sig_op`: 49,709 WU, 12,428 vB. The roll is the same with 32 × 349 =
+`sig_op`: 39,401 WU, 9,851 vB. The roll is the same with 32 × 349 =
 11,168 of leaves (`P`, `P'`, `L` and the one-byte unchanged marker for
-`L`): 46,029 WU, 11,508 vB. Per pair, 748 vB, of which script is about
-523 (1,046 bytes per pair per transaction, twice), leaves about 203, and
+`L`): 35,721 WU, 8,931 vB. Per pair, 587 vB, of which script is about
+362 (724 bytes per pair per transaction, twice), leaves about 203, and
 the rest under 25. Each further doubling of `N` adds 40 bytes to two
 proofs shared by 32 pairs, 0.6 vB per pair.
 
@@ -304,22 +302,20 @@ What the numbers say:
   32. `RECLAIM_1` and the landing leaf's exit are within 50 vB of each
   other.
 * **The batched settlement is dominated by script, not proof.** At
-  `h = 6` the rewrite costs about 748 vB per pair per window, against the
-  design's estimate of about 375 vB with R3 (`design/pending-receive.md`,
-  *Cost*), which priced the leaves and not the reclaim-form step. MSU
-  removes the fold, which was never the large term here; the per-position
-  step is. FULL pays the same step (34,160 bytes at `h = 6`), so the
-  estimate is low in FULL as well.
+  `h = 6` the rewrite costs about 587 vB per pair per window, against the
+  design's first estimate of about 375 vB with R3, which priced the
+  leaves and not the reclaim-form step. MSU removes the fold, which was
+  never the large term here; the per-position step is. FULL pays the
+  same step (24,140 bytes at `h = 6`).
 * **R3 beats the unbatched settlement only at larger cohorts.** Without
   R3 a window costs a pair one `CLAIM^m` and one `RECLAIM_1`: 1,105 vB at
-  `k = 16`. R3 at `h = 2` is 5% more (1,162), at `h = 4` 25%
-  less, at `h = 6` 32% less. Its other advantage, needing no signature
-  from the recipient, is unchanged.
-* **Where the remaining bytes are.** Hoisting `RECLAIM_KEY` in the step
-  would save about 77 vB per pair per window. An amount-only element
-  (8 bytes in place of a republished 116-byte leaf, for a new element
-  that differs from its old one only in amount) would save about 54 vB
-  more on the transfer; it is an encoding change to 7.9, not a script
+  `k = 16`. R3 at `h = 2` is 9% less (1,006), at `h = 4` 40% less,
+  at `h = 6` 47% less. Its other advantage, needing no signature from
+  the recipient, is unchanged.
+* **Where the remaining bytes are.** An amount-only element (8 bytes in
+  place of a republished 116-byte leaf, for a new element that differs
+  from its old one only in amount) would save about 54 vB more per pair
+  on the transfer; it is an encoding change to 7.9, not a script
   optimisation, and is not measured here.
 
 ### Reproducing

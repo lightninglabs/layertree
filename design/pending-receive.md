@@ -195,8 +195,10 @@ form makes replay harmless.
 * **No empty position, and one path.** A partial carve needs an empty
   position, whose supply the operator controls (9.6, 10.1). A merge
   lands on the sibling, and the two steps share every level above the
-  pair: about 1,130 vbytes for a redemption at `D = 16`, the sibling-pair
-  estimate of `design/receive.md`, against about 1,680 for a two-path
+  pair: about 615 vbytes for a redemption under CCV and the Merkle-sum
+  opcode at 65,536 members (about 1,130 in the FULL tier at `D = 16`,
+  the sibling-pair estimate of `design/receive.md`), against about 1,680
+  for a FULL two-path
   `CLAIM^x`.
 
 The target binds `L`'s body, so a change to `L` other than its amount
@@ -233,8 +235,9 @@ rises by the same
 amount, both amount-only, needs `sig_op` and nothing else. It is R2's
 second step without a voucher, and it moves value only toward the
 recipient for the same reasons. Without R3 every window's settlement is a
-merge claim, about 1,130 vbytes; with it a cohort of recipients settles
-in one rewrite at a few hundred vbytes each.
+merge claim and a reclaim, about 1,105 vbytes a pair under CCV and the
+Merkle-sum opcode; with it a cohort of 32 pairs settles in two rewrites
+at about 587 vbytes a pair (*Cost*).
 
 R1 to R3 are script variants in FULL, MID and CCV (MIN has no
 `OP_CHECKSIGFROMSTACK` and no `CLAIM`), tree-creation parameters visible
@@ -432,42 +435,65 @@ must count the conflicting spends the operator is prepared to outbid.
 
 ## Cost
 
+Every figure here assumes the most succinct configuration, CCV plus
+`OP_MERKLESUMUPDATE`, as the scaling page does, in a key-addressed tree
+of `N = 2^16` members, priced by the spec's fee model. The scripts are
+measured in `tools/test_msu.py`; `design/native-opcodes.md` has the
+derivations and the figures at `2^20` and `2^32`, which differ by 10 vB
+per doubling for a single transaction and by under 1 vB per pair for a
+batch.
+
 Per payment the on-chain cost is zero, as in the settle-first design. The
 cost moves to the window: for each pair that settled anything, one
-transfer and one roll of its pending leaf.
+transfer of the settled total into `L` and one roll of `P`.
 
-| Per active pair per window | Without R3 | With R3 (estimate) |
-|---|---|---|
-| Raise `L` by the settled total | one merge claim, about 1,130 vB | two amount-only positions, about 245 vB |
-| Reclaim the expired pending leaf and write the next | one rewrite position, about 130 vB | the same, about 130 vB |
-| Total | about 1,260 vB | about 375 vB |
+| Per active pair per window | vB |
+|---|---|
+| Without R3: one `CLAIM^m` and one `RECLAIM_1` | 1,105 |
+| R3 batch of 4 positions (2 pairs) | 1,006 |
+| R3 batch of 16 positions (8 pairs) | 664 |
+| R3 batch of 64 positions (32 pairs) | 587 |
 
-The R3 figures are estimates. Spec 11 measures `REWRITE_h` at 148 vbytes
-per changed leaf with its signature at `h = 6`, and `design/receive.md`
-prices an amount-only position at about 122 vbytes without one; neither
-is a measurement of R3's step. A pair with nothing settled in a window
-needs no transfer, and the cost is per window, not per payment, so a
-merchant receiving many payments a day pays what a wallet receiving one
-does.
+The batch is a transfer rewrite before the deadline and a roll rewrite
+after it, each publishing the reclaim-form script once. Script is most
+of the cost, about 362 of the 587 vB at 64 positions, because tapscript
+has no loops and the per-position step is published in every rewrite;
+the leaves are about 203. A pair with nothing settled in a window needs
+no transfer, and the cost is per window, not per payment, so a merchant
+receiving many payments a day pays what a wallet receiving one does.
+
+| Single transaction | vB |
+|---|---|
+| A recipient redeems its voucher on-chain (`CLAIM^hm`) | 626 |
+| The operator redeems a settlement voucher (`CLAIM^m`) | 615 |
+| The operator reclaims an expired pending leaf (`RECLAIM_1`) | 490 |
+| The recipient exits its landing leaf (`EXIT_1`) | 541 |
+
+In the FULL tier, built only from existing proposals, each of these is
+roughly twice as large (a `CLAIM^hm` is about 1,136 vB at `D = 16`), and
+the reclaim-form rewrite publishes about 377 bytes of script per position
+at `h = 6`.
 
 | | Settle-first credit leaf | Pending pairs | Channel leaf (Appendix C) |
 |---|---|---|---|
 | Atomic | no: one payment exposed between settling and vouching | yes | yes |
 | On-chain bytes per payment | 0 | 0 | 0 |
-| On-chain bytes per window | 0 | about 375 vB per pair with R3 (750 for two pairs covering every deadline), 1,260 without | 0 |
+| On-chain bytes per window | 0 | about 587 vB per pair in a 64-position batch (twice that for two pairs covering every deadline) | 0 |
 | Recipient liveness | none | a check per window, delegable to a tower that holds no key | a tower for stale states, always |
 | Final-hop expiry | any | at least `W` plus three confirmation times | at least C.4.4's budget, about 220 blocks |
 | Operator capital | what it has vouched for | the window's expected receipts, reclaimed at the deadline | the channel's inbound capacity |
-| Unilateral settlement | `CLAIM^x`, about 1,680 vB | merge claim, about 1,130 vB | `EXIT` plus the update chain, about 1,680 vB over about 146 blocks |
-| Rule changes | none | R1 and R2; R3 optional | none |
+| Unilateral settlement | a merge claim with R2, about 615 vB | `CLAIM^hm`, about 626 vB | `EXIT` (541 vB) plus the update chain, about 1,200 vB over about 146 blocks |
+| Rule changes | none (R2 for the cheaper redemption) | R1 and R2; R3 for a non-interactive batch | none |
 | Spends | no; receive only | no; receive only | yes |
 
-At 10 sat/vB a window costs a pair about 3,750 sat with R3. Against an
-exposure of one payment, that is worth paying for large receives and for
-recipients with many receives per window, and not for a wallet taking
-small payments now and then, which is better served by settling first.
-The two compose: a tree carrying R1 and R2 can run both, and the
-recipient chooses per invoice.
+At 10 sat/vB a window costs a pair about 5,900 sat in a 64-position
+batch. Against an exposure of one payment, that is worth paying for large
+receives and for recipients with many receives per window, and not for a
+wallet taking small payments now and then, which is better served by
+settling first. The two compose: a tree carrying R1 to R3 can run both,
+and the recipient chooses per invoice. The remaining saving that has
+been identified is an encoding change to 7.9: an 8-byte amount-only
+element in place of a republished 116-byte leaf, about 54 vB per pair.
 
 ## What it does not fix
 
