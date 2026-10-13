@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.14.1
+Version:  0.15.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -418,8 +418,8 @@ script / witness data:
 | `EXIT_1^t` (7.2 rule 7) | 2,207 / 902 | 3,488 / 978 | — | 1,826 / 838 | 5,253 / 326 | 9,523 / 796 | 4,872 / 262 |
 | `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,884 / 794 | — | 1,456 / 679 | 5,131 / 367 | 9,382 / 783 | 4,746 / 303 |
 | `JOINK_2` | 3,545 / 1,525 | 5,885 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 18,241 / 1,433 | 9,388 / 542 |
-| `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,962 / 483 |
-| `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,969 / 547 |
+| `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,760 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,970 / 483 |
+| `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,767 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,977 / 547 |
 | `CLAIM` | 3,877 / 1,690 | 6,526 / 1,840 | n/a | 3,490 / 1,626 | 9,971 / 688 | 18,596 / 1,551 | 9,584 / 419 |
 | `CLAIM^h` | 3,885 / 1,722 | 6,534 / 1,869 | n/a | 3,498 / 1,658 | 9,979 / 515 | 18,604 / 1,446 | 9,592 / 451 |
 | `SPLIT` | 3,765 / 1,674 | 6,371 / 1,821 | 6,655 / 2,018 | 3,378 / 1,610 | 9,859 / 483 | 18,441 / 1,420 | 9,472 / 419 |
@@ -427,18 +427,18 @@ script / witness data:
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,884 / 1,754 | 6,530 / 1,901 | n/a | 3,497 / 1,690 | 9,978 / 547 | 18,600 / 1,483 | 9,591 / 483 |
-| `REWRITE_4` (16 positions, mixed) | 5,624 / 4,099 | 10,516 / 4,436 | — | 5,303 / 4,035 | n/a | n/a | n/a |
+| `REWRITE_4` (16 positions, mixed) | 5,784 / 4,099 | 11,556 / 4,436 | — | 5,471 / 4,035 | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | 2,174 / 534 | — | 973 / 433 | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
-3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,111 / 1,092, `UPDATE^x`
-3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `CLAIM^x`
+3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,119 / 1,092, `UPDATE^x`
+3,123 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `CLAIM^x`
 6,160 / 1,837, `CLAIM^hx` 6,168 / 1,869, `SPLIT`
 6,001 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
-24,057 / 7,397, `REWRITE_4` (16 positions, mixed) 10,212 / 4,372,
+24,057 / 7,397, `REWRITE_4` (16 positions, mixed) 11,260 / 4,372,
 `DETACH_8` 1,628 / 470; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
-9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
+9,014 / 719, `UPDATE` 9,165 / 905, `UPDATE^x` 9,169 / 969, `CLAIM`
 18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `CLAIM^x` 18,230 / 1,419,
 `CLAIM^hx` 18,238 / 1,451, `SPLIT` 18,071 / 1,356. The CCV call saves about 360 bytes of script
 over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
@@ -503,13 +503,14 @@ presence flag or one empty element, and two `PADZ` pad pairs per internal
 node below the subtree root (the old and the new sum). With `p_o` of the
 `2^h` positions occupied before the rewrite, `p_n` after it, `u` of those
 unchanged (their new slot is the one-byte marker of 8.9) and `s` owner
-signatures (`2s` under `^x`), its witness is `10(p_o + p_n − u) + 2^(h+1)
-+ s + 4(2^h − 2) + 9(D − h) + 7` elements, and the pre-pass peaks four
+signatures (`2s` under `^x`), its witness is `10(p_o + p_n − u) − 7a +
+2^(h+1) + s + 4(2^h − 2) + 9(D − h) + 7` elements, where `a` of the new
+slots are amount-only slots of four elements (8.9), and the pre-pass peaks four
 above it, so the same 1,000-element limit bounds the rewrite: at `D =
 16`, `h ≤ 5` fits at any occupancy (966 at the peak of a 32-position
 rewrite with every position occupied before and after and every owner
-signing), and `h = 6` fits only while `10(p_o + p_n − u) + s ≤ 523`, that
-is a mass exit of at most 47 leaves or a rewrite of at most 24 changed
+signing), and `h = 6` fits only while `10(p_o + p_n − u) − 7a + s ≤ 523`,
+that is a mass exit of at most 47 leaves or a rewrite of at most 24 changed
 positions. A full 64-leaf cohort is rewritten as two `REWRITE_5` spends.
 Under the CCV tier's `0xC0` numerics (4.6) the witness is two elements
 shorter (no `r`, no `m`) and no prologue runs, so the bound at `h = 6` is
@@ -567,7 +568,8 @@ Three CCV calls per transition, in place of the scripts' key arithmetic:
 * **Commit the next state.** `<nh> <0> <> <-1> <0> CCV` asserts output 0
   carries the new root under the same taptree and assigns the input's
   residual amount to it; `out0.amount == ns` remains one `OP_TX` read
-  (rule 5 unchanged).
+  (rule 5 unchanged). `UPDATE` and `REWRITE_h`, whose net change can be a
+  decrease, take the call's mode from a witness flag (below).
 * **Constrain a payout.** `<> <k> <exit_key> <> <2> CCV` asserts output
   `k` is a bare P2TR to the leaf's exit key and deducts its amount from
   the residual; the exact-payout comparison remains one `OP_TX` read.
@@ -598,7 +600,7 @@ numerics (`claim_script_ccv` and `_claim_script_ccv0`, with
 `exit_consent` for the `^x` forms, and `split_script_ccv`;
 `CCVTreeOptions` carries each as a flag).
 `UPDATE^x` (both numerics), terminal exits and every other transition are
-unchanged. The `0xC2` `SEQ_FINAL` is FULL's `0xFFFFFFFF` and the `0xC0`
+unchanged apart from the mode flag below. The `0xC2` `SEQ_FINAL` is FULL's `0xFFFFFFFF` and the `0xC0`
 one MID's `0x7FFFFFFF`, since the carve bodies are those tiers'.
 
 The tier needs one introspection read per constrained amount (the three
@@ -633,6 +635,29 @@ Under `0xC0` the subtree sum arrives as a minimal number with its `PADZ`
 pad, `NONNEG` keeps it non-negative before it enters the fold, and
 `le64` of it is compared with output 1's amount as bytes (8.10).
 
+**The output-0 mode flag.** The assign mode forces output 0 to carry at
+least the input's residual (its amount less the payouts already deducted),
+so it cannot express a transition that removes value without paying it
+out, which 7.4 and 7.9 rule 6 leave free for the transaction to spend. The
+transitions whose net change can have either sign therefore take the
+output-0 mode from one witness flag, the bottom element, in both
+numerics: `UPDATE`, `UPDATE^x`, `REWRITE_h`, `REWRITE_h^x` and the reclaim
+forms of the rewrite (below). The flag is `0x01` for `DEDUCT` (`<nh> <0>
+<> <-1> <2> CCV`, which caps output 0 at the residual and leaves the rest
+of the input unassigned) exactly when the new sum `ns` is below the input
+amount less the rule-5 payouts the transition deducts, that is, when value
+is freed, and empty for assign otherwise (an increase funded by other
+inputs, or an equal sum). `MINIMALIF` rejects any other value, and either
+choice is safe because the `out0.amount == ns` read pins output 0 in both
+modes: a wrong choice fails (`DEDUCT` on an increase leaves output 0 above
+the residual, assign on a decrease below it), and a decrease the leaf rules
+do not authorise is rejected by the same rules as in the other tiers. A
+builder derives the flag from the net change (`rules.ccvModeFlag`). The
+fixed-output transitions (`EXIT_K`, `JOIN`, `CLAIM`, `SPLIT`, `DETACH_h`,
+`EVICT_SUBTREE_h`) never need it: a join and a claim conserve or add value
+and an exit's payout is itself a `DEDUCT` call, so those scripts keep the
+assign mode, and `RECLAIM_1`, which only frees value, fixes `DEDUCT`.
+
 **`REWRITE_h`.** The cohort rewrite of 7.9 and its `^x` form exist in
 both numerics (8.9). Under `0xC2` the machine is FULL's `POSTORDER2(h)`
 and under `0xC0` MID's element-based pre-pass and hash pass, each with
@@ -641,18 +666,18 @@ payout of 7.9 rule 5 replaced by one `CHECK_OUTPUT|DEDUCT` call on the
 old leaf's exit key at the dynamic output index, followed by the exact
 `OP_TX` amount read, as the sweep's payout is. Every other rule of 7.9
 (the per-position signatures, the amount-only exemption and its
-`SEQ_FINAL` stop, the unchanged marker, conservation) is decided by the
-numerics' own `REWRITE_STEP`, token for token, so the `0xC2` form keeps
+`SEQ_FINAL` stop, the unchanged marker, the amount-only element,
+conservation) is decided by the numerics' own `REWRITE_STEP`, token for token, so the `0xC2` form keeps
 FULL's `SEQ_FINAL` and the `0xC0` form MID's. The witness is FULL's
 (`0xC2`) or MID's (`0xC0`) minus `r` and `m`, and no prologue runs. At
-`D = 16` on the mixed 16-position cohort `REWRITE_4` measures 5,303 /
-4,035 bytes of script / witness data under `0xC2` beside FULL's 5,624 /
-4,099, and 10,212 / 4,372 under `0xC0` beside MID's 10,516 / 4,436: the
+`D = 16` on the mixed 16-position cohort `REWRITE_4` measures 5,471 /
+4,035 bytes of script / witness data under `0xC2` beside FULL's 5,784 /
+4,099, and 11,260 / 4,372 under `0xC0` beside MID's 11,556 / 4,436: the
 CCV payout is 4 bytes longer than either tier's P2TR compare, so the
 saving is the fixed part alone (`PROLOGUE` and the key arithmetic of
-`FINAL` gone, `CHECK_INPUT` in), 385 bytes under `0xC2` and 368 under
+`FINAL` gone, `CHECK_INPUT` in, the 8-byte mode flag added), 377 bytes under `0xC2` and 360 under
 `0xC0`, less 4 per position, and the witness loses the 64 bytes of `r`
-and `m`. Per leaf the rewrite therefore costs what it costs in FULL and
+and `m` (the empty mode flag adds none). Per leaf the rewrite therefore costs what it costs in FULL and
 MID to within a few vB (11).
 Under `0xC0` the 1,000-element bound of 4.5 applies with the two
 elements `r` and `m` and the prologue's three pushes to spare: `h ≤ 5`
@@ -669,13 +694,8 @@ assign mode cannot express: it forces output 0 to carry the input's
 whole residual. `RECLAIM_1` therefore commits output 0 with the `DEDUCT`
 mode (`<nh> <0> <> <-1> <2> CCV`), which caps output 0 at the residual
 and leaves the freed value unassigned, and the `out0.amount == ns` read
-pins the amount exactly as before. The reclaim-form rewrite takes one
-witness flag, the bottom element, choosing the mode for output 0:
-`0x01` for `DEDUCT` exactly when the new sum `ns` is below the input
-amount less the rule-5 payouts the rewrite deducts (value is freed),
-and empty for assign otherwise; `MINIMALIF` rejects any
-other value, and either choice is safe because the amount read pins
-output 0. Two tree inputs with the same state still cannot share output
+pins the amount exactly as before. The reclaim-form rewrite takes the
+mode flag described above, as every rewrite does. Two tree inputs with the same state still cannot share output
 0 (a second `DEDUCT`, or a `DEDUCT` beside an assign, fails), which
 `tools/test_ccv.py` checks. Under `0xC0` the merge's witness supplies
 the source leaf's block before the target's, with `src_is_left` setting
@@ -687,9 +707,10 @@ the rewrite carry those elements where a signature would go, as
 `ea_num z w` bottom to top in CCV0 (MID carries them as `w z ea_num`). The
 `0xC0` rewrite keeps MID's bound: `h ≤ 4` at any occupancy, `h = 5` for
 cohorts of pending and landing pairs, `h = 6` over the 1,000-element
-limit. The plain CCV `UPDATE` and `REWRITE_h` still commit output 0 in
-the assign mode, so under CCV a net decrease that the other tiers leave
-free for the transaction (7.4, 7.9 rule 6) is not spendable there.
+limit. Amount-only slots (8.9) shorten the witness of a full-cohort
+settlement at `h = 5` from 930 to 706 elements, the transfer's two leaves
+of every pair being amount-only, and leave `h = 6` over the limit (1,753
+elements before, 1,305 after), so they do not move the bound.
 
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
@@ -1682,17 +1703,33 @@ parameter: a taptree MAY include `REWRITE_h` for any set of heights, and
 the choice is visible in `m`.
 
 Witness inputs: sibling path of the subtree root (`D − h` levels); for
-each of the `2^h` positions in position order an **old element** and a
-**new element**, each either the 116-byte leaf at that position or the
-empty string for `E_0`, and the new element MAY instead be the one-byte
-**unchanged marker**, which stands for the old element of the same
-position (any one-byte element in FULL, `0x01` by convention, since the
-script tests the element's size; exactly `0x02` in the MID tier, where
-`0x01` is a slot's presence flag, 8.9); for every position rule 3 names, `sig_i`; and
-`sig_op`, `r`, `m`. Signatures appear only where rules 3 and 7 require
+each of the `2^h` positions in position order an **old element**, the
+116-byte leaf at that position or the empty string for `E_0`, and a **new
+element** of one of four forms:
+
+* the 116-byte leaf;
+* the empty string, for `E_0`;
+* the one-byte **unchanged marker**, which stands for the old element of
+  the same position (any one-byte element in FULL, `0x01` by convention,
+  since the script tests the element's size; exactly `0x02` in the MID
+  tier, where `0x01` is a slot's presence flag, 8.9);
+* the 8-byte **amount-only element** `le64(a)`, which stands for the old
+  element with its amount replaced by `a`, that is `new := le64(a) ||
+  old[8:]`. It is defined only when the old element is a leaf: an 8-byte
+  new element against an empty old element MUST fail. In the MID tier the
+  amount-only element is a four-element slot, `amt_num za wa 0x03`, whose
+  number is `a` (8.9).
+
+The marker and the amount-only element are expanded into a leaf (or `E_0`)
+before anything else reads the new element, so rules 3 to 8, the
+exit-consent variant included, are decided on the expanded element and mean
+what they meant when the new element was always a leaf or empty. Both forms
+are defined for the new element only: an old element MUST be a leaf or
+`E_0`. The witness also carries, for every position rule 3 names, `sig_i`,
+and `sig_op`, `r`, `m`. Signatures appear only where rules 3 and 7 require
 them, so an unchanged position costs its old element, the marker and
-nothing else. The marker is defined for the new element only: an old
-element MUST be a leaf or `E_0`.
+nothing else, and a position whose only change is its amount costs its old
+element, the 8 bytes and, where rule 3 requires it, the signature.
 
 Rules:
 
@@ -1757,7 +1794,14 @@ is not the owner's alone: a channel leaf's `amount` is the capacity its
 pre-signed states commit to (C.1.1), and raising it by even one satoshi
 makes every update transaction pay a fee it cannot pay beside a zero-value
 ephemeral anchor, so no default node relays it (C.2.4). The exclusion
-costs 11 bytes per position (8.9). Rule 5 is what makes the rewrite a safe mass exit: an
+costs 11 bytes per position (8.9). The amount-only element is the encoding
+of exactly the changes rule 3 exempts and rule 8 transfers (a top-up, a
+payment between members, an R3 settlement): it carries the one thing that
+changes and saves 108 bytes of witness, 27 vB, per such position. The
+script pays for it in every position whether or not the position uses it,
+so it gains where about a tenth of the positions change in their amount
+alone under `0xC2` and over half under `0xC0` (8.9 has the figures).
+Rule 5 is what makes the rewrite a safe mass exit: an
 owner who signs a transaction that empties its position is paid by the
 covenant, and the operator cannot use the script to remove a leaf without
 paying it, since removal needs that owner's signature and that payout. A
@@ -2186,6 +2230,34 @@ The rest of the script is byte for byte the `UPDATE` script above. In MID
 the same line is `21 OP_PICK OP_CHECKSIGVERIFY`, picking the `ek` element of
 the old leaf directly.
 
+**CCV tier.** Under CCV (4.6, both numerics) `PROLOGUE` is dropped (no `r`,
+no `m`), `CHECK_OLD` is `CHECK_INPUT` and `FINAL` is `FINAL_SEL`, the
+mode-selecting form, so the witness has one more element at the very
+bottom, the output-0 mode flag `flag`: `path(D)` is preceded by `flag`.
+A decrease of the leaf's amount (7.4 leaves it free for the transaction)
+needs `flag = 0x01`:
+
+```
+OP_ROT OP_DROP                                 # flag nh ns
+OP_OVER <E_D> OP_EQUAL OP_IF                   # terminal: no output check
+  OP_2DROP OP_DROP OP_1
+OP_ELSE
+  OP_TOALTSTACK                                # flag nh              | ns
+  OP_SWAP OP_IF OP_2 OP_ELSE OP_0 OP_ENDIF     # nh mode
+  OP_0 <> <-1> OP_3 OP_ROLL                    # nh 0 <> -1 mode
+  OP_CHECKCONTRACTVERIFY                       # output 0, assign or DEDUCT
+  OP_FROMALTSTACK
+  OP_0 <SEL_OUT_SINGLE> OP_TX OP_DROP OP_NUMEQUALVERIFY
+  OP_1
+OP_ENDIF
+```
+
+This is the `FINAL_SEL` of 4.6 and 8.9, 8 bytes longer than the CCV
+`FINAL`; `MINIMALIF` keeps `flag` to empty and `0x01`. Under `0xC0` the
+final pads `zf wf` sit above `flag` and the sum is compared as `le64`
+bytes (`ccv0FinalSel`). Listings: `spec/scripts/CCV_UPDATE_D4.txt`,
+`spec/scripts/CCV_UPDATE_X_D4.txt`.
+
 ### 8.6 CLAIM
 
 Witness: `claim_path(D)  source_path(D)  source_leaf  claim_leaf
@@ -2463,10 +2535,12 @@ section 11.
 
 Witness: `dir_{D-1} sc_{D-1} … dir_h sc_h  block_{2^h−1} … block_0  sig_op
 r  m`, with `block_i = [xsig_i] [sig_i] new_i old_i` (`old_0` on top;
-each element is 116 bytes or empty, and `new_i` may be a one-byte element,
-the unchanged marker for "`old_i`" (`0x01` by convention; the step tests
-only `OP_SIZE OP_1 OP_EQUAL`, so any one-byte value serves, 7.9); `sig_i`
-only where 7.9 rule 3 requires it,
+each element is 116 bytes or empty, and `new_i` may instead be a one-byte
+element, the unchanged marker for "`old_i`" (`0x01` by convention; the step
+tests only `OP_SIZE OP_1 OP_EQUAL`, so any one-byte value serves, 7.9), or
+an 8-byte element `le64(a)`, the amount-only element for "`old_i` with its
+amount replaced by `a`" (the step tests only `OP_SIZE OP_8 OP_EQUAL`);
+`sig_i` only where 7.9 rule 3 requires it,
 `xsig_i` only under `^x` and only where `sig_i` is present).
 
 ```
@@ -2493,6 +2567,7 @@ below `Z`, applies 7.9 rules 3 and 5, and converts both to nodes:
 ```
 <d+3> OP_ROLL <d+4> OP_ROLL                        # … old new
 OP_SIZE OP_1 OP_EQUAL OP_IF OP_DROP OP_DUP OP_ENDIF   # new := old if new is the marker
+OP_SIZE OP_8 OP_EQUAL OP_IF OP_OVER 108 OP_RIGHT OP_CAT OP_ENDIF   # new := new || old[8:] if new is amount-only
 OP_2DUP OP_EQUAL OP_NOTIF                          # -- changed --
   OP_OVER OP_SIZE OP_NIP OP_0NOTEQUAL OP_IF        # -- old is a leaf --
     OP_DUP OP_SIZE OP_NIP OP_0NOTEQUAL OP_IF       # -- new is a leaf: rewrite --
@@ -2548,7 +2623,25 @@ witness that supplies one anyway fails: the stray element is consumed as
 the next position's old element. The `SEQ_FINAL` test reads the last four
 bytes of the new element, which `same_rest` has just shown equal the old
 one's `seq`, so the constant is the tier's `SEQ_FINAL` and nothing comes from
-the witness; it is 11 bytes per position. Listing:
+the witness; it is 11 bytes per position.
+
+An 8-byte new element is replaced by itself followed by the last 108 bytes
+of the old element (`LEAF_BODY`) in the same place, so the rules see two
+full leaves that differ in the amount field alone and `same_rest` holds by
+construction. Against an empty old element there is no body to append
+(`OP_RIGHT` fails or leaves the 8 bytes alone) and `ELEM_NODE`'s size
+check rejects the result, which is what makes an amount-only element
+against `E_0` fail; as an old element
+the 8 bytes fail the same check, and a 7-byte or 9-byte new element is
+neither a form of this list nor 116 bytes. The expansion costs 10 bytes of
+script per position (2.5 vB) and saves 108 bytes of witness (27 vB) in each
+position that uses it, so a rewrite gains once a tenth of its positions
+change in their amount alone, as a top-up, a payment between members or an
+R3 settlement does. The reclaim form's R3 cross-check (`TRANSFER_CHECK`)
+reads the right sibling's new element before the right step has expanded
+it, so it takes the same size test: an 8-byte element has its old
+element's body by construction and is compared on its first eight bytes,
+which costs 8 bytes more in every left step. Listing:
 `spec/scripts/REWRITE_2_D8.txt`. Measured sizes are in 11.
 
 **MID tier.** Under `0xC0` numerics the rewrite is built like the MID
@@ -2562,8 +2655,9 @@ below them as in FULL; the new slot may instead be the single element
 `0x02`, the tier's unchanged marker (`0x01` being a slot's presence
 flag), in which case the step converts the old slot's node once, parks it
 as both the old and the new pair, and runs nothing else for the position,
-so an unchanged leaf costs its eleven elements and one more. Otherwise
-`REWRITE_STEP` has no `OP_SUBSTR`, so it decides
+so an unchanged leaf costs its eleven elements and one more. The new slot
+may also be `amt_num za wa 0x03`, the tier's amount-only slot (below).
+Otherwise `REWRITE_STEP` has no `OP_SUBSTR`, so it decides
 rules 3 and 5 from the leaf's fields before they are re-joined: the old
 slot is reduced to `[amt8 rest ek ok fin amt]` and the new slot to
 `[amt8 rest amt]`, where `rest` is the six fields after the amount
@@ -2583,6 +2677,47 @@ would be an unknown key type that `OP_CHECKSIGVERIFY` accepts. The
 witness layout and the stack bound are in 4.5. Listing:
 `spec/scripts/MID_REWRITE_2_D4.txt`.
 
+*Amount-only slot.* A new slot `amt_num za wa 0x03` stands for the old leaf
+with its amount replaced by the number `amt_num`: four elements of five to
+nine bytes in place of the eleven elements of a leaf slot, 116 bytes and
+seven elements fewer. It is expanded where the new slot would be reduced,
+after the old slot has been, to the same `[amt8 rest amt]` a leaf slot
+gives, with `rest` copied from the old slot's `[amt8 rest ek ok fin amt]`,
+so every rule below it reads the same three items:
+
+```
+OP_6 OP_ROLL OP_DROP                           # amt_num za wa X(6)   (drop the flag 0x03)
+OP_8 OP_ROLL OP_8 OP_ROLL OP_8 OP_ROLL         # X amt_num za wa
+OP_2 OP_PICK NONNEG OP_TOALTSTACK              # X amt_num za wa      | amt
+PADZ <ZERO4> OP_CAT                            # X amt8               (= le64(amt))
+OP_5 OP_PICK OP_SIZE OP_0NOTEQUAL OP_VERIFY    # X amt8 rest          (rest copied from X; empty = no old leaf)
+OP_FROMALTSTACK                                # X amt8 rest amt
+(OP_8 OP_ROLL) × 6                             # amt8 rest amt X
+```
+
+This is the cheapest form that is unambiguous, for three reasons. The
+slot's leaf fields are the old leaf's, so the only new information is the
+amount, and it arrives as the minimal number with the `PADZ` pad that every
+MID amount needs; `amt8` is then `le64` of it, derived and not supplied, so
+nothing has to be bound to anything. The flag `0x03` sits on top beside
+`0x01` (a leaf's presence) and `0x02` (the marker), so the test is a
+`PICK`, a one-byte constant and `OP_EQUAL`, and `MINIMALIF` rejects any
+other flag at the next `OP_IF`. And the slot is consumed from the same
+fixed depth as a leaf slot, below the old slot's reduced block, so the
+decision block and the signature rolls are untouched. What costs bytes is
+the old slot's block `X` being on top of the new slot: the three amount
+elements are rolled above it and `X` is rolled back above the new block,
+because the rules read `C_new` below `C_old`. The `OP_SIZE OP_0NOTEQUAL
+OP_VERIFY` is what fails an amount-only slot against an empty old slot: an
+empty block has no `rest`, and without the check the new node would be
+`E_0` beside a non-zero sum. The step grows by 65 bytes in the plain form
+(16 vB) and 69 in the reclaim form, whose `X` has two more items, against
+116 bytes (29 vB) of witness saved per amount-only position, so under `0xC0`
+the encoding gains only where more than about 56% of a rewrite's positions
+change in their amount alone. The negative number, the non-minimal number,
+the nonzero pad, the missing element and any other flag all fail in the
+suites (14).
+
 **CCV tier.** Under `0xC2` numerics the rewrite is this section's
 machine with `PROLOGUE` dropped (no `r`, no `m`), `CHECK_OLD` and `FINAL`
 the CCV tier's (4.6) and the exit payout of `REWRITE_STEP` one
@@ -2599,7 +2734,12 @@ OP_2 OP_PICK OP_8 OP_LEFT OP_NUMEQUALVERIFY    # old new              (exact pay
 
 The `OWNER_AUTH`, `ELEM_NODE` and `HASH_STEP2` macros and every roll
 depth are unchanged, so the `0xC2` `REWRITE_STEP` is FULL's plus 4
-bytes. Under `0xC0` numerics the rewrite is the MID machine above with
+bytes. The script ends in `CHECK_OLD` and `FINAL_SEL` (8.5), and the
+witness has the output-0 mode flag of 4.6 as its very bottom element
+(empty for assign, `0x01` for `DEDUCT` exactly when the new sum is below
+the input amount less the payouts), so a rewrite that lowers the tree's
+total, which 7.9 rule 6 leaves free for the transaction, is spendable;
+the reclaim forms use the same flag. Under `0xC0` numerics the rewrite is the MID machine above with
 the same two bindings replaced and `REWRITE_PAY` as a `DEDUCT` call on
 the old slot's exit-key element (five deep once the empty data operand
 and the index are in place) followed by the byte equality of the `OP_TX`
@@ -3736,61 +3876,78 @@ renewals and payments, three of every seven positions empty or joining):
 
 | script | positions | scenario | script | witness | owner sigs | tx vB | per-leaf vB |
 |---|---|---|---|---|---|---|---|
-| `REWRITE_2` | 4 | exit | 2,803 | 1,423 | 4 | 1,455 | 364 |
-| `REWRITE_4` | 16 | exit | 5,624 | 3,501 | 16 | 3,195 | 200 |
-| `REWRITE_6` | 64 | exit | 17,596 | 12,059 | 64 | 10,392 | 162 |
-| `REWRITE_6` | 64 | update | 17,596 | 19,483 | 64 | 9,496 | 148 per changed leaf |
-| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 17,596 | 14,104 | 36 | 8,538 | 167 per changed leaf, 133 per position |
+| `REWRITE_2` | 4 | exit | 2,843 | 1,423 | 4 | 1,465 | 366 |
+| `REWRITE_4` | 16 | exit | 5,784 | 3,501 | 16 | 3,235 | 202 |
+| `REWRITE_6` | 64 | exit | 18,236 | 12,059 | 64 | 10,552 | 165 |
+| `REWRITE_6` | 64 | update | 18,236 | 19,483 | 64 | 9,656 | 151 per changed leaf |
+| `REWRITE_6` | 64 | mixed (51 changed, 9 exits) | 18,236 | 14,104 | 36 | 8,698 | 171 per changed leaf, 136 per position |
 
 The transaction column prices the whole transaction on the model above:
 the skeleton with one payout per exiting leaf and none in the update
 case; the per-leaf column divides it by the leaves that leave or change.
 The marginal costs are what the design turns on: at `h = 6` each
-position costs 251 bytes of script (its `REWRITE_STEP` and its share of
+position costs 261 bytes of script (its `REWRITE_STEP` and its share of
 the `HASH_STEP2`s) and 234 bytes of witness for two leaf elements, or
-118 when the new element is the unchanged marker (8.9); an owner
+118 when the new element is the unchanged marker (8.9), or 124 when it
+is an 8-byte amount-only element; an owner
 signature adds 16 vB, and an exit adds the 43-byte output and drops the
-117-byte new element, so an unchanged leaf costs about 92 vB, a changed
-leaf about 138 vB and an exiting leaf about 151 vB. The marker's 7 bytes
+117-byte new element, so an unchanged leaf costs about 95 vB, a changed
+leaf about 140 vB and an exiting leaf about 154 vB. The marker's 7 bytes
 of script per position cost a changed or exiting leaf about 2 vB and
-save an unchanged one 29. Sixty-four owners who leave together therefore
+save an unchanged one 29, and the amount-only element's 10 bytes cost
+every position another 2.5 vB and save one that changes in its amount
+alone 27 (the two leaves of a payment, 54). Sixty-four owners who leave
+together therefore
 pay about what the operator pays to sweep them (`EVICT_SUBTREE_6`: 158
-vB per leaf), and a cohort that rewrites every balance pays about 148 vB
+vB per leaf), and a cohort that rewrites every balance pays about 151 vB
 per leaf against 1,030 vB for an `UPDATE` each (3,346 WU of witness on
 the skeleton without a payout). `REWRITE_h^x` adds the 65-byte exit-key
-signature, 16 vB, to every signed position (`REWRITE_X_4`, mixed: 5,922
+signature, 16 vB, to every signed position (`REWRITE_X_4`, mixed: 6,082
 / 4,675 bytes).
 
-The MID tier's rewrite (8.9) measures 4,787 / 1,642 and 10,516 / 4,436
+The amount-only element (7.9, 8.9) is measured on the operator's top-up of
+every balance of the 64-position cohort, where every position changes in
+its amount alone and none needs a signature: the FULL rewrite carries
+15,387 bytes of witness as 116-byte leaves and 8,475 as 8-byte elements,
+8,632 vB against 6,904 on the model above, 135 vB per leaf against 108.
+The CCV rewrite measures 15,323 and 8,411 bytes. Under `0xC0` the
+32-position cohort measures 8,739 and 5,027 bytes in MID and 8,675 and
+4,963 in CCV, 3,712 fewer in each. The saving is exactly 108 bytes a
+position under `0xC2` and 116 under `0xC0`; the expansion that buys it
+costs 10 bytes of script a position under `0xC2` and 65 under `0xC0`,
+which is where 8.9's break-even comes from.
+
+The MID tier's rewrite (8.9) measures 5,047 / 1,642 and 11,556 / 4,436
 bytes of script / witness data for `REWRITE_2` and `REWRITE_4` on the
-same mixed cohorts (`REWRITE_X_4`: 10,676 / 5,012), about 1.8 times
-FULL's script and 1.1 times its witness: each position costs about 477
+same mixed cohorts (`REWRITE_X_4`: 11,716 / 5,012), about twice
+FULL's script and 1.1 times its witness: each position costs about 542
 bytes of script, most of it the two slot joins with their fourteen
 field-size checks and the marker branch, and about 246 bytes of witness
 for its two eleven-element slots, 124 when the new slot is the marker.
 At `h = 5`, the largest height a full cohort fits under the stack limit
-(4.5), a 32-leaf mass exit measures 18,442 / 6,851 (7,925 vB on the
-model above, 248 vB per leaf against FULL's 200 at `h = 4` and 162 at
-`h = 6`) and a rewrite of every balance 18,442 / 10,787 (7,533 vB, 235
-per changed leaf against FULL's 148 at `h = 6`).
+(4.5), a 32-leaf mass exit measures 20,522 / 6,851 (8,445 vB on the
+model above, 264 vB per leaf against FULL's 202 at `h = 4` and 165 at
+`h = 6`) and a rewrite of every balance 20,522 / 10,787 (8,053 vB, 252
+per changed leaf against FULL's 151 at `h = 6`).
 
 The CCV tier's rewrite (4.6, 8.9) is each numerics' machine with the
 exit payout as one `CHECK_OUTPUT|DEDUCT` call, 4 bytes longer than the
-P2TR compare it replaces, and the fixed part 385 bytes shorter under
-`0xC2` and 368 under `0xC0` (`PROLOGUE` and the key arithmetic of
-`FINAL` gone), with `r` and `m` gone from the witness. Under `0xC2`
-`REWRITE_2/4/6` measure 2,434 / 1,464, 5,303 / 4,035 and 17,467 /
-14,040 bytes on the mixed cohorts (`REWRITE_X_4` 5,601 / 4,611), and the
-per-leaf figures are FULL's to within a few vB: 337, 194 and 162 vB per
-exiting leaf at `h = 2, 4, 6` (1,346, 3,099 and 10,344 vB), 148 per
-changed leaf for a rewrite of every balance at `h = 6` (9,448 vB), 167
-per changed leaf and 133 per position on the mixed cohort (8,490 vB).
-Under `0xC0` it is MID's rewrite less the same: `REWRITE_2/4` 4,435 /
-1,578 and 10,212 / 4,372 (`REWRITE_X_4` 10,372 / 4,948), and at `h =
+P2TR compare it replaces, and the fixed part 377 bytes shorter under
+`0xC2` and 360 under `0xC0` (`PROLOGUE` and the key arithmetic of
+`FINAL` gone, the 8-byte output-0 mode flag of 4.6 added), with `r` and
+`m` gone from the witness. Under `0xC2`
+`REWRITE_2/4/6` measure 2,482 / 1,464, 5,471 / 4,035 and 18,115 /
+14,040 bytes on the mixed cohorts (`REWRITE_X_4` 5,769 / 4,611), and the
+per-leaf figures are FULL's to within a few vB: 340, 196 and 164 vB per
+exiting leaf at `h = 2, 4, 6` (1,358, 3,141 and 10,506 vB), 150 per
+changed leaf for a rewrite of every balance at `h = 6` (9,610 vB), 170
+per changed leaf and 135 per position on the mixed cohort (8,652 vB).
+Under `0xC0` it is MID's rewrite less the same: `REWRITE_2/4` 4,703 /
+1,578 and 11,260 / 4,372 (`REWRITE_X_4` 11,420 / 4,948), and at `h =
 5`, the largest height a full cohort fits under the stack limit here as
-in MID (4.5), a 32-leaf mass exit 18,202 / 6,787 (7,849 vB, 245 per
-leaf against MID's 248) and a rewrite of every balance 18,202 / 10,723
-(7,457 vB, 233 per changed leaf against MID's 235).
+in MID (4.5), a 32-leaf mass exit 20,290 / 6,787 (8,371 vB, 262 per
+leaf against MID's 264) and a rewrite of every balance 20,290 / 10,723
+(7,979 vB, 249 per changed leaf against MID's 252).
 
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
 `D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness,
@@ -3989,7 +4146,7 @@ exits in a batch" as `EXIT_K` (section 13).
     key-addressed tree at depth 64 with 65,536 members, in which the same
     exit is 541 vB (`381 + 10k`, `k` the occupied levels). `design/native-opcodes.md` specifies the
     hypothetical semantics and `tools/layertree_msu.py` measures them
-    behind the simulator's `hypothetical=True` flag (126 checks,
+    behind the simulator's `hypothetical=True` flag (133 checks,
     `tools/test_msu.py`). It is not a tier and never enters
     `all_scripts()` or the golden vectors: this document composes opcodes
     that have been proposed and proposes none.
@@ -4012,7 +4169,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 777 and 57 checks respectively; the MID
+  operands during development), 1,391 and 57 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -4106,11 +4263,20 @@ exits in a batch" as `EXIT_K` (section 13).
   decrease, an exit-key change and an exit each without the owner's
   signature, a spurious signature where none is due, an old leaf whose
   amount field and number disagree, a malformed node pad, a wrong `m` and
-  an occupied position presented as empty, all rejected; a 32-position
+  an occupied position presented as empty, all rejected; the four-element
+  amount-only slot of 8.9 over the same plan as FULL's (seven elements
+  saved per amount-only position, and a negative, a non-minimal or
+  mis-padded amount, a missing element, the flag `0x04`, an amount-only
+  slot against an empty or as an old slot, an unsigned decrease and a
+  `SEQ_FINAL` raise without its owner all rejected) and the reclaim
+  form's R3 transfer, top-up and settlement-with-roll encoded with it; a 32-position
   `REWRITE_5` with every position occupied before and after the rewrite
   (every key rotated, 32 signatures, 966 elements at the peak) and one in
   which all 32 leave succeed, and `REWRITE_6` on the mixed cohort and as
-  a 64-leaf mass exit are rejected by the stack limit (4.5).
+  a 64-leaf mass exit are rejected by the stack limit (4.5), as is a
+  64-position settlement of pending and landing pairs even with every
+  leaf an amount-only slot (1,305 elements), while the 32-position one
+  needs 706 elements with amount-only slots and 930 without.
 * `tools/layertree_ccv.py` — the CCV-tier generators (section 4.6) for
   both profiles; `tools/test_ccv.py` executes them end to end (see its
   bullet below).
@@ -4248,12 +4414,23 @@ exits in a batch" as `EXIT_K` (section 13).
   element,
   and for `EVICT_SUBTREE_2` an occupied position presented as empty,
   swapped positions, payouts out of order and an empty position supplied
-  as 116 zero bytes, all rejected), 1,244 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  as 116 zero bytes, all rejected; and the 8-byte amount-only element of
+  7.9 over a plan of an amount raised with no signature, an amount lowered
+  with the owner's, an unchanged leaf and an empty position left empty,
+  at `D = 4` and `16`, with and without `^x`: the plan passes, the witness
+  is 108 bytes shorter per amount-only position, and an unsigned decrease,
+  an amount other than the one output 0 commits, a 7-byte and a 9-byte
+  new element, an 8-byte element against an empty old element, an
+  amount-only old element and a `SEQ_FINAL` raise without its owner all
+  fail, the same raise signed and an amount-only decrease beside an exit
+  succeed; the reclaim form's R3 transfer encoded with two amount-only
+  elements passes and its unbalanced, right-hand and ordinary-leaf variants
+  fail), 1,594 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 2,328 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 4,295 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -4356,7 +4533,19 @@ exits in a batch" as `EXIT_K` (section 13).
   voucher after a sub-dust top-up fail) and the credit leaf of 10.3 in
   both numerics (`REWRITE_2^x` by the operator alone, then `CLAIM^x` by
   the recipient on the vouchers signed before it; the operator's own
-  redemption and exit-key move fail); and one direct opcode test
+  redemption and exit-key move fail); the amount-only element of 7.9 in
+  both numerics (the 8-byte element under `0xC2`, the four-element slot
+  under `0xC0`, over FULL's amount-only plan at `h = 2` and `4` with and
+  without `^x`, with the negatives of FULL's and MID's suites, and the
+  reclaim form's transfer, top-up and settlement-with-roll encoded with it);
+  the output-0 mode flag of 4.6
+  (`UPDATE`, `UPDATE^x` and `REWRITE_h`, `REWRITE_h^x` at `h = 1, 2` in
+  both numerics: a net decrease, an exit with a decrease, an offset and
+  an exit with an increase each spend under the flag the rule calls for,
+  the decrease with the freed value paid to another output, and fail
+  under the other flag, under a flag other than empty or `0x01`, without
+  the owner's signature and with output 0 off its new sum by one); and
+  one direct opcode test
   for each BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
@@ -4424,7 +4613,7 @@ exits in a batch" as `EXIT_K` (section 13).
   introspection testable. `txn` builds, signs and verifies every
   transition of every tier end to end against the tier's real taptree
   and tree output, one builder per transition selected by the option
-  set's tier: 387 cases (95 FULL, 94 MID, 8 MIN, 94 CCV, 96 CCV0,
+  set's tier: 427 cases (105 FULL, 104 MID, 8 MIN, 104 CCV, 106 CCV0,
   four of them negatives the simulator must reject), each pinned to the
   simulator's signature hash, and
   `tools/replay_txn_dump.py` runs every signed Go witness through

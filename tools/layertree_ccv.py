@@ -45,6 +45,12 @@ spendable: the joiner's funds arrive through other inputs, above the
 floor. The exact-payout restriction follows: with assign-on-out0 a
 payout short of leaf.amount would strand its difference in the residual
 and force output 0 above ns.
+
+The transitions whose net change can have either sign (UPDATE, UPDATE^x,
+REWRITE_h and its forms) take the output-0 mode from a witness flag at the
+very bottom (_final_ccv_sel, _final_ccv0_sel; spec 4.6): DEDUCT when the new
+sum is below the input's residual, so that a decrease, which 7.4 and 7.9
+rule 6 leave free for the transaction, is spendable, assign otherwise.
 """
 import os
 import sys
@@ -238,7 +244,11 @@ def join_script_ccv(depth, height, operator_key, profile="D", k=1):
 
 
 def update_script_ccv(depth, operator_key, profile="D", exit_consent=False):
-    """UPDATE / UPDATE^x under CCV. witness = [path] old new osig opsig [xsig]."""
+    """UPDATE / UPDATE^x under CCV. witness = flag [path] old new osig opsig
+    [xsig]: the output-0 mode flag of _final_ccv_sel at the very bottom
+    (spec 4.6), empty for assign or 0x01 for DEDUCT, so that an owner-signed
+    decrease of the leaf's amount (7.4: a decrease is the transaction's to
+    spend) is spendable."""
     s = prologue_ccv()
     if exit_consent:
         s += [4, "OP_PICK", F.OFF_EXIT_KEY, 32, "OP_SUBSTR",
@@ -254,7 +264,7 @@ def update_script_ccv(depth, operator_key, profile="D", exit_consent=False):
     s += [F.NODE_PREFIX, "OP_ROT", "OP_ROT"]
     s += F.leaf_acc() + ["OP_ROT"] + F.leaf_acc()
     s += F.levels(profile, depth)
-    return s + check_old_ccv(profile) + final_ccv(depth)
+    return s + check_old_ccv(profile) + _final_ccv_sel(depth)
 
 
 def split_script_ccv(depth, profile="D", dust_min=lt.DUST_MIN):
@@ -500,7 +510,8 @@ def _join_script_ccv0(depth, height, operator_key, sparse=False, k=1):
 
 def _update_script_ccv0(depth, operator_key, sparse=False, exit_consent=False):
     """UPDATE / UPDATE^x under c0: MID's update with the same two checks
-    replaced. MID's witness order minus r and m."""
+    replaced. MID's witness order minus r and m, plus the output-0 mode
+    flag of _final_ccv0_sel at the very bottom (spec 4.6)."""
     s = []
     if exit_consent:
         s += [21, "OP_PICK", "OP_CHECKSIGVERIFY"]
@@ -516,7 +527,7 @@ def _update_script_ccv0(depth, operator_key, sparse=False, exit_consent=False):
         s += M.roll(7, 4) + M.sparse_setup()
     s += [F.NODE_PREFIX] + M.roll(4, 4)
     s += M.levels(sparse, depth)
-    return s + _check_old_ccv0(sparse) + _final_ccv0(depth)
+    return s + _check_old_ccv0(sparse) + _final_ccv0_sel(depth)
 
 
 def _pay_evict_ccv0():
@@ -672,17 +683,21 @@ def rewrite_script_ccv(depth, height, operator_key, exit_consent=False, reclaim_
     of REWRITE_STEP as _rewrite_pay_ccv; the hoisted constants Z, L, T and
     the machine depth d are FULL's, so every roll depth is the same.
 
+    The witness has one more element at the very bottom, the output-0 mode
+    flag of _final_ccv_sel (spec 4.6): a rewrite whose new sum is below the
+    input's residual (an owner-signed decrease, 7.9 rule 6) needs DEDUCT,
+    any other needs assign.
+
     With reclaim_key this is the reclaim form of 7.9 rule 8 (REWRITE_R_h,
-    REWRITE_XR_h): FULL's REWRITE_STEP with R1 and R3, and one more
-    witness element at the very bottom, the output-0 mode flag of
-    _final_ccv_sel, so that a reclaim's value can leave the tree.
+    REWRITE_XR_h): FULL's REWRITE_STEP with R1 and R3, so that a reclaim's
+    value can leave the tree under the same flag.
     """
     assert 1 <= height <= depth
     s = prologue_ccv() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks
     s += F.rewrite_machine(height, exit_consent, _rewrite_pay_ccv(), reclaim_key)   # T oh os nh ns
     s += F.levels("D", depth, height)
     s += check_old_ccv("D")
-    return s + (final_ccv(depth) if reclaim_key is None else _final_ccv_sel(depth))
+    return s + _final_ccv_sel(depth)
 
 
 def _rewrite_pay_ccv0():
@@ -717,7 +732,7 @@ def _rewrite_script_ccv0(depth, height, operator_key, exit_consent=False):
     s = [operator_key, "OP_CHECKSIGVERIFY"]                               # .. blocks
     s += M.rewrite_body(height, exit_consent, _rewrite_pay_ccv0())        # T oh os nh ns
     s += M.levels(False, depth, height)
-    return s + _check_old_ccv0(False) + _final_ccv0(depth)
+    return s + _check_old_ccv0(False) + _final_ccv0_sel(depth)
 
 
 # --------------------------------- pending-leaf receive (6.2, 7.5.4, 7.11) --
@@ -1013,10 +1028,12 @@ def _rewrite_step_r_ccv0(exit_consent, reclaim_key, side):
     s += M.roll(4) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4               # .. idx L Z              | .. ns nsc os osc
     if side == "L":
         s += ["OP_0", "OP_TOALTSTACK", "OP_0", "OP_TOALTSTACK"]        # | .. (0 0)
-    s += ["OP_ELSE"]                                                   # -- a leaf or empty --
+    s += ["OP_ELSE"]                                                   # -- a leaf, empty or amount only --
+    s += [8, "OP_PICK", M.REWRITE_AMOUNT, "OP_EQUAL", "OP_IF"]         # -- amount only: the old rest, a new amount --
+    s += M._expand_amount(8, 6) + ["OP_ELSE"]
     s += ["OP_TOALTSTACK"] * 8
     s += ["OP_IF"] + M._leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]
-    s += ["OP_FROMALTSTACK"] * 8                                       # .. C_new(3) C_old(6) isR ea
+    s += ["OP_FROMALTSTACK"] * 8 + ["OP_ENDIF"]                        # .. C_new(3) C_old(6) isR ea
     if side == "R":
         s += _absorb_pop() + [                                         # .. C_new C_old isR ea key delta
             "OP_DUP", "OP_0NOTEQUAL", "OP_IF",

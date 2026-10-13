@@ -84,7 +84,9 @@ section 7 are right; the tests show the *scripts* implement the rules.
    contains only the entries you meant to change. **The
    `taptree_full_d4.merkle_root` vector must not change unless the
    reference script *set* changes**; tree-creation variants (`UPDATE_X`,
-   exact-payout `EXIT`) are excluded from it on purpose. It has moved
+   exact-payout `EXIT`, `REWRITE_h`) are excluded from it on purpose, so
+   the CCV mode flag of 0.14.1 and the amount-only element of 0.15.0, which
+   changed only variants, left it where 0.13.0 put it. It has moved
    three times, each time because `CLAIM` (a member of the set) changed:
    at spec 0.10.0 its voucher message was rebound from `m` to `tree_id`
    and the carve rule of 7.5 rule 5 was added, taking the root from
@@ -149,6 +151,12 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   matches `txscript`; the MIN tier's constructive introspection depends on
   this. `txscript` accepts `0xC2` leaf versions, which is what makes the
   sighash cross-check possible.
+* **CCV tests and `TxContext`**: a context carries BIP-443's per-output
+  amount accumulators, so running two scripts on one context fails the
+  second at its output-0 call whatever it does. Build a fresh context per
+  run or call `ctx.ccv_reset()` (`test_ccv.run_fresh`); a negative that
+  reuses the context of a positive run fails for that reason and proves
+  nothing. `test_two_trees` relies on the accumulation on purpose.
 * **Killing test processes**: `pkill -f` matched the shell running it
   (exit 144). Kill by PID, and run long suites under `nohup` or `timeout`.
 * **Sparse profile collisions**: at small `D` two leaves can derive the
@@ -226,18 +234,18 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
 
 ```
 python3 tools/layertree_ref.py     # regenerate spec/test-vectors.json
-python3 tools/test_scripts.py      # FULL tier, both profiles (1,244 checks)
-python3 tools/test_mid.py          # MID tier (777 checks)
+python3 tools/test_scripts.py      # FULL tier, both profiles (1,594 checks)
+python3 tools/test_mid.py          # MID tier (1,391 checks)
 python3 tools/test_min.py          # MIN tier (57 checks)
-python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (2,328 checks)
+python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (4,295 checks)
 python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (220 checks)
-python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (61 checks)
+python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (133 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
 python3 tools/gen_golden.py        # spec/golden.json
 python3 tools/fee_analysis.py      # spec/fee-analysis.md tables
 GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test ./... && gofmt -l .
-LAYERTREE_TXN_DUMP=/tmp/txn-dump.json GOTOOLCHAIN=local go test ./txn -run TestTransitionsEndToEnd && python3 tools/replay_txn_dump.py /tmp/txn-dump.json   # every Go-built witness through the simulator (387 cases, 4 of them negatives the script must reject)
+LAYERTREE_TXN_DUMP=/tmp/txn-dump.json GOTOOLCHAIN=local go test ./txn -run TestTransitionsEndToEnd && python3 tools/replay_txn_dump.py /tmp/txn-dump.json   # every Go-built witness through the simulator (427 cases, 4 of them negatives the script must reject)
 cd formal && lake build
 ```
 

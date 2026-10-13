@@ -684,7 +684,10 @@ def _rewrite_plan(w, height, scenario):
     position occupied and every leaf's key rotated), "exit" (every
     position occupied and every leaf leaving) and "topup" (every position
     occupied and every leaf's amount raised by 500, the operator's top-up
-    of a cohort under 7.9 rule 3, which needs no owner signature).
+    of a cohort under 7.9 rule 3, which needs no owner signature) and "ao"
+    (the amount-only encodings, for a height of at least 2: by offset modulo
+    4, an amount raised by 500 with no signature, an amount lowered by 300
+    with the owner's, an unchanged leaf and an empty position left empty).
     """
     n = 1 << height
     base = 1 << height                          # subtree index 1
@@ -701,6 +704,11 @@ def _rewrite_plan(w, height, scenario):
             continue
         if scenario == "exit":
             old[i], new[i] = lf, None
+            continue
+        if scenario == "ao":
+            old[i], new[i] = {0: (lf, lf.with_amount_seq(lf.amount + 500, lf.seq)),
+                              1: (lf, lf.with_amount_seq(lf.amount - 300, lf.seq)),
+                              2: (lf, lf), 3: (None, None)}[i % 4]
             continue
         if i % 7 == 6:                           # empty position
             old[i] = None
@@ -734,11 +742,23 @@ def _needs_owner_sig(old, new):
     return True
 
 
-def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent, sign=True, marker=True):
+def _amount_only(old, new):
+    """Whether `new` is `old` with another amount and nothing else, the
+    change an 8-byte amount-only element can express (7.9)."""
+    return (old is not None and new is not None and old.amount != new.amount
+            and old.serialize()[8:] == new.serialize()[8:])
+
+
+def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent, sign=True, marker=True,
+                     amounts=False, raw_new=None, raw_old=None):
     """Witness (bottom..top) for REWRITE_h: path, blocks for position 2^h-1 .. 0, sig_op, r, m.
     Returns (witness, signatures) where signatures maps offset -> [sig, xsig].
     With marker, an unchanged leaf's new element is the one-byte marker
-    REWRITE_SAME (7.9); without it, a second copy of the leaf."""
+    REWRITE_SAME (7.9); without it, a second copy of the leaf. With amounts,
+    a new leaf that differs from its old leaf in the amount alone is the
+    8-byte amount-only element le64(amount). raw_new and raw_old override
+    the new or old element of a position (for the malformed-element
+    negatives)."""
     n = 1 << height
     sigs = {}
     blocks = []
@@ -751,18 +771,23 @@ def _rewrite_witness(w, height, path, old, new, ctx, root, sig_op, exit_consent,
                 s.append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
             sigs[i] = s
             block += list(reversed(s))           # xsig below sig
-        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+        if raw_new and i in raw_new:
+            block.append(raw_new[i])
+        elif marker and o is not None and nw is not None and o.serialize() == nw.serialize():
             block.append(ls.REWRITE_SAME)
+        elif amounts and _amount_only(o, nw):
+            block.append(nw.serialize()[:8])
         else:
             block.append(nw.serialize() if nw else b"")
-        block.append(o.serialize() if o else b"")
+        block.append(raw_old[i] if raw_old and i in raw_old else (o.serialize() if o else b""))
         blocks += block
     return w.path_witness(path, height) + blocks + [sig_op, root[0], w.m], sigs
 
 
-def rewrite_case(depth, height, scenario="mixed", exit_consent=False):
-    """Build a REWRITE_h spend for a scenario. Returns a dict with the world,
-    script, witness, context, plan and the signatures, for tests and sizing."""
+def rewrite_case(depth, height, scenario="mixed", exit_consent=False, plan=None):
+    """Build a REWRITE_h spend for a scenario (or for `plan`, a (base, old,
+    new) of _rewrite_plan's shape). Returns a dict with the world, script,
+    witness, context, plan and the signatures, for tests and sizing."""
     name = f"REWRITE_X_{height}" if exit_consent else f"REWRITE_{height}"
     w = World(depth, "D")
     toks = ls.rewrite_script(depth, height, w.op_pk, exit_consent)
@@ -771,7 +796,7 @@ def rewrite_case(depth, height, scenario="mixed", exit_consent=False):
     script = assemble(toks)
     w.compiled = dict(w.compiled); w.compiled[name] = script
     w.m = lt.taptree_root([lt.tapleaf_hash(c) for c in w.compiled.values()])
-    base, old, new = _rewrite_plan(w, height, scenario)
+    base, old, new = plan or _rewrite_plan(w, height, scenario)
     w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
     w.tree.leaves[0] = mk_leaf("alice", 50_000)
     w.tree.leaves[(1 << depth) - 1] = mk_leaf("operator", 1_000_000)
@@ -924,6 +949,96 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True):
         print(f"{name} D={depth}: {n} positions, {n_sig} owner signatures, script {len(c['script'])} B, "
               f"witness {sum(len(x) for x in wit)} B, varops {it.cost}, sigops {it.sigchecks}, maxdepth {it.max_depth}")
     return it, len(c["script"]), sum(len(x) for x in wit)
+
+
+def test_rewrite_amount_only(depth, height, exit_consent=False, verbose=True):
+    """The 8-byte amount-only new element of REWRITE_h (spec 7.9, 8.9):
+    `le64(a)` stands for the old leaf with its amount replaced by `a`, and
+    is expanded before any rule reads it. Over the "ao" plan (an amount
+    raised with no signature, an amount lowered with the owner's, an
+    unchanged leaf and an empty position left empty) the amount-only
+    witness passes and is 108 bytes shorter per amount-only position than
+    the full one. The rules are the same ones the full leaf meets: an
+    unsigned decrease, a SEQ_FINAL raise without its owner, a forged
+    amount, 7- and 9-byte elements, an 8-byte element against an empty old
+    element and the amount-only form as an old element all fail."""
+    c = rewrite_case(depth, height, "ao", exit_consent)
+    w, name, ctx, root, wit = c["w"], c["name"], c["ctx"], c["root"], c["wit"]
+    old, new, sigs, path, base = c["old"], c["new"], c["sigs"], c["path"], c["base"]
+    n = 1 << height
+    tag = f"{name} D={depth} amount-only"
+    n_ao = sum(1 for i in range(n) if _amount_only(old[i], new[i]))
+    i_up = next(i for i in range(n) if _amount_only(old[i], new[i]) and new[i].amount > old[i].amount)
+    i_down = next(i for i in range(n) if _amount_only(old[i], new[i]) and new[i].amount < old[i].amount)
+    i_empty = next(i for i in range(n) if old[i] is None and new[i] is None)
+
+    def build(old_=None, new_=None, ctx_=None, root_=None, sign=True, amounts=True, **kw):
+        ctx_ = ctx_ or ctx
+        so = schnorr_sign(ctx_.sighash(), w.op_sk)
+        return _rewrite_witness(w, height, path, old_ or old, new_ or new, ctx_, root_ or root, so,
+                                exit_consent, sign, True, amounts, **kw)[0]
+    wit_ao, wit_full = build(), build(amounts=False)
+    it = w.run(name, wit_ao, ctx)
+    check(True, f"{tag}: the plan with {n_ao} amount-only positions passes")
+    check(sum(len(x) for x in wit_full) - sum(len(x) for x in wit_ao) == 108 * n_ao,
+          f"{tag}: 108 bytes saved per amount-only position")
+    check(sum(1 for x in wit_ao if len(x) == 8) == n_ao, f"{tag}: one 8-byte element per amount-only position")
+    check(i_up not in sigs and i_down in sigs,
+          f"{tag}: the raise needs no signature and the decrease the owner's")
+    # the amount-only decrease without its owner's signature
+    wit_nosig = list(wit_ao)
+    for x in sigs[i_down]:
+        del wit_nosig[wit_nosig.index(x)]
+    expect_fail(lambda: w.run(name, wit_nosig, ctx), f"{tag}: unsigned decrease")
+    # a forged amount: output 0 and the fold are built for another amount
+    forged = dict(new)
+    forged[i_up] = old[i_up].with_amount_seq(old[i_up].amount + 501, old[i_up].seq)
+    wit_f = build(new_=forged)
+    expect_fail(lambda: w.run(name, wit_f, ctx), f"{tag}: an amount other than the one output 0 commits")
+    # 7- and 9-byte elements where the signed decrease's 8-byte one goes
+    at_down = wit_ao.index(new[i_down].serialize()[:8])
+    for size in (7, 9):
+        bad = list(wit_ao)
+        bad[at_down] = (new[i_down].serialize()[:8] + b"\x00")[:size]
+        expect_fail(lambda: w.run(name, bad, ctx), f"{tag}: a {size}-byte new element")
+    # an 8-byte element against an empty old element
+    wit_e = build(raw_new={i_empty: bytes(8)})
+    expect_fail(lambda: w.run(name, wit_e, ctx), f"{tag}: an 8-byte element against an empty old element")
+    wit_e2 = build(raw_new={i_empty: lt.le64(old[i_up].amount)})
+    expect_fail(lambda: w.run(name, wit_e2, ctx), f"{tag}: an amount against an empty old element")
+    # the amount-only form as an old element
+    wit_o = build(raw_old={i_up: old[i_up].serialize()[:8]})
+    expect_fail(lambda: w.run(name, wit_o, ctx), f"{tag}: an amount-only old element")
+    # a SEQ_FINAL leaf raised by one satoshi: the owner signs, or it fails
+    lf = old[i_up]
+    f_old, f_new = dict(old), dict(new)
+    f_old[i_up] = lf.with_amount_seq(lf.amount, ls.SEQ_FINAL)
+    f_new[i_up] = lf.with_amount_seq(lf.amount + 1, ls.SEQ_FINAL)
+    cf = rewrite_case(depth, height, exit_consent=exit_consent, plan=(base, f_old, f_new))
+    wf, ctxf = cf["w"], cf["ctx"]
+    so = schnorr_sign(ctxf.sighash(), wf.op_sk)
+    signed = _rewrite_witness(wf, height, cf["path"], f_old, f_new, ctxf, cf["root"], so, exit_consent,
+                              True, True, True)
+    wf.run(cf["name"], signed[0], ctxf)
+    check(True, f"{tag}: a SEQ_FINAL raise passes with the owner's signature")
+    bare = list(signed[0])
+    for x in signed[1][i_up]:
+        del bare[bare.index(x)]
+    expect_fail(lambda: wf.run(cf["name"], bare, ctxf), f"{tag}: a SEQ_FINAL raise without the owner's signature")
+    # an amount-only decrease and a raise of a plain leaf in the same
+    # rewrite as an exit, which the owner signs and the covenant pays
+    if height >= 2:
+        x_old, x_new = dict(old), dict(new)
+        x_new[i_up] = None
+        cx = rewrite_case(depth, height, exit_consent=exit_consent, plan=(base, x_old, x_new))
+        wx = _rewrite_witness(cx["w"], height, cx["path"], x_old, x_new, cx["ctx"], cx["root"],
+                              schnorr_sign(cx["ctx"].sighash(), cx["w"].op_sk), exit_consent, True, True, True)[0]
+        cx["w"].run(cx["name"], wx, cx["ctx"])
+        check(True, f"{tag}: an amount-only decrease beside an exit")
+    if verbose:
+        print(f"{name} D={depth} amount-only: {n} positions, {n_ao} amount-only, witness "
+              f"{sum(len(x) for x in wit_ao)} B against {sum(len(x) for x in wit_full)} B, varops {it.cost}")
+    return it
 
 
 def test_voucher_topup(depth, verbose=True):
@@ -2267,10 +2382,12 @@ def test_reclaim(depth, verbose=True):
     return len(w.compiled["RECLAIM_1"])
 
 
-def _pending_rewrite(pw, name, base, height, old, new, locktime=0, sign=(), tamper=None):
+def _pending_rewrite(pw, name, base, height, old, new, locktime=0, sign=(), tamper=None, amounts=False):
     """Run a REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1.
     `sign` lists offsets that carry an owner signature (and, under ^x, an
-    exit-key signature); returns the interpreter."""
+    exit-key signature); with amounts a new leaf that differs from its old
+    one in the amount alone is the 8-byte amount-only element; returns the
+    interpreter."""
     w = pw.w
     n = 1 << height
     leaves = {base + i: lf for i, lf in old.items() if lf}
@@ -2298,6 +2415,8 @@ def _pending_rewrite(pw, name, base, height, old, new, locktime=0, sign=(), tamp
             blocks.append(schnorr_sign(ctx.sighash(), sk("operator-owner")))
         if o is not None and nw is not None and o.serialize() == nw.serialize():
             blocks.append(ls.REWRITE_SAME)
+        elif amounts and _amount_only(o, nw):
+            blocks.append(nw.serialize()[:8])
         else:
             blocks.append(nw.serialize() if nw else b"")
         blocks.append(o.serialize() if o else b"")
@@ -2319,6 +2438,18 @@ def test_pending_rewrite(depth, verbose=True):
         _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
                          {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)})
         check(True, f"{name} R3 transfer P -> L, operator only, before the deadline")
+        # the same transfer with both leaves as 8-byte amount-only elements
+        _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                         {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)}, amounts=True)
+        check(True, f"{name} R3 transfer with two amount-only elements")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                                             {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)},
+                                             amounts=True),
+                    f"{name} R3 with amount-only elements raising the landing leaf by less than the transfer")
+        expect_fail(lambda: _pending_rewrite(pw, name, 4, 1, {0: L, 1: P},
+                                             {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)},
+                                             amounts=True),
+                    f"{name} R3 with amount-only elements and the pending leaf on the right")
         expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
                                              {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
                     f"{name} R3 with the landing leaf raised by less than the transfer")
@@ -2365,6 +2496,8 @@ def test_pending_rewrite(depth, verbose=True):
         # an amount-only top-up of the pending leaf is still rule 3's
         _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L})
         check(True, f"{name} top-up of the pending leaf, operator only")
+        _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}, amounts=True)
+        check(True, f"{name} top-up of the pending leaf as an amount-only element")
         # nothing reaches a leaf that is not reclaimable
         A = mk_leaf("c0", 20_000, pw.w.op_pk, 600_000)
         B = mk_leaf("c1", 10_000, pw.w.op_pk, 600_000)
@@ -2375,12 +2508,20 @@ def test_pending_rewrite(depth, verbose=True):
         expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: A, 1: B},
                                              {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
                     f"{name} R3 from an ordinary leaf")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: A, 1: B},
+                                             {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)},
+                                             amounts=True),
+                    f"{name} R3 from an ordinary leaf with amount-only elements")
     # two pairs in one rewrite: one settles, the other reclaims and rolls
     P_b, L_b = pw.pending(9_000, T, label="Pb"), pw.landing(4_000, label="Lb")
     it = _pending_rewrite(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
                           {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
                            2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T)
     check(True, "REWRITE_XR_2: a settlement and a roll in one rewrite, operator only")
+    _pending_rewrite(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                     {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+                      2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T, amounts=True)
+    check(True, "REWRITE_XR_2: the same settlement with amount-only elements")
     s1 = len(pw.w.compiled["REWRITE_XR_1"])
     s2 = len(pw.w.compiled["REWRITE_XR_2"])
     if verbose:
@@ -2418,6 +2559,8 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
         test_evict_subtree(d, h)
         test_rewrite(d, h)
     test_rewrite(16, 4, exit_consent=True)
+    for d, h, x in ((4, 2, False), (16, 4, False), (16, 4, True)):
+        test_rewrite_amount_only(d, h, x)
     test_detach(16, 8)
     test_detach_options(8, 2)
     test_detach_options(16, 8)

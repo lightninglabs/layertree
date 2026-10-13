@@ -18,7 +18,11 @@ to what CCV actually checks), plus CCV-specific negatives:
 * the tree-creation variants UPDATE^x (both numerics) and SPLIT (0xC2);
 * the pending-leaf receive (CLAIM^m, CLAIM^hm, RECLAIM_1 and the reclaim
   form of REWRITE_h) in both numerics, including the output-0 mode that
-  lets a reclaim free its value.
+  lets a reclaim free its value;
+* the same output-0 mode flag on UPDATE, UPDATE^x and every form of
+  REWRITE_h (test_update_flag_ccv, test_rewrite_flag_ccv): a net decrease
+  spends under DEDUCT, an increase or equal sum under assign, and the other
+  flag, an out-of-range flag and a misplaced output 0 each fail.
 
 Prints the check count and a size/cost table like the other suites.
 """
@@ -135,6 +139,14 @@ class World:
         t = lt.Tree(self.depth)
         t.leaves = dict(self.tree.leaves)
         return t
+
+
+def run_fresh(w, name, wit, ctx):
+    """Run one script with the transaction-wide CCV state (BIP-443's amount
+    accumulators) reset, so that a context reused across runs does not
+    carry one run's assigned amounts into the next."""
+    ctx.ccv_reset()
+    return w.run(name, wit, ctx)
 
 
 def mk_leaf(label, amount, evictor=None, evict_after=0, nonce=None, seq=0):
@@ -427,9 +439,9 @@ def test_all(depth, profile, verbose=True):
     ctx = w.ctx([(r4[1], w.spk(r4))], extra_in=(30_700, P2WPKH))
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    wit = w.path_witness(upath) + [alice.serialize(), alice2.serialize(), asig, osig]
+    wit = [b""] + w.path_witness(upath) + [alice.serialize(), alice2.serialize(), asig, osig]   # flag: assign
     record("UPDATE", w.run("UPDATE", wit, ctx), wit)
-    expect_fail(lambda: w.run("UPDATE", w.path_witness(upath) + [alice.serialize(), alice2.serialize(), osig, osig], ctx),
+    expect_fail(lambda: w.run("UPDATE", [b""] + w.path_witness(upath) + [alice.serialize(), alice2.serialize(), osig, osig], ctx),
                 "update without owner")
     w.tree = t4
 
@@ -628,7 +640,7 @@ def test_two_trees(depth, profile):
     ctx = mkctx([(r1[1], w.spk(r1))], (30_700, P2WPKH))
 
     def uwit(c):
-        return w.path_witness(upath) + [alice.serialize(), alice2.serialize(),
+        return [b""] + w.path_witness(upath) + [alice.serialize(), alice2.serialize(),
                                         schnorr_sign(c.sighash(), sk("alice-owner")),
                                         schnorr_sign(c.sighash(), w.op_sk)]
     try:
@@ -682,7 +694,7 @@ def test_update_x_ccv(depth, profile):
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
     xsig = schnorr_sign(ctx.sighash(), sk("alice-exit"))
-    block = w.path_witness(upath) + [alice.serialize(), alice2.serialize()]
+    block = [b""] + w.path_witness(upath) + [alice.serialize(), alice2.serialize()]
     wit = block + [asig, osig, xsig]
     it = None
     try:
@@ -694,6 +706,18 @@ def test_update_x_ccv(depth, profile):
     expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, bytes(64)], ctx), "UPDATE^x garbage exit_sig")
     expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig], ctx), "UPDATE^x missing exit_sig")
     expect_fail(lambda: w.run("UPDATE_X", block + [osig, osig, xsig], ctx), "UPDATE^x without the owner signature")
+    # a net decrease spends under the DEDUCT flag (spec 4.6), not under assign
+    alice3 = alice.with_amount_seq(20_000, 1)
+    t3 = w.clone(); t3.leaves[s_alice] = alice3; r3 = t3.root()
+    ctx3 = w.ctx([(r3[1], w.spk(r3))], extra_in=(700, P2WPKH))
+    sigs3 = [schnorr_sign(ctx3.sighash(), k) for k in (sk("alice-owner"), w.op_sk, sk("alice-exit"))]
+    dec = w.path_witness(upath) + [alice.serialize(), alice3.serialize()] + sigs3
+    try:
+        run_fresh(w, "UPDATE_X", [b"\x01"] + dec, ctx3)
+        check(True, "UPDATE^x: a net decrease spends under the DEDUCT flag")
+    except ScriptError as e:
+        check(False, f"UPDATE^x decrease positive: {str(e)[:70]}")
+    expect_fail(lambda: run_fresh(w, "UPDATE_X", [b""] + dec, ctx3), "UPDATE^x: a net decrease under the assign flag")
     return it, len(w.compiled["UPDATE_X"]), sum(len(x) for x in wit)
 
 
@@ -957,7 +981,7 @@ def test_c0(depth, profile):
     ctx = w.ctx([(r4[1], w.spk(r4))], (30_700, P2WPKH))
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
-    wit = (list(M.pad(r4[1])) + w.pads_for(root[1]) +
+    wit = ([b""] + list(M.pad(r4[1])) + w.pads_for(root[1]) +      # the mode flag (assign) below the pads
            M.w_levels(upath, alice.node(), alice2.node(), S) +
            w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice2) + [asig, osig])
     it = w.run("UPDATE", wit, ctx)
@@ -976,7 +1000,7 @@ def test_c0(depth, profile):
     osig = schnorr_sign(ctx.sighash(), w.op_sk)
     asig = schnorr_sign(ctx.sighash(), sk("alice-owner"))
     xsig = schnorr_sign(ctx.sighash(), sk("alice-exit"))
-    block = (list(M.pad(r4[1])) + w.pads_for(root[1]) +
+    block = ([b""] + list(M.pad(r4[1])) + w.pads_for(root[1]) +
              M.w_levels(upath, alice.node(), alice2.node(), S) +
              w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice2))
     try:
@@ -988,6 +1012,19 @@ def test_c0(depth, profile):
         check(False, f"c0: UPDATE^x positive: {str(e)[:70]}")
     expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig, asig], ctx), "c0: UPDATE^x exit_sig by the wrong key")
     expect_fail(lambda: w.run("UPDATE_X", block + [asig, osig], ctx), "c0: UPDATE^x missing exit_sig")
+    # a net decrease spends under the DEDUCT flag (spec 4.6), not under assign
+    alice3 = alice.with_amount_seq(20_000, 1)
+    t3 = w.clone(); t3.leaves[s_a] = alice3; r3 = t3.root()
+    ctx3 = w.ctx([(r3[1], w.spk(r3))], (700, P2WPKH))
+    sigs3 = [schnorr_sign(ctx3.sighash(), k) for k in (sk("alice-owner"), w.op_sk, sk("alice-exit"))]
+    dec = (list(M.pad(r3[1])) + w.pads_for(root[1]) + M.w_levels(upath, alice.node(), alice3.node(), S) +
+           w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice3) + sigs3)
+    try:
+        run_fresh(w, "UPDATE_X", [b"\x01"] + dec, ctx3)
+        check(True, "c0: UPDATE^x: a net decrease spends under the DEDUCT flag")
+    except ScriptError as e:
+        check(False, f"c0: UPDATE^x decrease positive: {str(e)[:70]}")
+    expect_fail(lambda: run_fresh(w, "UPDATE_X", [b""] + dec, ctx3), "c0: UPDATE^x: a net decrease under the assign flag")
     w.compiled, w.m = saved
     w.tree = t4
 
@@ -1806,24 +1843,67 @@ def _needs_owner_sig_ccv(old, new, numeric):
     return True
 
 
-def _rewrite_blocks_c2(old, new, sigs, n, marker=True):
+def mode_flag(in_amount, old, new, n):
+    """The output-0 mode flag of a CCV rewrite or update (spec 4.6),
+    computed independently of the script and of the Go builder: 0x01
+    (DEDUCT) exactly when the new sum is below the input's amount less the
+    exit payouts of 7.9 rule 5, empty (assign) otherwise."""
+    payouts = sum(old[i].amount for i in range(n) if old.get(i) and new.get(i) is None)
+    new_sum = (in_amount - sum(lf.amount for lf in old.values() if lf)
+               + sum(lf.amount for lf in new.values() if lf))
+    return b"\x01" if new_sum < in_amount - payouts else b""
+
+
+def _rewrite_blocks_c2(old, new, sigs, n, marker=True, amounts=False, raw_new=None, raw_old=None):
     """The position blocks of the 0xC2 REWRITE_h witness (bottom..top):
     block_{n-1} .. block_0, block_i = [xsig_i] [sig_i] new_i old_i, with
     the one-byte marker for an unchanged leaf's new element unless
-    marker=False (FULL's layout, 8.9)."""
+    marker=False and, with amounts, the 8-byte amount-only element for a
+    leaf that changes in its amount alone (FULL's layout, 8.9). raw_new and
+    raw_old override a position's new or old element."""
     items = []
     for i in reversed(range(n)):
         o, nw = old[i], new[i]
         items += list(reversed(sigs.get(i, [])))                # xsig below sig
-        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+        if raw_new and i in raw_new:
+            items.append(raw_new[i])
+        elif marker and o is not None and nw is not None and o.serialize() == nw.serialize():
             items.append(ls.REWRITE_SAME)
+        elif amounts and TS._amount_only(o, nw):
+            items.append(nw.serialize()[:8])
         else:
             items.append(nw.serialize() if nw else b"")
-        items.append(o.serialize() if o else b"")
+        items.append(raw_old[i] if raw_old and i in raw_old else (o.serialize() if o else b""))
     return items
 
 
-def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent=False):
+def _plan_ccv(w, height, scenario):
+    """test_scripts._rewrite_plan's scenarios plus four for the output-0
+    mode flag (spec 4.6): every position occupied, and "decrease" lowers
+    position 0 by 3,000 (owner-signed), "offset" lowers it by 300 and raises
+    position 1 by 500 (net increase, assign), "exit_up" exits position 0 and
+    raises position 1 by 500 (the exit's payout is deducted from the
+    residual, the sum is still above it: assign) and "exit_down" exits
+    position 0 and lowers position 1 by 3,000 (DEDUCT)."""
+    if scenario not in ("decrease", "offset", "exit_up", "exit_down"):
+        return TS._rewrite_plan(w, height, scenario)
+    base, old, _ = TS._rewrite_plan(w, height, "update")
+    new = dict(old)
+
+    def by(i, d):
+        return old[i].with_amount_seq(old[i].amount + d, old[i].seq)
+    if scenario == "decrease":
+        new[0] = by(0, -3_000)
+    elif scenario == "offset":
+        new[0], new[1] = by(0, -300), by(1, 500)
+    elif scenario == "exit_up":
+        new[0], new[1] = None, by(1, 500)
+    else:
+        new[0], new[1] = None, by(1, -3_000)
+    return base, old, new
+
+
+def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent=False, plan=None):
     """Build a CCV REWRITE_h spend in either numerics for one of
     test_scripts._rewrite_plan's scenarios. Returns a dict with the world,
     the plan, the context, the positive witness and a `witness(old, new,
@@ -1849,7 +1929,7 @@ def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent
     script = assemble(toks, mode=mode)
     w.compiled = dict(w.compiled); w.compiled[name] = script
     w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
-    base, old, new = TS._rewrite_plan(w, height, scenario)
+    base, old, new = plan or _plan_ccv(w, height, scenario)
     idx = base >> height
     w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
     w.tree.leaves[0] = mk_leaf("alice", 50_000)
@@ -1871,12 +1951,18 @@ def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent
                 outs.append((old_[i].amount, lt.p2tr_spk(old_[i].exit_key)))
         return outs + [(400, P2WPKH)], r1[1] - tree.root()[1]
 
-    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, marker=True, path_tree=None):
+    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, marker=True, path_tree=None, flag=None,
+                amounts=False, raw_new=None, raw_old=None):
         """The whole witness for the plan (old_, new_) on `tree` (the
         current tree by default): under 0xC2 FULL's layout minus r and m,
         under 0xC0 MID's minus r and m. path_tree supplies the path (and
-        the pads) from another tree, for the stale-path case."""
+        the pads) from another tree, for the stale-path case. flag is the
+        output-0 mode flag at the very bottom (spec 4.6); by default the
+        one the rules call for, DEDUCT exactly when the new sum is below
+        the input's amount less the exit payouts."""
         tree = tree or w.tree
+        if flag is None:
+            flag = mode_flag(tree.root()[1], old_, new_, n)
         sigs = {}
         for i in range(n):
             if sign and _needs_owner_sig_ccv(old_[i], new_[i], numeric):
@@ -1885,11 +1971,12 @@ def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent
                     sigs[i].append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
         sig_op = schnorr_sign(ctx.sighash(), signer_op or w.op_sk)
         if c0:
-            body = M.w_rewrite(path_tree or tree, depth, height, idx, new_, sigs, marker)
+            body = M.w_rewrite(path_tree or tree, depth, height, idx, new_, sigs, marker, amounts, raw_new, raw_old)
         else:
             path = (path_tree or tree).path(base, height=height)
-            body = w.path_witness(path, height) + _rewrite_blocks_c2(old_, new_, sigs, n, marker)
-        return body + [sig_op], sigs
+            body = w.path_witness(path, height) + _rewrite_blocks_c2(old_, new_, sigs, n, marker, amounts,
+                                                                      raw_new, raw_old)
+        return [flag] + body + [sig_op], sigs
 
     outputs, delta = outputs_for(old, new)
     ctx = w.ctx(outputs, (max(delta, 0) + 5_000, P2WPKH))
@@ -2102,7 +2189,7 @@ def test_rewrite_ccv(depth, height, numeric="c2", exit_consent=False, scenario="
             return wit_
         expect_fail(lambda: run_plan(old, new, mutate=bad_amount), f"{tag} old leaf amount field and number disagree")
         if height >= 2:
-            at = 4 + M.LEVEL_WITNESS * (depth - height)      # the last-consumed pad pair (the first node's new sum)
+            at = 1 + 4 + M.LEVEL_WITNESS * (depth - height)      # the last-consumed pad pair (the first node's new sum)
 
             def swap_pad(wit_, sigs_, ctx_):
                 b = list(wit_); b[at], b[at + 1] = b[at] + b"\x00", b[at + 1][1:]
@@ -2118,6 +2205,210 @@ def test_rewrite_ccv(depth, height, numeric="c2", exit_consent=False, scenario="
             wit_ = list(wit_); wit_[wit_.index(sigs_[i_rot][1])] = sigs_[i_rot][0]; return wit_
         expect_fail(lambda: run_plan(old, new, mutate=wrong_x), f"{tag} exit-key signature by the owner key")
     return it, c["script"], wit
+
+
+def test_rewrite_flag_ccv(depth, height, numeric="c2", exit_consent=False):
+    """The output-0 mode flag of the plain REWRITE_h and REWRITE_h^x under
+    CCV (spec 4.6, 7.9 rule 6): a net decrease is spendable. Four plans
+    (_plan_ccv): a net decrease and an exit with a decrease need DEDUCT; an
+    offset (one leaf down, another up, the sum up) and an exit with an
+    increase need assign. Each passes under its flag, the decrease with the
+    freed value paid to another output; under the other flag, under a flag
+    other than empty or 0x01, and with output 0 one satoshi off its new sum
+    (the amount equality out0 == ns pins it in both modes) each fails."""
+    n = 1 << height
+    for scenario, want in (("decrease", b"\x01"), ("offset", b""), ("exit_up", b""), ("exit_down", b"\x01")):
+        c = rewrite_case_ccv(depth, height, numeric, scenario, exit_consent)
+        w, name, ctx, wit, outputs = c["w"], c["name"], c["ctx"], c["wit"], c["outputs"]
+        old, new, witness, delta = c["old"], c["new"], c["witness"], c["delta"]
+        tag = f"{c['tag']} ({scenario})"
+        check(wit[0] == want, f"{tag}: the mode flag is {'DEDUCT' if want else 'assign'}")
+        try:
+            run_fresh(w, name, wit, ctx)
+            check(True, f"{tag}: spends under the {'DEDUCT' if want else 'assign'} flag")
+        except ScriptError as e:
+            check(False, f"{tag} positive: {str(e)[:100]}")
+            continue
+        for bad in (b"\x01" if not want else b"", b"\x02", b"\x00"):
+            expect_fail(lambda: run_fresh(w, name, [bad] + wit[1:], ctx), f"{tag}: flag {bad.hex() or 'empty'}")
+        extra = (max(delta, 0) + 5_000, P2WPKH)
+        for off in (-1, +1):
+            outs = list(outputs); outs[0] = (outs[0][0] + off, outs[0][1])
+            ctx2 = w.ctx(outs, extra)
+            expect_fail(lambda: run_fresh(w, name, witness(old, new, ctx2)[0], ctx2), f"{tag}: output 0 off by {off:+d}")
+        if want:
+            payouts = sum(old[i].amount for i in range(n) if old.get(i) and new.get(i) is None)
+            freed = -delta - payouts
+            outs = list(outputs) + [(freed, P2WPKH)]
+            ctx2 = w.ctx(outs, extra)
+            try:
+                run_fresh(w, name, witness(old, new, ctx2)[0], ctx2)
+                check(True, f"{tag}: the freed {freed} sat go to another output")
+            except ScriptError as e:
+                check(False, f"{tag} freed value to another output: {str(e)[:100]}")
+            # the owner's signature on the decreased leaf is still required
+            expect_fail(lambda: run_fresh(w, name, witness(old, new, ctx, sign=False)[0], ctx), f"{tag}: without the owner signatures")
+
+
+def test_update_flag_ccv(depth, profile="D", numeric="c2"):
+    """The output-0 mode flag of UPDATE under CCV (spec 4.6, 7.4): an
+    owner-signed decrease of the leaf's amount is spendable under DEDUCT,
+    with the freed value paid to another output or to the fee; it fails under
+    the assign flag, under a flag other than empty or 0x01, without the
+    owner's signature and with output 0 off its new sum. An increase funded
+    by another input and a decrease-free update (seq only) use assign and
+    fail under DEDUCT."""
+    c0 = numeric == "c0"
+    sparse = profile == "S"
+    w = WorldC0(depth, profile) if c0 else World(depth, profile)
+    tag = f"{numeric}: UPDATE {profile}/{depth}"
+
+    def mk(label, amount):
+        lf = mk_leaf(label, amount)
+        while c0 and sparse and not M.pos_ok(lf):
+            lf.nonce = (lf.nonce + 1) & 0xffffffff
+        return lf
+    alice, bob, oper = mk("alice", 50_000), mk("bob", 125_000), mk("operator", 1_000_000)
+    s_a, s_b, s_o = w.slot(alice, 0), w.slot(bob, 5), w.slot(oper, (1 << depth) - 1)
+    w.tree.leaves = {s_a: alice, s_b: bob, s_o: oper}
+    root = w.tree.root()
+    upath = w.tree.path(s_a)
+
+    def spend(new_leaf, flag, off=0, outs_extra=(), extra=None, owner="alice-owner"):
+        t1 = w.clone(); t1.leaves[s_a] = new_leaf; r1 = t1.root()
+        outs = [(r1[1] + off, w.spk(r1))] + list(outs_extra)
+        ctx = w.ctx(outs, extra or ((500, P2WPKH) if c0 else None))   # WorldC0 always has a second input
+        osig = schnorr_sign(ctx.sighash(), w.op_sk)
+        asig = schnorr_sign(ctx.sighash(), sk(owner))
+        if c0:
+            wit = ([flag] + list(M.pad(r1[1])) + w.pads_for(root[1]) +
+                   M.w_levels(upath, alice.node(), new_leaf.node(), sparse) +
+                   w.pos(alice) + M.w_leaf(alice) + M.w_leaf(new_leaf) + [asig, osig])
+        else:
+            wit = [flag] + w.path_witness(upath) + [alice.serialize(), new_leaf.serialize(), asig, osig]
+        return w.run("UPDATE", wit, ctx)
+
+    def ok(fn, msg):
+        try:
+            fn()
+            check(True, f"{tag}: {msg}")
+        except ScriptError as e:
+            check(False, f"{tag}: {msg}: {str(e)[:100]}")
+
+    down = alice.with_amount_seq(20_000, 1)
+    ok(lambda: spend(down, b"\x01"), "a decrease of 30,000 spends under DEDUCT, the freed value to the fee")
+    ok(lambda: spend(down, b"\x01", outs_extra=[(29_500, P2WPKH)]), "the decrease's freed value paid to another output")
+    expect_fail(lambda: spend(down, b""), f"{tag}: a decrease under the assign flag")
+    for bad in (b"\x02", b"\x00"):
+        expect_fail(lambda: spend(down, bad), f"{tag}: a decrease under flag {bad.hex()}")
+    expect_fail(lambda: spend(down, b"\x01", owner="operator"), f"{tag}: a decrease without the owner's signature")
+    for off in (-1, +1):
+        expect_fail(lambda: spend(down, b"\x01", off=off), f"{tag}: a decrease with output 0 off by {off:+d}")
+    up = alice.with_amount_seq(80_000, 1)
+    ok(lambda: spend(up, b"", extra=(30_700, P2WPKH)), "an increase funded by another input spends under assign")
+    expect_fail(lambda: spend(up, b"\x01", extra=(30_700, P2WPKH)), f"{tag}: an increase under DEDUCT")
+    same = alice.with_amount_seq(50_000, 1)
+    ok(lambda: spend(same, b""), "an update that keeps the amount spends under assign")
+
+
+def test_rewrite_amount_only_ccv(depth, height, numeric="c2", exit_consent=False):
+    """The amount-only new element of the CCV REWRITE_h in either numerics
+    (spec 7.9, 8.9): the 8-byte `le64(a)` under 0xC2, the four-element slot
+    `amt_num za wa 0x03` under 0xC0. Over test_scripts' "ao" plan (an amount
+    raised with no signature, an amount lowered with the owner's, an
+    unchanged leaf and an empty position left empty) it passes, saves 108
+    bytes (seven elements) per amount-only position, and meets the rules the
+    full leaf meets: an unsigned decrease, a SEQ_FINAL raise without its
+    owner, a forged amount, an amount-only element against an empty old
+    element, as an old element and, under 0xC2, of 7 or 9 bytes, under
+    0xC0 a negative or non-minimal number, a malformed pad, a missing
+    element and another flag all fail. The output-0 mode flag is the
+    plan's, here assign for the net increase."""
+    c0 = numeric == "c0"
+    c = rewrite_case_ccv(depth, height, numeric, "ao", exit_consent)
+    w, name, ctx, tag = c["w"], c["name"], c["ctx"], c["tag"] + " amount-only"
+    old, new, witness, base = c["old"], c["new"], c["witness"], c["base"]
+    n = 1 << height
+    n_ao = sum(1 for i in range(n) if TS._amount_only(old[i], new[i]))
+    i_up = next(i for i in range(n) if TS._amount_only(old[i], new[i]) and new[i].amount > old[i].amount)
+    i_down = next(i for i in range(n) if TS._amount_only(old[i], new[i]) and new[i].amount < old[i].amount)
+    i_empty = next(i for i in range(n) if old[i] is None and new[i] is None)
+    wit_full = c["wit"]
+    wit_ao, sigs = witness(old, new, ctx, amounts=True)
+    run_fresh(w, name, wit_ao, ctx)
+    check(True, f"{tag}: the plan with {n_ao} amount-only positions passes")
+    if c0:
+        check(len(wit_full) - len(wit_ao) == 7 * n_ao, f"{tag}: seven elements saved per amount-only position")
+        check(sum(len(x) for x in wit_full) - sum(len(x) for x in wit_ao) > 100 * n_ao,
+              f"{tag}: over 100 witness bytes saved per amount-only position")
+    else:
+        check(sum(len(x) for x in wit_full) - sum(len(x) for x in wit_ao) == 108 * n_ao,
+              f"{tag}: 108 bytes saved per amount-only position")
+    check(i_up not in sigs and i_down in sigs, f"{tag}: the raise needs no signature and the decrease the owner's")
+
+    def run(old_=None, new_=None, ctx_=None, **kw):
+        ctx_ = ctx_ or ctx
+        wit_, _ = witness(old_ or old, new_ or new, ctx_, **kw)
+        return run_fresh(w, name, wit_, ctx_)
+    wit_nosig = list(wit_ao)
+    for x in sigs[i_down]:
+        del wit_nosig[wit_nosig.index(x)]
+    expect_fail(lambda: run_fresh(w, name, wit_nosig, ctx), f"{tag}: unsigned decrease")
+    forged = dict(new)
+    forged[i_up] = old[i_up].with_amount_seq(old[i_up].amount + 501, old[i_up].seq)
+    expect_fail(lambda: run(new_=forged, amounts=True), f"{tag}: an amount other than the one output 0 commits")
+    a = new[i_up].amount
+    if c0:
+        def slot(items):
+            return {"raw_new": {i_up: items}, "amounts": True}
+        expect_fail(lambda: run(**slot([b"\x00\x00\x00\x81", b"", bytes(4), M.REWRITE_AMOUNT])),
+                    f"{tag}: a negative amount (NONNEG)")
+        x = M.scriptnum(a) + b"\x00"
+        expect_fail(lambda: run(**slot([x, bytes(4 - len(x)), bytes(len(x)), M.REWRITE_AMOUNT])),
+                    f"{tag}: a non-minimal amount")
+        z, wv = M.pad(a)
+        expect_fail(lambda: run(**slot([M.scriptnum(a), z + b"\x01", wv, M.REWRITE_AMOUNT])),
+                    f"{tag}: a pad that is not zero")
+        expect_fail(lambda: run(**slot([M.scriptnum(a), z, M.REWRITE_AMOUNT])), f"{tag}: a missing element")
+        expect_fail(lambda: run(**slot([M.scriptnum(a), z, wv, b"\x04"])), f"{tag}: the flag 0x04")
+        expect_fail(lambda: run(raw_new={i_empty: M.w_amount_slot(a)}, amounts=True),
+                    f"{tag}: an amount-only slot against an empty old slot")
+        expect_fail(lambda: run(raw_old={i_up: M.w_amount_slot(old[i_up].amount)}, amounts=True),
+                    f"{tag}: an amount-only old slot")
+    else:
+        at = wit_ao.index(new[i_down].serialize()[:8])
+        for size in (7, 9):
+            bad = list(wit_ao)
+            bad[at] = (new[i_down].serialize()[:8] + b"\x00")[:size]
+            expect_fail(lambda: run_fresh(w, name, bad, ctx), f"{tag}: a {size}-byte new element")
+        expect_fail(lambda: run(raw_new={i_empty: bytes(8)}, amounts=True),
+                    f"{tag}: an 8-byte element against an empty old element")
+        expect_fail(lambda: run(raw_new={i_empty: lt.le64(a)}, amounts=True),
+                    f"{tag}: an amount against an empty old element")
+        expect_fail(lambda: run(raw_old={i_up: old[i_up].serialize()[:8]}, amounts=True),
+                    f"{tag}: an amount-only old element")
+    # a SEQ_FINAL leaf raised by one satoshi: the owner signs, or it fails
+    seq_final = M.SEQ_FINAL if c0 else ls.SEQ_FINAL
+    lf = old[i_up]
+    f_old, f_new = dict(old), dict(new)
+    f_old[i_up] = lf.with_amount_seq(lf.amount, seq_final)
+    f_new[i_up] = lf.with_amount_seq(lf.amount + 1, seq_final)
+    cf = rewrite_case_ccv(depth, height, numeric, exit_consent=exit_consent, plan=(base, f_old, f_new))
+    wf, ctxf = cf["w"], cf["ctx"]
+    wit_f, sigs_f = cf["witness"](f_old, f_new, ctxf, amounts=True)
+    run_fresh(wf, cf["name"], wit_f, ctxf)
+    check(True, f"{tag}: a SEQ_FINAL raise passes with the owner's signature")
+    bare = list(wit_f)
+    for sig in sigs_f[i_up]:
+        del bare[bare.index(sig)]
+    expect_fail(lambda: run_fresh(wf, cf["name"], bare, ctxf), f"{tag}: a SEQ_FINAL raise without the owner's signature")
+    # an amount-only decrease beside an exit: DEDUCT, the exit paid
+    x_new = dict(new)
+    x_new[i_up] = None
+    cx = rewrite_case_ccv(depth, height, numeric, exit_consent=exit_consent, plan=(base, dict(old), x_new))
+    wit_x, _ = cx["witness"](dict(old), x_new, cx["ctx"], amounts=True)
+    run_fresh(cx["w"], cx["name"], wit_x, cx["ctx"])
+    check(True, f"{tag}: an amount-only decrease beside an exit")
 
 
 def test_rewrite_negative_amount_ccv0(depth):
@@ -2151,7 +2442,8 @@ def test_rewrite_negative_amount_ccv0(depth):
     r1 = TM.fold_signed(new_hash, new_sum, path)
     check(r1[1] == S - (1 << 24), "c0: the signed fold of the rewritten subtree reaches S - 2^24")
     ctx = w.ctx([(r1[1], w.spk(r1)), (400, P2WPKH)], (5_000, P2WPKH))
-    wit = (list(M.pad(r1[1])) + list(M.pad(S)) + TM.levels_signed(path, old_node[1], new_sum) +
+    # the DEDUCT flag: the sum falls by 2^24 + the join, so only NONNEG stands in the way
+    wit = ([b"\x01"] + list(M.pad(r1[1])) + list(M.pad(S)) + TM.levels_signed(path, old_node[1], new_sum) +
            [M.REWRITE_SAME] + M.w_rewrite_slot(keeper) +                     # position 1: unchanged
            TM.leaf10_signed(big, NEG) + [b"\x01", b""] +                      # position 0: the big leaf joins E_0
            [schnorr_sign(ctx.sighash(), w.op_sk)])
@@ -2208,7 +2500,7 @@ def test_voucher_topup_ccv(depth, numeric="c2"):
         body = M.w_rewrite(w.tree, depth, 2, idx, new, {}, True)
     else:
         body = w.path_witness(path, 2) + _rewrite_blocks_c2(old, new, {}, 4)
-    w.run("REWRITE_2", body + [schnorr_sign(ctx.sighash(), w.op_sk)], ctx)
+    w.run("REWRITE_2", [b""] + body + [schnorr_sign(ctx.sighash(), w.op_sk)], ctx)
     check(True, f"{tag}: REWRITE_2, the operator tops up every leaf of the cohort alone")
     w.tree = t1
     s_src = base + 3
@@ -2326,7 +2618,7 @@ def test_credit_topup_ccv(depth, numeric="c2"):
             body = M.w_rewrite(w.tree, depth, 2, idx, new_, sigs, True)
         else:
             body = w.path_witness(path, 2) + _rewrite_blocks_c2(old, new_, sigs, 4)
-        return w.run("REWRITE_X_2", body + [schnorr_sign(ctx_.sighash(), w.op_sk)], ctx_)
+        return w.run("REWRITE_X_2", [b""] + body + [schnorr_sign(ctx_.sighash(), w.op_sk)], ctx_)
     ctx = w.ctx([(r1[1], w.spk(r1))], (500 + 5_000, P2WPKH))
     rewrite(new, ctx, {})
     check(True, f"{tag}: REWRITE_2^x, the operator tops up the credit leaf with its signature alone")
@@ -2937,12 +3229,13 @@ def _r1_due(pw, i, o, nw):
 
 
 def _pending_rewrite_ccv(pw, name, base, height, old, new, locktime=0, sign=(), flag=None, tamper=None,
-                         extra_leaves=None, run=True, ea=None):
+                         extra_leaves=None, run=True, ea=None, amounts=False):
     """Run REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1 in
     the world's numerics (test_scripts._pending_rewrite's scenario). flag is
     the output-0 mode flag (DEDUCT, 0x01, when the rewrite frees value;
     assign, empty, otherwise); `ea` overrides the evict_after number of
-    0xC0 R1 blocks."""
+    0xC0 R1 blocks; amounts writes a new leaf that differs from its old one
+    in the amount alone as the amount-only element."""
     w = pw.w
     n = 1 << height
     leaves = {base + i: lf for i, lf in old.items() if lf}
@@ -2974,10 +3267,10 @@ def _pending_rewrite_ccv(pw, name, base, height, old, new, locktime=0, sign=(), 
             e = old[i].evict_after if ea is None else ea
             extras[i] = list(reversed([M.scriptnum(e), *M.pad(e)]))   # w_rewrite reverses a block's extras
     if pw.c0:
-        body = M.w_rewrite(w.tree, pw.depth, height, base >> height, new, extras)
+        body = M.w_rewrite(w.tree, pw.depth, height, base >> height, new, extras, amounts=amounts)
     else:
         path = w.tree.path(base, height=height)
-        body = w.path_witness(path, height) + _rewrite_blocks_c2(old, new, extras, n)
+        body = w.path_witness(path, height) + _rewrite_blocks_c2(old, new, extras, n, amounts=amounts)
     wit = [flag] + body + [sig_op]
     if tamper:
         wit = tamper(wit)
@@ -3016,6 +3309,13 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
         settle = {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)}
         ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle), f"{t} R3 transfer P -> L, operator only, before the deadline")
         ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle, flag=b"\x01"), f"{t} R3 transfer under the DEDUCT flag")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle, amounts=True), f"{t} R3 transfer with two amount-only elements")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L},
+                                {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}, amounts=True),
+                    f"{t} R3 with amount-only elements raising the landing leaf by less than the transfer")
+        expect_fail(lambda: run(name, 4, 1, {0: L, 1: P},
+                                {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}, amounts=True),
+                    f"{t} R3 with amount-only elements and the pending leaf on the right")
         expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
                     f"{t} R3 with the landing leaf raised by less than the transfer")
         expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L}),
@@ -3055,6 +3355,8 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
                         f"{t} R1 with an evict_after number other than the leaf's")
         # an amount-only top-up of the pending leaf is still rule 3's
         ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}), f"{t} top-up of the pending leaf, operator only")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}, amounts=True),
+           f"{t} top-up of the pending leaf as an amount-only element")
         # nothing reaches a leaf that is not reclaimable
         A = mk_leaf("c0", 20_000, pw.w.op_pk, 600_000)
         B = mk_leaf("c1", 10_000, pw.w.op_pk, 600_000)
@@ -3064,6 +3366,9 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
                     f"{t} reclaiming the landing leaf")
         expect_fail(lambda: run(name, 2, 1, {0: A, 1: B}, {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
                     f"{t} R3 from an ordinary leaf")
+        expect_fail(lambda: run(name, 2, 1, {0: A, 1: B}, {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)},
+                                amounts=True),
+                    f"{t} R3 from an ordinary leaf with amount-only elements")
         if pw.c0:
             # a recorded transfer cannot meet the right position's marker
             def marker_right(wit):
@@ -3083,6 +3388,10 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
         check(True, f"{tag} REWRITE_XR_2: a settlement and a roll in one rewrite, operator only")
     except ScriptError as e:
         check(False, f"{tag} REWRITE_XR_2 positive: {str(e)[:120]}")
+    ok(lambda: run("REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                   {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+                    2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T, amounts=True),
+       f"{tag} REWRITE_XR_2: the same settlement and roll with amount-only elements")
     expect_fail(lambda: run("REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
                             {0: P.with_amount_seq(13_000, 0), 1: L,
                              2: P_b, 3: L_b.with_amount_seq(11_000, 0)}),
@@ -3219,6 +3528,13 @@ def main():
         before = CHECKS
         for depth, h, x in ((4, 2, False), (16, 2, False), (16, 4, False), (16, 4, True)):
             test_rewrite_ccv(depth, h, numeric, exit_consent=x)
+        # The output-0 mode flag of the plain forms (spec 4.6): a net
+        # decrease spends under DEDUCT, an increase or equal sum under assign.
+        for h in (1, 2):
+            for x in (False, True):
+                test_rewrite_flag_ccv(16, h, numeric, x)
+        for depth, profile in ((4, "D"), (16, "D"), (8, "S") if numeric == "c2" else (31, "S")):
+            test_update_flag_ccv(depth, profile, numeric)
         if numeric == "c0":
             for scenario in ("update", "exit"):
                 test_rewrite_ccv(16, 5, "c0", scenario=scenario)
@@ -3227,6 +3543,8 @@ def main():
         else:
             for scenario in ("update", "exit"):
                 test_rewrite_ccv(16, 6, "c2", scenario=scenario)   # no stack bound under 0xC2
+        for depth, h, x in ((4, 2, False), (16, 4, False), (16, 4, True)):
+            test_rewrite_amount_only_ccv(depth, h, numeric, x)
         test_voucher_topup_ccv(16, numeric)
         test_credit_topup_ccv(16, numeric)
         print(f"  D (REWRITE, {numeric}): {CHECKS - before} checks")

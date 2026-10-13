@@ -27,8 +27,8 @@ import (
 // (CCV0) without r and m (spec 4.6), and output 0 is committed
 // differently there: RECLAIM_1 checks it in the DEDUCT mode, which asks
 // nothing more of the builder since output 0 already holds the new sum,
-// and the reclaim-form rewrite takes a bottom witness flag choosing the
-// mode, which ccvModeFlag derives.
+// and UPDATE and every form of the rewrite take a bottom witness flag
+// choosing the mode, which ccvModeFlag derives.
 
 // pendingLayout refuses a pending-leaf receive transition in a tier whose
 // scripts do not carry it: the MIN tier, whose option set names no
@@ -42,8 +42,8 @@ func (r rules) pendingLayout(name string) error {
 	return nil
 }
 
-// ccvModeFlag is the bottom witness element of the CCV reclaim-form
-// rewrite (spec 4.6), choosing how output 0 is committed: empty for the
+// ccvModeFlag is the bottom witness element of the CCV UPDATE and REWRITE_h
+// in every form (spec 4.6), choosing how output 0 is committed: empty for the
 // assign mode, 0x01 for DEDUCT. BIP-443's assign mode makes output 0
 // receive at least the input's residual (its amount less the DEDUCT
 // payouts of 7.9 rule 5), and DEDUCT lets it receive at most that
@@ -52,7 +52,7 @@ func (r rules) pendingLayout(name string) error {
 // the residual frees value (an R1 reclaim, an owner-signed decrease) and
 // needs DEDUCT, and any other, a value-neutral transfer or a top-up funded
 // by other inputs, needs assign. The builder derives it so that no caller
-// can commit a reclaim under the assign mode, which no node accepts.
+// can commit a decrease under the assign mode, which no node accepts.
 // Nothing outside the CCV tier.
 func (r rules) ccvModeFlag(inAmount int64, payouts []Payout,
 	newSum uint64) [][]byte {

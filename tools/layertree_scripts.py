@@ -892,7 +892,11 @@ def evict_subtree_script(depth, height, operator_key):
 # is a constant, so a branch that needs a signature rolls one more element
 # and a branch that does not leaves the witness untouched. A new element of
 # one byte is the "unchanged" marker (REWRITE_SAME): the step replaces it
-# with a copy of the old element, so an unchanged leaf is published once.
+# with a copy of the old element, so an unchanged leaf is published once. A
+# new element of eight bytes is an amount-only element le64(a): the step
+# replaces it with the old leaf carrying the amount a (spec 7.9, 8.9), so a
+# position whose only change is its amount publishes 8 bytes in place of 116.
+# Both are expanded before any rule reads the new element.
 # ---------------------------------------------------------------------------
 REWRITE_SAME = b"\x01"
 def _elem_node(k_leaf, k_empty):
@@ -964,14 +968,16 @@ def _transfer_check(d):
     Lean merge_cycle_overpays). The right step then admits the raise
     as 7.9 rule 3's amount-only increase. Sizes are not checked here: the
     ELEM_NODE of either step rejects an element that is neither a leaf nor
-    empty."""
+    empty. new_R may be an 8-byte amount-only element (7.9): its body is
+    old_R's by construction, and its first eight bytes are the amount."""
     w = d + 7
     return [w, "OP_PICK", OFF_EXIT_KEY, 64, "OP_SUBSTR",
             3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_DUP", "OP_CAT",
             "OP_EQUALVERIFY",                                                        # old_R.exit == old_R.owner == old.exit_key
             w, "OP_PICK", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", w, "OP_PICK",
             "OP_EQUAL", "OP_NOT", "OP_VERIFY",                                       # old_R not reclaimable
-            w, "OP_PICK"] + LEAF_BODY + [w + 2, "OP_PICK"] + LEAF_BODY + [
+            w, "OP_PICK"] + LEAF_BODY + [w + 2, "OP_PICK", "OP_SIZE", 8, "OP_EQUAL",
+            "OP_IF", "OP_DROP", "OP_DUP", "OP_ELSE"] + LEAF_BODY + ["OP_ENDIF",      # amount-only: body(new_R) := body(old_R)
             "OP_EQUALVERIFY",                                                        # body(new_R) == body(old_R)
             w + 1, "OP_PICK", 8, "OP_LEFT", w + 1, "OP_PICK", 8, "OP_LEFT", "OP_SUB",
             "OP_NUMEQUALVERIFY"]                                                     # new_R.amt - old_R.amt == delta
@@ -1032,7 +1038,9 @@ def _rewrite_step(d, exit_consent, pay=None, reclaim=False, side=None):
                       ["OP_ELSE"] + old_rules + ["OP_ENDIF"])
     s = [d + 3 + o, "OP_ROLL", d + 4 + o, "OP_ROLL",    # T ... old new
          "OP_SIZE", "OP_1", "OP_EQUAL",                  # old new (new is the one-byte marker?)
-         "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF"]       # old new   (marker: new := old)
+         "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF",       # old new   (marker: new := old)
+         "OP_SIZE", 8, "OP_EQUAL",                       # old new (new is an amount-only element?)
+         "OP_IF", "OP_OVER"] + LEAF_BODY + ["OP_CAT", "OP_ENDIF"]   # old new  (new := new || old[8:])
     s += (["OP_2DUP", "OP_EQUAL", "OP_NOTIF",            # changed?
            "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +   # old is a leaf?
           leaf_rules +
@@ -1089,8 +1097,9 @@ def rewrite_script(depth, height, operator_key, exit_consent=False, reclaim_key=
     witness (bottom..top) = [dir sc]*(D-h)  block_{2^h-1} ... block_0  sig_op  r  m
     block_i = [xsig_i] [sig_i] new_i old_i   (old_i on top; each element is a
     116-byte leaf or empty, and new_i may be the one-byte marker REWRITE_SAME
-    for "the old element"; sig_i only where 7.9 rule 3 requires it, xsig_i
-    only under ^x and only where sig_i is present).
+    for "the old element" or an 8-byte amount-only element le64(a) for "the
+    old element with its amount replaced by a"; sig_i only where 7.9 rule 3
+    requires it, xsig_i only under ^x and only where sig_i is present).
     With reclaim_key this is the reclaim form of 7.9 rule 8 (h >= 1).
     """
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks | m r

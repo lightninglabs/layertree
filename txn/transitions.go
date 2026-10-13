@@ -590,7 +590,9 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 // BuildUpdate builds UPDATE (spec 7.4): replace the leaf at pos with
 // newLeaf, signed by the old leaf's owner and the operator. A decrease is
 // free for the transaction to spend; an increase must come from
-// opts.Inputs. In the sparse profile newLeaf must derive the same position.
+// opts.Inputs; under CCV the witness starts with the output-0 mode flag of
+// spec 4.6, derived from the net change (ccvModeFlag). In the sparse profile
+// newLeaf must derive the same position.
 func BuildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 	opts *TxOpts) (*Spend, *tree.Tree, error) {
 
@@ -653,7 +655,11 @@ func buildUpdate(st *TreeState, pos uint64, newLeaf *tree.Leaf,
 		body = append(body, sigPlaceholder())
 	}
 
-	spend, err := finish(st, r, next, name, nil, body, sigs, opts)
+	// Under CCV the output-0 mode flag (spec 4.6) sits below everything:
+	// DEDUCT when the update lowers the tree's total, assign otherwise.
+	bottom := r.ccvModeFlag(in.Amount, nil, next.Root().Sum)
+	spend, err := finishFramed(st, r, next, name, nil, bottom, body, sigs,
+		opts)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -65,6 +65,28 @@ func (r rules) rewriteMarker() []byte {
 	return []byte{0x01}
 }
 
+// amountOnlyChange reports whether new is old with another amount and
+// nothing else, the one change an amount-only element expresses (spec 7.9,
+// 8.9). It is false for an unchanged leaf, which the marker covers more
+// cheaply, and for a position whose old element is empty.
+func amountOnlyChange(old, new *tree.Leaf) bool {
+	return old != nil && new != nil && old.Amount != new.Amount &&
+		bytes.Equal(old.Body(), new.Body())
+}
+
+// amountOnlyElement is the new element of a position whose leaf changes in
+// its amount alone (spec 7.9): le64(a) in the 0xC2 tiers, eight bytes in
+// place of 116, and under 0xC0 numerics the slot amt_num za wa 0x03, the
+// amount as a minimal number with its PADZ pad and the flag 0x03, four
+// elements in place of eleven. The script expands it to the old leaf with
+// the amount a before any rule reads it.
+func (r rules) amountOnlyElement(amount uint64) [][]byte {
+	if !r.tier.elements() {
+		return [][]byte{tree.Le64(amount)}
+	}
+	return append(r.paddedSum(amount), []byte{0x03})
+}
+
 // checkSubtree validates the (height, index) of a dense cohort transition
 // against the tree.
 func (st *TreeState) checkSubtree(r rules, name string, height int,
@@ -171,7 +193,9 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 // (rule 3), and under ^x by its old exit key too, except an amount-only
 // increase of a leaf whose seq is not SEQ_FINAL, which the operator may make
 // alone. A position whose leaf is unchanged publishes it once and the
-// one-byte marker in place of the new element. Any increase of the tree's
+// one-byte marker in place of the new element, and one whose leaf differs
+// in its amount alone publishes the amount (amountOnlyElement) in place of
+// the new leaf. Any increase of the tree's
 // total must come from opts.Inputs; any decrease is the transaction's to
 // spend. If the rewrite empties the tree, opts.Terminal is output 0.
 //
@@ -180,10 +204,10 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 // reclaimRewriteStep: an amount-only decrease at an even offset is an R3
 // transfer its odd sibling must absorb exactly, and any other change but
 // an amount-only increase is an R1 reclaim, which pays nothing and needs
-// opts.LockTime at the leaf's evict_after. Under CCV the reclaim form's
-// witness starts with the output-0 mode flag of spec 4.6, which the
-// builder derives from the net change (ccvModeFlag): DEDUCT when the
-// rewrite frees value, assign otherwise.
+// opts.LockTime at the leaf's evict_after. Under CCV every rewrite's
+// witness starts with the output-0 mode flag of spec 4.6, which the builder
+// derives from the net change (ccvModeFlag): DEDUCT when the rewrite frees
+// value, assign otherwise.
 func BuildRewrite(st *TreeState, height int, index uint64,
 	after map[uint64]*tree.Leaf, exitConsent bool, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {
@@ -285,11 +309,17 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 			block = append(block, sigPlaceholder())
 			ps = append(ps, slot{pos, old.OwnerKey, "owner"})
 		}
-		if old != nil && new != nil &&
-			bytes.Equal(old.Serialize(), new.Serialize()) {
+		// The cheapest new element that says the same: the marker for an
+		// unchanged leaf, the amount alone when only the amount differs
+		// from the old leaf, the whole leaf otherwise.
+		switch {
+		case old != nil && new != nil &&
+			bytes.Equal(old.Serialize(), new.Serialize()):
 
 			block = append(block, r.rewriteMarker())
-		} else {
+		case amountOnlyChange(old, new):
+			block = append(block, r.amountOnlyElement(new.Amount)...)
+		default:
 			block = append(block, r.slot(new, false)...)
 		}
 		block = append(block, r.slot(old, false)...)
@@ -325,12 +355,9 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 	body, opSig := operatorSlot(r, body)
 	sigs = append(sigs, opSig...)
 
-	// Under CCV the reclaim form commits output 0 in the mode its bottom
-	// flag names (spec 4.6), chosen here from the net change.
-	var bottom [][]byte
-	if reclaim {
-		bottom = r.ccvModeFlag(in.Amount, payouts, next.Root().Sum)
-	}
+	// Under CCV every rewrite commits output 0 in the mode its bottom flag
+	// names (spec 4.6), chosen here from the net change.
+	bottom := r.ccvModeFlag(in.Amount, payouts, next.Root().Sum)
 
 	// The 0xC0 pre-pass peaks four elements above the witness (spec 4.5),
 	// six in the reclaim form, whose machine carries the transfer record.

@@ -1050,7 +1050,10 @@ const (
 // directly below Z (fullRewriteMachine hoists it), so the witness starts
 // one element deeper, at d+4, and a changed position whose old leaf is
 // reclaimable follows fullReclaimRules instead of the owner rules; left
-// names the pair side (tools/layertree_scripts.py _rewrite_step).
+// names the pair side (tools/layertree_scripts.py _rewrite_step). A new
+// element of one byte is the unchanged marker and one of eight bytes the
+// amount-only element le64(a) (spec 7.9, 8.9): the step expands either to
+// a full leaf before any rule reads it.
 func fullRewriteStepFor(d int, exitConsent bool, pay []Token,
 	reclaim, left bool) []Token {
 
@@ -1101,6 +1104,9 @@ func fullRewriteStepFor(d int, exitConsent bool, pay []Token,
 			Num(int64(d + 3 + o)), Op(ts.OP_ROLL), Num(int64(d + 4 + o)), Op(ts.OP_ROLL), // old new
 			Op(ts.OP_SIZE), Op(ts.OP_1), Op(ts.OP_EQUAL), // new is the one-byte marker?
 			Op(ts.OP_IF), Op(ts.OP_DROP), Op(ts.OP_DUP), Op(ts.OP_ENDIF), // marker: new := old
+			Op(ts.OP_SIZE), Num(8), Op(ts.OP_EQUAL), // new is an amount-only element?
+			Op(ts.OP_IF), Op(ts.OP_OVER), Num(fullLeafBodyLen), Op(OP_RIGHT), Op(OP_CAT),
+			Op(ts.OP_ENDIF),                                  // amount-only: new := new || old[8:]
 			Op(ts.OP_2DUP), Op(ts.OP_EQUAL), Op(ts.OP_NOTIF), // changed?
 			Op(ts.OP_OVER), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
 			Op(ts.OP_IF), // old is a leaf?
@@ -1147,9 +1153,14 @@ func fullTransferCheck(d int) []Token {
 			Num(w), Op(ts.OP_PICK),
 		},
 		fullLeafBody(),
-		[]Token{Num(w + 2), Op(ts.OP_PICK)},
+		[]Token{
+			Num(w + 2), Op(ts.OP_PICK), Op(ts.OP_SIZE), Num(8), Op(ts.OP_EQUAL),
+			// an 8-byte amount-only new_R has old_R's body by construction
+			Op(ts.OP_IF), Op(ts.OP_DROP), Op(ts.OP_DUP), Op(ts.OP_ELSE),
+		},
 		fullLeafBody(),
 		[]Token{
+			Op(ts.OP_ENDIF),
 			Op(ts.OP_EQUALVERIFY), // body(new_R) == body(old_R)
 			Num(w + 1), Op(ts.OP_PICK), Num(8), Op(OP_LEFT),
 			Num(w + 1), Op(ts.OP_PICK), Num(8), Op(OP_LEFT), Op(ts.OP_SUB),
