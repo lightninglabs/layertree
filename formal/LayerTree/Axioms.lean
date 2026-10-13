@@ -49,6 +49,11 @@ open LayerTree
 #print axioms rewrite_unsigned_change
 #print axioms detach_sound
 #print axioms detach_member_payable
+#print axioms rewrite_reclaimable_change
+#print axioms rewrite_transfer_sound
+#print axioms merge_sound
+#print axioms reclaim_sound
+#print axioms reclaim_only_flagged
 -- Trace
 #print axioms Reachable.ledger
 #print axioms Reachable.all
@@ -66,6 +71,14 @@ open LayerTree
 #print axioms final_never_carved
 #print axioms detach_partition
 #print axioms voucher_survives_detach
+-- Receive
+#print axioms merge_body_preserved
+#print axioms merge_target_monotone
+#print axioms merge_stale_rejected
+#print axioms merge_no_overpay
+#print axioms merge_cycle_overpays
+#print axioms Reachable.exit_value
+#print axioms Reachable.exit_value_same_key
 -- Binding
 #print axioms witness_root_binds
 #print axioms ccv_input_binds
