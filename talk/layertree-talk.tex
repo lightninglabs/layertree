@@ -941,7 +941,7 @@
   \begin{columns}[T]
     \begin{column}{0.5\textwidth}
       \begin{itemize}
-        \item \textbf{Cheaper rewrites now.} An 8-byte amount-only element in place of a republished 116-byte leaf: about 54 vB less per settled pending pair. In progress.
+        \item \textbf{Cheaper rewrite steps.} Just landed: an 8-byte amount-only element in place of a republished 116-byte leaf (587 $\to$ 547 vB per settled pair). The per-position script is now most of a batch's cost.
         \item \textbf{A native Merkle-sum opcode.} 252 bytes of script at any depth; key-addressed trees of depth 64. Worth proposing?
         \item \textbf{Liquid prototype of MID.} Most of the opcodes exist there today.
         \item \textbf{Signet / Inquisition harness} to confirm the throughput and TRUC-anchor assumptions on a real node.
