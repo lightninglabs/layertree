@@ -5,7 +5,7 @@ stands, what is in flight, what is next, and what is undecided. Update it
 whenever the answer to "where are we" changes. `design/status.md` is the
 formal hand-off with the decision log; this file is the informal one.
 
-Last updated 2026-10-10 (late), after open work 9 landed (spec 0.12.0, Appendix C 0.5.0) and the evening round's audits and fixes.
+Last updated 2026-10-13, after the pending-leaf receive round (spec 0.14.0); the rows below the first two entries of "In flight right now" date from 2026-10-10 and 2026-10-11.
 
 ## What we are trying to do
 
@@ -32,13 +32,40 @@ with numbers.
 | Spec | 0.12.1 on main: `EXIT_K^t`, the tower-delegable exit (7.2 rule 7, FULL/MID/CCV, status.md decision 26); 0.12.0: MID `REWRITE_h`/`REWRITE_h^x` (0.11.1), CCV `DETACH_h` in both numerics, the one-byte unchanged marker for `REWRITE_h` (0.12.0, FULL and MID; 92 vB per unchanged position); 0.11.0: `NONNEG` after every `0xC0` sum, `DUST_MIN` creation parameter and 7.5 rule 6 on every carve, `REWRITE_h`'s amount-only exemption stops at `SEQ_FINAL` (7.9 rule 3), 7.9 rule 7 a MUST beside `UPDATE^x`/`CLAIM^x` (status.md decision 22); 0.10.x: `tree_id` in every tier (6.2, 9.6), carve rule 7.5 rule 5, `DETACH_h` option inheritance 7.10 rule 3, plus everything from the PR stack and `CLAIM^x`/`CLAIM^hx` (7.5.3), `REWRITE_h` and `REWRITE_h^x` (7.9), `DETACH_h` (7.10), MID `EVICT_SUBTREE_h`, CCV `SPLIT` and sweep under `0xC0`, CCV `CLAIM`/`CLAIM^h`, 7.8 listing every draining transition, 10.5 sharding note, 9.6.2 pointing at the channel suite. Appendix C 0.3.0 with C.12. |
 | Python simulator | 1,154 / 466 / 55 / 1,344 checks (FULL / MID / MIN / CCV), 220 channel-leaf checks (`test_chan.py`), 61 for the hypothetical opcode outside every tier. |
 | Go | 103 golden scripts byte-exact (FULL incl. CLAIM^x/REWRITE/DETACH/EXIT_1^=/DETACH_2_HOST, MID incl. sweep and REWRITE, CCV both numerics incl. DETACH and the 0xC0 ports incl. CLAIM, channel scripts); `txn/` builds, signs and verifies every FULL transition end to end (48 cases, each witness also run through the Python simulator, `tools/replay_txn_dump.py` re-derives the pins); TLV channel messages in `msg/`. |
-| Lean | Builds clean, no sorry, 60 audited theorems (about 3,400 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
+| Lean | Builds clean, no sorry, 72 audited theorems since the pending-leaf round (about 4,500 lines): binding, conservation, payability, every transition, path maintenance, PADZ encoding, trace-level invariants over reachable states (`Trace.lean`: ledger, dust floor, evictability, chain_state), voucher non-replay and detach survival (`Voucher.lean`), multi-exit rewrite conservation, the 0.11.0 rules. README lists where the model is weaker than the spec. Not covered: scripts or timing. |
 | Paper | Two versions from one source, two audiences (status.md decision 23). `main.pdf` (18 pages, body ends on 15, References on 16) is the developer paper: how it works, every operation in a member's order, vouchers as a section, trust model, tiers, a short "what is proved", channels, evaluation, related work. `main-full.pdf` (74 pages, References on 29) keeps the functionality-first body and the proofs. Shared text in `paper/body-*.tex`, developer body in `paper/short-*.tex`. Open: the short version still carries the "Ideal Functionality" title (owner's call), the repository citation needs a public URL, trim the full version toward 30 body pages. |
 | Design pages | `design/cost-comparison.md`, `design/tree-comparison.md`, `design/receive.md`, `design/batching.md`, `design/graft.md` (grafting and its trust model), `design/interactivity.md` (who must be online for each operation, synchronous steps, against Ark, factories, pools and channels), all with generated figures from `tools/gen_cost_figures.py` (matplotlib, deterministic SVG). |
 | Experiments | `tools/experiments/radix4.py`: radix-4 and radix-8 dense levels measured; radix 2 wins on the dense tree. |
 | PR stack | Empty. #8 (72e9846), #10 (54d094f), #6 (f23f193) and #7 (3ef8128) all merged. |
 
 ## In flight right now
+
+- Pending-leaf receive round (2026-10-12 to 13): the atomic Lightning
+  receive of `design/pending-receive.md` landed as spec 0.14.0. R1
+  (`RECLAIM_KEY`, `RECLAIM_1`: the operator reclaims an expired pending
+  leaf), R2 (`CLAIM^m`, `CLAIM^hm`: a hash-locked voucher raising the
+  recipient's sibling landing leaf to an absolute target, which must
+  share the source's exit key) and R3 (the reclaim-form `REWRITE_h`: a
+  non-interactive batch settlement from pending leaf to landing leaf with
+  only the operator's signature), in FULL, MID and CCV (both numerics),
+  with Go mirrors, golden vectors and `txn` builders replayed through the
+  simulator; MIN cannot. Lean now has 72 audited theorems (new modules
+  for merges, reclaims, rule 8 and the trace layer). The D4 golden root
+  did not move. Design notes: `design/pending-receive.md`,
+  `design/towers.md`, the interactivity and receive pages. The site's
+  payments and verification pages and the paper (full receive section,
+  implementation appendix step 8, Lean appendix) were brought up to date
+  in a docs pass; the PDFs, the check counts, the sizes and the scaling
+  and tier tables wait for the numbers pass. Two approved follow-ups are
+  in progress, each on its own worker: (a) the CCV net-decrease mode
+  flag (CCV `UPDATE` and `REWRITE_h` commit output 0 in the assign mode,
+  so a net decrease that the other tiers leave free is not spendable; the
+  flag selects deduct mode), and (b) an 8-byte amount-only element in
+  7.9 in place of a republished 116-byte leaf, about 54 vB per pair off
+  the roughly 587 vB per-pair settlement. After both land: the numbers
+  pass (spec 4.5, 8.8, 11, `spec/scripts/sizes.md`, `fee-analysis.md`,
+  `formal/README.md`, site, paper), a rebuild of both PDFs, and a
+  republish of the site.
 
 - Review round (owner's order 2026-10-10 late: 1, then 4, then 2): (1) a
   Fable adversarial pass over main 8e6e511..318d941 (the whole day:
