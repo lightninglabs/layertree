@@ -98,6 +98,11 @@ TAG_VOUCHER_H = "LayerTree/voucher-hashlock"
 # The exit authorisation of EXIT_K^t (spec 7.2 rule 7): a tag of its own,
 # so an authorisation can never serve as a voucher nor a voucher as one.
 TAG_EXIT = "LayerTree/exit"
+# The merge voucher of CLAIM^m and CLAIM^hm (design/pending-receive.md,
+# R2): tags of their own, so a merge voucher can never be redeemed as a
+# carve nor a carve voucher as a merge.
+TAG_VOUCHER_M = "LayerTree/voucher-merge"
+TAG_VOUCHER_HM = "LayerTree/voucher-merge-hashlock"
 TAG_POS = "LayerTree/pos"
 TAG_TREE_ID = "LayerTree/tree-id"
 TAG_TAPTWEAK = "TapTweak"
@@ -451,6 +456,37 @@ def voucher_h_msg(tree_id, source_leaf, claim_leaf, payment_hash):
     assert len(tree_id) == 32 and len(payment_hash) == 32
     return tagged_hash(TAG_VOUCHER_H,
                        tree_id + source_leaf.body() + claim_leaf.serialize() + payment_hash)
+
+
+def voucher_m_msg(tree_id, source_leaf, target_leaf, target_amount, payment_hash=None):
+    """Merge voucher message (CLAIM^m, CLAIM^hm; design/pending-receive.md
+    R2): H_voucher_m(tree_id || body(src) || body(target) || le64(X)
+    [|| payment_hash]). It names the target by its body and the amount X
+    the target is raised to, an absolute level: once the target holds X
+    the voucher moves nothing, so a replay or an older, smaller voucher is
+    harmless. The hash-locked form appends the payment hash under its own
+    tag."""
+    assert len(tree_id) == 32
+    msg = tree_id + source_leaf.body() + target_leaf.body() + le64(target_amount)
+    if payment_hash is None:
+        return tagged_hash(TAG_VOUCHER_M, msg)
+    assert len(payment_hash) == 32
+    return tagged_hash(TAG_VOUCHER_HM, msg + payment_hash)
+
+
+def apply_merge(tree, source_slot, target_slot, target_amount):
+    """A merge (R2): raise the target to target_amount, taking the
+    difference from the source, whose seq does not advance; a source
+    drained to zero becomes E_0. The two positions are siblings."""
+    assert source_slot ^ 1 == target_slot
+    src, tgt = tree.leaves[source_slot], tree.leaves[target_slot]
+    d = target_amount - tgt.amount
+    assert 0 < d <= src.amount
+    tree.leaves[target_slot] = tgt.with_amount_seq(target_amount, tgt.seq)
+    if src.amount == d:
+        del tree.leaves[source_slot]
+    else:
+        tree.leaves[source_slot] = src.with_amount_seq(src.amount - d, src.seq)
 
 
 def exit_auth_msg(tree_id, leaf):

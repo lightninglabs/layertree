@@ -29,6 +29,8 @@ STATE_PREFIX = lt.tag_prefix(lt.TAG_STATE)
 VOUCHER_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER)
 VOUCHER_H_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER_H)
 EXIT_PREFIX = lt.tag_prefix(lt.TAG_EXIT)
+VOUCHER_M_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER_M)
+VOUCHER_HM_PREFIX = lt.tag_prefix(lt.TAG_VOUCHER_HM)
 POS_PREFIX = lt.tag_prefix(lt.TAG_POS)
 TAPTWEAK_PREFIX = lt.tag_prefix(lt.TAG_TAPTWEAK)
 NUMS33 = lt.compress(lt.NUMS)
@@ -59,6 +61,7 @@ CONST_NAMES = {
     LEAF_PREFIX: "<TAG_LEAF>", NODE_PREFIX: "<TAG_NODE>", STATE_PREFIX: "<TAG_STATE>",
     VOUCHER_PREFIX: "<TAG_VOUCHER>", VOUCHER_H_PREFIX: "<TAG_VOUCHER_H>",
     EXIT_PREFIX: "<TAG_EXIT>", POS_PREFIX: "<TAG_POS>",
+    VOUCHER_M_PREFIX: "<TAG_VOUCHER_M>", VOUCHER_HM_PREFIX: "<TAG_VOUCHER_HM>",
     TAPTWEAK_PREFIX: "<TAG_TAPTWEAK>", NUMS33: "<NUMS>", ZERO8: "<ZERO8>",
     ZERO4: "<ZERO4>", P2TR_PREFIX: "<0x5120>", lt.EMPTY_LEAF_HASH: "<EMPTY_LEAF>",
     (1 << 64).to_bytes(9, "little"): "<2^64>", lt.enc64(0): "<ENC0>",
@@ -564,6 +567,98 @@ def _carve_body(depth, profile, dust_min=lt.DUST_MIN):
 
 
 # ---------------------------------------------------------------------------
+# Pending-leaf receive (design/pending-receive.md): the merge claim CLAIM^m
+# and CLAIM^hm (R2) and the reclaim RECLAIM_1 (R1). A tree that carries
+# R1 names RECLAIM_KEY at creation, the operator's and distinct from
+# OPERATOR_KEY; a leaf is reclaimable when its evictor_key is RECLAIM_KEY.
+# ---------------------------------------------------------------------------
+def merge_script(depth, tree_id, hashlock=False, reclaim_key=None, dust_min=lt.DUST_MIN):
+    """CLAIM^m (R2), or CLAIM^hm with hashlock=True: raise the source's
+    sibling to an absolute amount X, taking the difference from the
+    source. Dense profile only.
+
+    witness (bottom..top) = [dir sc]*(D-1)  left right src_is_left X vsig [preimage] r m
+
+    left and right are the two leaves of an aligned pair, its node proven
+    at height 1; src_is_left (empty or 0x01) names the source; X is the
+    target's new amount as le64. The voucher is a signature by
+    src.owner_key over H_voucher_m(tree_id || body(src) || body(tgt) ||
+    X [|| SHA256(preimage)]), checked with OP_CHECKSIGFROMSTACK. The
+    script requires tgt.owner_key == src.exit_key, neither leaf at
+    SEQ_FINAL, tgt not reclaimable (when the tree has a RECLAIM_KEY),
+    tgt.amount < X, and a source residual of zero (the position becomes
+    E_0) or at least DUST_MIN. The source's seq does not advance and the
+    target changes in its amount only, so a merge voids no voucher and a
+    replayed or older voucher moves nothing once the target holds X.
+    """
+    assert len(tree_id) == 32 and depth >= 1
+    s = prologue()                                                   # L R f X v [pre] | m r
+    if hashlock:
+        s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256", "OP_TOALTSTACK"]   # | m r ph
+    s += [2, "OP_ROLL", "OP_DUP", "OP_TOALTSTACK",                  # L R X v f | .. f
+          "OP_NOTIF", "OP_2SWAP", "OP_SWAP", "OP_2SWAP", "OP_ENDIF",  # S T X v
+          3, "OP_PICK", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY", "OP_DROP",
+          2, "OP_PICK", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY", "OP_DROP",
+          "OP_OVER", "OP_SIZE", 8, "OP_EQUALVERIFY", "OP_DROP",      # S T X v (sizes)
+          3, "OP_PICK"] + LEAF_BODY + [3, "OP_PICK"] + LEAF_BODY + ["OP_CAT",
+          2, "OP_PICK", "OP_CAT", tree_id, "OP_SWAP", "OP_CAT"]      # S T X v (tid||bS||bT||X)
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_SWAP", "OP_TOALTSTACK",  # .. ph | .. f
+              "OP_CAT"]
+    s += tagged(VOUCHER_HM_PREFIX if hashlock else VOUCHER_M_PREFIX) + [      # S T X v msg
+          4, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
+          "OP_CHECKSIGFROMSTACK", "OP_VERIFY",                       # S T X
+          # the target belongs to the source's exit key, and neither leaf is final
+          "OP_OVER", OFF_OWNER_KEY, 32, "OP_SUBSTR",
+          3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_EQUALVERIFY",
+          "OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_VERIFY",
+          2, "OP_PICK", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_VERIFY"]
+    if reclaim_key is not None:
+        s += ["OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key,
+              "OP_EQUAL", "OP_NOT", "OP_VERIFY"]                     # target not reclaimable
+    s += ["OP_DUP", 2, "OP_PICK", 8, "OP_LEFT", "OP_SUB",            # S T X d   (d = X - tgt.amt)
+          "OP_1", "OP_OVER", "OP_LESSTHANOREQUAL", "OP_VERIFY",      # d >= 1
+          3, "OP_PICK", 8, "OP_LEFT", "OP_SWAP", "OP_SUB",           # S T X res
+          "OP_0", "OP_OVER", "OP_LESSTHANOREQUAL", "OP_VERIFY",      # res >= 0
+          "OP_DUP"] + LE64 + [4, "OP_PICK"] + LEAF_BODY + ["OP_CAT",  # S T X res newS
+          2, "OP_PICK", 4, "OP_PICK"] + LEAF_BODY + ["OP_CAT",       # S T X res newS newT
+          3, "OP_ROLL", "OP_DROP", 2, "OP_ROLL", "OP_DROP",          # S T newS newT
+          NODE_PREFIX, 4, "OP_ROLL", 4, "OP_ROLL", 4, "OP_ROLL", 4, "OP_ROLL"]  # P S T newS newT
+    s += leaf_acc() + ["OP_ROT"] + leaf_acc() + drain_rule(dust_min) + [   # P S T nT nS
+          4, "OP_ROLL"] + leaf_acc() + [                             # P S nT nS oT
+          6, "OP_ROLL"] + leaf_acc() + [                             # P nT nS oT oS
+          "OP_FROMALTSTACK",
+          "OP_IF", 5, "OP_ROLL", 5, "OP_ROLL", 5, "OP_ROLL", 5, "OP_ROLL",
+          7, "OP_ROLL", 7, "OP_ROLL",                                # P oS nS oT nT  (source left)
+          "OP_ELSE", 3, "OP_ROLL", 3, "OP_ROLL", 7, "OP_ROLL", 7, "OP_ROLL",
+          5, "OP_ROLL", 5, "OP_ROLL", 7, "OP_ROLL", 7, "OP_ROLL",    # P oT nT oS nS  (source right)
+          "OP_ENDIF"] + _hash_step2(8)                               # P poh pos pnh pns
+    s += levels("D", depth, 1)
+    return s + check_old_root_from_alt("D") + final_output(depth)
+
+
+def reclaim_script(depth, reclaim_key, profile="D"):
+    """RECLAIM_1 (R1): the operator removes a reclaimable leaf after its
+    deadline with no payout. witness (bottom..top) = [path] leaf sig r m.
+
+    The leaf's evictor_key MUST be RECLAIM_KEY, the lock time at least its
+    evict_after, and sig a transaction signature by RECLAIM_KEY. The new
+    node is E_0 and output 0 carries S - leaf.amount; nothing else is
+    constrained, so the leaf's value is the transaction's to spend. It is
+    EXIT_1's eviction branch with the payout check removed."""
+    assert len(reclaim_key) == 32
+    s = prologue() + ["OP_OVER", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",   # leaf sig leaf
+         OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key, "OP_EQUALVERIFY",  # leaf sig
+         "OP_OVER", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
+         "OP_CHECKLOCKTIMEVERIFY", "OP_DROP",
+         reclaim_key, "OP_CHECKSIGVERIFY"]                           # leaf
+    if profile == "S":
+        s += leaf_pos() + sparse_setup()
+    s += leaf_acc() + [NODE_PREFIX, "OP_ROT", "OP_ROT", lt.EMPTY_LEAF_HASH, "OP_0"]
+    return s + levels(profile, depth) + check_old_root_from_alt(profile) + final_output(depth)
+
+
+# ---------------------------------------------------------------------------
 # Channel-leaf HTLC outputs (Appendix C.4.1). These are not covenants and not
 # part of a tree's taptree: they are the two leaves of an HTLC output in a
 # settlement transaction, resolved by one ordinary transaction at spend time
@@ -833,37 +928,129 @@ def _rewrite_pay():
             2, "OP_PICK", 8, "OP_LEFT", "OP_NUMEQUALVERIFY"]            # old new   (exact payout)
 
 
-def _rewrite_step(d, exit_consent, pay=None):
+def _rewrite_exempt():
+    """[old new] -> [old new exempt]: 7.9 rule 3's amount-only exemption,
+    for two leaves: new[8:] == old[8:], old.amount <= new.amount and
+    old.seq != SEQ_FINAL."""
+    return ["OP_2DUP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
+            "OP_SWAP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR", "OP_EQUAL",  # old new same_rest
+            "OP_IF", "OP_2DUP", "OP_SWAP", 8, "OP_LEFT", "OP_SWAP", 8, "OP_LEFT",
+            "OP_LESSTHANOREQUAL",                                                        # old new old.amt<=new.amt
+            # ... and old.seq != SEQ_FINAL (5.2): a leaf whose amount is not the
+            # owner's alone keeps its signature (same_rest makes new.seq = old.seq)
+            "OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_BOOLAND",
+            "OP_ELSE", "OP_0", "OP_ENDIF"]                  # old new exempt
+
+
+def _reclaim_r1():
+    """[old new] -> [old new]: R1 inside the rewrite. The old leaf is
+    reclaimable (its evictor_key is RECLAIM_KEY) and its deadline has
+    passed: the lock time is at least old.evict_after. No signature but
+    the operator's, and no payout when the position is emptied."""
+    return ["OP_OVER", OFF_EVICT_AFTER, LEN_EVICT_AFTER, "OP_SUBSTR",
+            "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"]
+
+
+def _transfer_shape(reclaim_key):
+    """[old new] -> [old new flag]: R3's left half. flag is true when both
+    elements are leaves, old is reclaimable, new equals old in every field
+    but amount, and new.amount < old.amount (a decrease the right sibling
+    must absorb exactly)."""
+    return ["OP_OVER", "OP_SIZE", "OP_NIP", LEAF_LEN, "OP_NUMEQUAL",
+            "OP_OVER", "OP_SIZE", "OP_NIP", LEAF_LEN, "OP_NUMEQUAL", "OP_BOOLAND",
+            "OP_IF",
+            "OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key, "OP_EQUAL",       # old new isR
+            "OP_OVER", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
+            3, "OP_PICK", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
+            "OP_EQUAL", "OP_BOOLAND",                                                    # ... and same_rest
+            2, "OP_PICK", 8, "OP_LEFT", 2, "OP_PICK", 8, "OP_LEFT",
+            "OP_LESSTHANOREQUAL", "OP_NOT", "OP_BOOLAND",                                # ... and old.amt > new.amt
+            "OP_ELSE", "OP_0", "OP_ENDIF"]
+
+
+def _transfer_record(reclaim_key):
+    """[old new] | .. idx -> [old new] | .. idx delta key: the left step of
+    a pair leaves R3's transfer on the altstack for its right sibling,
+    (old.amount - new.amount, old.exit_key) for a transfer and (0, 0)
+    otherwise."""
+    return _transfer_shape(reclaim_key) + [
+        "OP_IF",
+        "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB",                     # old new delta
+        2, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR",                                    # old new delta key
+        "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK",
+        "OP_ELSE", "OP_0", "OP_TOALTSTACK", "OP_0", "OP_TOALTSTACK", "OP_ENDIF"]
+
+
+def _transfer_absorb(reclaim_key):
+    """[old new] | .. idx delta key -> [old new] | .. idx: the right step
+    of a pair takes its left sibling's transfer record. A non-zero delta
+    requires the right old leaf to be owned by the left leaf's exit key and
+    not reclaimable, and the new leaf to equal it but for an amount raised
+    by exactly delta. The raise itself then passes as 7.9 rule 3's
+    amount-only increase."""
+    return ["OP_FROMALTSTACK", "OP_FROMALTSTACK",                                       # old new key delta
+            "OP_DUP", "OP_0NOTEQUAL", "OP_IF",
+            3, "OP_PICK", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+            OFF_OWNER_KEY, 32, "OP_SUBSTR", 2, "OP_PICK", "OP_EQUALVERIFY",            # old.owner == key
+            3, "OP_PICK", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key,
+            "OP_EQUAL", "OP_NOT", "OP_VERIFY",                                          # old not reclaimable
+            2, "OP_PICK", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+            OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
+            4, "OP_PICK", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
+            "OP_EQUALVERIFY",                                                           # same_rest
+            2, "OP_PICK", 8, "OP_LEFT", 4, "OP_PICK", 8, "OP_LEFT", "OP_SUB",
+            "OP_OVER", "OP_NUMEQUALVERIFY",                                             # new.amt - old.amt == delta
+            "OP_ENDIF", "OP_2DROP"]
+
+
+def _rewrite_step(d, exit_consent, pay=None, reclaim_key=None, side=None):
     """[Z L T ...] with old, new and any signatures below Z  ->  [Z L T ... oh os nh ns]
     | .. m r idx  ->  | .. m r idx'.  `d` is the number of machine elements
     above T; Z (E_0's hash) and L (the TAG_LEAF prefix) sit directly below T,
     so the next witness element is at depth d+3. `pay` is the exit payout
-    check, _rewrite_pay's by default; the CCV tier passes its own."""
+    check, _rewrite_pay's by default; the CCV tier passes its own.
+
+    With reclaim_key (the R1/R3 variant, design/pending-receive.md) a
+    changed position whose old leaf is reclaimable takes no owner
+    signature: an amount-only increase passes as rule 3, a left position
+    (side "L") whose leaf only falls in amount is an R3 transfer its right
+    sibling must absorb, and any other change is an R1 reclaim, which
+    needs the leaf's deadline to have passed and pays nothing when the
+    position is emptied. Left steps leave a transfer record on the
+    altstack and right steps (side "R") consume it."""
     if pay is None:
         pay = _rewrite_pay()
-    return ([d + 3, "OP_ROLL", d + 4, "OP_ROLL",            # T ... old new
-             "OP_SIZE", "OP_1", "OP_EQUAL",                  # old new (new is the one-byte marker?)
-             "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF",       # old new   (marker: new := old)
-             "OP_2DUP", "OP_EQUAL", "OP_NOTIF",              # changed?
-             "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",   # old is a leaf?
-             "OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",    # new is a leaf: rewrite
-             # exempt from the owner signature iff new[8:] == old[8:], old.amount <= new.amount
-             # and old.seq != SEQ_FINAL (7.9 rule 3)
-             "OP_2DUP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
-             "OP_SWAP", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR", "OP_EQUAL",  # old new same_rest
-             "OP_IF", "OP_2DUP", "OP_SWAP", 8, "OP_LEFT", "OP_SWAP", 8, "OP_LEFT",
-             "OP_LESSTHANOREQUAL",                                                        # old new old.amt<=new.amt
-             # ... and old.seq != SEQ_FINAL (5.2): a leaf whose amount is not the
-             # owner's alone keeps its signature (same_rest makes new.seq = old.seq)
-             "OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_BOOLAND",
-             "OP_ELSE", "OP_0", "OP_ENDIF",                  # old new exempt
-             "OP_NOTIF"] + _owner_auth(d + 5, exit_consent) + ["OP_ENDIF",
-             "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + pay + [   # new is empty: an exit, paid to old.exit_key
-             "OP_ENDIF",
-             "OP_ENDIF",                                     # (old empty: a join, operator only)
-             "OP_ENDIF",                                     # (unchanged)
-             "OP_SWAP"] + _elem_node(d + 4, d + 3) +         # new oh os
-            ["OP_ROT"] + _elem_node(d + 5, d + 4))           # oh os nh ns
+    old_rules = (["OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +   # new is a leaf: rewrite
+                 _rewrite_exempt() +
+                 ["OP_NOTIF"] + _owner_auth(d + 5, exit_consent) + ["OP_ENDIF",
+                  "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + pay + [   # new is empty: an exit, paid to old.exit_key
+                  "OP_ENDIF"])
+    if reclaim_key is None:
+        leaf_rules = old_rules
+    else:
+        r1 = _reclaim_r1()
+        decrease = (_transfer_shape(reclaim_key) + ["OP_NOTIF"] + r1 + ["OP_ENDIF"]
+                    if side == "L" else r1)
+        leaf_rules = (["OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key, "OP_EQUAL",
+                       "OP_IF",                                           # old is reclaimable
+                       "OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +
+                      _rewrite_exempt() + ["OP_NOTIF"] + decrease + ["OP_ENDIF",
+                       "OP_ELSE"] + r1 + ["OP_ENDIF",                     # emptied: reclaimed, no payout
+                       "OP_ELSE"] + old_rules + ["OP_ENDIF"])
+    s = [d + 3, "OP_ROLL", d + 4, "OP_ROLL",            # T ... old new
+         "OP_SIZE", "OP_1", "OP_EQUAL",                  # old new (new is the one-byte marker?)
+         "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF"]       # old new   (marker: new := old)
+    if reclaim_key is not None and side == "R":
+        s += _transfer_absorb(reclaim_key)
+    s += (["OP_2DUP", "OP_EQUAL", "OP_NOTIF",            # changed?
+           "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +   # old is a leaf?
+          leaf_rules +
+          ["OP_ENDIF",                                   # (old empty: a join, operator only)
+           "OP_ENDIF"])                                  # (unchanged)
+    if reclaim_key is not None and side == "L":
+        s += _transfer_record(reclaim_key)
+    return (s + ["OP_SWAP"] + _elem_node(d + 4, d + 3) +   # new oh os
+            ["OP_ROT"] + _elem_node(d + 5, d + 4))       # oh os nh ns
 
 
 def _hash_step2(d):
@@ -877,7 +1064,7 @@ def _hash_step2(d):
             _hash_step(d - 2))                                      # poh pos pnh pns
 
 
-def rewrite_script(depth, height, operator_key, exit_consent=False):
+def rewrite_script(depth, height, operator_key, exit_consent=False, reclaim_key=None):
     """REWRITE_h (spec 7.9): rewrite every position of an aligned subtree.
 
     witness (bottom..top) = [dir sc]*(D-h)  block_{2^h-1} ... block_0  sig_op  r  m
@@ -886,13 +1073,17 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
     for "the old element"; sig_i only where 7.9 rule 3 requires it, xsig_i
     only under ^x and only where sig_i is present).
     """
+    assert reclaim_key is None or height >= 1   # R3 pairs positions 2i and 2i+1
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks | m r
     s += ["OP_1", "OP_TOALTSTACK",                            #            | m r 1
           lt.EMPTY_LEAF_HASH, LEAF_PREFIX, NODE_PREFIX]       # Z L T      (hoisted constants)
     d = [0]
+    pos = [0]
     def gen(h):
         if h == 0:
-            s.extend(_rewrite_step(d[0], exit_consent))
+            side = "L" if pos[0] % 2 == 0 else "R"
+            s.extend(_rewrite_step(d[0], exit_consent, reclaim_key=reclaim_key, side=side))
+            pos[0] += 1
             d[0] += 4
         else:
             gen(h - 1); gen(h - 1)
@@ -933,7 +1124,8 @@ class TreeOptions:
     def __init__(self, operator_key, tree_id, profile="D", join_heights=(0,), exit_ks=(1, 2),
                  join_ks=(2,), exact=False, tower=False, update_x=False, claim=True, claim_h=False,
                  claim_x=False, claim_hx=False, split=False, evict_heights=(),
-                 rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN):
+                 rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN,
+                 reclaim_key=None, claim_m=False, claim_hm=False):
         self.operator_key, self.tree_id, self.profile = operator_key, tree_id, profile
         self.dust_min = dust_min
         self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
@@ -942,6 +1134,10 @@ class TreeOptions:
         self.split = split
         self.evict_heights, self.rewrite_heights = tuple(evict_heights), tuple(rewrite_heights)
         self.rewrite_x, self.detach_heights = rewrite_x, tuple(detach_heights)
+        # The pending-leaf receive (design/pending-receive.md): RECLAIM_KEY
+        # enables RECLAIM_1 and compiles every REWRITE_h with R1 and R3;
+        # claim_m and claim_hm add the merge claims (dense profile).
+        self.reclaim_key, self.claim_m, self.claim_hm = reclaim_key, claim_m, claim_hm
 
     def at_depth(self, depth):
         """Ordered dict name -> token list: the set compiled for depth `depth`.
@@ -964,15 +1160,24 @@ class TreeOptions:
                                          dust_min=self.dust_min)
         if self.split:
             out["SPLIT"] = split_script(depth, prof, dust_min=self.dust_min)
+        if self.reclaim_key is not None:
+            out["RECLAIM_1"] = reclaim_script(depth, self.reclaim_key, prof)
         if prof == "D":
+            for name, hl, on in (("CLAIM_M", False, self.claim_m), ("CLAIM_HM", True, self.claim_hm)):
+                if on:
+                    out[name] = merge_script(depth, self.tree_id, hashlock=hl,
+                                             reclaim_key=self.reclaim_key, dust_min=self.dust_min)
             for h in self.evict_heights:
                 if h <= depth:
                     out[f"EVICT_SUBTREE_{h}"] = evict_subtree_script(depth, h, op)
+            rk = self.reclaim_key
+            r = "R" if rk is not None else ""
             for h in self.rewrite_heights:
-                if h <= depth:
-                    out[f"REWRITE_{h}"] = rewrite_script(depth, h, op)
+                if h <= depth and (rk is None or h >= 1):
+                    out[f"REWRITE_{r}{'_' if r else ''}{h}"] = rewrite_script(depth, h, op, reclaim_key=rk)
                     if self.rewrite_x:
-                        out[f"REWRITE_X_{h}"] = rewrite_script(depth, h, op, exit_consent=True)
+                        out[f"REWRITE_X{r}_{h}"] = rewrite_script(depth, h, op, exit_consent=True,
+                                                                 reclaim_key=rk)
             for h in self.detach_heights:
                 if h < depth:
                     out[f"DETACH_{h}"] = detach_script(depth, h, op, self.taptree_root(h))

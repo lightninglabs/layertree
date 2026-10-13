@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.13.2
+Version:  0.14.0
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -697,6 +697,7 @@ K-payout transition) is compatible with all scripts in this document.
 | `TAG_VOUCHER` | `"LayerTree/voucher"` (vouchers, 7.5: over `tree_id`, the source leaf's body and the claim leaf) |
 | `TAG_VOUCHER_H` | `"LayerTree/voucher-hashlock"` (hash-locked vouchers, 7.5.1) |
 | `TAG_EXIT` | `"LayerTree/exit"` (the exit authorisation of `EXIT_K^t`, 7.2 rule 7, over `tree_id` and the leaf's body; distinct from the voucher tags so that neither message can serve as the other) |
+| `TAG_VOUCHER_M`, `TAG_VOUCHER_HM` | `"LayerTree/voucher-merge"`, `"LayerTree/voucher-merge-hashlock"` (merge vouchers, 7.5.4: over `tree_id`, the source's and the target's bodies and the target amount) |
 | `TAG_POS` | `"LayerTree/pos"` (sparse profile positions) |
 | `TAG_TREE_ID` | `"LayerTree/tree-id"` (the RECOMMENDED `tree_id` derivation, 6.2) |
 | `NUMS` | BIP-341 `H`: x = `50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0`, compressed `02 || x` |
@@ -705,8 +706,8 @@ K-payout transition) is compatible with all scripts in this document.
 | `SEQ_FINAL` | `0xFFFFFFFF` (FULL), `0x7FFFFFFF` (MID, MIN): the `seq` value that makes a leaf non-claimable (5.2, 7.5) |
 | `TAG_CHAN_ID`, `TAG_CHAN_UPD`, `TAG_CHAN_SET` | `"LayerTree/chan/id"`, `"LayerTree/chan/update"`, `"LayerTree/chan/settle"` (Appendix C) |
 
-`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_exit`,
-`H_pos` denote `H_tag` with the
+`H_leaf`, `H_node`, `H_state`, `H_voucher`, `H_voucher_h`, `H_voucher_m`,
+`H_voucher_hm`, `H_exit`, `H_pos` denote `H_tag` with the
 corresponding tag. The 64-byte tagged-hash prefixes are given in
 `spec/test-vectors.json` under `tags`.
 
@@ -901,6 +902,12 @@ parameters:
   fee and carries an output below the threshold is one no default node
   relays (7.8). Operators who size cohorts by 11.2 MAY set it higher.
 * the set of supported `JOIN` heights (dense) and `EXIT_K` sizes;
+* optionally `RECLAIM_KEY`, a 32-byte x-only key of the operator's,
+  distinct from `OPERATOR_KEY`. A tree that names it carries `RECLAIM_1`
+  (7.11) and compiles every `REWRITE_h` it carries in the reclaim form of
+  7.9 rule 8; a leaf whose `evictor_key` equals it is **reclaimable**.
+  A tree that names none has no reclaimable leaves and none of these
+  scripts;
 * `tree_id`, a 32-byte value that every voucher against the tree binds
   (7.5) and that the `CLAIM` scripts carry as a constant (8.6), never as
   a witness element. It MUST be unique per lineage: no two trees share it
@@ -1460,6 +1467,69 @@ variant as `claim_script(…, exit_consent=True)` in every tier that has
 `CLAIM` or `CLAIM^h` under `0xC2` numerics and 4 under `0xC0`, as
 `UPDATE^x` over `UPDATE` in each, and 64 bytes of witness (8.6.3).
 
+#### 7.5.4 CLAIM^m (merge into the sibling)
+
+`CLAIM^m` executes a **merge voucher**: an owner-signed instruction to
+raise the source leaf's *sibling* to a stated amount, taking the
+difference from the source. `CLAIM^hm` is the same with a payment hash,
+as 7.5.1 adds one to `CLAIM`. Both are tree-creation parameters of the
+dense profile, visible in `m`. Their purpose is the pending-leaf receive
+of `design/pending-receive.md`, where the source is an operator-funded
+pending leaf and the sibling is the recipient's own landing leaf; they
+are useful wherever a credit leaf's sibling belongs to its recipient.
+
+Voucher: `voucher_sig` is a BIP-340 signature by `source_leaf.owner_key`
+over
+
+```
+H_voucher_m( tree_id || body(source_leaf) || body(target_leaf) || le64(X) )
+```
+
+or, for `CLAIM^hm`, `H_voucher_hm( … || le64(X) || payment_hash )`, under
+tags of their own (5.1) so that neither form can be redeemed as the
+other or as a carve voucher. `X` is the amount the target is raised to:
+an absolute level, not an increment.
+
+Witness inputs: sibling path of the pair (`D − 1` levels, the pair's node
+at height 1), the pair's left and right leaves, `src_is_left` (empty or
+`0x01`), `X` (8 bytes), `voucher_sig`, a 32-byte `preimage` for
+`CLAIM^hm`, `r`, `m`.
+
+Rules:
+
+1. `voucher_sig` MUST verify (via `OP_CHECKSIGFROMSTACK`) under
+   `source_leaf.owner_key` over the message above with the script's own
+   `tree_id`, and for `CLAIM^hm` with `SHA256(preimage)`.
+2. The target is the source's sibling. `target_leaf.owner_key` MUST equal
+   `source_leaf.exit_key`; neither leaf's `seq` may be `SEQ_FINAL`; in a
+   tree that names `RECLAIM_KEY` the target MUST NOT be reclaimable.
+3. `d = X − target_leaf.amount` MUST be at least 1, and the source's
+   residual `source_leaf.amount − d` MUST be 0 or at least `DUST_MIN`.
+4. The new target leaf is the old one with `amount = X`. The new source
+   leaf is the old one with `amount` lowered by `d` and every other field,
+   `seq` included, unchanged; a residual of 0 makes the source position
+   `E_0`.
+5. The old pair node folds to `(r, S)` with `S` equal to input 0's amount;
+   the new pair node's fold defines output 0, whose amount is `S`.
+
+*(informative)* Rule 2 is what makes a merge harmless to the party that
+did not sign it. The target belongs to the source's exit key, so value
+can move only into a leaf that key can exit alone, and only into the one
+leaf at the sibling position, which nobody else can remove before its
+lease. Without the position rule a source owner could graft another
+leaf the exit key owns and drain the source into it just far enough to
+make an outstanding voucher underflow (`design/pending-receive.md`,
+*Review*). Rule 4 leaves the source's body unchanged, so a merge voids
+no voucher against it, and rule 3's absolute target makes replay
+harmless: once the target holds `X` the voucher moves nothing, and an
+older voucher with a lower target is a no-op after a newer one. A target
+whose amount falls without its body changing would revive merge
+vouchers already spent; the operator MUST advance the target's `seq` in
+any decrease it co-signs, as 9.6 requires of a voucher's source. The
+`SEQ_FINAL` exclusion keeps merges away from channel leaves (C.6.5). The
+script is measured in 8.8; it carries one path where `CLAIM` carries
+two.
+
 ### 7.6 Composition and variants
 
 Transition types compose by sequencing: a script that applies transitions
@@ -1608,6 +1678,27 @@ Rules:
    of `REWRITE_h`, for the same reason: a plain `REWRITE_h` beside either
    reopens the splice (C.6.6) and the voiding path (10.3) they close, and
    the counterparty verifies the choice from `m`.
+8. **Reclaim form.** In a tree that names `RECLAIM_KEY` (6.2) every
+   `REWRITE_h` and `REWRITE_h^x` it carries, for `h ≥ 1`, has two further
+   exemptions for a position whose old element is a reclaimable leaf;
+   positions `2i` and `2i + 1` of the subtree form a **pair**.
+   * **Transfer.** At an even position, a new leaf identical to the old
+     one in every field but `amount`, with a lower amount, needs no
+     signature, provided the odd position of the same pair holds an old
+     leaf that is not reclaimable and whose `owner_key` equals the
+     reclaimable leaf's `exit_key`, and its new element is that leaf with
+     its `amount` raised by exactly the decrease.
+   * **Reclaim.** Any other change of a reclaimable leaf, an amount-only
+     increase excepted (rule 3), needs no signature and no payout, and
+     requires `tx.nLockTime` to be at least the old leaf's `evict_after`
+     (`OP_CHECKLOCKTIMEVERIFY` semantics). It is `RECLAIM_1` (7.11)
+     inside the rewrite: the position may be emptied, its value then
+     being free for the transaction, or replaced by a new leaf.
+
+   No other position gains an exemption. A reclaimable leaf's changes
+   other than these take the reclaim branch, so a tree that needs an
+   owner-signed change to a pending leaf before its deadline uses
+   `UPDATE^x`.
 
 *(informative)* Rule 3's exception is what makes a payment between
 members need only the payer's signature: the payee's leaf gains amount and
@@ -1702,6 +1793,37 @@ for every `h' < h` the parent carries. Rule 3 is what makes a detach
 invisible to a member: the operator can move a cohort to its own output,
 and it cannot change the cohort's rules, keys or balances by doing so
 (10.1).
+
+### 7.11 RECLAIM_1 (reclaim after a deadline)
+
+`RECLAIM_1` removes a reclaimable leaf (6.2) after its deadline and pays
+nothing for it. It is present in a tree exactly when the tree names
+`RECLAIM_KEY`.
+
+Witness inputs: sibling path of the leaf position (`D` levels), `leaf`,
+`sig`, `r`, `m`.
+
+Rules:
+
+1. `leaf.evictor_key` MUST equal `RECLAIM_KEY`.
+2. `tx.nLockTime` MUST be at least `leaf.evict_after`, and input 0's
+   `nSequence` MUST enable lock-time (`OP_CHECKLOCKTIMEVERIFY` semantics).
+3. `sig` MUST be a valid signature over `tx` by `RECLAIM_KEY`, with a
+   hash type that commits to all outputs (7.2 rule 3).
+4. The old node is `(H_leaf(leaf), leaf.amount)` and the new node is
+   `E_0`; output 0's amount is `S − leaf.amount` per 7.1. No output is
+   constrained for the leaf's value.
+
+*(informative)* `RECLAIM_1` is the timeout branch of an HTLC that lives
+in the tree as a leaf: before the deadline a reclaimable leaf is
+protected exactly as a credit leaf is (10.3), and after it the operator
+takes back what was never paid. A reclaimable leaf is never swept by
+`EVICT_SUBTREE_h`, which requires `OPERATOR_KEY` as the evictor, and an
+ordinary eviction of one still pays its exit key. Only a leaf that is
+already reclaimable can carve one, since a carve writes its source's
+evictor (7.5 rule 5), so the flag reaches a leaf only through a
+transition its owner signs or a graft its joiner verifies (9.2). Section
+9.6.3 states the receive protocol built on it.
 
 ## 8. Reference Scripts
 
@@ -2841,6 +2963,45 @@ preimage. The deadline reasoning above is exercised block by block by
 preimage, the voucher redeems second, and a delta one block below the
 budget, an HTLC left waiting on the voucher, and an issuer advancing `seq`
 each make the honest party's transaction fail.
+
+#### 9.6.3 The pending-leaf receive
+
+A tree that names `RECLAIM_KEY` and carries `CLAIM^hm`, `UPDATE^x`,
+`EXIT^=`, `CLAIM^x` in place of `CLAIM`, and `REWRITE_h^x` in place of
+`REWRITE_h`, without `SPLIT`, can receive a Lightning payment
+atomically into a member's leaf. `design/pending-receive.md` derives the
+construction; this section states the obligations.
+
+Each recipient holds one or more **receive pairs** in the dense profile:
+a pending leaf `P` at an even position (owner the operator, exit key the
+recipient's, evictor `RECLAIM_KEY`, `evict_after` the window's deadline
+`T`) and a landing leaf `L` at the odd sibling (owner and exit key the
+recipient's, evictor `OPERATOR_KEY`). For each payment the recipient
+draws the preimage, the operator issues a `CLAIM^hm` voucher against `P`
+whose target is the landing leaf's settled level plus the payment, and
+the recipient releases the preimage only after verifying it. Then:
+
+1. The operator MUST keep `P`'s amount at least `DUST_MIN` above the draw
+   of every outstanding merge voucher against it. A voucher that would
+   drain `P` exactly is blocked by any amount-only top-up, which leaves a
+   sub-dust residual (7.5.4 rule 3).
+2. Before releasing a preimage the recipient MUST verify, against the
+   confirmed tree, that `P` is reclaimable and is `L`'s sibling, that `L`
+   is its own and not reclaimable, that the voucher's target is `L`'s
+   settled level plus the payment, that `P`'s amount exceeds the draw by
+   at least `DUST_MIN`, that `T` leaves at least `Delta(q)` (10.5) for a
+   redemption, and that `L`'s lease runs past `T + Delta(q)`. It MUST
+   release one preimage at a time per pair.
+3. Before `T − Delta(q)` the operator SHOULD raise `L` to the settled
+   level, by redeeming a merge voucher it signs itself or by a transfer
+   under 7.9 rule 8; if `L` has not reached it by then, the recipient
+   (or a tower holding the voucher and preimage) MUST redeem the latest
+   voucher.
+4. The operator MUST NOT fail an inbound HTLC whose merge voucher is
+   outstanding until its reclaim of `P` (7.11, or 7.9 rule 8) has
+   confirmed, and MUST choose `T` so that the HTLC's expiry is at least
+   `T + Delta(q)` plus the time it needs to settle the HTLC from a
+   preimage published on-chain.
 
 ### 9.7 Data retention and proof maintenance
 

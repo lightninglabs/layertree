@@ -2063,6 +2063,312 @@ def test_exit_tower(depth, profile, verbose=True):
     return sizes
 
 
+RECLAIM_SK = sk("operator-reclaim")
+
+
+class PendingWorld:
+    """A dense tree carrying the pending-leaf receive (design/pending-receive.md):
+    RECLAIM_KEY, RECLAIM_1, CLAIM^m, CLAIM^hm, CLAIM^x and the R1/R3 rewrite at
+    heights 1 and 2, in the credit-leaf configuration (UPDATE^x, exact exits,
+    REWRITE_h^x)."""
+
+    def __init__(self, depth):
+        self.depth = depth
+        self.rk = pubkey_x(RECLAIM_SK)
+        op_pk = pubkey_x(sk("operator"))
+        self.opts = ls.TreeOptions(op_pk, TREE_ID, exit_ks=(1,), exact=True, update_x=True,
+                                   claim=False, claim_x=True, rewrite_heights=(1, 2), rewrite_x=True,
+                                   reclaim_key=self.rk, claim_m=True, claim_hm=True)
+        self.w = World(depth, "D", scripts=self.opts.at_depth(depth))
+        self.rcpt = pubkey_x(sk("rcpt-exit"))
+
+    def pending(self, amount, deadline, label="P", seq=0):
+        """P: owned by the operator, paid to the recipient, reclaimable at `deadline`."""
+        return lt.Leaf(amount, self.rcpt, pubkey_x(sk("operator-owner")), self.rk, deadline,
+                       int.from_bytes(lt.sha256(label.encode())[:4], "little"), seq)
+
+    def landing(self, amount, label="L", lease=900_000, owner=None, evictor=None, seq=0):
+        """L: owned and exited by the recipient, evictable by the operator after a long lease."""
+        return lt.Leaf(amount, self.rcpt, owner or self.rcpt, evictor or self.w.op_pk, lease,
+                       int.from_bytes(lt.sha256(label.encode())[:4], "little"), seq)
+
+
+def _merge_case(pw, p_slot, l_slot, P, L, X, preimage=None, signer="operator-owner", flag=None,
+                tree_id=TREE_ID, msg_target=None, msg_x=None):
+    """Build a CLAIM^m (or CLAIM^hm with a preimage) redemption against the pair."""
+    w = pw.w
+    w.tree.leaves = {p_slot: P, l_slot: L, 0: mk_leaf("alice", 50_000)}
+    root = w.tree.root()
+    t1 = w.clone()
+    try:
+        lt.apply_merge(t1, p_slot, l_slot, X)
+    except AssertionError:
+        # an invalid merge, for a negative: build what the transaction would
+        # claim (target at X, source lowered or emptied, amounts clamped)
+        d = X - L.amount
+        t1.leaves[l_slot] = L.with_amount_seq(max(X, 0), L.seq)
+        if P.amount - d > 0:
+            t1.leaves[p_slot] = P.with_amount_seq(P.amount - d, P.seq)
+        else:
+            t1.leaves.pop(p_slot, None)
+    r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], extra_in=(600, P2WPKH))
+    ph = lt.sha256(preimage) if preimage is not None else None
+    msg = lt.voucher_m_msg(tree_id, P, msg_target or L, msg_x if msg_x is not None else X, ph)
+    vsig = schnorr_sign(msg, sk(signer))
+    left, right = (P, L) if p_slot % 2 == 0 else (L, P)
+    f = flag if flag is not None else (b"\x01" if p_slot % 2 == 0 else b"")
+    path = w.tree.path(min(p_slot, l_slot), height=1)
+    wit = w.path_witness(path, 1) + [left.serialize(), right.serialize(), f, lt.le64(X), vsig]
+    if preimage is not None:
+        wit.append(preimage)
+    return wit + [root[0], w.m], ctx, t1
+
+
+def test_merge(depth, verbose=True):
+    """CLAIM^m and CLAIM^hm (design/pending-receive.md R2): raise the source's
+    sibling, owned by the source's exit key, to an absolute amount."""
+    pw = PendingWorld(depth)
+    w = pw.w
+    pre = lt.sha256(b"receive-preimage")
+    P = pw.pending(20_000, 700_000)
+    L = pw.landing(10_000)
+    # hash-locked: raise L from 10,000 to 13,000, source on the left
+    wit, ctx, t1 = _merge_case(pw, 2, 3, P, L, 13_000, pre)
+    it = w.run("CLAIM_HM", wit, ctx)
+    check(t1.leaves[3].amount == 13_000 and t1.leaves[2].amount == 17_000 and t1.leaves[2].seq == P.seq,
+          "CLAIM^hm: target raised to X, source lowered by the difference, source seq unchanged")
+    hm_size, hm_wit = len(w.compiled["CLAIM_HM"]), sum(len(x) for x in wit)
+    # source on the right
+    wit_r, ctx_r, _ = _merge_case(pw, 5, 4, P, L, 13_000, pre)
+    w.run("CLAIM_HM", wit_r, ctx_r)
+    check(True, "CLAIM^hm with the source on the right of the pair")
+    # plain merge
+    wit_m, ctx_m, _ = _merge_case(pw, 2, 3, P, L, 12_500)
+    w.run("CLAIM_M", wit_m, ctx_m)
+    check(True, "CLAIM^m raises the target with no preimage")
+    m_size = len(w.compiled["CLAIM_M"])
+    # draining the source makes its position E_0
+    wit_d, ctx_d, t_d = _merge_case(pw, 2, 3, P, L, 30_000)
+    w.run("CLAIM_M", wit_d, ctx_d)
+    check(2 not in t_d.leaves, "CLAIM^m draining the source leaves E_0")
+
+    # replay and ordering: target levels are absolute
+    raised = L.with_amount_seq(13_000, L.seq)
+    lowered = P.with_amount_seq(17_000, P.seq)
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case(pw, 2, 3, lowered, raised, 13_000, pre)[:2]),
+                "CLAIM^hm replayed after the target reached X")
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case(pw, 2, 3, lowered, raised, 11_000, pre)[:2]),
+                "CLAIM^hm older, smaller target after a larger one")
+    w.run("CLAIM_HM", *_merge_case(pw, 2, 3, P.with_amount_seq(19_000, 0),
+                                   L.with_amount_seq(11_000, 0), 13_000, pre)[:2])
+    check(True, "CLAIM^hm newer target after an older one moves only the difference")
+
+    # negatives, one per rule
+    expect_fail(lambda: w.run("CLAIM_HM", wit[:-3] + [lt.sha256(b"x")] + wit[-2:], ctx),
+                "CLAIM^hm wrong preimage")
+    expect_fail(lambda: w.run("CLAIM_HM", wit[:-3] + [pre[:31]] + wit[-2:], ctx),
+                "CLAIM^hm preimage not 32 bytes")
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case(pw, 2, 3, P, L, 13_000, pre, signer="rcpt-exit")[:2]),
+                "CLAIM^hm voucher not by the source owner")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, L, 13_000, tree_id=w.m)[:2]),
+                "CLAIM^m voucher over m instead of tree_id")
+    plain = _merge_case(pw, 2, 3, P, L, 13_000)[0]
+    expect_fail(lambda: w.run("CLAIM_HM", plain[:-2] + [pre] + plain[-2:], ctx),
+                "CLAIM^hm with a plain merge voucher")
+    expect_fail(lambda: w.run("CLAIM_M", wit[:-3] + wit[-2:], ctx),
+                "CLAIM^m with a hash-locked merge voucher")
+    stranger = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, stranger, 13_000)[:2]),
+                "CLAIM^m into a sibling the source's exit key does not own")
+    flagged = pw.landing(10_000, evictor=pw.rk)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, flagged, 13_000)[:2]),
+                "CLAIM^m into a reclaimable target")
+    final_t = pw.landing(10_000, seq=ls.SEQ_FINAL)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, final_t, 13_000)[:2]),
+                "CLAIM^m into a SEQ_FINAL target")
+    final_s = pw.pending(20_000, 700_000, seq=ls.SEQ_FINAL)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, final_s, L, 13_000)[:2]),
+                "CLAIM^m from a SEQ_FINAL source")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, L, 10_000)[:2]),
+                "CLAIM^m with X not above the target's amount")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, L, 30_001)[:2]),
+                "CLAIM^m drawing more than the source holds")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, L, 29_800)[:2]),
+                "CLAIM^m leaving a sub-dust residual")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, L, 13_000, flag=b"")[:2]),
+                "CLAIM^m with the source flag pointing at the target")
+    wit_x, ctx_x, _ = _merge_case(pw, 2, 3, P, L, 13_000)
+    expect_fail(lambda: w.run("CLAIM_M", wit_x[:-4] + [lt.le64(13_000)[:7]] + wit_x[-3:], ctx_x),
+                "CLAIM^m with a 7-byte X")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, L, 13_000, msg_x=14_000)[:2]),
+                "CLAIM^m with X other than the signed target")
+    wit_o, _, t_o = _merge_case(pw, 2, 3, P, L, 13_000)
+    r_o = t_o.root()
+    expect_fail(lambda: w.run("CLAIM_M", wit_o, w.ctx([(r_o[1] - 1, w.spk(r_o))], extra_in=(600, P2WPKH))),
+                "CLAIM^m with output 0 short")
+
+    # the exact-fit funding hole: a one-satoshi top-up leaves a sub-dust
+    # residual and blocks the voucher; DUST_MIN of headroom survives any top-up
+    tight = pw.pending(3_000, 700_000)
+    w.run("CLAIM_HM", *_merge_case(pw, 2, 3, tight, L, 13_000, pre)[:2])
+    check(True, "CLAIM^hm draining an exactly funded pending leaf")
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case(pw, 2, 3, tight.with_amount_seq(3_001, 0), L, 13_000, pre)[:2]),
+                "CLAIM^hm blocked by a one-satoshi top-up of an exactly funded pending leaf")
+    roomy = pw.pending(3_000 + lt.DUST_MIN, 700_000)
+    for extra in (0, 1, 50_000):
+        w.run("CLAIM_HM", *_merge_case(pw, 2, 3, roomy.with_amount_seq(roomy.amount + extra, 0), L, 13_000, pre)[:2])
+    check(True, "CLAIM^hm with DUST_MIN of headroom redeems after any top-up")
+    if verbose:
+        print(f"CLAIM^m D={depth}: script {m_size} B; CLAIM^hm script {hm_size} B, witness {hm_wit} B, varops {it.cost}")
+    return hm_size, hm_wit
+
+
+def test_reclaim(depth, verbose=True):
+    """RECLAIM_1 (R1): remove a reclaimable leaf after its deadline, no payout."""
+    pw = PendingWorld(depth)
+    w = pw.w
+    P = pw.pending(20_000, 700_000)
+    w.tree.leaves = {2: P, 3: pw.landing(10_000), 0: mk_leaf("alice", 50_000)}
+    root = w.tree.root()
+    path = w.tree.path(2)
+    t1 = w.clone(); del t1.leaves[2]
+    r1 = t1.root()
+
+    def spend(leaf=P, locktime=700_000, signer=RECLAIM_SK, out0=None, tree=None):
+        tr = tree or w.tree
+        rt = tr.root()
+        t = lt.Tree(depth); t.leaves = dict(tr.leaves); slot = next(k for k, v in t.leaves.items() if v is leaf)
+        p = tr.path(slot)
+        del t.leaves[slot]
+        rn = t.root()
+        ctx = TxContext([(rt[1], lt.tree_spk(rt[0], w.m)), (600, P2WPKH)],
+                        [(out0 if out0 is not None else rn[1], w.spk(rn)), (20_000, P2WPKH)], locktime=locktime)
+        sig = schnorr_sign(ctx.sighash(), signer)
+        return w.run("RECLAIM_1", w.path_witness(p) + [leaf.serialize(), sig, rt[0], w.m], ctx)
+
+    it = spend()
+    check(True, "RECLAIM_1 after the deadline, value free for the transaction")
+    expect_fail(lambda: spend(locktime=699_999), "RECLAIM_1 before the deadline")
+    expect_fail(lambda: spend(signer=sk("operator")), "RECLAIM_1 signed by OPERATOR_KEY, not RECLAIM_KEY")
+    expect_fail(lambda: spend(out0=r1[1] - 1), "RECLAIM_1 with output 0 short")
+    plain = mk_leaf("bob", 20_000, w.op_pk, 600_000)
+    w.tree.leaves[6] = plain
+    expect_fail(lambda: spend(leaf=plain, locktime=700_000), "RECLAIM_1 of a leaf whose evictor is not RECLAIM_KEY")
+    del w.tree.leaves[6]
+    L = w.tree.leaves[3]
+    expect_fail(lambda: spend(leaf=L, locktime=900_000), "RECLAIM_1 of the landing leaf")
+    if verbose:
+        print(f"RECLAIM_1 D={depth}: script {len(w.compiled['RECLAIM_1'])} B, varops {it.cost}")
+    return len(w.compiled["RECLAIM_1"])
+
+
+def _pending_rewrite(pw, name, base, height, old, new, locktime=0, sign=(), tamper=None):
+    """Run a REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1.
+    `sign` lists offsets that carry an owner signature (and, under ^x, an
+    exit-key signature); returns the interpreter."""
+    w = pw.w
+    n = 1 << height
+    leaves = {base + i: lf for i, lf in old.items() if lf}
+    leaves[0] = mk_leaf("alice", 50_000)
+    w.tree.leaves = leaves
+    root = w.tree.root()
+    path = w.tree.path(base, height=height)
+    t1 = w.clone()
+    for i in range(n):
+        if new[i]:
+            t1.leaves[base + i] = new[i]
+        else:
+            t1.leaves.pop(base + i, None)
+    r1 = t1.root()
+    freed = root[1] - r1[1]
+    outputs = [(r1[1], w.spk(r1)), (max(freed, 0) + 1_000, P2WPKH)]
+    ctx = TxContext([(root[1], w.spk(root)), (5_000 + max(-freed, 0), P2WPKH)], outputs, locktime=locktime)
+    sig_op = schnorr_sign(ctx.sighash(), w.op_sk)
+    blocks = []
+    for i in reversed(range(n)):
+        o, nw = old[i], new[i]
+        if i in sign:
+            if "X" in name:
+                blocks.append(schnorr_sign(ctx.sighash(), sk("rcpt-exit")))
+            blocks.append(schnorr_sign(ctx.sighash(), sk("operator-owner")))
+        if o is not None and nw is not None and o.serialize() == nw.serialize():
+            blocks.append(ls.REWRITE_SAME)
+        else:
+            blocks.append(nw.serialize() if nw else b"")
+        blocks.append(o.serialize() if o else b"")
+    wit = w.path_witness(path, height) + blocks + [sig_op, root[0], w.m]
+    if tamper:
+        wit = tamper(wit)
+    return w.run(name, wit, ctx)
+
+
+def test_pending_rewrite(depth, verbose=True):
+    """The R1/R3 rewrite: a non-interactive window settlement (R3), a reclaim
+    and roll of the pending leaf after its deadline (R1), and the negatives
+    that keep both away from every other leaf."""
+    pw = PendingWorld(depth)
+    T = 700_000
+    P, L = pw.pending(20_000, T), pw.landing(10_000)
+    for name in ("REWRITE_R_1", "REWRITE_XR_1"):
+        # R3: settle 7,000 from P into L with the operator's signature alone
+        _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                         {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)})
+        check(True, f"{name} R3 transfer P -> L, operator only, before the deadline")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                                             {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
+                    f"{name} R3 with the landing leaf raised by less than the transfer")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                                             {0: P.with_amount_seq(13_000, 0), 1: L}),
+                    f"{name} R3 with the landing leaf unchanged")
+        other = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: other},
+                                             {0: P.with_amount_seq(13_000, 0), 1: other.with_amount_seq(17_000, 0)}),
+                    f"{name} R3 into a sibling the pending leaf's exit key does not own")
+        flagged = pw.landing(10_000, evictor=pw.rk)
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: flagged},
+                                             {0: P.with_amount_seq(13_000, 0), 1: flagged.with_amount_seq(17_000, 0)}),
+                    f"{name} R3 into a reclaimable sibling")
+        expect_fail(lambda: _pending_rewrite(pw, name, 4, 1, {0: L, 1: P},
+                                             {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}),
+                    f"{name} R3 with the pending leaf on the right")
+        # R1: reclaim after the deadline, emptied with no payout, or rolled
+        _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T)
+        check(True, f"{name} R1 reclaim after the deadline, no payout")
+        P2 = pw.pending(25_000, T + 1_008, label="P2")
+        _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T)
+        check(True, f"{name} R1 roll: the expired pending leaf replaced by the next window's")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T - 1),
+                    f"{name} R1 reclaim before the deadline")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T - 1),
+                    f"{name} R1 roll before the deadline")
+        # an amount-only top-up of the pending leaf is still rule 3's
+        _pending_rewrite(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L})
+        check(True, f"{name} top-up of the pending leaf, operator only")
+        # nothing reaches a leaf that is not reclaimable
+        A = mk_leaf("c0", 20_000, pw.w.op_pk, 600_000)
+        B = mk_leaf("c1", 10_000, pw.w.op_pk, 600_000)
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: A, 1: B}, {0: None, 1: B}, locktime=T),
+                    f"{name} emptying an ordinary leaf with no signature")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: L, 1: P}, {0: None, 1: P}, locktime=900_000),
+                    f"{name} reclaiming the landing leaf")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: A, 1: B},
+                                             {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
+                    f"{name} R3 from an ordinary leaf")
+    # two pairs in one rewrite: one settles, the other reclaims and rolls
+    P_b, L_b = pw.pending(9_000, T, label="Pb"), pw.landing(4_000, label="Lb")
+    it = _pending_rewrite(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                          {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+                           2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T)
+    check(True, "REWRITE_XR_2: a settlement and a roll in one rewrite, operator only")
+    s1 = len(pw.w.compiled["REWRITE_XR_1"])
+    s2 = len(pw.w.compiled["REWRITE_XR_2"])
+    if verbose:
+        plain = len(assemble(ls.rewrite_script(depth, 2, pw.w.op_pk, exit_consent=True)))
+        print(f"REWRITE_XR_h D={depth}: h=1 {s1} B, h=2 {s2} B (REWRITE_X_2 {plain} B), varops {it.cost}")
+    return s1, s2
+
+
 if __name__ == "__main__" and "--subtree" in sys.argv:
     for d, h in ((16, 2), (16, 4), (16, 6)):
         test_evict_subtree(d, h)
@@ -2111,6 +2417,9 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
     for d in (4, 16):
         test_carve_rules(d)
         test_voucher_topup(d)
+        test_merge(d)
+        test_reclaim(d)
+        test_pending_rewrite(d)
     test_audit_negatives(8)
     for prof, depths in (("D", (4, 16)), ("S", (8, 32))):
         for d in depths:
