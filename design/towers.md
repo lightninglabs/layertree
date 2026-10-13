@@ -34,7 +34,7 @@ calls the delegable ones bearer rights rather than secrets.
 | Answer a stale channel state | `update_n`, `settle_n`, signatures, a fee source (C.9.3) | yes | `csv_delay` |
 | Redeem a plain voucher | the voucher and the source's path | yes: `CLAIM` and `CLAIM^h` need no signature beyond the voucher's | the source's lease (9.6) |
 | Redeem a credit-leaf voucher | today, nothing it can use alone | no: `CLAIM^x` needs a signature over the transaction by the recipient's key | none on a credit leaf |
-| Redeem a pending-leaf voucher | the merge voucher and the preimage | proposed (`design/pending-receive.md`, R2) | the pending leaf's deadline |
+| Redeem a pending-leaf voucher | the merge voucher and the preimage | yes: `CLAIM^m` and `CLAIM^hm` (7.5.4, `design/pending-receive.md` R2) need no signature beyond the voucher's | the pending leaf's deadline |
 | Bump fees and outbid conflicts | a funded UTXO and a fee policy | yes (10.5, C.9.6) | the contention bound `Delta(q)` |
 
 ### Keeping the path current
@@ -103,7 +103,7 @@ every transaction it builds, so the recipient must be online. This rarely
 matters for a settle-first credit leaf, whose vouchers have no deadline,
 but it would for any voucher that has one.
 
-The merge claim of `design/pending-receive.md` (R2) removes the need.
+The merge claim of `design/pending-receive.md` (R2, spec 7.5.4) removes the need.
 Its voucher raises the source's sibling, a leaf the recipient owns, to a
 target, so it can move value only into a leaf the recipient alone can
 exit, needs no consent from anyone, and a tower can redeem it. That is
@@ -155,9 +155,11 @@ Path maintenance (9.7), `EXIT_K^t` (7.2 rule 7) with its tower rules
 redemption are specified, built in FULL, MID and CCV, and tested:
 `tools/test_scripts.py` exits a leaf on an off-chain authorisation and
 rebuilds it after a competing spend, and `tools/test_chan.py` runs the
-channel deadlines block by block. The merge claim that would make
-credit-leaf and pending-leaf vouchers delegable is a proposal
-(`design/pending-receive.md`). Not designed at all: a tower protocol
+channel deadlines block by block. The merge claim that makes
+pending-leaf vouchers delegable (`CLAIM^m`, `CLAIM^hm`, spec 7.5.4,
+`design/pending-receive.md` R2) is specified and built in FULL, MID and
+CCV; a credit-leaf voucher (`CLAIM^x`) still needs the recipient's
+signature. Not designed at all: a tower protocol
 (registration, payment, the message that hands over an authorisation or
 a voucher), and an incentive for towers beyond being paid by the member.
 The P model of `design/p-model.md` includes a watchtower machine with a

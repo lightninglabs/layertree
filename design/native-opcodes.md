@@ -164,7 +164,7 @@ chained calls; `EVICT_SUBTREE_h` needs the subtree root from its
 ## The pending-leaf receive under CCV + OP_MERKLESUMUPDATE
 
 Spec 0.14.0 adds the pending-leaf receive of `design/pending-receive.md`
-to the FULL tier: `CLAIM^m` and `CLAIM^hm` (7.5.4), the reclaim form of
+to the FULL, MID and CCV tiers (MIN cannot): `CLAIM^m` and `CLAIM^hm` (7.5.4), the reclaim form of
 `REWRITE_h` (7.9 rule 8) and `RECLAIM_1` (7.11). This section compiles
 each of them against CCV + MSU in `0xC2` numerics
 (`tools/layertree_msu.py`: `merge_script_msu`, `reclaim_script_msu`,

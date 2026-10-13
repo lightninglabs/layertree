@@ -436,8 +436,12 @@ must count the conflicting spends the operator is prepared to outbid.
 ## Cost
 
 Every figure here assumes the most succinct configuration, CCV plus
-`OP_MERKLESUMUPDATE`, as the scaling page does, in a key-addressed tree
-of `N = 2^16` members, priced by the spec's fee model. The scripts are
+`OP_MERKLESUMUPDATE`, as the scaling page does, with the scaling page's
+proof sizes (a depth-64 proof header and 40-byte siblings for `N = 2^16`
+members). The receive pairs themselves are dense-profile positions
+(*The construction*), so the cost is that of dense pairs and cohorts
+under key-addressed proof sizes, not of a key-addressed tree whose
+positions derive from keys. It is priced by the spec's fee model. The scripts are
 measured in `tools/test_msu.py`; `design/native-opcodes.md` has the
 derivations and the figures at `2^20` and `2^32`, which differ by 10 vB
 per doubling for a single transaction and by under 1 vB per pair for a

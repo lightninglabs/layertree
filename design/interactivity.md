@@ -116,9 +116,9 @@ exchange of its own, and the operator's `JOIN` signature follows once.
 | `CLAIM`, `CLAIM^h`, `CLAIM^x` | nobody on the transaction (the voucher is the authorisation); `CLAIM^x` adds the exit key, held by the redeemer | 0 | the holder | the issuer is not consulted; the operator is not consulted |
 | Voucher issuance | the issuer, off-chain | 0 (one message, no reply needed) | the issuer | the recipient verifies alone and can redeem alone |
 | `SPLIT` | the payer | 0 | the payer | the payee receives a leaf it can exit later |
-| `CLAIM^m`, `CLAIM^hm` (proposed, `design/pending-receive.md` R2) | nobody on the transaction; the voucher, and the preimage for `CLAIM^hm` | 0 | the holder, or a tower holding no key | the merge lands in the source's sibling, a leaf the source's exit key owns |
-| `RECLAIM_1` and the reclaim rewrite (proposed, R1) | the operator | 0 | the operator, after the leaf's deadline | only a leaf whose evictor is `RECLAIM_KEY` is affected |
-| Window settlement by rewrite (proposed, R3) | the operator | 0 | the operator | the recipient's value moves from its pending leaf to its own landing leaf without it |
+| `CLAIM^m`, `CLAIM^hm` (spec 7.5.4, `design/pending-receive.md` R2) | nobody on the transaction; the voucher, and the preimage for `CLAIM^hm` | 0 | the holder, or a tower holding no key | the merge lands in the source's sibling, a leaf the source's exit key owns |
+| `RECLAIM_1` and the reclaim rewrite (spec 7.11, 7.9 rule 8, R1) | the operator | 0 | the operator, after the leaf's deadline | only a leaf whose evictor is `RECLAIM_KEY` is affected |
+| Window settlement by rewrite (spec 7.9 rule 8, R3) | the operator | 0 | the operator | the recipient's value moves from its pending leaf to its own landing leaf without it |
 | `UPDATE`, `UPDATE^x` | owner and operator (and the exit key) | 1 exchange | both at the time of signing, not at broadcast | the leaf keeps its old terms; a lease still runs out |
 | Cooperative exit | owner and operator | 1 exchange | both, briefly | the owner exits alone at any time |
 | `JOIN_h`, operator-funded | the operator | 0 on-chain; off-chain payment after the graft confirms, or a hash-locked voucher before | the operator | a member who has not paid holds a leaf it did not pay for; the operator carries the credit |

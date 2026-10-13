@@ -372,8 +372,9 @@ closes it with an HTLC that lives in the tree as a leaf: payments in
 flight sit in a reclaimable pending leaf beside a leaf the recipient
 owns, under a hash-locked voucher the recipient can redeem until a deadline,
 after which the operator reclaims what was never paid. It costs no bytes
-per payment and about 375 vbytes per recipient per window, needs two rule
-changes (a reclaimable leaf and a merge claim into the recipient-owned
+per payment and, per active pair per window, the measured settlement cost
+of its *Cost* section (the first estimate, about 375 vbytes, was too low),
+needs two rule changes (a reclaimable leaf and a merge claim into the recipient-owned
 sibling), and asks the
 recipient for one check per window, which a tower holding no key of
 the recipient's can make. `design/towers.md` covers the towers.
