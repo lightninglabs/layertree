@@ -1075,7 +1075,7 @@ func ccv0R1() []Token {
 
 // ccv0MidRules are MID's 7.9 rules 3 and 5 on [C_new(3) C_old(6)] (_mid_rules).
 func ccv0MidRules(exitConsent bool, pay []Token) []Token {
-	auth := midRewriteOwnerAuth(exitConsent)
+	auth := midRewriteOwnerAuth(exitConsent, 0)
 	return tk(Num(int64(4)), ts.OP_PICK, Num(int64(8)), ts.OP_PICK, ts.OP_EQUAL,
 		Num(int64(6)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_EQUAL,
 		ts.OP_BOOLAND, ts.OP_NOTIF,
