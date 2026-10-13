@@ -1,4 +1,4 @@
-# REWRITE_2 (CCV tier, dense, D=8): cohort rewrite of a 4-position subtree: 1738 bytes
+# REWRITE_2 (CCV tier, dense, D=8): cohort rewrite of a 4-position subtree: 1778 bytes
 # macros in CAPITALS are defined in MACROS_CCV.txt; raw opcodes are wrapped and indented
 
 <OPERATOR_KEY> OP_CHECKSIGVERIFY OP_1 OP_TOALTSTACK <EMPTY_0> <TAG_LEAF>

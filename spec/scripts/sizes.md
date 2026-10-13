@@ -89,10 +89,14 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | D | 16 | EXIT_64 (evictions, for comparison) | 105847 | - | 129 | - | - | 64 |
 | D/subtree | 20 | EVICT_SUBTREE_8 (256 positions) | 60242 | 24401 | 129 | 84772 | 7239651 | 1 |
 | D | 20 | EXIT_256 (evictions, for comparison) | 512184 | - | 129 | - | - | 256 |
-| D/subtree | 16 | REWRITE_2 (4 positions, mixed) | 2803 | 1528 | 129 | 4460 | 3578668 | 3 |
-| D/subtree | 16 | REWRITE_4 (16 positions, mixed) | 5624 | 4099 | 129 | 9852 | 7527451 | 10 |
-| D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 17596 | 14104 | 129 | 31829 | 22942146 | 37 |
-| D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 5922 | 4675 | 129 | 10726 | 12037063 | 19 |
+| D/subtree | 16 | REWRITE_2 (4 positions, mixed) | 2843 | 1528 | 129 | 4500 | 3578674 | 3 |
+| D/subtree | 16 | REWRITE_4 (16 positions, mixed) | 5784 | 4099 | 129 | 10012 | 7527477 | 10 |
+| D/subtree | 16 | REWRITE_6 (64 positions, mixed) | 18236 | 14104 | 129 | 32469 | 22942248 | 37 |
+| D/subtree | 16 | REWRITE_X_4 (16 positions, mixed) | 6082 | 4675 | 129 | 10886 | 12037089 | 19 |
+| D/subtree | 16 | REWRITE_4 (16 positions, top-up) | 5784 | 4333 | 129 | 10246 | 3093885 | 1 |
+| D/subtree | 16 | REWRITE_4 (16 positions, top-up, amount-only elements) | 5784 | 2605 | 129 | 8518 | 3110461 | 1 |
+| D/subtree | 16 | REWRITE_6 (64 positions, top-up) | 18236 | 15387 | 129 | 33752 | 5227781 | 1 |
+| D/subtree | 16 | REWRITE_6 (64 positions, top-up, amount-only elements) | 18236 | 8475 | 129 | 26840 | 5294085 | 1 |
 | D/subtree | 16 | DETACH_8 | 1548 | 497 | 129 | 2174 | 3152083 | 1 |
 | MID/D | 16 | EXIT_1 (owner) | 3367 | 978 | 129 | 4474 | n/a (0xC0) | 1 |
 | MID/D | 16 | EXIT_1 (evict) | 3367 | 979 | 129 | 4475 | n/a (0xC0) | 1 |
@@ -123,11 +127,13 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | MID/D | 16 | EVICT_SUBTREE_4 (16 positions, every fifth exited) | 7977 | 2417 | 129 | 10523 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_6 (64 positions, every fifth exited) | 24169 | 7461 | 129 | 31759 | n/a (0xC0) | 1 |
 | MID/D | 16 | EVICT_SUBTREE_5 (32 positions, all occupied) | 13321 | 4907 | 129 | 18357 | n/a (0xC0) | 1 |
-| MID/D | 16 | REWRITE_2 (4 positions, mixed) | 4787 | 1642 | 129 | 6558 | n/a (0xC0) | 3 |
-| MID/D | 16 | REWRITE_4 (16 positions, mixed) | 10516 | 4436 | 129 | 15081 | n/a (0xC0) | 10 |
-| MID/D | 16 | REWRITE_X_4 (16 positions, mixed) | 10676 | 5012 | 129 | 15817 | n/a (0xC0) | 19 |
-| MID/D | 16 | REWRITE_5 (32 positions, update) | 18442 | 10787 | 129 | 29358 | n/a (0xC0) | 33 |
-| MID/D | 16 | REWRITE_5 (32 positions, exit) | 18442 | 6851 | 129 | 25422 | n/a (0xC0) | 33 |
+| MID/D | 16 | REWRITE_2 (4 positions, mixed) | 5047 | 1642 | 129 | 6818 | n/a (0xC0) | 3 |
+| MID/D | 16 | REWRITE_4 (16 positions, mixed) | 11556 | 4436 | 129 | 16121 | n/a (0xC0) | 10 |
+| MID/D | 16 | REWRITE_X_4 (16 positions, mixed) | 11716 | 5012 | 129 | 16857 | n/a (0xC0) | 19 |
+| MID/D | 16 | REWRITE_5 (32 positions, update) | 20522 | 10787 | 129 | 31438 | n/a (0xC0) | 33 |
+| MID/D | 16 | REWRITE_5 (32 positions, exit) | 20522 | 6851 | 129 | 27502 | n/a (0xC0) | 33 |
+| MID/D | 16 | REWRITE_5 (32 positions, top-up) | 20522 | 8739 | 129 | 29390 | n/a (0xC0) | 1 |
+| MID/D | 16 | REWRITE_5 (32 positions, top-up, amount-only slots) | 20522 | 5027 | 129 | 25678 | n/a (0xC0) | 1 |
 | MIN/D | 16 | EXIT_1 (owner) | 3640 | 1175 | 129 | 4944 | n/a (0xC0) | 2 |
 | MIN/D | 16 | SPLIT | 6655 | 2018 | 129 | 8802 | n/a (0xC0) | 2 |
 | CCV/D | 16 | EXIT_1 (owner) | 1716 | 838 | 129 | 2683 | 2319297 | 1 |
@@ -189,17 +195,21 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | CCV-c0/S | 31 | CLAIM_HX | 18238 | 1451 | 129 | 19818 | n/a (0xC0) | 2 |
 | CCV/D | 16 | DETACH_8 | 973 | 433 | 129 | 1535 | 2154472 | 1 |
 | CCV-c0/D | 16 | DETACH_8 | 1628 | 470 | 129 | 2227 | n/a (0xC0) | 1 |
-| CCV/D | 16 | REWRITE_2 (4 positions, mixed) | 2442 | 1464 | 129 | 4035 | 3413479 | 3 |
-| CCV/D | 16 | REWRITE_4 (16 positions, mixed) | 5311 | 4035 | 129 | 9475 | 7862095 | 10 |
-| CCV/D | 16 | REWRITE_X_4 (16 positions, mixed) | 5609 | 4611 | 129 | 10349 | 12371707 | 19 |
-| CCV/D | 16 | REWRITE_6 (64 positions, mixed) | 17475 | 14040 | 129 | 31644 | 26775621 | 37 |
-| CCV/D | 16 | REWRITE_6 (64 positions, update) | 17475 | 19419 | 129 | 37023 | 36573127 | 65 |
-| CCV/D | 16 | REWRITE_6 (64 positions, exit) | 17475 | 11995 | 129 | 29599 | 67828173 | 65 |
-| CCV-c0/D | 16 | REWRITE_2 (4 positions, mixed) | 4443 | 1578 | 129 | 6150 | n/a (0xC0) | 3 |
-| CCV-c0/D | 16 | REWRITE_4 (16 positions, mixed) | 10220 | 4372 | 129 | 14721 | n/a (0xC0) | 10 |
-| CCV-c0/D | 16 | REWRITE_X_4 (16 positions, mixed) | 10380 | 4948 | 129 | 15457 | n/a (0xC0) | 19 |
-| CCV-c0/D | 16 | REWRITE_5 (32 positions, update) | 18210 | 10723 | 129 | 29062 | n/a (0xC0) | 33 |
-| CCV-c0/D | 16 | REWRITE_5 (32 positions, exit) | 18210 | 6787 | 129 | 25126 | n/a (0xC0) | 33 |
+| CCV/D | 16 | REWRITE_2 (4 positions, mixed) | 2482 | 1464 | 129 | 4075 | 3413485 | 3 |
+| CCV/D | 16 | REWRITE_4 (16 positions, mixed) | 5471 | 4035 | 129 | 9635 | 7862121 | 10 |
+| CCV/D | 16 | REWRITE_X_4 (16 positions, mixed) | 5769 | 4611 | 129 | 10509 | 12371733 | 19 |
+| CCV/D | 16 | REWRITE_6 (64 positions, mixed) | 18115 | 14040 | 129 | 32284 | 26775723 | 37 |
+| CCV/D | 16 | REWRITE_6 (64 positions, update) | 18115 | 19419 | 129 | 37663 | 36573255 | 65 |
+| CCV/D | 16 | REWRITE_6 (64 positions, exit) | 18115 | 11995 | 129 | 30239 | 67828173 | 65 |
+| CCV-c0/D | 16 | REWRITE_2 (4 positions, mixed) | 4703 | 1578 | 129 | 6410 | n/a (0xC0) | 3 |
+| CCV-c0/D | 16 | REWRITE_4 (16 positions, mixed) | 11260 | 4372 | 129 | 15761 | n/a (0xC0) | 10 |
+| CCV-c0/D | 16 | REWRITE_X_4 (16 positions, mixed) | 11420 | 4948 | 129 | 16497 | n/a (0xC0) | 19 |
+| CCV-c0/D | 16 | REWRITE_5 (32 positions, update) | 20290 | 10723 | 129 | 31142 | n/a (0xC0) | 33 |
+| CCV-c0/D | 16 | REWRITE_5 (32 positions, exit) | 20290 | 6787 | 129 | 27206 | n/a (0xC0) | 33 |
+| CCV/D | 16 | REWRITE_6 (64 positions, top-up) | 18115 | 15323 | 129 | 33567 | 4562759 | 1 |
+| CCV/D | 16 | REWRITE_6 (64 positions, top-up, amount-only elements) | 18115 | 8411 | 129 | 26655 | 4629063 | 1 |
+| CCV-c0/D | 16 | REWRITE_5 (32 positions, top-up) | 20290 | 8675 | 129 | 29094 | n/a (0xC0) | 1 |
+| CCV-c0/D | 16 | REWRITE_5 (32 positions, top-up, amount-only elements) | 20290 | 4963 | 129 | 25382 | n/a (0xC0) | 1 |
 | CCV/D | 16 | EXIT_1_TOWER | 1826 | 838 | 129 | 2793 | 2331249 | 1 |
 | CCV/S | 32 | EXIT_1_TOWER | 4872 | 262 | 129 | 5263 | 2921546 | 1 |
 | CCV-c0/D | 16 | EXIT_1_TOWER | 3123 | 914 | 129 | 4166 | n/a (0xC0) | 1 |

@@ -1854,20 +1854,26 @@ def mode_flag(in_amount, old, new, n):
     return b"\x01" if new_sum < in_amount - payouts else b""
 
 
-def _rewrite_blocks_c2(old, new, sigs, n, marker=True):
+def _rewrite_blocks_c2(old, new, sigs, n, marker=True, amounts=False, raw_new=None, raw_old=None):
     """The position blocks of the 0xC2 REWRITE_h witness (bottom..top):
     block_{n-1} .. block_0, block_i = [xsig_i] [sig_i] new_i old_i, with
     the one-byte marker for an unchanged leaf's new element unless
-    marker=False (FULL's layout, 8.9)."""
+    marker=False and, with amounts, the 8-byte amount-only element for a
+    leaf that changes in its amount alone (FULL's layout, 8.9). raw_new and
+    raw_old override a position's new or old element."""
     items = []
     for i in reversed(range(n)):
         o, nw = old[i], new[i]
         items += list(reversed(sigs.get(i, [])))                # xsig below sig
-        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+        if raw_new and i in raw_new:
+            items.append(raw_new[i])
+        elif marker and o is not None and nw is not None and o.serialize() == nw.serialize():
             items.append(ls.REWRITE_SAME)
+        elif amounts and TS._amount_only(o, nw):
+            items.append(nw.serialize()[:8])
         else:
             items.append(nw.serialize() if nw else b"")
-        items.append(o.serialize() if o else b"")
+        items.append(raw_old[i] if raw_old and i in raw_old else (o.serialize() if o else b""))
     return items
 
 
@@ -1897,7 +1903,7 @@ def _plan_ccv(w, height, scenario):
     return base, old, new
 
 
-def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent=False):
+def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent=False, plan=None):
     """Build a CCV REWRITE_h spend in either numerics for one of
     test_scripts._rewrite_plan's scenarios. Returns a dict with the world,
     the plan, the context, the positive witness and a `witness(old, new,
@@ -1923,7 +1929,7 @@ def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent
     script = assemble(toks, mode=mode)
     w.compiled = dict(w.compiled); w.compiled[name] = script
     w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
-    base, old, new = _plan_ccv(w, height, scenario)
+    base, old, new = plan or _plan_ccv(w, height, scenario)
     idx = base >> height
     w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
     w.tree.leaves[0] = mk_leaf("alice", 50_000)
@@ -1945,7 +1951,8 @@ def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent
                 outs.append((old_[i].amount, lt.p2tr_spk(old_[i].exit_key)))
         return outs + [(400, P2WPKH)], r1[1] - tree.root()[1]
 
-    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, marker=True, path_tree=None, flag=None):
+    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, marker=True, path_tree=None, flag=None,
+                amounts=False, raw_new=None, raw_old=None):
         """The whole witness for the plan (old_, new_) on `tree` (the
         current tree by default): under 0xC2 FULL's layout minus r and m,
         under 0xC0 MID's minus r and m. path_tree supplies the path (and
@@ -1964,10 +1971,11 @@ def rewrite_case_ccv(depth, height, numeric="c2", scenario="mixed", exit_consent
                     sigs[i].append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
         sig_op = schnorr_sign(ctx.sighash(), signer_op or w.op_sk)
         if c0:
-            body = M.w_rewrite(path_tree or tree, depth, height, idx, new_, sigs, marker)
+            body = M.w_rewrite(path_tree or tree, depth, height, idx, new_, sigs, marker, amounts, raw_new, raw_old)
         else:
             path = (path_tree or tree).path(base, height=height)
-            body = w.path_witness(path, height) + _rewrite_blocks_c2(old_, new_, sigs, n, marker)
+            body = w.path_witness(path, height) + _rewrite_blocks_c2(old_, new_, sigs, n, marker, amounts,
+                                                                      raw_new, raw_old)
         return [flag] + body + [sig_op], sigs
 
     outputs, delta = outputs_for(old, new)
@@ -2301,6 +2309,106 @@ def test_update_flag_ccv(depth, profile="D", numeric="c2"):
     expect_fail(lambda: spend(up, b"\x01", extra=(30_700, P2WPKH)), f"{tag}: an increase under DEDUCT")
     same = alice.with_amount_seq(50_000, 1)
     ok(lambda: spend(same, b""), "an update that keeps the amount spends under assign")
+
+
+def test_rewrite_amount_only_ccv(depth, height, numeric="c2", exit_consent=False):
+    """The amount-only new element of the CCV REWRITE_h in either numerics
+    (spec 7.9, 8.9): the 8-byte `le64(a)` under 0xC2, the four-element slot
+    `amt_num za wa 0x03` under 0xC0. Over test_scripts' "ao" plan (an amount
+    raised with no signature, an amount lowered with the owner's, an
+    unchanged leaf and an empty position left empty) it passes, saves 108
+    bytes (seven elements) per amount-only position, and meets the rules the
+    full leaf meets: an unsigned decrease, a SEQ_FINAL raise without its
+    owner, a forged amount, an amount-only element against an empty old
+    element, as an old element and, under 0xC2, of 7 or 9 bytes, under
+    0xC0 a negative or non-minimal number, a malformed pad, a missing
+    element and another flag all fail. The output-0 mode flag is the
+    plan's, here assign for the net increase."""
+    c0 = numeric == "c0"
+    c = rewrite_case_ccv(depth, height, numeric, "ao", exit_consent)
+    w, name, ctx, tag = c["w"], c["name"], c["ctx"], c["tag"] + " amount-only"
+    old, new, witness, base = c["old"], c["new"], c["witness"], c["base"]
+    n = 1 << height
+    n_ao = sum(1 for i in range(n) if TS._amount_only(old[i], new[i]))
+    i_up = next(i for i in range(n) if TS._amount_only(old[i], new[i]) and new[i].amount > old[i].amount)
+    i_down = next(i for i in range(n) if TS._amount_only(old[i], new[i]) and new[i].amount < old[i].amount)
+    i_empty = next(i for i in range(n) if old[i] is None and new[i] is None)
+    wit_full = c["wit"]
+    wit_ao, sigs = witness(old, new, ctx, amounts=True)
+    run_fresh(w, name, wit_ao, ctx)
+    check(True, f"{tag}: the plan with {n_ao} amount-only positions passes")
+    if c0:
+        check(len(wit_full) - len(wit_ao) == 7 * n_ao, f"{tag}: seven elements saved per amount-only position")
+        check(sum(len(x) for x in wit_full) - sum(len(x) for x in wit_ao) > 100 * n_ao,
+              f"{tag}: over 100 witness bytes saved per amount-only position")
+    else:
+        check(sum(len(x) for x in wit_full) - sum(len(x) for x in wit_ao) == 108 * n_ao,
+              f"{tag}: 108 bytes saved per amount-only position")
+    check(i_up not in sigs and i_down in sigs, f"{tag}: the raise needs no signature and the decrease the owner's")
+
+    def run(old_=None, new_=None, ctx_=None, **kw):
+        ctx_ = ctx_ or ctx
+        wit_, _ = witness(old_ or old, new_ or new, ctx_, **kw)
+        return run_fresh(w, name, wit_, ctx_)
+    wit_nosig = list(wit_ao)
+    for x in sigs[i_down]:
+        del wit_nosig[wit_nosig.index(x)]
+    expect_fail(lambda: run_fresh(w, name, wit_nosig, ctx), f"{tag}: unsigned decrease")
+    forged = dict(new)
+    forged[i_up] = old[i_up].with_amount_seq(old[i_up].amount + 501, old[i_up].seq)
+    expect_fail(lambda: run(new_=forged, amounts=True), f"{tag}: an amount other than the one output 0 commits")
+    a = new[i_up].amount
+    if c0:
+        def slot(items):
+            return {"raw_new": {i_up: items}, "amounts": True}
+        expect_fail(lambda: run(**slot([b"\x00\x00\x00\x81", b"", bytes(4), M.REWRITE_AMOUNT])),
+                    f"{tag}: a negative amount (NONNEG)")
+        x = M.scriptnum(a) + b"\x00"
+        expect_fail(lambda: run(**slot([x, bytes(4 - len(x)), bytes(len(x)), M.REWRITE_AMOUNT])),
+                    f"{tag}: a non-minimal amount")
+        z, wv = M.pad(a)
+        expect_fail(lambda: run(**slot([M.scriptnum(a), z + b"\x01", wv, M.REWRITE_AMOUNT])),
+                    f"{tag}: a pad that is not zero")
+        expect_fail(lambda: run(**slot([M.scriptnum(a), z, M.REWRITE_AMOUNT])), f"{tag}: a missing element")
+        expect_fail(lambda: run(**slot([M.scriptnum(a), z, wv, b"\x04"])), f"{tag}: the flag 0x04")
+        expect_fail(lambda: run(raw_new={i_empty: M.w_amount_slot(a)}, amounts=True),
+                    f"{tag}: an amount-only slot against an empty old slot")
+        expect_fail(lambda: run(raw_old={i_up: M.w_amount_slot(old[i_up].amount)}, amounts=True),
+                    f"{tag}: an amount-only old slot")
+    else:
+        at = wit_ao.index(new[i_down].serialize()[:8])
+        for size in (7, 9):
+            bad = list(wit_ao)
+            bad[at] = (new[i_down].serialize()[:8] + b"\x00")[:size]
+            expect_fail(lambda: run_fresh(w, name, bad, ctx), f"{tag}: a {size}-byte new element")
+        expect_fail(lambda: run(raw_new={i_empty: bytes(8)}, amounts=True),
+                    f"{tag}: an 8-byte element against an empty old element")
+        expect_fail(lambda: run(raw_new={i_empty: lt.le64(a)}, amounts=True),
+                    f"{tag}: an amount against an empty old element")
+        expect_fail(lambda: run(raw_old={i_up: old[i_up].serialize()[:8]}, amounts=True),
+                    f"{tag}: an amount-only old element")
+    # a SEQ_FINAL leaf raised by one satoshi: the owner signs, or it fails
+    seq_final = M.SEQ_FINAL if c0 else ls.SEQ_FINAL
+    lf = old[i_up]
+    f_old, f_new = dict(old), dict(new)
+    f_old[i_up] = lf.with_amount_seq(lf.amount, seq_final)
+    f_new[i_up] = lf.with_amount_seq(lf.amount + 1, seq_final)
+    cf = rewrite_case_ccv(depth, height, numeric, exit_consent=exit_consent, plan=(base, f_old, f_new))
+    wf, ctxf = cf["w"], cf["ctx"]
+    wit_f, sigs_f = cf["witness"](f_old, f_new, ctxf, amounts=True)
+    run_fresh(wf, cf["name"], wit_f, ctxf)
+    check(True, f"{tag}: a SEQ_FINAL raise passes with the owner's signature")
+    bare = list(wit_f)
+    for sig in sigs_f[i_up]:
+        del bare[bare.index(sig)]
+    expect_fail(lambda: run_fresh(wf, cf["name"], bare, ctxf), f"{tag}: a SEQ_FINAL raise without the owner's signature")
+    # an amount-only decrease beside an exit: DEDUCT, the exit paid
+    x_new = dict(new)
+    x_new[i_up] = None
+    cx = rewrite_case_ccv(depth, height, numeric, exit_consent=exit_consent, plan=(base, dict(old), x_new))
+    wit_x, _ = cx["witness"](dict(old), x_new, cx["ctx"], amounts=True)
+    run_fresh(cx["w"], cx["name"], wit_x, cx["ctx"])
+    check(True, f"{tag}: an amount-only decrease beside an exit")
 
 
 def test_rewrite_negative_amount_ccv0(depth):
@@ -3121,12 +3229,13 @@ def _r1_due(pw, i, o, nw):
 
 
 def _pending_rewrite_ccv(pw, name, base, height, old, new, locktime=0, sign=(), flag=None, tamper=None,
-                         extra_leaves=None, run=True, ea=None):
+                         extra_leaves=None, run=True, ea=None, amounts=False):
     """Run REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1 in
     the world's numerics (test_scripts._pending_rewrite's scenario). flag is
     the output-0 mode flag (DEDUCT, 0x01, when the rewrite frees value;
     assign, empty, otherwise); `ea` overrides the evict_after number of
-    0xC0 R1 blocks."""
+    0xC0 R1 blocks; amounts writes a new leaf that differs from its old one
+    in the amount alone as the amount-only element."""
     w = pw.w
     n = 1 << height
     leaves = {base + i: lf for i, lf in old.items() if lf}
@@ -3158,10 +3267,10 @@ def _pending_rewrite_ccv(pw, name, base, height, old, new, locktime=0, sign=(), 
             e = old[i].evict_after if ea is None else ea
             extras[i] = list(reversed([M.scriptnum(e), *M.pad(e)]))   # w_rewrite reverses a block's extras
     if pw.c0:
-        body = M.w_rewrite(w.tree, pw.depth, height, base >> height, new, extras)
+        body = M.w_rewrite(w.tree, pw.depth, height, base >> height, new, extras, amounts=amounts)
     else:
         path = w.tree.path(base, height=height)
-        body = w.path_witness(path, height) + _rewrite_blocks_c2(old, new, extras, n)
+        body = w.path_witness(path, height) + _rewrite_blocks_c2(old, new, extras, n, amounts=amounts)
     wit = [flag] + body + [sig_op]
     if tamper:
         wit = tamper(wit)
@@ -3200,6 +3309,13 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
         settle = {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)}
         ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle), f"{t} R3 transfer P -> L, operator only, before the deadline")
         ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle, flag=b"\x01"), f"{t} R3 transfer under the DEDUCT flag")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle, amounts=True), f"{t} R3 transfer with two amount-only elements")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L},
+                                {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}, amounts=True),
+                    f"{t} R3 with amount-only elements raising the landing leaf by less than the transfer")
+        expect_fail(lambda: run(name, 4, 1, {0: L, 1: P},
+                                {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}, amounts=True),
+                    f"{t} R3 with amount-only elements and the pending leaf on the right")
         expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
                     f"{t} R3 with the landing leaf raised by less than the transfer")
         expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L}),
@@ -3239,6 +3355,8 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
                         f"{t} R1 with an evict_after number other than the leaf's")
         # an amount-only top-up of the pending leaf is still rule 3's
         ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}), f"{t} top-up of the pending leaf, operator only")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}, amounts=True),
+           f"{t} top-up of the pending leaf as an amount-only element")
         # nothing reaches a leaf that is not reclaimable
         A = mk_leaf("c0", 20_000, pw.w.op_pk, 600_000)
         B = mk_leaf("c1", 10_000, pw.w.op_pk, 600_000)
@@ -3248,6 +3366,9 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
                     f"{t} reclaiming the landing leaf")
         expect_fail(lambda: run(name, 2, 1, {0: A, 1: B}, {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
                     f"{t} R3 from an ordinary leaf")
+        expect_fail(lambda: run(name, 2, 1, {0: A, 1: B}, {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)},
+                                amounts=True),
+                    f"{t} R3 from an ordinary leaf with amount-only elements")
         if pw.c0:
             # a recorded transfer cannot meet the right position's marker
             def marker_right(wit):
@@ -3267,6 +3388,10 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
         check(True, f"{tag} REWRITE_XR_2: a settlement and a roll in one rewrite, operator only")
     except ScriptError as e:
         check(False, f"{tag} REWRITE_XR_2 positive: {str(e)[:120]}")
+    ok(lambda: run("REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                   {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+                    2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T, amounts=True),
+       f"{tag} REWRITE_XR_2: the same settlement and roll with amount-only elements")
     expect_fail(lambda: run("REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
                             {0: P.with_amount_seq(13_000, 0), 1: L,
                              2: P_b, 3: L_b.with_amount_seq(11_000, 0)}),
@@ -3418,6 +3543,8 @@ def main():
         else:
             for scenario in ("update", "exit"):
                 test_rewrite_ccv(16, 6, "c2", scenario=scenario)   # no stack bound under 0xC2
+        for depth, h, x in ((4, 2, False), (16, 4, False), (16, 4, True)):
+            test_rewrite_amount_only_ccv(depth, h, numeric, x)
         test_voucher_topup_ccv(16, numeric)
         test_credit_topup_ccv(16, numeric)
         print(f"  D (REWRITE, {numeric}): {CHECKS - before} checks")

@@ -947,6 +947,27 @@ var midSeqFinal = tree.Le32(MidSeqFinal)
 // element 0x02 (0x01 being a slot's presence flag) stands for the old slot.
 var midRewriteSame = []byte{0x02}
 
+// midRewriteAmount is the MID amount-only flag (spec 7.9, 8.9): a new slot
+// amt_num za wa 0x03 stands for the old leaf with its amount replaced.
+var midRewriteAmount = []byte{0x03}
+
+// midExpandAmount is [amt_num za wa flag X(m)] -> [amt8 rest amt X(m)]: the
+// amount-only new slot expanded to the canonical form of a full new slot,
+// below the old slot's canonical block X (m items, rest_o restDepth deep
+// from the top of X). rest_o must be non-empty, which an empty old slot's
+// zeros are not (tools/layertree_mid.py _expand_amount).
+func midExpandAmount(m, restDepth int64) []Token {
+	s := []Token{Num(m), Op(txscript.OP_ROLL), Op(txscript.OP_DROP)}
+	s = append(s, midRoll(m+2, 3)...)
+	s = append(s, Num(2), Op(txscript.OP_PICK))
+	s = append(s, midNonneg()...)
+	s = append(s, Op(txscript.OP_TOALTSTACK))
+	s = append(s, midLe64()...)
+	s = append(s, Num(restDepth+1), Op(txscript.OP_PICK), Op(txscript.OP_SIZE),
+		Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_VERIFY), Op(txscript.OP_FROMALTSTACK))
+	return append(s, midRoll(m+2, int(m))...)
+}
+
 // midLeafJoinOld: [amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest
 // ek ok fin amt]. LEAF_JOIN with the fields the rewrite rules need kept
 // beside the re-joined rest (leaf[8:]): copies of ek and ok, fin = (seq ==
@@ -1077,7 +1098,9 @@ func midRewriteStepWith(exitConsent bool, pay []Token) []Token {
 // reclaim_key): C_old carries [ea isR] below its six items, the machine is
 // [idx delta key L Z] with (delta, key) the transfer record a left step
 // (even position) leaves for its right sibling, and a changed reclaimable
-// leaf takes rule 3's increase, an R3 transfer (left only) or R1.
+// leaf takes rule 3's increase, an R3 transfer (left only) or R1. A new slot
+// that is amt_num za wa 0x03 is the amount-only slot (midExpandAmount): it
+// is expanded to the canonical form of a leaf slot before the rules run.
 func midRewriteStepR(exitConsent bool, pay []Token, reclaimKey *[32]byte,
 	right bool) []Token {
 
@@ -1117,6 +1140,11 @@ func midRewriteStepR(exitConsent bool, pay []Token, reclaimKey *[32]byte,
 	s = append(s, Op(txscript.OP_2DUP))
 	s = append(s, midRepeat(toAlt, 4)...)
 	s = append(s, Op(txscript.OP_ELSE))
+	// An amount-only slot: the old rest, a new amount.
+	s = append(s, Num(6+k), Op(txscript.OP_PICK), Data(midRewriteAmount),
+		Op(txscript.OP_EQUAL), Op(txscript.OP_IF))
+	s = append(s, midExpandAmount(6+k, 4)...)
+	s = append(s, Op(txscript.OP_ELSE))
 	s = append(s, midRepeat(toAlt, int(6+k))...)
 	s = append(s, Op(txscript.OP_IF))
 	s = append(s, midLeafJoinNew()...)
@@ -1124,6 +1152,7 @@ func midRewriteStepR(exitConsent bool, pay []Token, reclaimKey *[32]byte,
 	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, 3)...)
 	s = append(s, Op(txscript.OP_ENDIF))
 	s = append(s, midRepeat(fromAlt, int(6+k))...)
+	s = append(s, Op(txscript.OP_ENDIF))
 
 	// Rules 3 and 5 for an old leaf that is not reclaimable.
 	oldRules := []Token{

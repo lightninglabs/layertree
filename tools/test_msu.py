@@ -626,11 +626,19 @@ def test_reclaim_msu(pw):
     return sizes
 
 
-def _rewrite_case(pw, h, base, old, new, locktime=0, sign=(), payouts=(), flag=None, out0_delta=0):
+def _amount_only(old, new):
+    """Whether `new` is `old` with another amount and nothing else, the
+    change an 8-byte amount-only element can express (spec 7.9)."""
+    return (old is not None and new is not None and old.amount != new.amount
+            and old.serialize()[8:] == new.serialize()[8:])
+
+
+def _rewrite_case(pw, h, base, old, new, locktime=0, sign=(), payouts=(), flag=None, out0_delta=0, amounts=False):
     """A REWRITE_XR_h over positions base..base+2^h-1 under CCV + MSU.
     `sign` lists offsets that carry the owner's and the exit key's
     signatures (labels from the leaf's recipient), `payouts` the outputs
-    1.. the rewrite's exits pay."""
+    1.. the rewrite's exits pay; with amounts a new leaf that differs from
+    its old one in the amount alone is the 8-byte amount-only element."""
     n = 1 << h
     leaves = {base + i: lf for i, lf in old.items() if lf}
     leaves.update(pw.fillers())
@@ -657,6 +665,8 @@ def _rewrite_case(pw, h, base, old, new, locktime=0, sign=(), payouts=(), flag=N
             blocks.append(schnorr_sign(ctx.sighash(), sign[i][0]))   # sig by the owner
         if o is not None and nw is not None and o.serialize() == nw.serialize():
             blocks.append(REWRITE_SAME)
+        elif amounts and _amount_only(o, nw):
+            blocks.append(nw.serialize()[:8])
         else:
             blocks.append(nw.serialize() if nw else b"")
         blocks.append(o.serialize() if o else b"")
@@ -691,6 +701,14 @@ def test_rewrite_msu(pw):
     run = lambda *a, **kw: pw.run(name, *_rewrite_case(pw, 1, 2, *a, **kw))   # noqa: E731
     run({0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)})
     check(True, "msu R3 transfer P -> L, operator only, before the deadline")
+    run({0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)}, amounts=True)
+    check(True, "msu R3 transfer with two amount-only elements")
+    expect_fail(lambda: run({0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)},
+                            amounts=True),
+                "msu R3 with amount-only elements raising the landing leaf by less than the transfer")
+    expect_fail(lambda: run({0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_001, 0)},
+                            amounts=True),
+                "msu R3 with amount-only elements raising the landing leaf by more than the transfer")
     expect_fail(lambda: run({0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
                 "msu R3 unbalanced: the landing leaf raised by less than the transfer")
     expect_fail(lambda: run({0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_001, 0)}),
@@ -755,6 +773,9 @@ def test_rewrite_msu(pw):
         wit_t, ctx_t = _rewrite_case(pw, h, base, old, settle)
         it_t = pw.run(f"REWRITE_XR_{h}", wit_t, ctx_t)
         check(True, f"msu REWRITE_XR_{h}: every pair transfers (R3), operator only")
+        wit_a, ctx_a = _rewrite_case(pw, h, base, old, settle, amounts=True)
+        it_a = pw.run(f"REWRITE_XR_{h}", wit_a, ctx_a)
+        check(True, f"msu REWRITE_XR_{h}: every pair transfers (R3) with amount-only elements")
         roll = {i: (pw.pending(25_000 + i, T + 1_008, label=f"P'{i}", rcpt=f"rcpt{i // 2}") if i % 2 == 0 else lf)
                 for i, lf in settle.items()}
         wit_r, ctx_r = _rewrite_case(pw, h, base, settle, roll, locktime=T)
@@ -762,7 +783,7 @@ def test_rewrite_msu(pw):
         check(True, f"msu REWRITE_XR_{h}: every pair rolls its pending leaf (R1), operator only")
         sizes[h] = {"script": len(pw.compiled[f"REWRITE_XR_{h}"]),
                     "script_r": len(assemble(U.rewrite_script_msu(pw.depth, h, pw.op_pk, False, pw.rk))),
-                    "transfer": (wit_t, it_t.cost), "roll": (wit_r, it_r.cost)}
+                    "transfer": (wit_t, it_t.cost), "transfer_ao": (wit_a, it_a.cost), "roll": (wit_r, it_r.cost)}
     return sizes
 
 
@@ -810,9 +831,11 @@ def pending_cost_model(merge, reclaim, rewrite, exit_):
         for h, r in rewrite.items():
             pairs = 1 << (h - 1)
             prf = U.proof_bytes(U.MODEL_DEPTH - h, k - h)
-            vt = U.tx_vbytes(r["script"], prf + rest_rw(r["transfer"][0]), 0)
+            vt = U.tx_vbytes(r["script"], prf + rest_rw(r["transfer_ao"][0]), 0)
+            vf = U.tx_vbytes(r["script"], prf + rest_rw(r["transfer"][0]), 0)
             vr = U.tx_vbytes(r["script"], prf + rest_rw(r["roll"][0]), 0)
             row[f"R_{h}"] = (vt, vr, (vt + vr) / pairs)
+            row[f"R_{h}_full"] = (vf, vr, (vf + vr) / pairs)     # the transfer with 116-byte leaves
         rows.append(row)
     return rows
 
@@ -886,7 +909,7 @@ def main():
         print(f"  {name:18} {sl:6} {sum(len(x) for x in wit):6} = {len(wit[0]):4} + "
               f"{sum(len(x) for x in wit[1:]):4}  {cost}")
     for h, r in rewrite.items():
-        for sc in ("transfer", "roll"):
+        for sc in ("transfer", "transfer_ao", "roll"):
             wit, cost = r[sc]
             print(f"  REWRITE_XR_{h} {sc:8} {r['script']:6} {sum(len(x) for x in wit):6} = {len(wit[1]):4} + "
                   f"{sum(len(x) for x in wit) - len(wit[1]):5}  {cost}   (REWRITE_R_{h} {r['script_r']} B)")
@@ -897,9 +920,12 @@ def main():
     for name in ("CLAIM_HM", "CLAIM_M", "RECLAIM_1", "EXIT_1"):
         print(f"  {name:24}" + "".join(f"{r[name]:>12,}" for r in rows))
     for h in rewrite:
-        print(f"  {'REWRITE_XR_' + str(h) + ' transfer tx':24}" + "".join(f"{r[f'R_{h}'][0]:>12,}" for r in rows))
+        print(f"  {'REWRITE_XR_' + str(h) + ' transfer tx':24}" + "".join(f"{r[f'R_{h}'][0]:>12,}" for r in rows)
+              + "   (amount-only elements)")
+        print(f"  {'  with 116-byte leaves':24}" + "".join(f"{r[f'R_{h}_full'][0]:>12,}" for r in rows))
         print(f"  {'REWRITE_XR_' + str(h) + ' roll tx':24}" + "".join(f"{r[f'R_{h}'][1]:>12,}" for r in rows))
         print(f"  {'  settlement per pair':24}" + "".join(f"{r[f'R_{h}'][2]:>12,.1f}" for r in rows))
+        print(f"  {'  with 116-byte leaves':24}" + "".join(f"{r[f'R_{h}_full'][2]:>12,.1f}" for r in rows))
     print(f"\n{CHECKS} checks, {FAILS} failures")
     return 1 if FAILS else 0
 

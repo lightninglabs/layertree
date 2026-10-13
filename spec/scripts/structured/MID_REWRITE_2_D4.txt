@@ -1,4 +1,4 @@
-# REWRITE_2 (MID tier, cohort rewrite of a 4-position subtree, dense, D=4): 2867 bytes
+# REWRITE_2 (MID tier, cohort rewrite of a 4-position subtree, dense, D=4): 3127 bytes
 # macros in CAPITALS are defined in MACROS_MID.txt; raw opcodes are wrapped and indented
 
 PROLOGUE

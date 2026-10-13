@@ -785,10 +785,20 @@ def w_evict_subtree(tree, depth, height, idx):
 # An unchanged position publishes its leaf once: the new slot may be the
 # single one-byte element REWRITE_SAME (0x02 here, since 0x01 is a slot's
 # presence flag), and the step then converts the old slot's node twice.
+#
+# A position whose only change is its amount publishes an amount-only slot,
+# amt_num za wa REWRITE_AMOUNT (0x03): the new amount as a minimal number
+# with its PADZ pad, four to eight bytes and four elements in place of the
+# eleven of a leaf slot. The step reduces the old slot first, as always,
+# and then expands the amount-only slot to the new canonical form
+# [amt8 rest amt] with amt8 = le64(amt) and rest the old leaf's, so every
+# rule below it reads the same three items as for a full leaf (_expand_amount).
+# An empty old slot has no rest, so an amount-only slot against it fails.
 SEQ_FINAL = 0x7FFFFFFF
 SEQ_FINAL_BYTES = lt.le32(SEQ_FINAL)
 REWRITE_SLOT_WITNESS = LEAF_WITNESS + 1
 REWRITE_SAME = b"\x02"
+REWRITE_AMOUNT = b"\x03"
 
 
 def _leaf_join_old(reclaim_key=None):
@@ -825,6 +835,21 @@ def _leaf_join_new():
     for d, size in FIELD_SIZES:
         s += ([d, "OP_PICK"] if d else ["OP_DUP"]) + ["OP_SIZE", size, "OP_EQUALVERIFY", "OP_DROP"]
     return s + ["OP_CAT"] * 5 + ["OP_FROMALTSTACK"]                            # amt8 rest amt
+
+
+def _expand_amount(m, rest_depth):
+    """[amt_num za wa flag X(m)] -> [amt8 rest amt X(m)]: the amount-only
+    new slot expanded to the canonical form of a full new slot, below the
+    old slot's canonical block X (m items, rest_o `rest_depth` deep from
+    the top of X). The flag is dropped, the three amount elements rolled
+    above X, the number checked non-negative and parked, amt8 = le64(amt)
+    and a copy of rest_o pushed (it must be non-empty, which an empty old
+    slot's zeros are not), then X rolled back above the new block."""
+    return ([m, "OP_ROLL", "OP_DROP"] + roll(m + 2, 3) +                       # X amt_num za wa
+            [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"] + le64() +            # X amt8              | amt
+            [rest_depth + 1, "OP_PICK", "OP_SIZE", "OP_0NOTEQUAL", "OP_VERIFY",
+             "OP_FROMALTSTACK"] +                                               # X amt8 rest amt
+            roll(m + 2, m))                                                     # amt8 rest amt X
 
 
 def _rewrite_owner_auth(exit_consent, k=0):
@@ -915,10 +940,12 @@ def _rewrite_step(exit_consent, pay=None, reclaim_key=None, side=None):
         s += [3, "OP_PICK", "OP_NOT", "OP_VERIFY"]                             # no transfer into an unchanged leaf
     s += roll(5 + k, 2) + _rewrite_conv()                                      # .. amt machine sc
     s += roll(4 + k) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4                     # .. machine              | .. ns nsc os osc
-    s += ["OP_ELSE"]                                                           # -- a leaf or empty --
+    s += ["OP_ELSE"]                                                           # -- a leaf, empty or amount only --
+    s += [6 + k, "OP_PICK", REWRITE_AMOUNT, "OP_EQUAL", "OP_IF"]               # -- amount only: the old rest, a new amount --
+    s += _expand_amount(6 + k, 4) + ["OP_ELSE"]                                # .. C_new(3) C_old
     s += ["OP_TOALTSTACK"] * (6 + k)                                           # .. new_slot            | .. machine C_old
     s += ["OP_IF"] + _leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]   # .. C_new(3)
-    s += ["OP_FROMALTSTACK"] * (6 + k)                                         # .. C_new(3) C_old      | .. machine
+    s += ["OP_FROMALTSTACK"] * (6 + k) + ["OP_ENDIF"]                          # .. C_new(3) C_old      | .. machine
     old_rules = ([7 + k, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",      # -- new is a leaf: rewrite --
                   4, "OP_PICK", 8 + k, "OP_PICK", "OP_EQUAL",                          # same_rest
                   "OP_OVER", 8 + k, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",     # .. and amt_o <= amt_n
@@ -1009,8 +1036,10 @@ def rewrite_script(depth, height, operator_key, exit_consent=False, reclaim_key=
       block_{2^h-1} .. block_0 sig_op r m
       block_i = [xsig_i] [sig_i] new_slot_i old_slot_i, a slot being leaf(10)
       0x01 or one empty element, and new_slot_i may be the one-byte marker
-      REWRITE_SAME for an unchanged position; sig_i only where 7.9 rule 3
-      requires it, xsig_i only under ^x and only where sig_i is present.
+      REWRITE_SAME for an unchanged position or the four-element amount-only
+      slot amt_num za wa REWRITE_AMOUNT (w_amount_slot) for a leaf that
+      changes in its amount alone; sig_i only where 7.9 rule 3 requires it,
+      xsig_i only under ^x and only where sig_i is present.
 
     With reclaim_key this is the reclaim form (7.9 rule 8; REWRITE_R_h,
     REWRITE_XR_h), h >= 1: a position that takes R1 carries, in place of
@@ -1058,14 +1087,32 @@ def w_rewrite_slot(leaf):
     return w_leaf(leaf) + [b"\x01"]
 
 
-def w_rewrite(tree, depth, height, idx, new, sigs, marker=True):
+def w_amount_slot(amount):
+    """Witness items for an amount-only REWRITE slot (bottom..top): the new
+    amount as a minimal number with its PADZ pad, then REWRITE_AMOUNT."""
+    z, w = pad(amount)
+    return [scriptnum(amount), z, w, REWRITE_AMOUNT]
+
+
+def amount_only(old, new):
+    """Whether `new` is `old` with a different amount and nothing else, the
+    only change an amount-only slot can express (spec 7.9)."""
+    return (old is not None and new is not None and old.amount != new.amount
+            and old.serialize()[8:] == new.serialize()[8:])
+
+
+def w_rewrite(tree, depth, height, idx, new, sigs, marker=True, amounts=False, raw_new=None, raw_old=None):
     """Everything MID REWRITE_h consumes below sig_op r m, for the subtree
     `idx` of `tree`: final pads, input-amount pads, levels, node pads and
     the position blocks. `new` maps offset -> Leaf or None (the new
     element of every position); `sigs` maps offset -> [sig] or [sig, xsig]
     for the positions that carry one. With marker, an unchanged leaf's new
     slot is the one-byte REWRITE_SAME; without it, a second copy of the
-    leaf. Mirrors rewrite_script's layout."""
+    leaf. With amounts, a new leaf that differs from its old leaf in the
+    amount alone is the four-element amount-only slot (w_amount_slot).
+    raw_new and raw_old map an offset to the items of that position's new or
+    old slot, replacing the honest ones (for the malformed-slot negatives).
+    Mirrors rewrite_script's layout."""
     n = 1 << height
     base = idx << height
     t1 = lt.Tree(depth)
@@ -1084,11 +1131,15 @@ def w_rewrite(tree, depth, height, idx, new, sigs, marker=True):
     for j in reversed(range(n)):
         items += list(reversed(sigs.get(j, [])))                               # xsig below sig
         o, nw = tree.leaves.get(base + j), new.get(j)
-        if marker and o is not None and nw is not None and o.serialize() == nw.serialize():
+        if raw_new and j in raw_new:
+            items += raw_new[j]
+        elif marker and o is not None and nw is not None and o.serialize() == nw.serialize():
             items.append(REWRITE_SAME)
+        elif amounts and amount_only(o, nw):
+            items += w_amount_slot(nw.amount)
         else:
             items += w_rewrite_slot(nw)
-        items += w_rewrite_slot(o)
+        items += raw_old[j] if raw_old and j in raw_old else w_rewrite_slot(o)
     return items
 
 

@@ -719,6 +719,25 @@ func wantModeFlag(w *world, spend *Spend, deduct bool) error {
 	return nil
 }
 
+// wantAmountOnly checks that the builder wrote n positions of a rewrite as
+// amount-only elements (spec 7.9, 8.9): n eight-byte elements in the 0xC2
+// tiers, whose paths, signatures and leaves are never eight bytes, and n
+// slots ending in the flag 0x03 under 0xC0 numerics.
+func wantAmountOnly(w *world, spend *Spend, n int) error {
+	got := 0
+	for _, el := range spend.Stack {
+		if w.r.tier.elements() && bytes.Equal(el, []byte{0x03}) ||
+			!w.r.tier.elements() && len(el) == 8 {
+
+			got++
+		}
+	}
+	if got != n {
+		return fmt.Errorf("%d amount-only elements, want %d", got, n)
+	}
+	return nil
+}
+
 // updateCases are UPDATE and UPDATE^x: alice tops her leaf up from 50,000
 // to 80,000 and bumps seq, funded by a second input (assign under CCV), and
 // the same with alice lowering it to 20,000, the 30,000 freed going to a
@@ -1049,6 +1068,10 @@ func rewriteCases(s caseSpec) []txCase {
 			if err == nil {
 				err = wantModeFlag(w, spend, true)
 			}
+			// Position 4 is lowered in its amount alone: one element.
+			if err == nil {
+				err = wantAmountOnly(w, spend, 1)
+			}
 			return spend, next, err
 		}
 	}
@@ -1114,6 +1137,10 @@ func rewriteCases(s caseSpec) []txCase {
 				return nil, nil, fmt.Errorf("the top-up has %d "+
 					"signature slots, want the operator's alone",
 					len(spend.Sigs))
+			}
+			// All four positions change in their amount alone.
+			if err == nil {
+				err = wantAmountOnly(w, spend, 4)
 			}
 			return spend, next, err
 		},

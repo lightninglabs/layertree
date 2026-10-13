@@ -1028,10 +1028,12 @@ def _rewrite_step_r_ccv0(exit_consent, reclaim_key, side):
     s += M.roll(4) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4               # .. idx L Z              | .. ns nsc os osc
     if side == "L":
         s += ["OP_0", "OP_TOALTSTACK", "OP_0", "OP_TOALTSTACK"]        # | .. (0 0)
-    s += ["OP_ELSE"]                                                   # -- a leaf or empty --
+    s += ["OP_ELSE"]                                                   # -- a leaf, empty or amount only --
+    s += [8, "OP_PICK", M.REWRITE_AMOUNT, "OP_EQUAL", "OP_IF"]         # -- amount only: the old rest, a new amount --
+    s += M._expand_amount(8, 6) + ["OP_ELSE"]
     s += ["OP_TOALTSTACK"] * 8
     s += ["OP_IF"] + M._leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]
-    s += ["OP_FROMALTSTACK"] * 8                                       # .. C_new(3) C_old(6) isR ea
+    s += ["OP_FROMALTSTACK"] * 8 + ["OP_ENDIF"]                        # .. C_new(3) C_old(6) isR ea
     if side == "R":
         s += _absorb_pop() + [                                         # .. C_new C_old isR ea key delta
             "OP_DUP", "OP_0NOTEQUAL", "OP_IF",

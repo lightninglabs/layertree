@@ -128,6 +128,16 @@ for h in (2, 4, 6):
     rows.append(("D/subtree", 16, f"REWRITE_{h} ({1 << h} positions, mixed)", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 it, sl, wl = test_scripts.test_rewrite(16, 4, exit_consent=True, verbose=False)
 rows.append(("D/subtree", 16, "REWRITE_X_4 (16 positions, mixed)", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
+# the operator's top-up of every leaf of a cohort, as 116-byte leaves and as 8-byte amount-only elements
+for h in (4, 6):
+    c = test_scripts.rewrite_case(16, h, "topup")
+    for amounts in (False, True):
+        wit = test_scripts._rewrite_witness(c["w"], h, c["path"], c["old"], c["new"], c["ctx"], c["root"],
+                                            c["sig_op"], False, True, True, amounts)[0]
+        it = c["w"].run(c["name"], wit, c["ctx"])
+        sl, wl = len(c["script"]), sum(len(x) for x in wit)
+        rows.append(("D/subtree", 16, f"REWRITE_{h} ({1 << h} positions, top-up{', amount-only elements' if amounts else ''})",
+                     sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 it, sl, wl = test_scripts.test_detach(16, 8, verbose=False)
 rows.append(("D/subtree", 16, "DETACH_8", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 with open(os.path.join(OUT, "REWRITE_2_D8.txt"), "w") as f:
@@ -174,6 +184,13 @@ for h, x, scenario in ((2, False, "mixed"), (4, False, "mixed"), (4, True, "mixe
     nm = f"REWRITE_X_{h}" if x else f"REWRITE_{h}"
     rows.append(("MID/D", 16, f"{nm} ({1 << h} positions, {scenario})", len(script), sum(len(x) for x in wit), 129,
                  len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
+c = test_mid.rewrite_case_mid(16, 5, "topup")
+for amounts in (False, True):
+    wit = c["witness"](c["old"], c["new"], c["ctx"], amounts=amounts)[0]
+    it = c["w"].run(c["name"], wit, c["ctx"])
+    sl, wl = len(c["script"]), sum(len(x) for x in wit)
+    rows.append(("MID/D", 16, f"REWRITE_5 (32 positions, top-up{', amount-only slots' if amounts else ''})",
+                 sl, wl, 129, sl + wl + 129, "n/a (0xC0)", it.sigchecks))
 script, wit, it = test_min.test_min(16, verbose=False)
 rows.append(("MIN/D", 16, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
              len(script) + sum(len(x) for x in wit) + 129, "n/a (0xC0)", it.sigchecks))
@@ -269,6 +286,17 @@ for numeric in ("c2", "c0"):
         sl, wl = len(c["script"]), sum(len(e) for e in c["wit"])
         rows.append((tierp, 16, f"{c['name']} ({1 << h} positions, {scenario})", sl, wl, 129, sl + wl + 129,
                      it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
+for numeric in ("c2", "c0"):
+    tierp = "CCV/D" if numeric == "c2" else "CCV-c0/D"
+    h = 6 if numeric == "c2" else 5
+    c = test_ccv.rewrite_case_ccv(16, h, numeric, "topup", False)
+    for amounts in (False, True):
+        wit = c["witness"](c["old"], c["new"], c["ctx"], amounts=amounts)[0]
+        c["ctx"].ccv_reset()          # the second run needs fresh BIP-443 amount accumulators
+        it = c["w"].run(c["name"], wit, c["ctx"])
+        sl, wl = len(c["script"]), sum(len(e) for e in wit)
+        rows.append((tierp, 16, f"{c['name']} ({1 << h} positions, top-up{', amount-only elements' if amounts else ''})",
+                     sl, wl, 129, sl + wl + 129, it.cost if numeric == "c2" else "n/a (0xC0)", it.sigchecks))
 with open(os.path.join(OUT, "CCV_REWRITE_2_D8.txt"), "w") as f:
     f.write(listing("REWRITE_2 (CCV tier, dense, D=8): cohort rewrite of a 4-position subtree",
                     CV.rewrite_script_ccv(8, 2, OP_KEY)))

@@ -1113,9 +1113,12 @@ func ccv0RewriteStepR(exitConsent bool, rk [32]byte, left bool) []Token {
 	if left {
 		s = append(s, tk(ts.OP_0, ts.OP_TOALTSTACK, ts.OP_0, ts.OP_TOALTSTACK)...)
 	}
-	s = append(s, tk(ts.OP_ELSE, repeatOp(ts.OP_TOALTSTACK, 8),
+	s = append(s, tk(ts.OP_ELSE,
+		Num(int64(8)), ts.OP_PICK, midRewriteAmount, ts.OP_EQUAL, ts.OP_IF, // an amount-only slot
+		midExpandAmount(8, 6), ts.OP_ELSE,
+		repeatOp(ts.OP_TOALTSTACK, 8),
 		ts.OP_IF, midLeafJoinNew(), ts.OP_ELSE, repeatOp(ts.OP_0, 3), ts.OP_ENDIF,
-		repeatOp(ts.OP_FROMALTSTACK, 8))...)
+		repeatOp(ts.OP_FROMALTSTACK, 8), ts.OP_ENDIF)...)
 	if !left {
 		s = append(s, tk(ccv0AbsorbPop(),
 			ts.OP_DUP, ts.OP_0NOTEQUAL, ts.OP_IF,

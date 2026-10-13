@@ -975,7 +975,7 @@ def _needs_owner_sig_mid(old, new):
     return True
 
 
-def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
+def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False, plan=None):
     """Build a MID REWRITE_h spend for one of test_scripts._rewrite_plan's
     scenarios. Returns a dict with the world, the plan, the context and a
     `witness(old, new, ctx, signer_op, sign)` builder, so the negatives can
@@ -988,7 +988,7 @@ def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
     script = assemble(toks, mode="c0")
     w.compiled = dict(w.compiled); w.compiled[name] = script
     w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in w.compiled.values()])
-    base, old, new = TS._rewrite_plan(w, height, scenario)
+    base, old, new = plan or TS._rewrite_plan(w, height, scenario)
     idx = base >> height
     w.tree.leaves = {base + i: lf for i, lf in old.items() if lf}
     w.tree.leaves[0] = mk_leaf("alice", 50_000)
@@ -1010,7 +1010,7 @@ def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
                 outs.append((old_[i].amount, lt.p2tr_spk(old_[i].exit_key)))
         return outs + [(400, P2WPKH)], r1[1] - tree.root()[1]
 
-    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, m=None, marker=True):
+    def witness(old_, new_, ctx, signer_op=None, sign=True, tree=None, m=None, marker=True, **kw):
         tree = tree or w.tree
         sigs = {}
         for i in range(n):
@@ -1018,7 +1018,7 @@ def rewrite_case_mid(depth, height, scenario="mixed", exit_consent=False):
                 sigs[i] = [schnorr_sign(ctx.sighash(), sk(f"c{i}-owner"))]
                 if exit_consent:
                     sigs[i].append(schnorr_sign(ctx.sighash(), sk(f"c{i}-exit")))
-        body = M.w_rewrite(tree, depth, height, idx, new_, sigs, marker)
+        body = M.w_rewrite(tree, depth, height, idx, new_, sigs, marker, **kw)
         sig_op = schnorr_sign(ctx.sighash(), signer_op or w.op_sk)
         return body + [sig_op, tree.root()[0], m or w.m], sigs
 
@@ -1224,6 +1224,98 @@ def test_rewrite(depth, height, exit_consent=False, verbose=True, scenario="mixe
               f"script {len(c['script'])} B, witness {sum(len(x) for x in wit)} B ({len(wit)} elements), "
               f"maxdepth {it.max_depth}")
     return it, c["script"], wit
+
+
+def test_rewrite_amount_only(depth, height, exit_consent=False, verbose=True):
+    """The amount-only new slot of the MID REWRITE_h (spec 7.9, 8.9):
+    `amt_num za wa 0x03`, four elements in place of a leaf slot's eleven.
+    Over test_scripts' "ao" plan (an amount raised with no signature, an
+    amount lowered with the owner's, an unchanged leaf and an empty position
+    left empty) it passes and saves seven elements per amount-only
+    position. The rules are the ones the full slot meets: an unsigned
+    decrease, a SEQ_FINAL raise without its owner, a forged amount, a
+    negative or non-minimal number, a malformed pad, a missing element, any
+    other flag, an amount-only slot against an empty old slot and the
+    amount-only form as an old slot all fail."""
+    c = rewrite_case_mid(depth, height, "ao", exit_consent)
+    w, name, ctx, outputs = c["w"], c["name"], c["ctx"], c["outputs"]
+    old, new, delta, witness = c["old"], c["new"], c["delta"], c["witness"]
+    n = 1 << height
+    tag = f"mid: {name} D={depth} amount-only"
+    n_ao = sum(1 for i in range(n) if M.amount_only(old[i], new[i]))
+    i_up = next(i for i in range(n) if M.amount_only(old[i], new[i]) and new[i].amount > old[i].amount)
+    i_down = next(i for i in range(n) if M.amount_only(old[i], new[i]) and new[i].amount < old[i].amount)
+    i_empty = next(i for i in range(n) if old[i] is None and new[i] is None)
+    wit_full = c["wit"]
+    wit_ao, sigs = witness(old, new, ctx, amounts=True)
+    it = w.run(name, wit_ao, ctx)
+    check(True, f"{tag}: the plan with {n_ao} amount-only positions passes")
+    check(len(wit_full) - len(wit_ao) == 7 * n_ao, f"{tag}: seven elements saved per amount-only position")
+    check(sum(len(x) for x in wit_full) - sum(len(x) for x in wit_ao) > 100 * n_ao,
+          f"{tag}: over 100 witness bytes saved per amount-only position")
+    check(i_up not in sigs and i_down in sigs, f"{tag}: the raise needs no signature and the decrease the owner's")
+
+    def run(old_=None, new_=None, ctx_=None, **kw):
+        old_, new_ = old_ or old, new_ or new
+        ctx_ = ctx_ or ctx
+        wit_, _ = witness(old_, new_, ctx_, **kw)
+        return w.run(name, wit_, ctx_)
+    # an unsigned decrease
+    wit_nosig = list(wit_ao)
+    for x in sigs[i_down]:
+        del wit_nosig[wit_nosig.index(x)]
+    expect_fail(lambda: w.run(name, wit_nosig, ctx), f"{tag}: unsigned decrease")
+    # a forged amount: the fold and output 0 are built for another one
+    forged = dict(new)
+    forged[i_up] = old[i_up].with_amount_seq(old[i_up].amount + 501, old[i_up].seq)
+    expect_fail(lambda: run(new_=forged, amounts=True), f"{tag}: an amount other than the one output 0 commits")
+    # the slot's elements: a negative number, a non-minimal one, a malformed
+    # pad, a missing element and another flag
+    a = new[i_up].amount
+
+    def slot(items):
+        return {"raw_new": {i_up: items}, "amounts": True}
+    neg = [b"\x00\x00\x00\x81", b"", bytes(4), M.REWRITE_AMOUNT]
+    expect_fail(lambda: run(**slot(neg)), f"{tag}: a negative amount (NONNEG)")
+    x = M.scriptnum(a) + b"\x00"
+    nonmin = [x, bytes(4 - len(x)), bytes(len(x)), M.REWRITE_AMOUNT]
+    expect_fail(lambda: run(**slot(nonmin)), f"{tag}: a non-minimal amount")
+    z, wv = M.pad(a)
+    expect_fail(lambda: run(**slot([M.scriptnum(a), z + b"\x01", wv, M.REWRITE_AMOUNT])),
+                f"{tag}: a pad that is not zero")
+    expect_fail(lambda: run(**slot([M.scriptnum(a), z, M.REWRITE_AMOUNT])), f"{tag}: a missing element")
+    expect_fail(lambda: run(**slot([M.scriptnum(a), z, wv, b"\x04"])), f"{tag}: the flag 0x04")
+    # an amount-only slot against an empty old slot, and as an old slot
+    expect_fail(lambda: run(raw_new={i_empty: M.w_amount_slot(a)}, amounts=True),
+                f"{tag}: an amount-only slot against an empty old slot")
+    expect_fail(lambda: run(raw_old={i_up: M.w_amount_slot(old[i_up].amount)}, amounts=True),
+                f"{tag}: an amount-only old slot")
+    # a SEQ_FINAL leaf raised by one satoshi: the owner signs, or it fails
+    lf = old[i_up]
+    f_old, f_new = dict(old), dict(new)
+    f_old[i_up] = lf.with_amount_seq(lf.amount, M.SEQ_FINAL)
+    f_new[i_up] = lf.with_amount_seq(lf.amount + 1, M.SEQ_FINAL)
+    cf = rewrite_case_mid(depth, height, exit_consent=exit_consent, plan=(c["base"], f_old, f_new))
+    wf, ctxf = cf["w"], cf["ctx"]
+    wit_f, sigs_f = cf["witness"](f_old, f_new, ctxf, amounts=True)
+    wf.run(cf["name"], wit_f, ctxf)
+    check(True, f"{tag}: a SEQ_FINAL raise passes with the owner's signature")
+    bare = list(wit_f)
+    for sig in sigs_f[i_up]:
+        del bare[bare.index(sig)]
+    expect_fail(lambda: wf.run(cf["name"], bare, ctxf), f"{tag}: a SEQ_FINAL raise without the owner's signature")
+    # an amount-only decrease beside an exit
+    x_new = dict(new)
+    x_new[i_up] = None
+    cx = rewrite_case_mid(depth, height, exit_consent=exit_consent, plan=(c["base"], dict(old), x_new))
+    wit_x, _ = cx["witness"](dict(old), x_new, cx["ctx"], amounts=True)
+    cx["w"].run(cx["name"], wit_x, cx["ctx"])
+    check(True, f"{tag}: an amount-only decrease beside an exit")
+    if verbose:
+        print(f"MID {name} D={depth} amount-only: {n} positions, {n_ao} amount-only, witness "
+              f"{sum(len(x) for x in wit_ao)} B ({len(wit_ao)} elements) against {sum(len(x) for x in wit_full)} B "
+              f"({len(wit_full)}), maxdepth {it.max_depth}")
+    return it
 
 
 def test_voucher_topup(depth, verbose=True):
@@ -2072,14 +2164,15 @@ def test_reclaim_mid(depth, sparse=False, verbose=True):
 
 
 def _pending_rewrite_mid(pw, name, base, height, old, new, locktime=0, sign=(), reclaim=(), mutate=None,
-                         extra=None):
+                         extra=None, amounts=False):
     """Run a MID REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1,
     as test_scripts._pending_rewrite. `sign` lists the offsets that carry
     an owner signature by operator-owner (and under ^x an exit-key one by
     rcpt-exit), or maps them to the owner's key label; `reclaim` the
     offsets that carry the R1 items (w_reclaim of the old leaf); `extra`
-    puts further leaves in the tree outside the subtree. Returns
-    (interp, witness)."""
+    puts further leaves in the tree outside the subtree; amounts writes a
+    new leaf that differs from its old one in the amount alone as the
+    amount-only slot. Returns (interp, witness)."""
     w = pw.w
     n = 1 << height
     leaves = {base + i: lf for i, lf in old.items() if lf}
@@ -2105,7 +2198,8 @@ def _pending_rewrite_mid(pw, name, base, height, old, new, locktime=0, sign=(), 
                 items[i].append(schnorr_sign(ctx.sighash(), sk("rcpt-exit")))
         elif i in reclaim:
             items[i] = M.w_reclaim(old[i])
-    wit = M.w_rewrite(w.tree, pw.depth, height, base >> height, {i: new[i] for i in range(n)}, items)
+    wit = M.w_rewrite(w.tree, pw.depth, height, base >> height, {i: new[i] for i in range(n)}, items,
+                      amounts=amounts)
     wit += [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m]
     if mutate:
         wit = mutate(wit)
@@ -2124,6 +2218,15 @@ def test_pending_rewrite_mid(depth, verbose=True):
     for name in ("REWRITE_R_1", "REWRITE_XR_1"):
         run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)})
         check(True, f"mid: {name} R3 transfer P -> L, operator only, before the deadline")
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)},
+            amounts=True)
+        check(True, f"mid: {name} R3 transfer with two amount-only slots")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L},
+                                {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}, amounts=True),
+                    f"mid: {name} R3 with amount-only slots raising the landing leaf by less than the transfer")
+        expect_fail(lambda: run(pw, name, 4, 1, {0: L, 1: P},
+                                {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}, amounts=True),
+                    f"mid: {name} R3 with amount-only slots and the pending leaf on the right")
         expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L},
                                 {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
                     f"mid: {name} R3 with the landing leaf raised by less than the transfer")
@@ -2178,6 +2281,8 @@ def test_pending_rewrite_mid(depth, verbose=True):
         # an amount-only top-up of the pending leaf is still rule 3's
         run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L})
         check(True, f"mid: {name} top-up of the pending leaf, operator only")
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}, amounts=True)
+        check(True, f"mid: {name} top-up of the pending leaf as an amount-only slot")
         # an owner-signed change of the landing leaf still works as rule 3
         run(pw, name, 2, 1, {0: P, 1: L}, {0: P, 1: L.with_amount_seq(9_000, 1)}, sign={1: "rcpt-exit"})
         check(True, f"mid: {name} a signed change of the landing leaf beside an unchanged pending leaf")
@@ -2191,12 +2296,19 @@ def test_pending_rewrite_mid(depth, verbose=True):
         expect_fail(lambda: run(pw, name, 2, 1, {0: A, 1: B},
                                 {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
                     f"mid: {name} R3 from an ordinary leaf")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: A, 1: B},
+                                {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}, amounts=True),
+                    f"mid: {name} R3 from an ordinary leaf with amount-only slots")
     # two pairs in one rewrite: one settles, the other reclaims and rolls
     P_b, L_b = pw.pending(9_000, T, label="Pb"), pw.landing(4_000, label="Lb")
     it, wit = run(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
                   {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
                    2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T, reclaim=(2,))
     check(True, "mid: REWRITE_XR_2 a settlement and a roll in one rewrite, operator only")
+    run(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+        {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+         2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T, reclaim=(2,), amounts=True)
+    check(True, "mid: REWRITE_XR_2 the same settlement and roll with amount-only slots")
     # a transfer record does not leak into the next pair: pair one settles,
     # pair two is unchanged (both markers), so its right step must see (0, 0)
     run(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
@@ -2214,12 +2326,13 @@ def test_pending_rewrite_mid(depth, verbose=True):
     return s1, s2
 
 
-def pending_rewrite_full_mid(depth, height, scenario="settle", verbose=True):
+def pending_rewrite_full_mid(depth, height, scenario="settle", verbose=True, amounts=False):
     """A full reclaim-form REWRITE_XR_h: every position occupied, each pair
     a pending leaf and its landing leaf. scenario "settle" transfers in
     every pair (R3), "roll" rolls every pending leaf after its deadline
     (R1). Returns the interpreter or None when the 1,000-element stack
-    limit rejects it, which is checked to be the failure."""
+    limit rejects it, which is checked to be the failure. With amounts every
+    amount-only change is the four-element slot."""
     pw = PendingMidWorld(depth)
     name = f"REWRITE_XR_{height}"
     if name not in pw.w.compiled:
@@ -2240,7 +2353,7 @@ def pending_rewrite_full_mid(depth, height, scenario="settle", verbose=True):
             rec.append(2 * j)
     base = 1 << height          # the subtree at index 1
     try:
-        it, wit = _pending_rewrite_mid(pw, name, base, height, old, new, locktime=T, reclaim=rec)
+        it, wit = _pending_rewrite_mid(pw, name, base, height, old, new, locktime=T, reclaim=rec, amounts=amounts)
     except ScriptError as e:
         check("stack size limit" in str(e), f"mid: {name} full {scenario}: rejected only by the stack limit: {str(e)[:60]}")
         if verbose:
@@ -2282,6 +2395,8 @@ if __name__ == "__main__":
     for h in (2, 4):
         test_rewrite(16, h)
     test_rewrite(16, 4, exit_consent=True)
+    for d, h, x in ((4, 2, False), (16, 4, False), (16, 4, True)):
+        test_rewrite_amount_only(d, h, x)
     for scenario in ("update", "exit"):   # every position occupied at h = 5 fits the stack limit
         test_rewrite(16, 5, scenario=scenario)
     for scenario in ("mixed", "exit"):    # h = 6 does not, at the suite's occupancies (spec 4.5)
@@ -2294,5 +2409,7 @@ if __name__ == "__main__":
     for h in (4, 5, 6):   # the reclaim form, every position occupied (spec 4.5)
         for scenario in ("settle", "roll"):
             pending_rewrite_full_mid(16, h, scenario)
+    for h in (5, 6):      # the same cohorts with amount-only slots: what fits the stack limit
+        pending_rewrite_full_mid(16, h, "settle", amounts=True)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)
