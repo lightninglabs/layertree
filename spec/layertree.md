@@ -58,8 +58,8 @@ tree, with operator-assigned positions and constant-size subtree grafting,
 is the default profile and the one this document recommends. The
 **sparse** key-addressed Merkle-sum tree (a truncated MS-SMT) with
 compressed proofs, in which positions are derived from the owner's key, is
-retained as the option for key-addressed registries; it costs 1.6 to 2.7
-times as much per exit and cannot graft or sweep cohorts (5.4, 11).
+retained as the option for key-addressed registries; it costs about 1.8
+times as much per exit at `D = 32` (up to 2.8 times at `D = 64`) and cannot graft or sweep cohorts (5.4, 11).
 
 ## 2. Conventions
 
@@ -854,7 +854,8 @@ key-addressed positions. Sparse is OPTIONAL.
   the range 32 to 64; `D = 256` (the full MS-SMT) is valid but costs
   about 35 kB of script per exit (section 11). The profile buys
   key-addressed positions, a history-independent root and structural
-  uniqueness of leaves, at 1.6 to 2.7 times the dense per-exit cost
+  uniqueness of leaves, at about 1.8 times the dense per-exit cost at `D = 32` (1.7 to 2.8 times
+  over `D = 32` to `64`, section 11)
   (`design/tree-comparison.md` has the measured comparison).
 
 The **root** is the node at height `D`, index 0. Its sum is the **total**.
@@ -1807,8 +1808,10 @@ Rules:
    detached, which is what lets channel leaves (Appendix C.6.1) and the
    other option-dependent guarantees survive one. The reference
    generator computes it as `detached_taptree_root(h, OPERATOR_KEY,
-   tree_id, options)`, where the default options are the reference set
-   of 6.2 (`EXIT_1`, `EXIT_2`, `JOIN_0`, `JOINK_2`, `UPDATE`, `CLAIM`),
+   tree_id, options)`, where the default options are the six-leaf
+   default of the reference `TreeOptions` (`EXIT_1`, `EXIT_2`, `JOIN_0`,
+   `JOINK_2`, `UPDATE`, `CLAIM`; the eight-leaf reference set of 6.2 and
+   11.1 adds `JOIN_2` and `EVICT_SUBTREE_2`),
    for a MID parent as `layertree_mid.detached_taptree_root` over the
    MID option set (`layertree_mid.TreeOptions`, 8.10), and for a CCV
    parent as `detached_taptree_root_ccv(h, OPERATOR_KEY, numeric,

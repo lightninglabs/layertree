@@ -349,7 +349,7 @@ witness saving of about 580 bytes does not cover the script cost of about
 
 So the sparse profile buys properties, not bytes: no operator in the
 position assignment, history independence, and a proof that a key is
-absent. A deployment that needs those pays 1.6 times the dense exit and
+absent. A deployment that needs those pays about 1.8 times the dense exit and
 gives up grafts and sweeps.
 
 Raising the radix shortens the walk but widens each step. With radix `r`
@@ -375,7 +375,7 @@ and radix 2 is optimal.
 - An on-chain per-leaf update is 1,073 vbytes. Moves must be off-chain or
   batched; the batched rewrite `REWRITE_h` brings a cohort's update to
   about 144 vbytes per changed leaf.
-- The sparse profile costs 1.6 to 2.7 times the dense one and cannot graft
+- The sparse profile costs about 1.8 times the dense one (1.7 to 2.8 over `D = 32` to `64`) and cannot graft
   or sweep.
 - Uncoordinated exits serialise through one output at about 25
   transactions per block, which bounds how many time-sensitive leaves one

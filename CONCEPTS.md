@@ -139,7 +139,7 @@ profile the operator assigns slots in order, so 65,536 members need depth
 profile places each leaf at a position hashed from its owner's key, which
 removes the operator from slot assignment and gives proofs that a key is
 absent. It is kept as a secondary option for key-addressed registries, and
-it costs 1.6 to 2.7 times as much: random positions need about twice the
+it costs about 1.8 times as much at `D = 32` (1.7 to 2.8 times over `D = 32` to `64`): random positions need about twice the
 depth to avoid collisions, and each sparse level is a heavier script. It
 cannot graft or sweep cohorts. The rest of this file describes the dense
 profile.
