@@ -196,6 +196,7 @@ func optionRules(o Options) (rules, error) {
 			tier: Mid, sparse: v.Sparse, operatorKey: v.OperatorKey,
 			treeID: v.TreeID, exact: true, tower: v.Tower,
 			exitConsent: v.UpdateX || v.ClaimX || v.ClaimHX,
+			reclaimKey:  v.ReclaimKey,
 		}, nil
 	case script.MinTreeOptions:
 		return rules{tier: Min, exact: true}, nil

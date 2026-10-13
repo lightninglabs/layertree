@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
@@ -17,8 +18,8 @@ import (
 // by the operator ("operator-owner"), paid to the recipient ("rcpt-exit"),
 // reclaimable at height 700,000, and the recipient's landing leaf L at its
 // sibling, owned by and exiting to the recipient. The cases run inside
-// TestTransitionsEndToEnd (tierCases adds them to the FULL matrix) and the
-// negatives in TestPendingRejects.
+// TestTransitionsEndToEnd (tierCases adds them to the FULL and MID
+// matrices) and the negatives in TestPendingRejects.
 
 // pendingDeadline is P's evict_after, the height RECLAIM_1 and an R1
 // reclaim wait for.
@@ -27,21 +28,36 @@ const pendingDeadline = 700_000
 // pendingReclaimKey is the suite's RECLAIM_KEY, x(sha256("operator-reclaim")).
 func pendingReclaimKey() [32]byte { return xonly(sk("operator-reclaim")) }
 
-// pendingOptions is PendingWorld's option set: EXIT_1 (exact), JOIN_0,
-// JOINK_2, CLAIM^x, RECLAIM_1, CLAIM^m, CLAIM^hm and the reclaim form of
-// REWRITE_h at heights 1 and 2 with its ^x form. With exitConsent the tree
-// carries UPDATE^x (the credit-leaf configuration), so its rewrites are
-// REWRITE_XR_h (7.9 rule 7); without it UPDATE, and the builders accept
-// REWRITE_R_h too.
-func pendingOptions(opKey, treeID [32]byte, sparse,
-	exitConsent bool) script.FullTreeOptions {
-
+// pendingOptions is PendingWorld's option set (PendingMidWorld's in MID):
+// EXIT_1 (exact), JOIN_0, JOINK_2, CLAIM^x, RECLAIM_1, CLAIM^m, CLAIM^hm
+// and the reclaim form of REWRITE_h at heights 1 and 2 with its ^x form,
+// and at any further height a REWRITE_h variant of the case names. When
+// the variants name UPDATE_X the tree carries UPDATE^x (the credit-leaf
+// configuration), so its rewrites are REWRITE_XR_h (7.9 rule 7); without
+// it UPDATE, and the builders accept REWRITE_R_h too.
+func pendingOptions(c caseSpec, opKey, treeID [32]byte) Options {
 	rk := pendingReclaimKey()
+	exitConsent := c.hasVariant("UPDATE_X")
+	heights := []int{1, 2}
+	for _, v := range c.variants {
+		if h := variantHeight(v, "REWRITE_"); h > 2 {
+			heights = append(heights, h)
+		}
+	}
+	if c.tier == Mid {
+		return script.MidTreeOptions{
+			OperatorKey: opKey, TreeID: treeID, Sparse: c.sparse,
+			ExitKs: []int{1}, JoinHeights: []int{0}, JoinKs: []int{2},
+			UpdateX: exitConsent, ClaimX: exitConsent,
+			RewriteHeights: heights, RewriteX: true,
+			ReclaimKey: &rk, ClaimM: true, ClaimHM: true,
+		}
+	}
 	return script.FullTreeOptions{
-		OperatorKey: opKey, TreeID: treeID, Sparse: sparse,
+		OperatorKey: opKey, TreeID: treeID, Sparse: c.sparse,
 		ExitKs: []int{1}, JoinHeights: []int{0}, JoinKs: []int{2},
 		Exact: true, UpdateX: exitConsent, ClaimX: exitConsent,
-		RewriteHeights: []int{1, 2}, RewriteX: true,
+		RewriteHeights: heights, RewriteX: true,
 		ReclaimKey: &rk, ClaimM: true, ClaimHM: true,
 	}
 }
@@ -51,11 +67,13 @@ func (w *world) pendingLeaf(amount uint64, deadline uint32,
 	label string) *tree.Leaf {
 
 	h := sha256.Sum256([]byte(label))
-	return &tree.Leaf{
+	leaf := &tree.Leaf{
 		Amount: amount, ExitKey: xonly(sk("rcpt-exit")),
 		OwnerKey: xonly(sk("operator-owner")), EvictorKey: pendingReclaimKey(),
 		EvictAfter: deadline, Nonce: binary.LittleEndian.Uint32(h[:4]),
 	}
+	w.fixNonce(leaf)
+	return leaf
 }
 
 // landingLeaf is PendingWorld.landing: L, the recipient's own, evictable
@@ -63,11 +81,13 @@ func (w *world) pendingLeaf(amount uint64, deadline uint32,
 func (w *world) landingLeaf(amount uint64, label string) *tree.Leaf {
 	h := sha256.Sum256([]byte(label))
 	rcpt := xonly(sk("rcpt-exit"))
-	return &tree.Leaf{
+	leaf := &tree.Leaf{
 		Amount: amount, ExitKey: rcpt, OwnerKey: rcpt,
 		EvictorKey: w.opKey(), EvictAfter: 900_000,
 		Nonce: binary.LittleEndian.Uint32(h[:4]),
 	}
+	w.fixNonce(leaf)
+	return leaf
 }
 
 // pendingPair places P at 2*pair and L at 2*pair+1, and alice at 0.
@@ -120,10 +140,29 @@ func settle(w *world, x bool) (*Spend, *tree.Tree, error) {
 	return spend, next, err
 }
 
-// pendingCases are the FULL pending-leaf receive cases at one depth and
-// profile: the merges, RECLAIM_1, and the reclaim form of the rewrite
-// settling, reclaiming and rolling. The sparse profile has RECLAIM_1 alone,
-// since the merges and the rewrite are dense scripts.
+// fullPendingCohort fills the subtree of height h at index 1 with pairs,
+// a pending leaf beside its landing leaf (pending_rewrite_full_mid), and
+// returns the rewrite that settles every pair (R3), the reclaim form's
+// widest witness: no position carries a marker.
+func fullPendingCohort(w *world, height int) map[uint64]*tree.Leaf {
+	base := uint64(1) << uint(height)
+	after := make(map[uint64]*tree.Leaf)
+	for j := uint64(0); j < base/2; j++ {
+		p := w.pendingLeaf(20_000, pendingDeadline, fmt.Sprintf("P%d", j))
+		l := w.landingLeaf(10_000, fmt.Sprintf("L%d", j))
+		w.st.Tree.Leaves[base+2*j], w.st.Tree.Leaves[base+2*j+1] = p, l
+		after[2*j] = withAmountSeq(p, 13_000, p.Seq)
+		after[2*j+1] = withAmountSeq(l, 17_000, l.Seq)
+	}
+	return after
+}
+
+// pendingCases are the pending-leaf receive cases at one depth and
+// profile, in FULL and MID: the merges, RECLAIM_1, and the reclaim form of
+// the rewrite settling, reclaiming and rolling. The sparse profile has
+// RECLAIM_1 alone, since the merges and the rewrite are dense scripts. MID
+// at D = 16 adds the full reclaim-form rewrite at h = 5, the widest that
+// fits the 1,000-element stack limit (spec 4.5).
 func pendingCases(s caseSpec) []txCase {
 	s.pending = true
 	sx := s.withVariant("UPDATE_X")
@@ -148,7 +187,25 @@ func pendingCases(s caseSpec) []txCase {
 	if s.sparse {
 		return []txCase{reclaim}
 	}
-	return []txCase{reclaim, {
+	cases := []txCase{reclaim}
+	if s.tier == Mid && s.depth == 16 {
+		cases = append(cases, txCase{
+			name:     "REWRITE_XR_5 full settle",
+			caseSpec: s.withVariant("UPDATE_X").withVariant("REWRITE_5"),
+			build: func(w *world) (*Spend, *tree.Tree, error) {
+				after := fullPendingCohort(w, 5)
+				spend, next, err := BuildRewrite(w.st, 5, 1, after,
+					true, &TxOpts{Inputs: w.fee(5_000)})
+				if err == nil && len(spend.Sigs) != 1 {
+					return nil, nil, fmt.Errorf("the settlement has %d "+
+						"signature slots, want the operator's alone",
+						len(spend.Sigs))
+				}
+				return spend, next, err
+			},
+		})
+	}
+	return append(cases, []txCase{{
 		name: "CLAIM_M", caseSpec: s,
 		build: func(w *world) (*Spend, *tree.Tree, error) {
 			w.pendingPair(1, 20_000, 10_000)
@@ -253,14 +310,18 @@ func pendingCases(s caseSpec) []txCase {
 			}
 			return spend, next, err
 		},
-	}}
+	}}...)
 }
 
 // pendingReject is one input the pending builders refuse before signing,
-// in a dense pending world of depth 4.
+// in a dense pending world of depth 4 unless it names a depth and
+// variants, in every tier that carries the scripts unless it names one.
 type pendingReject struct {
-	name  string
-	build func(w *world) error
+	name     string
+	tier     *Tier
+	depth    int
+	variants []string
+	build    func(w *world) error
 }
 
 // pendingRejects are the negatives of the pending-leaf builders, one per
@@ -321,9 +382,11 @@ func pendingRejects() []pendingReject {
 		}, 13_000),
 	}, {
 		name: "merge from a SEQ_FINAL source",
-		build: mergeAfter(func(p, l *tree.Leaf) {
-			p.Seq = FullSeqFinal
-		}, 13_000),
+		build: func(w *world) error {
+			return mergeAfter(func(p, l *tree.Leaf) {
+				p.Seq = w.r.tier.SeqFinal()
+			}, 13_000)(w)
+		},
 	}, {
 		name:  "merge with x not above the target",
 		build: mergeAfter(none, 10_000),
@@ -427,32 +490,63 @@ func pendingRejects() []pendingReject {
 			}, false, &TxOpts{Inputs: w.fee(10_000)})
 			return err
 		},
+	}, {
+		// A full reclaim-form rewrite at h = 6 needs 64 positions of 22
+		// elements, past the 1,000-element limit (spec 4.5); h = 5 is
+		// the widest that fits, and the end-to-end suite builds it.
+		name: "full reclaim-form rewrite at h = 6 past the stack limit",
+		tier: &mid, depth: 16, variants: []string{"UPDATE_X", "REWRITE_6"},
+		build: func(w *world) error {
+			after := fullPendingCohort(w, 6)
+			_, _, err := BuildRewrite(w.st, 6, 1, after, true,
+				&TxOpts{Inputs: w.fee(5_000)})
+			if err != nil && !strings.Contains(err.Error(), "stack limit") {
+				return fmt.Errorf("refused for another reason: %w", err)
+			}
+			return err
+		},
 	}}
 }
 
+// mid is the tier a MID-only pendingReject names.
+var mid = Mid
+
 // TestPendingRejects checks that the pending builders refuse what the
-// scripts reject, and that a tier without the scripts refuses them.
+// scripts reject, in FULL and MID, and that a tier without the scripts
+// refuses them.
 func TestPendingRejects(t *testing.T) {
-	for _, c := range pendingRejects() {
-		c := c
-		t.Run(c.name, func(t *testing.T) {
-			w := newWorld(t, caseSpec{tier: Full, depth: 4, pending: true})
-			err := c.build(w)
-			if err == nil {
-				t.Fatal("builder accepted it")
+	for _, tier := range []Tier{Full, Mid} {
+		for _, c := range pendingRejects() {
+			c := c
+			if c.tier != nil && *c.tier != tier {
+				continue
 			}
-			t.Log(err)
-		})
+			depth := c.depth
+			if depth == 0 {
+				depth = 4
+			}
+			t.Run(fmt.Sprintf("%v/%s", tier, c.name), func(t *testing.T) {
+				w := newWorld(t, caseSpec{
+					tier: tier, depth: depth, variants: c.variants,
+					pending: true,
+				})
+				err := c.build(w)
+				if err == nil {
+					t.Fatal("builder accepted it")
+				}
+				t.Log(err)
+			})
+		}
 	}
-	t.Run("MID refuses the pending builders", func(t *testing.T) {
-		w := newWorld(t, caseSpec{tier: Mid, depth: 4})
+	t.Run("CCV refuses the pending builders", func(t *testing.T) {
+		w := newWorld(t, caseSpec{tier: CCV, depth: 4})
 		if _, _, err := BuildMerge(w.st, 2, 3, 13_000, nil, nil,
 			nil); err == nil {
 
-			t.Fatal("BuildMerge accepted a MID tree")
+			t.Fatal("BuildMerge accepted a CCV tree")
 		}
 		if _, _, err := BuildReclaim(w.st, 2, nil); err == nil {
-			t.Fatal("BuildReclaim accepted a MID tree")
+			t.Fatal("BuildReclaim accepted a CCV tree")
 		}
 	})
 }

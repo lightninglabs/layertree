@@ -2,6 +2,8 @@ package script
 
 import (
 	"github.com/btcsuite/btcd/txscript"
+
+	"github.com/roasbeef/layertree/tree"
 )
 
 // This file ports the MID tier's pending-leaf receive from
@@ -10,16 +12,12 @@ import (
 // of REWRITE_h (7.9 rule 8). A tree that carries them names RECLAIM_KEY at
 // creation; a leaf is reclaimable when its evictor_key is RECLAIM_KEY.
 
-// The merge voucher tags (spec 5.1, 7.5.4), distinct from the carve
-// voucher's so that no voucher of one form redeems as another.
-const (
-	midTagVoucherM  = "LayerTree/voucher-merge"
-	midTagVoucherHM = "LayerTree/voucher-merge-hashlock"
-)
-
+// The merge voucher tag prefixes (spec 5.1, 7.5.4); the tags are distinct
+// from the carve voucher's so that no voucher of one form redeems as
+// another.
 var (
-	midVoucherMPrefix  = midTagPrefix(midTagVoucherM)
-	midVoucherHMPrefix = midTagPrefix(midTagVoucherHM)
+	midVoucherMPrefix  = midTagPrefix(tree.TagVoucherM)
+	midVoucherHMPrefix = midTagPrefix(tree.TagVoucherHM)
 )
 
 // midSc pushes a leaf's 41-byte node H_leaf(amt8||rest) || amt8 || 01 from

@@ -266,9 +266,14 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 			})
 		}
 
-		// The block is [xsig] [sig] new old, bottom to top.
+		// The block is [xsig] [sig] new old, bottom to top, or under
+		// 0xC0 numerics an R1 position's reclaim items in place of the
+		// signatures.
 		var block [][]byte
 		var ps []slot
+		if step.reclaim {
+			block = append(block, r.reclaimItems(old)...)
+		}
 		if step.owner {
 			if exitConsent {
 				block = append(block, sigPlaceholder())
@@ -316,9 +321,14 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 	}
 	body, opSig := operatorSlot(r, body)
 	sigs = append(sigs, opSig...)
-	// The 0xC0 pre-pass peaks four elements above the witness (spec 4.5):
+	// The 0xC0 pre-pass peaks four elements above the witness (spec 4.5),
+	// six in the reclaim form, whose machine carries the transfer record:
 	// at D = 16 every h <= 5 fits, h = 6 only at low occupancy.
-	if err := r.checkStack(name, len(body), 4); err != nil {
+	peak := 4
+	if reclaim {
+		peak = 6
+	}
+	if err := r.checkStack(name, len(body), peak); err != nil {
 		return nil, nil, err
 	}
 

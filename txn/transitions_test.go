@@ -110,8 +110,8 @@ type caseSpec struct {
 	variants []string
 
 	// pending selects the pending-leaf receive world of pending_test.go
-	// (FULL only): pendingOptions, with UPDATE^x when the variants name
-	// UPDATE_X.
+	// (FULL and MID): pendingOptions, with UPDATE^x when the variants
+	// name UPDATE_X.
 	pending bool
 }
 
@@ -129,15 +129,12 @@ func newWorld(t *testing.T, c caseSpec) *world {
 		keys: []*btcec.PrivateKey{op},
 	}
 	var opts Options
-	switch c.tier {
-	case Full:
-		if c.pending {
-			opts = pendingOptions(opKey, treeID, c.sparse,
-				c.hasVariant("UPDATE_X"))
-			w.keys = append(w.keys, sk("operator-owner"), sk("rcpt-exit"),
-				sk("operator-reclaim"))
-			break
-		}
+	switch {
+	case c.pending:
+		opts = pendingOptions(c, opKey, treeID)
+		w.keys = append(w.keys, sk("operator-owner"), sk("rcpt-exit"),
+			sk("operator-reclaim"))
+	case c.tier == Full:
 		if !c.exact && !c.tower {
 			w.st = fullSuiteState(t, c, opKey, treeID)
 			break
@@ -145,11 +142,11 @@ func newWorld(t *testing.T, c caseSpec) *world {
 		o := suiteOptions(opKey, treeID, c.sparse)
 		o.Exact, o.Tower = true, c.tower
 		opts = o
-	case Mid:
+	case c.tier == Mid:
 		opts = midOptions(opKey, treeID, c.sparse, c.tower, c.variants)
-	case Min:
+	case c.tier == Min:
 		opts = script.MinTreeOptions{}
-	case CCV, CCV0:
+	case c.tier == CCV || c.tier == CCV0:
 		opts = ccvOptions(opKey, treeID, c.tier == CCV0, c.sparse, c.tower,
 			c.variants)
 	default:
@@ -1084,7 +1081,7 @@ func tierCases(tier Tier, depth int, sparse bool) []txCase {
 		cases = append(cases, updateCases(s)...)
 	}
 	cases = append(cases, carveCases(s)...)
-	if tier == Full {
+	if tier == Full || tier == Mid {
 		cases = append(cases, pendingCases(s)...)
 	}
 	if sparse || tier == Min {
