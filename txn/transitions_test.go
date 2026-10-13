@@ -702,25 +702,73 @@ func withAmountSeq(l *tree.Leaf, amount uint64, seq uint32) *tree.Leaf {
 	return &c
 }
 
+// wantModeFlag checks the CCV output-0 mode flag (spec 4.6) the builder
+// put at the bottom of the witness: DEDUCT (0x01) or assign (empty). Other
+// tiers carry none.
+func wantModeFlag(w *world, spend *Spend, deduct bool) error {
+	if !w.r.tier.ccv() {
+		return nil
+	}
+	want := []byte{}
+	if deduct {
+		want = []byte{0x01}
+	}
+	if got := spend.Stack[0]; !bytes.Equal(got, want) {
+		return fmt.Errorf("the mode flag is %x, want %x", got, want)
+	}
+	return nil
+}
+
 // updateCases are UPDATE and UPDATE^x: alice tops her leaf up from 50,000
-// to 80,000 and bumps seq, funded by a second input.
+// to 80,000 and bumps seq, funded by a second input (assign under CCV), and
+// the same with alice lowering it to 20,000, the 30,000 freed going to a
+// change output (DEDUCT under CCV).
 func updateCases(s caseSpec) []txCase {
-	update := func(x bool) func(w *world) (*Spend, *tree.Tree, error) {
+	update := func(amount uint64, opts *TxOpts, deduct,
+		x bool) func(w *world) (*Spend, *tree.Tree, error) {
+
 		return func(w *world) (*Spend, *tree.Tree, error) {
 			alice, _, _, sAlice, _, _ := w.base()
-			alice2 := withAmountSeq(alice, 80_000, 1)
-			opts := &TxOpts{Inputs: w.fee(30_700)}
-			if x {
-				return BuildUpdateX(w.st, sAlice, alice2, opts)
+			alice2 := withAmountSeq(alice, amount, 1)
+			o := *opts
+			if o.Inputs != nil {
+				o.Inputs = w.fee(30_700)
 			}
-			return BuildUpdate(w.st, sAlice, alice2, opts)
+			if o.Outputs != nil {
+				o.Outputs = []*wire.TxOut{
+					wire.NewTxOut(29_500, p2wpkh(w.t)),
+				}
+			}
+			var (
+				spend *Spend
+				next  *tree.Tree
+				err   error
+			)
+			if x {
+				spend, next, err = BuildUpdateX(w.st, sAlice, alice2, &o)
+			} else {
+				spend, next, err = BuildUpdate(w.st, sAlice, alice2, &o)
+			}
+			if err == nil {
+				err = wantModeFlag(w, spend, deduct)
+			}
+			return spend, next, err
 		}
 	}
+	funded := &TxOpts{Inputs: []ExtraInput{{}}}
+	freed := &TxOpts{Outputs: []*wire.TxOut{{}}}
 	return []txCase{{
-		name: "UPDATE", caseSpec: s, build: update(false),
+		name: "UPDATE", caseSpec: s,
+		build: update(80_000, funded, false, false),
 	}, {
 		name: "UPDATE_X", caseSpec: s.withVariant("UPDATE_X"),
-		build: update(true),
+		build: update(80_000, funded, false, true),
+	}, {
+		name: "UPDATE decrease", caseSpec: s,
+		build: update(20_000, freed, true, false),
+	}, {
+		name: "UPDATE_X decrease", caseSpec: s.withVariant("UPDATE_X"),
+		build: update(20_000, freed, true, true),
 	}}
 }
 
@@ -973,6 +1021,34 @@ func rewriteCases(s caseSpec) []txCase {
 				return nil, nil, fmt.Errorf("the rewrite has %d "+
 					"signature slots, want %d", len(spend.Sigs), want)
 			}
+			// The exit's payout is deducted from the residual and the
+			// join raises the sum above it: assign under CCV.
+			if err == nil {
+				err = wantModeFlag(w, spend, false)
+			}
+			return spend, next, err
+		}
+	}
+	// decrease lowers position 4 by 3,000 (its owner signs) and exits
+	// position 5, the net change below the residual: DEDUCT under CCV, the
+	// freed value going to a change output (spec 7.9 rule 6).
+	decrease := func(x bool) func(w *world) (*Spend, *tree.Tree, error) {
+		return func(w *world) (*Spend, *tree.Tree, error) {
+			w.cohort(2, 1, false)
+			tr := w.st.Tree
+			after := map[uint64]*tree.Leaf{
+				0: withAmountSeq(tr.Leaves[4], tr.Leaves[4].Amount-3_000,
+					tr.Leaves[4].Seq),
+				1: nil,
+				2: tr.Leaves[6],
+				3: tr.Leaves[7],
+			}
+			spend, next, err := BuildRewrite(w.st, 2, 1, after, x, &TxOpts{
+				Outputs: []*wire.TxOut{wire.NewTxOut(2_900, p2wpkh(w.t))},
+			})
+			if err == nil {
+				err = wantModeFlag(w, spend, true)
+			}
 			return spend, next, err
 		}
 	}
@@ -1005,6 +1081,12 @@ func rewriteCases(s caseSpec) []txCase {
 	return []txCase{{
 		name: "REWRITE_2", caseSpec: s.withVariant("REWRITE_2"),
 		build: rewrite(false),
+	}, {
+		name: "REWRITE_2 decrease", caseSpec: s.withVariant("REWRITE_2"),
+		build: decrease(false),
+	}, {
+		name: "REWRITE_X_2 decrease", caseSpec: s.withVariant("REWRITE_X_2"),
+		build: decrease(true),
 	}, {
 		name: "REWRITE_X_2", caseSpec: s.withVariant("REWRITE_X_2"),
 		build: rewrite(true),

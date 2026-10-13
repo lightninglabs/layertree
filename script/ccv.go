@@ -207,7 +207,9 @@ func CCVUpdateXScript(depth int, operatorKey [32]byte, sparse bool) []Token {
 }
 
 // CCVUpdateScript is UPDATE under the CCV tier. Witness =
-// [path] old_leaf new_leaf owner_sig op_sig, with no root and no m.
+// flag [path] old_leaf new_leaf owner_sig op_sig, with no root and no m:
+// flag is the output-0 mode flag of ccvFinalSel (spec 4.6), empty for assign
+// or 0x01 for DEDUCT, so that an owner-signed decrease (7.4) is spendable.
 func CCVUpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
 	s := []Token{
 		Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY),
@@ -226,7 +228,7 @@ func CCVUpdateScript(depth int, operatorKey [32]byte, sparse bool) []Token {
 		fullLeafAcc(), []Token{Op(ts.OP_ROT)}, fullLeafAcc(), // T oh os nh ns
 		fullLevels(sparse, depth, 0),
 		ccvCheckOld(sparse),
-		ccvFinal(depth),
+		ccvFinalSel(depth),
 	)
 }
 
@@ -675,7 +677,7 @@ func ccv0UpdateScript(depth int, operatorKey [32]byte, sparse,
 	s = append(s, midRoll(4, 4)...)
 	s = append(s, midLevels(sparse, depth, 0)...)
 	s = append(s, ccv0CheckOld(sparse)...)
-	return append(s, ccv0Final(depth)...)
+	return append(s, ccv0FinalSel(depth)...)
 }
 
 // ------------------------------------------------------ DETACH_h (7.10) --
@@ -769,13 +771,13 @@ func ccvRewritePay() []Token {
 
 // CCVRewriteScript is REWRITE_h (spec 7.9), or REWRITE_h^x with exitConsent,
 // under the CCV tier (0xC2): FULL's POSTORDER2(h) with ccvRewritePay as the
-// exit payout, then CHECK_INPUT and the assign-mode output check
-// (tools/layertree_ccv.py rewrite_script_ccv). A tree-creation parameter,
-// out of CCVAllScripts.
+// exit payout, then CHECK_INPUT and the output-0 check in the mode the
+// bottom flag selects (tools/layertree_ccv.py rewrite_script_ccv). A
+// tree-creation parameter, out of CCVAllScripts.
 //
-// witness (bottom..top) = [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op,
-// block_i = [xsig_i] [sig_i] new_i old_i as in FULL: FULL's witness minus
-// r and m.
+// witness (bottom..top) = flag [dir sc]*(D-h) block_{2^h-1} ... block_0
+// sig_op, block_i = [xsig_i] [sig_i] new_i old_i as in FULL: FULL's witness
+// minus r and m, plus the output-0 mode flag of ccvFinalSel (spec 4.6).
 func CCVRewriteScript(depth, height int, operatorKey [32]byte,
 	exitConsent bool) []Token {
 
@@ -808,7 +810,7 @@ func CCVRewriteScript(depth, height int, operatorKey [32]byte,
 		},
 		fullLevels(false, depth, height),
 		ccvCheckOld(false),
-		ccvFinal(depth),
+		ccvFinalSel(depth),
 	)
 }
 
@@ -833,9 +835,10 @@ func ccv0RewritePay() []Token {
 
 // CCV0RewriteScript is REWRITE_h (spec 7.9), or REWRITE_h^x with
 // exitConsent, under the CCV tier's 0xC0 numerics: MID's rewrite body with
-// ccv0RewritePay as the exit payout, then CHECK_INPUT and the assign-mode
-// output check (tools/layertree_ccv.py _rewrite_script_ccv0). Witness:
-// MID's (8.9) minus r and m.
+// ccv0RewritePay as the exit payout, then CHECK_INPUT and the output-0
+// check in the mode the bottom flag selects (tools/layertree_ccv.py
+// _rewrite_script_ccv0). Witness: MID's (8.9) minus r and m, plus the mode
+// flag of ccv0FinalSel at the very bottom (spec 4.6).
 func CCV0RewriteScript(depth, height int, operatorKey [32]byte,
 	exitConsent bool) []Token {
 
@@ -843,7 +846,7 @@ func CCV0RewriteScript(depth, height int, operatorKey [32]byte,
 	s = append(s, midRewriteBody(height, exitConsent, ccv0RewritePay())...)
 	s = append(s, midLevels(false, depth, height)...)
 	s = append(s, ccv0CheckOld(false)...)
-	return append(s, ccv0Final(depth)...)
+	return append(s, ccv0FinalSel(depth)...)
 }
 
 // ------------------------- pending-leaf receive (6.2, 7.5.4, 7.9 rule 8, 7.11) --
