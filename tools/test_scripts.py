@@ -2181,6 +2181,10 @@ def test_merge(depth, verbose=True):
     stranger = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
     expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, stranger, 13_000)[:2]),
                 "CLAIM^m into a sibling the source's exit key does not own")
+    elsewhere = lt.Leaf(10_000, pubkey_x(sk("elsewhere-exit")), pw.rcpt, w.op_pk, 900_000,
+                        int.from_bytes(lt.sha256(b"L")[:4], "little"), 0)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, elsewhere, 13_000)[:2]),
+                "CLAIM^m into a sibling owned by the source's exit key but exiting to another key")
     flagged = pw.landing(10_000, evictor=pw.rk)
     expect_fail(lambda: w.run("CLAIM_M", *_merge_case(pw, 2, 3, P, flagged, 13_000)[:2]),
                 "CLAIM^m into a reclaimable target")
@@ -2329,6 +2333,22 @@ def test_pending_rewrite(depth, verbose=True):
         expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: flagged},
                                              {0: P.with_amount_seq(13_000, 0), 1: flagged.with_amount_seq(17_000, 0)}),
                     f"{name} R3 into a reclaimable sibling")
+        elsewhere = lt.Leaf(10_000, pubkey_x(sk("elsewhere-exit")), pw.rcpt, pw.w.op_pk, 900_000,
+                            int.from_bytes(lt.sha256(b"L")[:4], "little"), 0)
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: elsewhere},
+                                             {0: P.with_amount_seq(13_000, 0), 1: elsewhere.with_amount_seq(17_000, 0)}),
+                    f"{name} R3 into a sibling owned by the pending leaf's exit key but exiting to another key")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                                             {0: P.with_amount_seq(13_000, 0), 1: pw.landing(17_000, lease=900_001)}),
+                    f"{name} R3 with the landing leaf's body changed beside the raise")
+        final_l = pw.landing(10_000, seq=ls.SEQ_FINAL)
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: final_l},
+                                             {0: P.with_amount_seq(13_000, 0),
+                                              1: final_l.with_amount_seq(17_000, ls.SEQ_FINAL)}),
+                    f"{name} R3 into a SEQ_FINAL sibling without its owner's signature")
+        expect_fail(lambda: _pending_rewrite(pw, name, 2, 1, {0: P, 1: L},
+                                             {0: pw.pending(13_000, T + 1), 1: L.with_amount_seq(17_000, 0)}),
+                    f"{name} R3 with the pending leaf's body changed beside the decrease")
         expect_fail(lambda: _pending_rewrite(pw, name, 4, 1, {0: L, 1: P},
                                              {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}),
                     f"{name} R3 with the pending leaf on the right")
