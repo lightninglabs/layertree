@@ -43,7 +43,9 @@ Encoding & \lean{Encoding} & 10 & serialisations are injective; \lean{enc64} is 
 \end{center}
 
 The statements of the main ones follow, from the development, with the implicit
-arguments the elaborator infers omitted; the types they use (\lean{Tree},
+arguments the elaborator infers omitted (and some explicit binders
+elided in \lean{join\_sound}, \lean{claim\_sound}, \lean{rewrite\_sound}
+and \lean{detach\_sound}); the types they use (\lean{Tree},
 \lean{Pos}, \lean{fold}, \lean{HashModel}) are in \S\ref{app:lean-abs}.
 
 \lean{t.root} is

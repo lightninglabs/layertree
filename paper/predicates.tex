@@ -14,7 +14,9 @@ nonce; $\hat\ell$ is $\ell$ without its amount, $\nd{\ell} =
 transaction has inputs $\vin_i$, outputs $\vout_i = (v_i, \spk_i)$ and
 lock time $\lock$; $\Ptr{k}$ is the output script paying $k$.
 $\Sig{k}{\sigma}$ states that $\sigma$ is a signature by $k$ over the
-transaction, with a hash type that commits to all outputs, and
+transaction (a plain \op{CHECKSIGVERIFY}; the covenant does not enforce the hash
+type, and an honest signer uses one that commits to all outputs, an obligation of
+the signer, spec~7.2 rule~3, 7.5.2, 10.7), and
 $\Csfs{k}{\sigma}{M}$ that it is a signature by $k$ over the message
 $M$, checked with \op{CHECKSIGFROMSTACK}. Every box starts by checking
 that input~0 is the tree output for $(r, S)$ under $m$ and ends by
@@ -93,9 +95,9 @@ There is no check on the contents of $n_i$ (spec~7.3 rule~4): a joiner verifies 
 \end{checks}
 \pbpart{Verification, merge forms $\tr{CLAIM}^{m}$, $\tr{CLAIM}^{hm}$} check~1 of the carve form, and
 \begin{checks}
-\setcounter{chk}{7}
+\setcounter{chk}{8}
 \item $\Csfs{\ell_s.\ok}{\nu}{H^{m}_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \hat\ell_t \,\|\, \lesf(X))}$, with $\mathsf{SHA256}(\rho)$ appended and $|\rho| = 32$ under $hm$\gl{the voucher names an absolute level $X$ for the source's sibling}\sr{7.5.4 r1}
-\item $\ell_t.\ok = \ell_t.\xk = \ell_s.\xk$; neither $\sq$ is $\mathsf{SEQ\_FINAL}$; $\ell_t.\ek \ne \mathsf{RECLAIM\_KEY}$\gl{value moves only into a leaf the source's exit key owns and exits to}\sr{7.5.4 r2}
+\item $\ell_t.\ok = \ell_t.\xk = \ell_s.\xk$; neither $\sq$ is $\mathsf{SEQ\_FINAL}$; $\ell_t.\ek \ne \mathsf{RECLAIM\_KEY}$ when the tree names one\gl{value moves only into a leaf the source's exit key owns and exits to}\sr{7.5.4 r2}
 \item $d = X - \ell_t.\amt \ge 1$ and $\ell_s.\amt - d \in \{0\} \cup [\mathsf{DUST\_MIN}, \infty)$\gl{replay moves nothing; the residual stays above the floor}\sr{7.5.4 r3}
 \item the pair of $\ell_s, \ell_t$ folds to $(r, S)$ along $\pi_p$; the pair with $\ell_t.\amt = X$ and $\ell_s.\amt - d$, every other field of both (the source's $\sq$ included) unchanged, folds to $(r', S)$; $\vout_0 = (S, \TreeSpk(r', m))$\gl{a merge changes no body, so it voids no voucher against its source}\sr{7.5.4 r4, r5}
 \end{checks}
@@ -111,7 +113,7 @@ There is no check on the contents of $n_i$ (spec~7.3 rule~4): a joiner verifies 
 \item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
 \item $\fold(R, \pi) = (r, S)$, $(r', S') = \fold(\Emp_h, \pi)$\gl{the published subtree is in the tree, with each internal node hashed once; it becomes empty}\sr{7.7 r3, r4}
 \item $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma}$\gl{the operator authorises}\sr{7.7 r1}
-\item for every leaf $o_j$: $o_j.\ek = \mathsf{OPERATOR\_KEY}$, $\lock \ge o_j.\ea$ and $\vout_{k_j} = (o_j.\amt, \Ptr{o_j.\xk})$\gl{every swept leaf is expired, names the operator as evictor, and is paid in full to its exit key; one leaf with another evictor blocks the sweep}\sr{7.7 r2}
+\item for every leaf $o_j$: $o_j.\ek = \mathsf{OPERATOR\_KEY}$, $\lock \ge o_j.\ea$ with input~0 enabling lock time, and $\vout_{k_j} = (o_j.\amt, \Ptr{o_j.\xk})$\gl{every swept leaf is expired, names the operator as evictor, and is paid in full to its exit key; one leaf with another evictor blocks the sweep}\sr{7.7 r2}
 \item $\vout_0 = (S - \sum_j o_j.\amt, \TreeSpk(r', m))$ unless $r' = \Emp_D$\gl{output~0 recreates the tree output without the cohort}\sr{7.7 r4; 7.8}
 \end{checks}
 \end{predbox}
@@ -130,7 +132,7 @@ There is no check on the contents of $n_i$ (spec~7.3 rule~4): a joiner verifies 
 \item for each $j$ with $n_j \ne o_j$ and $o_j$ a leaf, and not $\mathrm{inc}_j$: $\Sig{o_j.\ok}{\sigma_j}$, and under $x$ also $\Sig{o_j.\xk}{\xi_j}$\gl{every changing owner consents; a pure top-up needs nobody, unless the leaf is $\mathsf{SEQ\_FINAL}$}\sr{7.9 r3, r7}
 \item for each $j$ with $o_j$ a leaf and $n_j = \bot$, in position order, the next unused output from output~1 is $(o_j.\amt, \Ptr{o_j.\xk})$\gl{an emptied leaf is paid exactly its amount}\sr{7.9 r5}
 \item $\vout_0 = (S - \sum_j o_j.\amt + \sum_j n_j.\amt, \TreeSpk(r', m))$ unless $r' = \Emp_D$\gl{a decrease is free to spend; an increase is funded elsewhere}\sr{7.9 r6; 7.8}
-\item reclaim form: for $o_j$ with $o_j.\ek = \mathsf{RECLAIM\_KEY}$, checks~5 and~6 are replaced as follows. \emph{Transfer:} $j = 2i$ even, $n_j = o_j$ but for a lower $\amt$, and $o_{j+1}$ is a leaf with $o_{j+1}.\ek \ne \mathsf{RECLAIM\_KEY}$ and $o_{j+1}.\ok = o_{j+1}.\xk = o_j.\xk$, with $n_{j+1} = o_{j+1}$ but for an $\amt$ raised by exactly the decrease; no signature and no payout. \emph{Reclaim:} any other change but an amount-only increase, with $\lock \ge o_j.\ea$; no signature and no payout, and the position may be emptied or replaced\gl{value moves from a pending leaf into the recipient's landing leaf, or the leaf is taken back after its deadline}\sr{7.9 r8}
+\item reclaim form: for $o_j$ with $o_j.\ek = \mathsf{RECLAIM\_KEY}$, checks~5 and~6 are replaced as follows. \emph{Transfer:} $j = 2i$ even, $n_j = o_j$ but for a lower $\amt$, and $o_{j+1}$ is a leaf with $o_{j+1}.\ek \ne \mathsf{RECLAIM\_KEY}$ and $o_{j+1}.\ok = o_{j+1}.\xk = o_j.\xk$, with $n_{j+1} = o_{j+1}$ but for an $\amt$ raised by exactly the decrease, and $o_{j+1}.\sq \ne \mathsf{SEQ\_FINAL}$ (else its owner signs, as in check~5); no signature and no payout. \emph{Reclaim:} any other change but an amount-only increase, with $\lock \ge o_j.\ea$; no signature and no payout, and the position may be emptied or replaced\gl{value moves from a pending leaf into the recipient's landing leaf, or the leaf is taken back after its deadline}\sr{7.9 r8}
 \end{checks}
 \end{predbox}
 }
@@ -158,7 +160,7 @@ There is no check on the contents of $n_i$ (spec~7.3 rule~4): a joiner verifies 
 \item $\ell.\ek = \mathsf{RECLAIM\_KEY}$\gl{the leaf is reclaimable}\sr{7.11 r1}
 \item $\lock \ge \ell.\ea$ with input~0 enabling lock time\gl{the deadline has passed}\sr{7.11 r2}
 \item $\Sig{\mathsf{RECLAIM\_KEY}}{\sigma}$\gl{the operator's reclaim key signs}\sr{7.11 r3}
-\item $\fold(\nd{\ell}, \pi) = (r, S)$, $(r', S') = \fold(\Emp_0, \pi)$ and $\vout_0 = (S - \ell.\amt, \TreeSpk(r', m))$, with no output constrained for the leaf's value\gl{the value becomes free for the transaction}\sr{7.11 r4}
+\item $\fold(\nd{\ell}, \pi) = (r, S)$, $(r', S') = \fold(\Emp_0, \pi)$ and $\vout_0 = (S - \ell.\amt, \TreeSpk(r', m))$ unless $r' = \Emp_D$, with no output constrained for the leaf's value\gl{the value becomes free for the transaction}\sr{7.11 r4}
 \end{checks}
 \end{predbox}
 }

@@ -209,9 +209,10 @@ maintenance: of the siblings along a member's path, only the ancestor of
 the changed position at the level where the two paths diverge can change,
 and the witness computes its new value (Lemma~\ref{lem:path}, the Lean
 \lean{path\_maintenance}). Line~4 is the case where the leaf itself
-changes, which the member's own signature accounts for in every case but
-one: an amount-only top-up under \tr{REWRITE}, which changes the leaf's
-amount and nothing else, so a tower that holds an exit authorisation must
+changes, which the member's own signature accounts for except where the
+amount moves without the owner: an amount-only top-up under \tr{REWRITE},
+a merge (spec~7.5.4) or a transfer of the reclaim form (spec~7.9 rule~8),
+each of which changes the leaf's amount and nothing else, so a tower that holds an exit authorisation must
 track the leaf's bytes (spec~7.9 rule~3, 9.7). Line~7 is the fall-back
 the spec allows to a participant that has fallen behind: it can always
 catch up from the chain, or obtain the current path from the operator and
@@ -233,7 +234,7 @@ MUST process every spend (spec~9.7).
 \pcind \nu \gets \fn{Sign}_{\ell_s.\ok}\bigl(H_{\mathsf{voucher}}(\mathsf{tree\_id}\,\|\,\hat\ell_s\,\|\,\ell_c [\,\|\,\eta])\bigr) \\
 \pcind \kw{record}\ (\nu, \ell_s.\sq) \text{ as a liability};\ \kw{send}\ (\mathsf{tree\_id}, \ell_s, \ell_c, \nu) \\
 \kw{on}\ \text{a transition that changes a field of } \ell_s \text{ other than } \amt\text{:} \\
-\pcind \text{re-sign every outstanding voucher over the new } \ell_s \text{ and the reduced amount} \\
+\pcind \text{re-sign every outstanding voucher over the new } \ell_s \text{ and the new amount} \\
 \kw{on}\ \text{a decrease of } \ell_s.\amt \text{ that leaves } \sq \text{ alone:} \\
 \pcind \text{keep the outstanding sum within it, or advance } \sq \text{ and re-sign} \\
 \kw{retire}\ \text{a liability once } \ell_s.\sq \text{ exceeds its value at issuance}
@@ -352,7 +353,7 @@ one $\tr{CLAIM}^{h}$.
 \kw{collect}\ \text{the changes for one aligned subtree; } n_j \gets \text{new element, } \circ \text{ if unchanged} \\
 \mathsf{tx}\text{: } \vin_0 = \text{tree output, plus funding for any increase} \\
 \pcind \vout_0 = (S - \textstyle\sum o_j.\amt + \sum n_j.\amt,\ \TreeSpk(r', m)) \\
-\pcind \vout_{1}, \dots \gets (o_j.\amt, \Ptr{o_j.\xk}) \text{ for each emptied leaf, in position order} \\
+\pcind \vout_{1}, \dots \gets (o_j.\amt, \Ptr{o_j.\xk}) \text{ for each emptied leaf, in position order (a reclaimable leaf emptied under check 8 is not paid)} \\
 \kw{for each}\ j \text{ whose leaf changes (not an amount-only increase):} \\
 \pcind \kw{send}\ (\mathsf{tx}, o_j, n_j, \pi, r, m) \text{ to its owner} \\
 \kw{each owner}\text{:}\ \kw{if}\ o_j \text{ is in } r \text{ (fold), and } n_j \text{ and every output are as agreed:} \\
@@ -428,8 +429,10 @@ O\text{:}\ \kw{if}\ P.\amt < (X' - L.\amt) + \mathsf{DUST\_MIN} \text{ for } X' 
 \pcind \text{top up } P \text{ by an amount-only increase} \\
 O\text{:}\ \text{sign a } \tr{CLAIM}^{hm} \text{ voucher } V \text{ on } (\eta, X) \text{ against } P;\ \kw{send}\ V \text{ to } R \\
 R\text{:}\ \kw{verify}\ P \text{ is reclaimable and } L\text{'s sibling, } L \text{ is } R\text{'s and not reclaimable,} \\
-\pcind X = \text{settled level of } L + a,\ P.\amt - (X - L.\amt) \ge \mathsf{DUST\_MIN}, \\
-\pcind T \text{ leaves } \Dl \text{ for a redemption, and } L.\ea > T + \Dl\text{; else } \kw{refuse} \\
+\pcind P.\xk = L.\ok = L.\xk \text{ is } R\text{'s key, and neither } P.\sq \text{ nor } L.\sq \text{ is } \mathsf{SEQ\_FINAL}, \\
+\pcind V \text{ verifies under } P.\ok \text{ over } \mathsf{tree\_id},\ \hat P,\ \hat L \text{ and } X \text{ as in the confirmed tree}, \\
+\pcind X = \text{settled level of } L + a,\ P.\amt + L.\amt - X' \ge \mathsf{DUST\_MIN} \text{ for every outstanding } X', \\
+\pcind T \text{ at least } \Dl + \varepsilon \text{ away, and } L.\ea > T + \Dl\text{; else } \kw{refuse} \\
 R\text{:}\ \text{release } \rho \text{ (one preimage at a time per pair); hand } (V, \rho) \text{ to its tower} \\
 O\text{:}\ \kw{on}\ \text{learning } \rho\text{:}\ \text{settle the inbound HTLC; nothing reaches the chain}
 }
@@ -446,18 +449,18 @@ chosen so that the HTLC cannot expire before the operator learns a
 preimage published late on-chain. Lines 3 to 5 are rule~1: the headroom is
 required, since a voucher that drains $P$ exactly would be blocked by any
 amount-only top-up, which leaves a sub-dust residual that
-$\Phi_{\tr{CLAIM}}$ check~10 rejects, after which the operator could
+$\Phi_{\tr{CLAIM}}$ check~11 rejects, after which the operator could
 reclaim the payment at $T$. Line~6 signs the merge voucher of
-$\Phi_{\tr{CLAIM}}$ (checks~8 to 11): it raises $L$ to the absolute level
+$\Phi_{\tr{CLAIM}}$ (checks~9 to 12): it raises $L$ to the absolute level
 $X$ and lowers $P$ by the difference without advancing $P$'s $\sq$, so it
 voids nothing and an older, lower voucher is a no-op after a newer one.
-Lines 7 to 9 are the recipient's verification of rule~2, against the
+Lines 7 to 11 are the recipient's verification of rule~2, against the
 \emph{confirmed} tree and before it releases anything, which also
 excludes a pending leaf that is not $L$'s sibling or an $L$ that the
-operator could evict inside the window; line~10 is the release rule, one
+operator could evict inside the window; line~12 is the release rule, one
 preimage at a time per pair, because the targets are levels of one leaf
 and a second voucher that included an unsettled payment would hand the
-recipient that payment without its preimage. Before line~10 the
+recipient that payment without its preimage. Before line~12 the
 operator has signed nothing it can lose, since $V$ needs a preimage that
 only $R$ holds and publishing it on-chain hands it to $O$; after it $R$
 can redeem alone. The spec fixes none of the invoice's expiry
@@ -472,9 +475,9 @@ late; lines 3 to 5 leave headroom, since a voucher that drains $P$
 exactly is blocked by an amount-only top-up that leaves a sub-dust
 residual. Line~6 signs a hash-locked merge voucher that raises $L$ to
 the absolute level $X$ and lowers $P$ without advancing its $\sq$, so it
-voids nothing and an older, lower voucher is a no-op. Lines 7 to 9 verify
-against the \emph{confirmed} tree before anything is released, and line~10
-releases one preimage at a time per pair. Before line~10 the operator has
+voids nothing and an older, lower voucher is a no-op. Lines 7 to 11 verify
+against the \emph{confirmed} tree before anything is released, and line~12
+releases one preimage at a time per pair. Before line~12 the operator has
 signed nothing it can lose, since $V$ needs a preimage that only $R$
 holds; after it $R$ can redeem alone.
 \fi
@@ -485,7 +488,7 @@ holds; after it $R$ can redeem alone.
 \begin{algorithm}
 \caption{SettleWindow \textendash\ operator, at the close of a window of a pair $(P, L)$}\label{alg:settle}
 \pseudocode[linenumbering,codesize=\scriptsize]{%
-\kw{before}\ T - \Dl\text{:}\ \kw{for each}\ \text{pair that settled amounts in the window:} \\
+\kw{before}\ T - \Dl - \varepsilon\text{:}\ \kw{for each}\ \text{pair that settled amounts in the window:} \\
 \pcind \text{raise } L \text{ to its settled level, either by redeeming the merge voucher } U \\
 \pcind \text{that the operator signs itself,} \\
 \pcind \text{or by a transfer in } \Phi_{\tr{REWRITE}} \text{ (reclaim form), batched across recipients} \\
@@ -496,7 +499,7 @@ holds; after it $R$ can redeem alone.
 \end{algorithm}%
 \iffullversion
 Line~1 is the operator's duty under rule~3 of spec~9.6.3: before
-$T - \Dl$ it should raise $L$ to the level the recipient has settled in
+$T - \Dl - \varepsilon$ it should raise $L$ to the level the recipient has settled in
 the window, so that the recipient's vouchers move only what is still in
 flight above it. The two ways of lines 2 to 4 are the voucher the operator signs
 for itself, which needs no one else, and the transfer of the reclaim form
@@ -505,7 +508,7 @@ sibling that the same key owns and exits to and needs the operator's
 signature alone, so a cohort of recipients settles in one transaction
 without any of them signing. Pairs that received nothing cost nothing.
 The operator's promise is a SHOULD, because the recipient does not rely
-on it: if $L$ has not reached the settled level by $T - \Dl$, the
+on it: if $L$ has not reached the settled level by $T - \Dl - \varepsilon$, the
 recipient or its tower MUST redeem the latest voucher (\fn{Watch}). Lines 5 and 6
 are rule~4 and a MUST: until the reclaim confirms, the recipient can
 still redeem and publish the preimage, and an HTLC already failed back
@@ -514,13 +517,13 @@ spec leaves open the length of a window, how many pairs a recipient
 holds for payments across a deadline, and how the operator learns which
 vouchers are outstanding.
 \else
-Lines 1 to 4 are rule~3 of spec~9.6.3: before $T - \Dl$ the operator
+Lines 1 to 4 are rule~3 of spec~9.6.3: before $T - \Dl - \varepsilon$ the operator
 raises $L$ to the settled level, by a voucher it signs itself or by the
 transfer of the reclaim form of $\Phi_{\tr{REWRITE}}$, which needs the
 operator's signature alone since it moves value only from $P$ into the
 sibling that the same key owns and exits to; one transaction settles a
 cohort of recipients. The recipient does not rely on it: if $L$ is short
-at $T - \Dl$, the recipient or a tower holding the latest voucher and the
+at $T - \Dl - \varepsilon$, the recipient or a tower holding the latest voucher and the
 preimage must redeem, the one liveness duty of the construction. Lines 5
 and 6 are rule~4: until the reclaim of $P$ confirms, the recipient can
 still redeem and publish the preimage, so an inbound HTLC with an
@@ -534,16 +537,16 @@ outstanding voucher stays open.
 \caption{Watch \textendash\ tower holding $(V, \rho)$ for a pair $(P, L)$}\label{alg:watch}
 \pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{on every}\ \text{spend of the tree output:}\ \fn{Follow}\ \text{the paths and the bytes of } P \text{ and } L \\
-\kw{at}\ \text{height } T - \Dl\text{:} \\
+\kw{at}\ \text{height } T - \Dl - \varepsilon\text{ at the latest:} \\
 \pcind \kw{if}\ L.\amt < \text{the settled level (confirmed)}\text{:} \\
 \pcind\pcind \text{build } \Phi_{\tr{CLAIM}} \text{ (merge form) from the latest } V \text{ and } \rho \text{, own fee input} \\
 \pcind\pcind \kw{broadcast};\ \text{if a conflicting spend confirms, rebuild as in } \fn{Exit} \\
-\kw{stop}\ \text{once } L.\amt \ge X \text{ or after } T
+\kw{stop}\ \text{once } L.\amt \ge X \text{ or the reclaim of } P \text{ has confirmed}
 }
 \end{algorithm}%
 This is the one liveness duty of the recipient (spec~9.6.3 rule~3, which
 puts the check on the recipient \emph{or} a tower holding the voucher and
-preimage): once per window, at $T - \Dl$ (line~2), confirm that $L$ holds
+preimage): once per window, at $T - \Dl - \varepsilon$ (line~2), confirm that $L$ holds
 at least the settled level and, if it does not, redeem the latest voucher
 with the preimage. A tower can do it because the merge voucher raises the
 source's sibling, a leaf the recipient owns and exits to, so it moves
@@ -567,7 +570,7 @@ designed, together with an incentive for towers.
 \kw{when}\ \lock \ge P.\ea = T \text{ for a pending leaf } P \text{ with } P.\ek = \mathsf{RECLAIM\_KEY}\text{:} \\
 \pcind \mathsf{tx} \gets \Phi_{\tr{RECLAIM}},\ \text{or the reclaim branch of } \Phi_{\tr{REWRITE}} \text{ replacing } P \text{ by the} \\
 \pcind \text{next window's pending leaf} \\
-\pcind \text{sign with } \mathsf{RECLAIM\_KEY};\ \kw{broadcast};\ \text{rebuild on a conflicting spend} \\
+\pcind \text{sign with } \mathsf{RECLAIM\_KEY} \text{ (} \Phi_{\tr{RECLAIM}}\text{) or } \mathsf{OPERATOR\_KEY} \text{ (the rewrite)};\ \kw{broadcast};\ \text{rebuild on a conflicting spend} \\
 \kw{only after}\ \text{the reclaim has confirmed:}\ \text{fail upstream the HTLCs not settled}
 }
 \end{algorithm}%
