@@ -280,19 +280,25 @@ pair rolls its pending leaf (after `T`), divided by the `2^(h−1)` pairs.
 | `CLAIM^m` (the operator's unlocked `U`) | 615 | 655 | 775 | `ceil((1,819 + 40k) / 4)` |
 | `RECLAIM_1` | 490 | 530 | 650 | `ceil((1,318 + 40k) / 4)` |
 | Landing leaf's `EXIT_1` | 541 | 581 | 701 | `381 + 10k` |
-| Settlement per pair, `h = 2` (2 pairs) | 1,006.0 | 1,046.0 | 1,166.0 | two transactions of 1,035 and 977 vB at `k = 16` |
-| Settlement per pair, `h = 4` (8 pairs) | 664.2 | 674.2 | 704.2 | 2,772 + 2,542 vB at `k = 16` |
-| Settlement per pair, `h = 6` (32 pairs) | 586.9 | 589.4 | 596.9 | 9,851 + 8,931 vB at `k = 16` |
+| Settlement per pair, `h = 2` (2 pairs) | 966.0 | 1,006.0 | 1,126.0 | two transactions of 941 and 991 vB at `k = 16` |
+| Settlement per pair, `h = 4` (8 pairs) | 624.2 | 634.2 | 664.2 | 2,396 + 2,598 vB at `k = 16` |
+| Settlement per pair, `h = 6` (32 pairs) | 546.9 | 549.4 | 556.9 | 8,347 + 9,155 vB at `k = 16` |
 
 Derivation of the settlement at `h = 6`, `k = 16`. The transfer
-transaction is 903 WU of skeleton and control block, 23,169 of script,
-17 + 40 × 10 = 417 of proof, 32 × 464 = 14,848 of leaves and 64 of
-`sig_op`: 39,401 WU, 9,851 vB. The roll is the same with 32 × 349 =
+transaction is 903 WU of skeleton and control block, 24,065 of script,
+17 + 40 × 10 = 417 of proof, 32 × 248 = 7,936 of leaves (`P` and `L` as
+116-byte old elements and 8-byte amount-only new ones, spec 7.9) and 64 of
+`sig_op`: 33,385 WU, 8,347 vB. The roll is the same with 32 × 349 =
 11,168 of leaves (`P`, `P'`, `L` and the one-byte unchanged marker for
-`L`): 35,721 WU, 8,931 vB. Per pair, 587 vB, of which script is about
-362 (724 bytes per pair per transaction, twice), leaves about 203, and
+`L`): 36,617 WU, 9,155 vB. Per pair, 547 vB, of which script is about
+376 (752 bytes per pair per transaction, twice), leaves about 149, and
 the rest under 25. Each further doubling of `N` adds 40 bytes to two
-proofs shared by 32 pairs, 0.6 vB per pair.
+proofs shared by 32 pairs, 0.6 vB per pair. Before spec 0.15.0 the
+transfer carried 116-byte new leaves too (32 × 464 = 14,848 of leaves,
+9,851 vB) and the script was 23,169 bytes: 587 vB a pair. The amount-only
+element takes 54 vB off the transfer's share and its expansion, 14 bytes of
+script per position on average, puts 14 vB back across the two
+transactions.
 
 What the numbers say:
 
@@ -302,21 +308,23 @@ What the numbers say:
   32. `RECLAIM_1` and the landing leaf's exit are within 50 vB of each
   other.
 * **The batched settlement is dominated by script, not proof.** At
-  `h = 6` the rewrite costs about 587 vB per pair per window, against the
+  `h = 6` the rewrite costs about 547 vB per pair per window, against the
   design's first estimate of about 375 vB with R3, which priced the
   leaves and not the reclaim-form step. MSU removes the fold, which was
   never the large term here; the per-position step is. FULL pays the
-  same step (24,140 bytes at `h = 6`).
+  same step (25,036 bytes at `h = 6`).
 * **R3 beats the unbatched settlement only at larger cohorts.** Without
   R3 a window costs a pair one `CLAIM^m` and one `RECLAIM_1`: 1,105 vB at
-  `k = 16`. R3 at `h = 2` is 9% less (1,006), at `h = 4` 40% less,
-  at `h = 6` 47% less. Its other advantage, needing no signature from
+  `k = 16`. R3 at `h = 2` is 13% less (966), at `h = 4` 44% less,
+  at `h = 6` 51% less. Its other advantage, needing no signature from
   the recipient, is unchanged.
-* **Where the remaining bytes are.** An amount-only element (8 bytes in
+* **Where the remaining bytes are.** The amount-only element (8 bytes in
   place of a republished 116-byte leaf, for a new element that differs
-  from its old one only in amount) would save about 54 vB more per pair
-  on the transfer; it is an encoding change to 7.9, not a script
-  optimisation, and is not measured here.
+  from its old one only in amount; spec 0.15.0) is in these figures: it
+  takes 54 vB off the transfer and its expansion puts 14 vB back across
+  the two transactions. The roll still republishes the new pending leaf,
+  which changes in more than its amount, and the script is published
+  twice; those two are what is left.
 
 ### Reproducing
 

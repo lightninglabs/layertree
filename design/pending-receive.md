@@ -237,7 +237,7 @@ second step without a voucher, and it moves value only toward the
 recipient for the same reasons. Without R3 every window's settlement is a
 merge claim and a reclaim, about 1,105 vbytes a pair under CCV and the
 Merkle-sum opcode; with it a cohort of 32 pairs settles in two rewrites
-at about 587 vbytes a pair (*Cost*).
+at about 547 vbytes a pair (*Cost*).
 
 R1 to R3 are script variants in FULL, MID and CCV (MIN has no
 `OP_CHECKSIGFROMSTACK` and no `CLAIM`), tree-creation parameters visible
@@ -450,15 +450,16 @@ transfer of the settled total into `L` and one roll of `P`.
 | Per active pair per window | vB |
 |---|---|
 | Without R3: one `CLAIM^m` and one `RECLAIM_1` | 1,105 |
-| R3 batch of 4 positions (2 pairs) | 1,006 |
-| R3 batch of 16 positions (8 pairs) | 664 |
-| R3 batch of 64 positions (32 pairs) | 587 |
+| R3 batch of 4 positions (2 pairs) | 966 |
+| R3 batch of 16 positions (8 pairs) | 624 |
+| R3 batch of 64 positions (32 pairs) | 547 |
 
 The batch is a transfer rewrite before the deadline and a roll rewrite
 after it, each publishing the reclaim-form script once. Script is most
-of the cost, about 362 of the 587 vB at 64 positions, because tapscript
+of the cost, about 376 of the 547 vB at 64 positions, because tapscript
 has no loops and the per-position step is published in every rewrite;
-the leaves are about 203. A pair with nothing settled in a window needs
+the leaves are about 149, the transfer publishing each leaf's amount alone
+(spec 7.9's amount-only element) and the roll the new pending leaf. A pair with nothing settled in a window needs
 no transfer, and the cost is per window, not per payment, so a merchant
 receiving many payments a day pays what a wallet receiving one does.
 
@@ -471,14 +472,14 @@ receiving many payments a day pays what a wallet receiving one does.
 
 In the FULL tier, built only from existing proposals, each of these is
 roughly twice as large (a `CLAIM^hm` is about 1,136 vB at `D = 16`), and
-the reclaim-form rewrite publishes about 377 bytes of script per position
+the reclaim-form rewrite publishes about 391 bytes of script per position
 at `h = 6`.
 
 | | Settle-first credit leaf | Pending pairs | Channel leaf (Appendix C) |
 |---|---|---|---|
 | Atomic | no: one payment exposed between settling and vouching | yes | yes |
 | On-chain bytes per payment | 0 | 0 | 0 |
-| On-chain bytes per window | 0 | about 587 vB per pair in a 64-position batch (twice that for two pairs covering every deadline) | 0 |
+| On-chain bytes per window | 0 | about 547 vB per pair in a 64-position batch (twice that for two pairs covering every deadline) | 0 |
 | Recipient liveness | none | a check per window, delegable to a tower that holds no key | a tower for stale states, always |
 | Final-hop expiry | any | at least `W` plus three confirmation times | at least C.4.4's budget, about 220 blocks |
 | Operator capital | what it has vouched for | the window's expected receipts, reclaimed at the deadline | the channel's inbound capacity |
@@ -486,14 +487,23 @@ at `h = 6`.
 | Rule changes | none (R2 for the cheaper redemption) | R1 and R2; R3 for a non-interactive batch | none |
 | Spends | no; receive only | no; receive only | yes |
 
-At 10 sat/vB a window costs a pair about 5,900 sat in a 64-position
+At 10 sat/vB a window costs a pair about 5,500 sat in a 64-position
 batch. Against an exposure of one payment, that is worth paying for large
 receives and for recipients with many receives per window, and not for a
 wallet taking small payments now and then, which is better served by
 settling first. The two compose: a tree carrying R1 to R3 can run both,
-and the recipient chooses per invoice. The remaining saving that has
-been identified is an encoding change to 7.9: an 8-byte amount-only
-element in place of a republished 116-byte leaf, about 54 vB per pair.
+and the recipient chooses per invoice. The last saving
+identified in this note, an encoding change to 7.9 (an 8-byte amount-only
+element in place of a republished 116-byte leaf), landed in spec 0.15.0 and
+is in the figures above. It takes 54 vB a pair off the transfer, and the
+14 bytes of script it adds to each position of the reclaim-form rewrite
+(10 for the expansion, 8 more in each left step) put 14 vB back, because
+the roll publishes the same script: 40 vB net per pair at 64 positions,
+587 to 547. Under `0xC0` numerics the same element costs 69 bytes of script
+per position against the 116 bytes it saves, so there it pays only for a
+cohort that changes mostly in its amount; the settlement's transfer does,
+its roll does not, and a pair's two rewrites together come out slightly
+behind (spec 8.9).
 
 ## What it does not fix
 
