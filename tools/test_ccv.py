@@ -141,6 +141,14 @@ class World:
         return t
 
 
+def run_fresh(w, name, wit, ctx):
+    """Run one script with the transaction-wide CCV state (BIP-443's amount
+    accumulators) reset, so that a context reused across runs does not
+    carry one run's assigned amounts into the next."""
+    ctx.ccv_reset()
+    return w.run(name, wit, ctx)
+
+
 def mk_leaf(label, amount, evictor=None, evict_after=0, nonce=None, seq=0):
     if nonce is None:
         nonce = int.from_bytes(lt.sha256(label.encode())[:4], "little")
@@ -705,11 +713,11 @@ def test_update_x_ccv(depth, profile):
     sigs3 = [schnorr_sign(ctx3.sighash(), k) for k in (sk("alice-owner"), w.op_sk, sk("alice-exit"))]
     dec = w.path_witness(upath) + [alice.serialize(), alice3.serialize()] + sigs3
     try:
-        w.run("UPDATE_X", [b"\x01"] + dec, ctx3)
+        run_fresh(w, "UPDATE_X", [b"\x01"] + dec, ctx3)
         check(True, "UPDATE^x: a net decrease spends under the DEDUCT flag")
     except ScriptError as e:
         check(False, f"UPDATE^x decrease positive: {str(e)[:70]}")
-    expect_fail(lambda: w.run("UPDATE_X", [b""] + dec, ctx3), "UPDATE^x: a net decrease under the assign flag")
+    expect_fail(lambda: run_fresh(w, "UPDATE_X", [b""] + dec, ctx3), "UPDATE^x: a net decrease under the assign flag")
     return it, len(w.compiled["UPDATE_X"]), sum(len(x) for x in wit)
 
 
@@ -1012,11 +1020,11 @@ def test_c0(depth, profile):
     dec = (list(M.pad(r3[1])) + w.pads_for(root[1]) + M.w_levels(upath, alice.node(), alice3.node(), S) +
            w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice3) + sigs3)
     try:
-        w.run("UPDATE_X", [b"\x01"] + dec, ctx3)
+        run_fresh(w, "UPDATE_X", [b"\x01"] + dec, ctx3)
         check(True, "c0: UPDATE^x: a net decrease spends under the DEDUCT flag")
     except ScriptError as e:
         check(False, f"c0: UPDATE^x decrease positive: {str(e)[:70]}")
-    expect_fail(lambda: w.run("UPDATE_X", [b""] + dec, ctx3), "c0: UPDATE^x: a net decrease under the assign flag")
+    expect_fail(lambda: run_fresh(w, "UPDATE_X", [b""] + dec, ctx3), "c0: UPDATE^x: a net decrease under the assign flag")
     w.compiled, w.m = saved
     w.tree = t4
 
@@ -2208,30 +2216,30 @@ def test_rewrite_flag_ccv(depth, height, numeric="c2", exit_consent=False):
         tag = f"{c['tag']} ({scenario})"
         check(wit[0] == want, f"{tag}: the mode flag is {'DEDUCT' if want else 'assign'}")
         try:
-            w.run(name, wit, ctx)
+            run_fresh(w, name, wit, ctx)
             check(True, f"{tag}: spends under the {'DEDUCT' if want else 'assign'} flag")
         except ScriptError as e:
             check(False, f"{tag} positive: {str(e)[:100]}")
             continue
         for bad in (b"\x01" if not want else b"", b"\x02", b"\x00"):
-            expect_fail(lambda: w.run(name, [bad] + wit[1:], ctx), f"{tag}: flag {bad.hex() or 'empty'}")
+            expect_fail(lambda: run_fresh(w, name, [bad] + wit[1:], ctx), f"{tag}: flag {bad.hex() or 'empty'}")
         extra = (max(delta, 0) + 5_000, P2WPKH)
         for off in (-1, +1):
             outs = list(outputs); outs[0] = (outs[0][0] + off, outs[0][1])
             ctx2 = w.ctx(outs, extra)
-            expect_fail(lambda: w.run(name, witness(old, new, ctx2)[0], ctx2), f"{tag}: output 0 off by {off:+d}")
+            expect_fail(lambda: run_fresh(w, name, witness(old, new, ctx2)[0], ctx2), f"{tag}: output 0 off by {off:+d}")
         if want:
             payouts = sum(old[i].amount for i in range(n) if old.get(i) and new.get(i) is None)
             freed = -delta - payouts
             outs = list(outputs) + [(freed, P2WPKH)]
             ctx2 = w.ctx(outs, extra)
             try:
-                w.run(name, witness(old, new, ctx2)[0], ctx2)
+                run_fresh(w, name, witness(old, new, ctx2)[0], ctx2)
                 check(True, f"{tag}: the freed {freed} sat go to another output")
             except ScriptError as e:
                 check(False, f"{tag} freed value to another output: {str(e)[:100]}")
             # the owner's signature on the decreased leaf is still required
-            expect_fail(lambda: w.run(name, witness(old, new, ctx, sign=False)[0], ctx), f"{tag}: without the owner signatures")
+            expect_fail(lambda: run_fresh(w, name, witness(old, new, ctx, sign=False)[0], ctx), f"{tag}: without the owner signatures")
 
 
 def test_update_flag_ccv(depth, profile="D", numeric="c2"):
