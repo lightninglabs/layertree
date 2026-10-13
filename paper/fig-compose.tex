@@ -13,7 +13,7 @@
 ]
 \node[box, minimum width=23mm, minimum height=12mm] (in) at (0,0.8) {input 0\\ tree output\\ $(\TreeSpk(r,m),\ S)$};
 \node[box, dashed, minimum width=23mm] (fund) at (0,2.6) {other inputs:\\ funding, fees};
-\node[pred] (A) at (4.5,2.6) {$\Phi_{\tr{JOIN}}$, $\Phi_{\tr{UPDATE}}$, $\Phi_{\tr{CLAIM}}$\\ value stays in the tree\\ (an \tr{UPDATE} decrease is free to spend)};
+\node[pred] (A) at (4.5,2.6) {$\Phi_{\tr{JOIN}}$, $\Phi_{\tr{UPDATE}}$, $\Phi_{\tr{CLAIM}}$\\ value stays in the tree$^{*}$};
 \node[pred] (D) at (4.5,1.4) {$\Phi_{\tr{RECLAIM}}$\\ a leaf is freed, unpaid};
 \node[pred] (B) at (4.5,0.2) {$\Phi_{\tr{EXIT}}$, $\Phi_{\tr{EVICT\_SUBTREE}}$, $\Phi_{\tr{REWRITE}}$\\ leaves are paid out};
 \node[pred] (C) at (4.5,-1.0) {$\Phi_{\tr{DETACH}}$\\ a subtree gets its own output};
@@ -27,6 +27,6 @@
 \draw[arr] (C.east) -- (o1.west);
 \draw[arr] (C.north east) to[out=15,in=240] ([xshift=3mm]o0.south west);
 \end{tikzpicture}
-\caption{How the predicates compose. Every transition spends the tree output, input~0, and recreates it as output~0 under the new root; payouts are outputs $1, \dots, K$ and every other input and output is free. \tr{DETACH} writes a second tree output, itself the tree output of a smaller tree under the same rules and $\mathsf{tree\_id}$.}
+\caption{How the predicates compose. Every transition spends the tree output, input~0, and recreates it as output~0 under the new root; payouts are outputs $1, \dots, K$ and every other input and output is free. $^{*}$\tr{UPDATE}'s decrease is free. \tr{DETACH} writes a second tree output, itself the tree output of a smaller tree under the same rules and $\mathsf{tree\_id}$.}
 \label{fig:compose}
 \end{figure}

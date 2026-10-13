@@ -14,9 +14,7 @@ nonce; $\hat\ell$ is $\ell$ without its amount, $\nd{\ell} =
 transaction has inputs $\vin_i$, outputs $\vout_i = (v_i, \spk_i)$ and
 lock time $\lock$; $\Ptr{k}$ is the output script paying $k$.
 $\Sig{k}{\sigma}$ states that $\sigma$ is a signature by $k$ over the
-transaction (a plain \op{CHECKSIGVERIFY}; the covenant does not enforce the hash
-type, and an honest signer uses one that commits to all outputs, an obligation of
-the signer, spec~7.2 rule~3, 7.5.2, 10.7), and
+transaction (the hash type is the signer's obligation, spec~10.7), and
 $\Csfs{k}{\sigma}{M}$ that it is a signature by $k$ over the message
 $M$, checked with \op{CHECKSIGFROMSTACK}. Every box starts by checking
 that input~0 is the tree output for $(r, S)$ under $m$ and ends by

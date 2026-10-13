@@ -209,10 +209,9 @@ maintenance: of the siblings along a member's path, only the ancestor of
 the changed position at the level where the two paths diverge can change,
 and the witness computes its new value (Lemma~\ref{lem:path}, the Lean
 \lean{path\_maintenance}). Line~4 is the case where the leaf itself
-changes, which the member's own signature accounts for except where the
-amount moves without the owner: an amount-only top-up under \tr{REWRITE},
-a merge (spec~7.5.4) or a transfer of the reclaim form (spec~7.9 rule~8),
-each of which changes the leaf's amount and nothing else, so a tower that holds an exit authorisation must
+changes, which the member's own signature accounts for except where only
+the amount moves: a top-up, a merge (spec~7.5.4) or a reclaim-form
+transfer (7.9 rule~8), so a tower that holds an exit authorisation must
 track the leaf's bytes (spec~7.9 rule~3, 9.7). Line~7 is the fall-back
 the spec allows to a participant that has fallen behind: it can always
 catch up from the chain, or obtain the current path from the operator and
@@ -428,10 +427,9 @@ O\text{:}\ X \gets \text{settled level of } L + a \\
 O\text{:}\ \kw{if}\ P.\amt < (X' - L.\amt) + \mathsf{DUST\_MIN} \text{ for } X' = X \text{ or an outstanding target:} \\
 \pcind \text{top up } P \text{ by an amount-only increase} \\
 O\text{:}\ \text{sign a } \tr{CLAIM}^{hm} \text{ voucher } V \text{ on } (\eta, X) \text{ against } P;\ \kw{send}\ V \text{ to } R \\
-R\text{:}\ \kw{verify}\ P \text{ is reclaimable and } L\text{'s sibling, } L \text{ is } R\text{'s and not reclaimable,} \\
-\pcind P.\xk = L.\ok = L.\xk \text{ is } R\text{'s key, and neither } P.\sq \text{ nor } L.\sq \text{ is } \mathsf{SEQ\_FINAL}, \\
-\pcind V \text{ verifies under } P.\ok \text{ over } \mathsf{tree\_id},\ \hat P,\ \hat L \text{ and } X \text{ as in the confirmed tree}, \\
-\pcind X = \text{settled level of } L + a,\ P.\amt + L.\amt - X' \ge \mathsf{DUST\_MIN} \text{ for every outstanding } X', \\
+R\text{:}\ \kw{verify}\ \text{in the confirmed tree: } P \text{ reclaimable, } L \text{ its sibling, } R\text{'s, not reclaimable,} \\
+\pcind P.\xk = L.\ok = L.\xk,\ \text{no } \mathsf{SEQ\_FINAL},\ V \text{ verifies under } P.\ok \text{ over } \mathsf{tree\_id}, \hat P, \hat L, X, \\
+\pcind X = \text{settled level of } L + a,\ P.\amt + L.\amt - X' \ge \mathsf{DUST\_MIN} \text{ for all outstanding } X', \\
 \pcind T \text{ at least } \Dl + \varepsilon \text{ away, and } L.\ea > T + \Dl\text{; else } \kw{refuse} \\
 R\text{:}\ \text{release } \rho \text{ (one preimage at a time per pair); hand } (V, \rho) \text{ to its tower} \\
 O\text{:}\ \kw{on}\ \text{learning } \rho\text{:}\ \text{settle the inbound HTLC; nothing reaches the chain}
@@ -454,13 +452,13 @@ reclaim the payment at $T$. Line~6 signs the merge voucher of
 $\Phi_{\tr{CLAIM}}$ (checks~9 to 12): it raises $L$ to the absolute level
 $X$ and lowers $P$ by the difference without advancing $P$'s $\sq$, so it
 voids nothing and an older, lower voucher is a no-op after a newer one.
-Lines 7 to 11 are the recipient's verification of rule~2, against the
+Lines 7 to 10 are the recipient's verification of rule~2, against the
 \emph{confirmed} tree and before it releases anything, which also
 excludes a pending leaf that is not $L$'s sibling or an $L$ that the
-operator could evict inside the window; line~12 is the release rule, one
+operator could evict inside the window; line~11 is the release rule, one
 preimage at a time per pair, because the targets are levels of one leaf
 and a second voucher that included an unsettled payment would hand the
-recipient that payment without its preimage. Before line~12 the
+recipient that payment without its preimage. Before line~11 the
 operator has signed nothing it can lose, since $V$ needs a preimage that
 only $R$ holds and publishing it on-chain hands it to $O$; after it $R$
 can redeem alone. The spec fixes none of the invoice's expiry
@@ -470,16 +468,13 @@ final delta in terms of the window length).
 The recipient holds a \emph{receive pair}: a pending leaf $P$ (owned by
 the operator, exit key the recipient's, evictor $\mathsf{RECLAIM\_KEY}$,
 deadline $T$) and its sibling, the landing leaf $L$, which the recipient
-owns (spec~9.6.3). Line~2 keeps the HTLC alive past a preimage published
-late; lines 3 to 5 leave headroom, since a voucher that drains $P$
-exactly is blocked by an amount-only top-up that leaves a sub-dust
-residual. Line~6 signs a hash-locked merge voucher that raises $L$ to
-the absolute level $X$ and lowers $P$ without advancing its $\sq$, so it
-voids nothing and an older, lower voucher is a no-op. Lines 7 to 11 verify
-against the \emph{confirmed} tree before anything is released, and line~12
-releases one preimage at a time per pair. Before line~12 the operator has
-signed nothing it can lose, since $V$ needs a preimage that only $R$
-holds; after it $R$ can redeem alone.
+owns (spec~9.6.3). Line~2 keeps the HTLC alive past a late preimage;
+lines 3 to 5 leave headroom, since a voucher that drains $P$ exactly is
+blocked by an amount-only top-up. Line~6 signs a hash-locked merge
+voucher that raises $L$ to the absolute level $X$ without advancing
+$P$'s $\sq$, so an older, lower voucher is a no-op. Lines 7 to 10 verify
+against the \emph{confirmed} tree before line~11 releases one preimage at
+a time per pair; before it the operator has signed nothing it can lose.
 \fi
 }
 
@@ -519,15 +514,12 @@ vouchers are outstanding.
 \else
 Lines 1 to 4 are rule~3 of spec~9.6.3: before $T - \Dl - \varepsilon$ the operator
 raises $L$ to the settled level, by a voucher it signs itself or by the
-transfer of the reclaim form of $\Phi_{\tr{REWRITE}}$, which needs the
-operator's signature alone since it moves value only from $P$ into the
-sibling that the same key owns and exits to; one transaction settles a
-cohort of recipients. The recipient does not rely on it: if $L$ is short
-at $T - \Dl - \varepsilon$, the recipient or a tower holding the latest voucher and the
-preimage must redeem, the one liveness duty of the construction. Lines 5
-and 6 are rule~4: until the reclaim of $P$ confirms, the recipient can
-still redeem and publish the preimage, so an inbound HTLC with an
-outstanding voucher stays open.
+reclaim-form transfer of $\Phi_{\tr{REWRITE}}$, which needs only its
+signature and settles a cohort of recipients in one transaction. The
+recipient does not rely on it: if $L$ is short by then, the recipient or
+its tower must redeem (the one liveness duty). Lines 5 and 6 are rule~4:
+until the reclaim of $P$ confirms, an inbound HTLC with an outstanding
+voucher stays open.
 \fi
 }
 
@@ -548,18 +540,13 @@ This is the one liveness duty of the recipient (spec~9.6.3 rule~3, which
 puts the check on the recipient \emph{or} a tower holding the voucher and
 preimage): once per window, at $T - \Dl - \varepsilon$ (line~2), confirm that $L$ holds
 at least the settled level and, if it does not, redeem the latest voucher
-with the preimage. A tower can do it because the merge voucher raises the
-source's sibling, a leaf the recipient owns and exits to, so it moves
-value only to a leaf the recipient alone can exit and needs no signature
+with the preimage. A tower can do it because the merge voucher moves
+value only into a leaf the recipient alone can exit and needs no signature
 beyond the voucher's (spec~7.5.4; design/towers.md); the tower holds no
-key of the recipient's, and chooses only when to redeem and at what fee.
-Line~1 is \fn{Follow}: the tower tracks the leaf bytes as well as the
-paths, since a merge voucher binds $L$'s body, and a change to $L$ other
-than its amount voids it (spec~7.5.4). Lines 3 to 5 are the redemption,
-rebuilt against a new root if a conflicting spend wins, within the bound
-$\Dl$ of spec~10.5. The spec gives no tower protocol (registration,
-payment, how a voucher is handed over); design/towers.md lists it as not
-designed, together with an incentive for towers.
+key of the recipient's. Line~1 is \fn{Follow}, with the leaf bytes, since a
+merge voucher binds $L$'s body; lines 3 to 5 are the redemption, within the
+bound $\Dl$ of spec~10.5. The spec gives no tower protocol (registration,
+payment, handing over a voucher) or incentive (design/towers.md).
 }
 
 % ------------------------------------------------------------------
@@ -570,7 +557,8 @@ designed, together with an incentive for towers.
 \kw{when}\ \lock \ge P.\ea = T \text{ for a pending leaf } P \text{ with } P.\ek = \mathsf{RECLAIM\_KEY}\text{:} \\
 \pcind \mathsf{tx} \gets \Phi_{\tr{RECLAIM}},\ \text{or the reclaim branch of } \Phi_{\tr{REWRITE}} \text{ replacing } P \text{ by the} \\
 \pcind \text{next window's pending leaf} \\
-\pcind \text{sign with } \mathsf{RECLAIM\_KEY} \text{ (} \Phi_{\tr{RECLAIM}}\text{) or } \mathsf{OPERATOR\_KEY} \text{ (the rewrite)};\ \kw{broadcast};\ \text{rebuild on a conflicting spend} \\
+\pcind \text{sign with } \mathsf{RECLAIM\_KEY} \text{ for } \Phi_{\tr{RECLAIM}}\text{, } \mathsf{OPERATOR\_KEY} \text{ for the rewrite} \\
+\pcind \kw{broadcast};\ \text{rebuild on a conflicting spend} \\
 \kw{only after}\ \text{the reclaim has confirmed:}\ \text{fail upstream the HTLCs not settled}
 }
 \end{algorithm}%
