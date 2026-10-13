@@ -1,0 +1,263 @@
+% LayerTree talk: colours, beamer theme and the tree-drawing macros.
+%
+% The palette is the explainer site's (site/css/tokens.css): cream paper,
+% brown-black ink, one vermilion signal colour for the proof path.
+
+\definecolor{ltbg}{HTML}{F4EDE0}
+\definecolor{ltsurface}{HTML}{FBF7EF}
+\definecolor{ltsurface2}{HTML}{EDE4D3}
+\definecolor{ltink}{HTML}{2A2119}
+\definecolor{ltmuted}{HTML}{5E5043}
+\definecolor{ltborder}{HTML}{D9CDB8}
+\definecolor{ltstrong}{HTML}{8A7B69}
+\definecolor{ltaccent}{HTML}{D1481A}
+\definecolor{ltaccentsoft}{HTML}{F8DDD0}
+\definecolor{ltnode}{HTML}{2767AE}
+\definecolor{ltnodesum}{HTML}{1E4E85}
+\definecolor{ltleaf}{HTML}{1D8A6A}
+\definecolor{ltexit}{HTML}{A67300}
+\definecolor{ltchain}{HTML}{6B4E9B}
+\definecolor{ltgood}{HTML}{2E7D32}
+\definecolor{ltgoodsoft}{HTML}{DFECD6}
+\definecolor{ltbad}{HTML}{A3201B}
+\definecolor{ltbadsoft}{HTML}{F6D9D3}
+\definecolor{ltempty}{HTML}{BCAE98}
+
+% ---------------------------------------------------------------- theme
+\setbeamercolor{background canvas}{bg=ltbg}
+\setbeamercolor{normal text}{fg=ltink,bg=ltbg}
+\setbeamercolor{frametitle}{fg=ltink,bg=ltbg}
+\setbeamercolor{title}{fg=ltink}
+\setbeamercolor{subtitle}{fg=ltmuted}
+\setbeamercolor{structure}{fg=ltaccent}
+\setbeamercolor{alerted text}{fg=ltaccent}
+\setbeamercolor{block title}{fg=ltink,bg=ltsurface2}
+\setbeamercolor{block body}{fg=ltink,bg=ltsurface}
+\setbeamercolor{item}{fg=ltaccent}
+\setbeamercolor{footline}{fg=ltmuted}
+\setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+\setbeamerfont{title}{size=\huge,series=\bfseries}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{itemize items}{\color{ltaccent}\raisebox{0.15ex}{\scriptsize$\blacksquare$}}
+\setbeamertemplate{itemize subitem}{\color{ltstrong}\raisebox{0.2ex}{\tiny$\blacksquare$}}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamertemplate{frametitle}{%
+  \vspace*{0.35cm}%
+  \begin{beamercolorbox}[wd=\paperwidth,leftskip=0.6cm]{frametitle}%
+    \usebeamerfont{frametitle}\insertframetitle%
+    \ifx\insertframesubtitle\@empty\else\\[-0.1ex]{\normalsize\color{ltmuted}\mdseries\insertframesubtitle}\fi%
+  \end{beamercolorbox}%
+  \vspace*{-0.15cm}%
+  {\color{ltaccent}\rule{1.4cm}{1.4pt}}\hspace*{-1.4cm}\hspace*{0.6cm}%
+}
+\setbeamertemplate{footline}{%
+  \hbox to \paperwidth{\hspace*{0.6cm}{\tiny\color{ltmuted}\texttt{LayerTree}\quad\insertsectionhead}\hfill{\tiny\color{ltmuted}\insertframenumber}\hspace*{0.5cm}}\vspace*{0.25cm}}
+\setbeamertemplate{section page}{%
+  \vfill
+  \begin{center}
+    {\color{ltaccent}\rule{2cm}{2pt}}\\[0.6em]
+    {\Huge\bfseries\insertsectionhead}\\[0.4em]
+  \end{center}
+  \vfill}
+\AtBeginSection{\begin{frame}[plain]\sectionpage\end{frame}}
+
+\newcommand{\code}[1]{{\ttfamily\small #1}}
+\newcommand{\tr}[1]{\textsf{\textbf{#1}}}
+\newcommand{\muted}[1]{{\color{ltmuted}#1}}
+\newcommand{\hl}[1]{{\color{ltaccent}\textbf{#1}}}
+\newcommand{\lnote}[1]{\par\vspace{0.3em}{\small\color{ltmuted}#1}}
+
+% ---------------------------------------------------------- overlay keys
+% Style keys that change with the overlay: visible on=<2->, alt=<2>{a}{b}.
+\tikzset{
+  invisible/.style={opacity=0,text opacity=0},
+  visible on/.style={alt={#1{}{invisible}}},
+  alt/.code args={<#1>#2#3}{\alt<#1>{\pgfkeysalso{#2}}{\pgfkeysalso{#3}}},
+}
+
+% ---------------------------------------------------------- tree styles
+\tikzset{
+  lt/edge/.style={draw=ltstrong,line width=0.6pt},
+  lt/pathedge/.style={draw=ltaccent,line width=1.6pt},
+  lt/inode/.style={circle,draw=ltnode,fill=ltsurface,line width=0.8pt,
+    minimum size=0.62cm,inner sep=0pt,font=\scriptsize\bfseries,text=ltnodesum},
+  lt/ianc/.style={lt/inode,draw=ltaccent,line width=1.4pt},
+  lt/ifold/.style={lt/inode,draw=ltaccent,fill=ltaccent,text=white,line width=1.4pt},
+  lt/isib/.style={lt/inode,draw=ltaccent,dashed,line width=1.2pt,fill=ltaccentsoft},
+  lt/iempty/.style={lt/inode,draw=ltempty,text=ltempty,dashed},
+  lt/root/.style={rectangle,rounded corners=2pt,draw=ltnode,fill=ltsurface,
+    line width=0.9pt,minimum height=0.6cm,minimum width=1.3cm,inner sep=2pt,
+    font=\scriptsize\bfseries,text=ltnodesum},
+  lt/rootanc/.style={lt/root,draw=ltaccent,line width=1.4pt},
+  lt/rootfold/.style={lt/root,fill=ltaccent,text=white,draw=ltaccent},
+  lt/leafbase/.style={rectangle,rounded corners=2pt,line width=0.9pt,
+    minimum width=1.12cm,minimum height=0.78cm,inner sep=1pt,align=center,
+    font=\scriptsize},
+  lt/leaf-n/.style={lt/leafbase,draw=ltleaf,fill=ltsurface},
+  lt/leaf-e/.style={lt/leafbase,draw=ltempty,dashed,fill=ltbg,text=ltempty},
+  lt/leaf-new/.style={lt/leafbase,draw=ltleaf,fill=ltgoodsoft,line width=1.4pt},
+  lt/leaf-chg/.style={lt/leafbase,draw=ltaccent,fill=ltaccentsoft,line width=1.4pt},
+  lt/leaf-out/.style={lt/leafbase,draw=ltexit,fill=ltexit!15,line width=1.4pt},
+  lt/leaf-op/.style={lt/leafbase,draw=ltstrong,fill=ltsurface2},
+  lt/leaf-pend/.style={lt/leafbase,draw=ltchain,fill=ltchain!12,line width=1.2pt},
+  lt/leaf-land/.style={lt/leafbase,draw=ltnode,fill=ltnode!10,line width=1.2pt},
+  lt/leaf-chan/.style={lt/leafbase,draw=ltleaf,fill=ltleaf!15,line width=1.2pt,double,double distance=0.6pt},
+  lt/leaf-sib/.style={lt/leafbase,draw=ltaccent,dashed,fill=ltaccentsoft,line width=1.2pt},
+  lt/region/.style={rounded corners=5pt,fill=ltnode!8,draw=ltnode!50,dashed,line width=0.6pt},
+  lt/badge/.style={rectangle,rounded corners=2pt,inner sep=1.5pt,
+    font=\tiny\bfseries,text=white},
+  lt/badge-sig/.style={lt/badge,fill=ltleaf},
+  lt/badge-op/.style={lt/badge,fill=ltstrong},
+  lt/badge-hash/.style={lt/badge,fill=ltchain},
+  lt/badge-voucher/.style={lt/badge,fill=ltnode},
+  lt/badge-warn/.style={lt/badge,fill=ltbad},
+  lt/badge-exit/.style={lt/badge,fill=ltexit},
+  lt/chain/.style={rectangle,rounded corners=3pt,fill=ltchain,text=white,
+    font=\scriptsize\bfseries,inner sep=4pt,align=center},
+  lt/chainpend/.style={rectangle,rounded corners=3pt,draw=ltchain,dashed,
+    line width=1pt,fill=ltsurface,text=ltchain,font=\scriptsize\bfseries,inner sep=4pt,align=center},
+  lt/tx/.style={rectangle,rounded corners=3pt,draw=ltink,line width=0.8pt,
+    fill=ltsurface,font=\scriptsize,align=left,inner sep=5pt,text width=3.6cm},
+}
+
+% Geometry: leaf i of a depth-3 tree sits at (i*\LTdx, 0); the node of
+% height h and index j at the centre of its leaves, h*\LTdy up.
+\newcommand{\LTdx}{1.38}
+\newcommand{\LTdy}{1.05}
+\newcommand{\LTx}[2]{\fpeval{(#2*2^(#1) + (2^(#1)-1)/2)*\LTdx}}
+
+% \LTtree[keys]{a/5/n/note, b/3/n/, -/0/e/, ...}  (exactly 8 entries)
+%   label/amount/style/note; style is one of n e new chg out op pend land chan sib.
+% keys: path=p (the proof of position p: ancestors and siblings),
+%       path2=q (a second proof), fold (ancestors filled: recomputed),
+%       region=h/i (an aligned subtree highlighted), root text, out text,
+%       pending (output drawn dashed: computed, not committed),
+%       sibleaf (draw the leaf sibling of the path as a proof element).
+\pgfkeys{/ltk/.is family,/ltk,
+  path/.store in=\LTkpath, path=-1,
+  path2/.store in=\LTkpathB, path2=-1,
+  fold/.store in=\LTkfold, fold=0,
+  region/.store in=\LTkregion, region={},
+  regionlabel/.store in=\LTkregionlabel, regionlabel={},
+  rootname/.store in=\LTkrootname, rootname={r},
+  out/.store in=\LTkout, out={},
+  pending/.store in=\LTkpending, pending=0,
+  nosums/.store in=\LTknosums, nosums=0,
+}
+
+\makeatletter
+\newcommand{\LTsetamt}[2]{\expandafter\xdef\csname lt@amt@#1\endcsname{#2}}
+\newcommand{\LTamt}[1]{\csname lt@amt@#1\endcsname}
+% Is node (h,j) an ancestor of position p? Sets \LTtmp to 1 or 0.
+\newcommand{\LTisanc}[3]{% h j p
+  \ifnum#3<0 \def\LTtmp{0}\else
+  \edef\LTtmp{\fpeval{ (floor(#3/2^(#1)) == #2) ? 1 : 0 }}\fi}
+\newcommand{\LTissib}[3]{% h j p
+  \ifnum#3<0 \def\LTtmp{0}\else
+  \edef\LTtmp{\fpeval{ ((floor(#3/2^(#1)) - 2*floor(floor(#3/2^(#1))/2) == 0 ?
+      floor(#3/2^(#1))+1 : floor(#3/2^(#1))-1) == #2) ? 1 : 0 }}\fi}
+
+\newcommand{\LTtree}[2][]{%
+  \pgfkeys{/ltk,path=-1,path2=-1,fold=0,region={},regionlabel={},rootname={r},out={},pending=0,nosums=0,#1}%
+  % Parse the leaves.
+  \def\lt@i{0}%
+  \foreach \lab/\amt/\sty/\nt [count=\ii from 0] in {#2} {%
+    \LTsetamt{\ii}{\amt}%
+    \expandafter\xdef\csname lt@lab@\ii\endcsname{\lab}%
+    \expandafter\xdef\csname lt@sty@\ii\endcsname{\sty}%
+    \expandafter\xdef\csname lt@nt@\ii\endcsname{\nt}%
+  }%
+  % Region background.
+  \ifx\LTkregion\@empty\else
+    \expandafter\lt@region\LTkregion\@nil
+  \fi
+  % Edges.
+  \foreach \h in {1,2,3} {%
+    \pgfmathtruncatemacro{\nj}{2^(3-\h)-1}%
+    \foreach \j in {0,...,\nj} {%
+      \foreach \c in {0,1} {%
+        \pgfmathtruncatemacro{\ch}{\h-1}%
+        \pgfmathtruncatemacro{\cj}{2*\j+\c}%
+        \LTisanc{\ch}{\cj}{\LTkpath}\let\ea\LTtmp
+        \LTisanc{\ch}{\cj}{\LTkpathB}\let\eb\LTtmp
+        \ifnum\numexpr\ea+\eb\relax>0
+          \draw[lt/pathedge] (\LTx{\h}{\j},\h*\LTdy) -- (\LTx{\ch}{\cj},\ch*\LTdy);
+        \else
+          \draw[lt/edge] (\LTx{\h}{\j},\h*\LTdy) -- (\LTx{\ch}{\cj},\ch*\LTdy);
+        \fi
+      }%
+    }%
+  }%
+  % Sums of interior nodes.
+  \foreach \j in {0,1,2,3} {%
+    \pgfmathtruncatemacro{\a}{\LTamt{\the\numexpr2*\j\relax}+\LTamt{\the\numexpr2*\j+1\relax}}%
+    \expandafter\xdef\csname lt@s@1@\j\endcsname{\a}}%
+  \foreach \j in {0,1} {%
+    \pgfmathtruncatemacro{\a}{\csname lt@s@1@\the\numexpr2*\j\relax\endcsname+\csname lt@s@1@\the\numexpr2*\j+1\relax\endcsname}%
+    \expandafter\xdef\csname lt@s@2@\j\endcsname{\a}}%
+  \pgfmathtruncatemacro{\a}{\csname lt@s@2@0\endcsname+\csname lt@s@2@1\endcsname}%
+  \expandafter\xdef\csname lt@s@3@0\endcsname{\a}%
+  % Interior nodes.
+  \foreach \h in {1,2} {%
+    \pgfmathtruncatemacro{\nj}{2^(3-\h)-1}%
+    \foreach \j in {0,...,\nj} {%
+      \def\st{lt/inode}%
+      \edef\sm{\csname lt@s@\h @\j\endcsname}%
+      \ifnum\sm=0 \def\st{lt/iempty}\fi
+      \LTissib{\h}{\j}{\LTkpath}\ifnum\LTtmp=1 \def\st{lt/isib}\fi
+      \LTissib{\h}{\j}{\LTkpathB}\ifnum\LTtmp=1 \def\st{lt/isib}\fi
+      \LTisanc{\h}{\j}{\LTkpath}\ifnum\LTtmp=1 \ifnum\LTkfold=1 \def\st{lt/ifold}\else\def\st{lt/ianc}\fi\fi
+      \LTisanc{\h}{\j}{\LTkpathB}\ifnum\LTtmp=1 \ifnum\LTkfold=1 \def\st{lt/ifold}\else\def\st{lt/ianc}\fi\fi
+      \node[\st] (n-\h-\j) at (\LTx{\h}{\j},\h*\LTdy) {\ifnum\LTknosums=0 \sm\fi};
+    }%
+  }%
+  % Root.
+  \def\rst{lt/root}%
+  \ifnum\LTkpath>-1 \ifnum\LTkfold=1 \def\rst{lt/rootfold}\else\def\rst{lt/rootanc}\fi\fi
+  \node[\rst] (root) at (\LTx{3}{0},3*\LTdy) {\LTkrootname\ \ \csname lt@s@3@0\endcsname};
+  % Leaves.
+  \foreach \i in {0,...,7} {%
+    \edef\sty{\csname lt@sty@\i\endcsname}%
+    \LTissib{0}{\i}{\LTkpath}\let\sa\LTtmp
+    \LTissib{0}{\i}{\LTkpathB}\let\sb\LTtmp
+    \edef\full{\sty}%
+    \ifnum\numexpr\sa+\sb\relax>0 \ifnum\pdfstrcmp{\sty}{e}=0 \else\edef\full{sib}\fi\fi
+    \edef\lab{\csname lt@lab@\i\endcsname}%
+    \edef\amt{\csname lt@amt@\i\endcsname}%
+    \ifnum\pdfstrcmp{\sty}{e}=0
+      \node[lt/leaf-e] (l-\i) at (\i*\LTdx,0) {$\varnothing$};
+    \else
+      \node[lt/leaf-\full] (l-\i) at (\i*\LTdx,0) {\textbf{\lab}\\[-1pt]\amt};
+    \fi
+    \edef\nt{\csname lt@nt@\i\endcsname}%
+    \ifx\nt\@empty\else
+      \node[font=\tiny,text=ltmuted,anchor=north,inner sep=1pt] at (l-\i.south) {\nt};
+    \fi
+  }%
+  % The tree output on the chain.
+  \ifx\LTkout\@empty\else
+    \ifnum\LTkpending=1
+      \node[lt/chainpend,anchor=south] (out) at (\LTx{3}{0},3*\LTdy+0.55) {\LTkout};
+      \draw[ltchain,dashed,line width=0.8pt] (out.south) -- (root.north);
+    \else
+      \node[lt/chain,anchor=south] (out) at (\LTx{3}{0},3*\LTdy+0.55) {\LTkout};
+      \draw[ltchain,line width=0.8pt] (out.south) -- (root.north);
+    \fi
+  \fi
+}
+\def\lt@region#1/#2\@nil{%
+  \pgfmathsetmacro{\rx}{#2*2^(#1)*\LTdx-0.68}%
+  \pgfmathsetmacro{\rX}{((#2+1)*2^(#1)-1)*\LTdx+0.68}%
+  \pgfmathsetmacro{\rY}{#1*\LTdy+0.42}%
+  \fill[lt/region] (\rx,-0.62) rectangle (\rX,\rY);
+  \ifx\LTkregionlabel\@empty\else
+    \node[font=\tiny\bfseries,text=ltnode,anchor=north west,inner sep=2pt] at (\rx,\rY) {\LTkregionlabel};
+  \fi
+}
+\makeatother
+
+% \LTbadge{pos}{text}{kind} under a leaf (row 1); \LTbadgeB for row 2.
+\newcommand{\LTbadge}[3]{\node[lt/badge-#3,anchor=north] at ($(l-#1.south)+(0,-0.3)$) {#2};}
+\newcommand{\LTbadgeB}[3]{\node[lt/badge-#3,anchor=north] at ($(l-#1.south)+(0,-0.62)$) {#2};}
+% A badge on an interior node or the root.
+\newcommand{\LTnbadge}[3]{\node[lt/badge-#3,anchor=south] at ($(#1.north)+(0,0.05)$) {#2};}
