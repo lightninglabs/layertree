@@ -696,7 +696,8 @@ inductive Accepts (π : Params) (d : Nat) : Node H → Node H → Prop
       {X out0 : Nat} (hm : Merge auth π r path b src tgt X r' out0)
       (hwf : path.length + 1 = d) : Accepts π d r r'
   | reclaim {auth : Prop} {lockTime : Nat} {r r' : Node H} {path : List (Bool × Node H)}
-      {l : Leaf} {out0 : Nat} (hc : Reclaim auth π lockTime r path l r' out0)
+      {l : Leaf} {out0 : Nat} {terminal : Bool}
+      (hc : Reclaim auth π lockTime d r path l r' out0 terminal)
       (hwf : path.length = d) : Accepts π d r r'
 
 /-- A sequence of exit blocks from the root of `t` is a trace of `exit`

@@ -49,12 +49,12 @@ unfinished proof; there are none.
 | 7.6 composition (`CHECK_PREV`) | `Steps` | Sequential chaining of steps. |
 | 7.2 `EXIT_K`, 7.2 rule 6 `EXIT_K^=`, 7.2 rule 7 `EXIT_K^t` | `ExitBlock`, `Payout`, `ExitK exact …` | `exact = true` is the exact-payout variant, which `EXIT_K^t` implies. The block's `payout` is the output as `OP_TX` reads it, key and amount; `payoutOk` is rule 2 (the key is `leaf.exit_key`) with rules 3, 4 and 6. `authorised` is abstract and covers both owner authorisations, the transaction signature of rule 3 and the off-chain signature over `H_exit(tree_id \|\| body(leaf))` of rule 7 (the leaf without its amount, 0.13.0), since no theorem depends on what it signs. |
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
-| 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. `new_dust` is the 0.11.0 floor on the written leaf. |
+| 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. `new_dust` is the floor on the written leaf; it models 7.8's honest-operator SHOULD NOT (the operator co-signs every `UPDATE`), not a script check. |
 | 5.1 `SEQ_FINAL`, 7.5 rule 6 `DUST_MIN` | `Params`, `Leaf.seqFinalFull`, `Leaf.seqFinalMid` | The tree-creation constants the carve scripts carry; `Claim`, `Update`, `Rewrite` and the trace layer take a `Params`. |
 | 6.2 `RECLAIM_KEY`, reclaimable leaves | `Params.reclaimKey`, `Params.Reclaimable` | An optional key; a leaf is reclaimable when the tree names one and the leaf's `evictor_key` equals it. With `reclaimKey = none` no leaf is (`Params.not_reclaimable`) and every rule below reduces to its 0.13 form. |
 | 7.5.4, 7.9 rule 8 sibling pairs | `Pos.pairAt`, `Tree.pair`, `Tree.setSub_pair` (`Tree.lean`) | A pair is a `c : Pos d 1`; its even and odd members are `c.pairAt false` and `c.pairAt true`. |
 | 7.5.4 `CLAIM^m`, `CLAIM^hm` | `Merge`, `MergeOk`, `mergedSource`, `mergeTree` (`Cohort.lean`); `MergeVoucher` (`Receive.lean`) | One step at height 1 from the published pair of `src` and `tgt` to the pair of the residual source and the target at `X`; the sibling rule is the shape of the step. The voucher signature, and the preimage check of `CLAIM^hm`, are the opaque `auth`. `MergeVoucher` is the message's four fields by content. |
-| 7.11 `RECLAIM_1` | `Reclaim` | One leaf-level step to `E_0` with the reclaimable and deadline checks; the transaction's lock time is a parameter. No payout. |
+| 7.11 `RECLAIM_1` | `Reclaim` | One leaf-level step to `E_0` with the reclaimable and deadline checks; the transaction's lock time is a parameter. No payout. Output 0 takes the `Final` disjunction of 7.8, as `EvictSubtree` does. |
 | 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource`, `claim_evictable`, `claim_not_final` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. What the voucher message binds lives inside that `Prop` at this level; `Voucher.lean` models the message's three fields, the source as its body without the amount. Rule 2's `seq` check is `seq_lt : src.seq < π.seqFinal`; rule 5 is `evictorKey_eq` and `evictAfter_le`; rule 6 is `claim_dust` and `residual_dust`. |
 | 9.7 proof maintenance | `Pos.fork`, `Tree.path_maintenance`, `path_maintenance_valid` | A replacement at any position changes exactly one sibling of every other leaf's path, the one at the fork, and its new value is the new node folded up the modified position's path below the fork. |
 | 7 as a whole: histories | `Trans`, `Trans.apply`, `Trans.Pre`, `Reachable`, `Accepts`, `Chain` (`Trace.lean`) | Transition records in the tree's vocabulary, their result and the script's preconditions; reachability at the tree level and acceptance at the chain level, bridged by `Accepts.sound` and `Chain.sound`. `Trans.merge` and `Trans.reclaim` (with `MergePre`) record the two new single-step transitions; the rewrite record carries no authorisation, so rule 8 is stated per transaction. |
@@ -252,7 +252,7 @@ by `lake build`; the names are the Lean identifiers.
   unchanged, or `E_0` when drained; every other position is untouched.
 * **`reclaim_sound`** (7.11): a reclaim removes one leaf that is
   reclaimable and past its deadline, output 0 commits to the tree without
-  it and carries the input amount less its amount, and every other
+  it and (off the terminal branch of 7.8) carries the input amount less its amount, and every other
   position is untouched. **`reclaim_only_flagged`**: every leaf that is
   not reclaimable is still in the tree output 0 commits to, at its
   position, and a tree without `RECLAIM_KEY` accepts no reclaim at all.
@@ -299,8 +299,10 @@ spend under any script relation and `Chain` a history of them.
 * **`Reachable.dust`** (7.5 rule 6, 0.11.0): if the initial tree and the
   operator-written leaves (joins, rewrites) are at or above `DUST_MIN`,
   every leaf of every reachable tree is, so every removal pays a standard
-  output. Updates and carves need no hypothesis: the script enforces the
-  floor on them.
+  output. The hypotheses cover joins, rewrites and updates (the operator
+  signs each, and 7.8 says it SHOULD NOT write a sub-dust leaf; the
+  `UPDATE` script does not enforce the floor). Carves need none: the
+  script enforces the floor on them.
 * **`Reachable.evictable`** (7.5 rule 5 at the tree level): if every leaf
   is evictable by `K` from height `T` and the operator admits only such
   leaves, every leaf of every reachable tree is. Carves need no

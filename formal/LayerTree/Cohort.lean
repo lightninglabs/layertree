@@ -616,42 +616,49 @@ theorem merge_sound {auth : Prop} {π : Params} {d : Nat} (t : Tree d) (path : L
 
 /-- What `RECLAIM_1` accepts (7.11): the leaf is reclaimable (rule 1),
 the transaction's lock time has reached its `evict_after` (rule 2), one
-leaf-level step to `E_0` with output 0 carrying the new sum (rule 4),
-and the signature by `RECLAIM_KEY` as `auth` (rule 3). No output is
-constrained for the leaf's value. -/
-structure Reclaim (auth : Prop) (π : Params) (lockTime : Nat) (r : Node H)
-    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) : Prop where
+leaf-level step to `E_0` with the `FINAL` branch for output 0 (rule 4:
+the new sum, or unconstrained when `r' = E_D`, section 7.8), and the
+signature by `RECLAIM_KEY` as `auth` (rule 3). No output is constrained
+for the leaf's value. -/
+structure Reclaim (auth : Prop) (π : Params) (lockTime d : Nat) (r : Node H)
+    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) (terminal : Bool) : Prop where
   reclaimable : π.Reclaimable l
   deadline : l.evictAfter ≤ lockTime
   step : (leafStep path (some l) none).valid r r'
-  out0_eq : out0 = r'.sum
+  final : Final d r' out0 terminal
   authorised : auth
 
 /-- **A reclaim removes one reclaimable leaf past its deadline** (7.11).
 The position held the leaf, the leaf is reclaimable and its deadline has
-passed, output 0 commits to the tree without it and carries the input
-amount less the leaf's, and every other position is untouched. -/
+passed, output 0 commits to the tree without it and, off the terminal
+branch, carries the input amount less the leaf's, and every other
+position is untouched. -/
 theorem reclaim_sound {auth : Prop} {π : Params} {lockTime d : Nat} (t : Tree d)
-    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) (hwf : path.length = d)
-    (hc : Reclaim auth π lockTime t.root path l r' out0) :
+    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) {terminal : Bool}
+    (hwf : path.length = d)
+    (hc : Reclaim auth π lockTime d t.root path l r' out0 terminal) :
     ∃ p : Pos d 0, t.get p = some l ∧ π.Reclaimable l ∧ l.evictAfter ≤ lockTime ∧
       r' = (t.set p none).root ∧ (∀ q : Pos d 0, q ≠ p → (t.set p none).get q = t.get q) ∧
-      out0 + l.amount = t.root.sum := by
+      (terminal = false → out0 + l.amount = t.root.sum) := by
   obtain ⟨p, hget, hr'⟩ := leafStep_sound t path (some l) none r'
     (by simp [Step.WF, leafStep, hwf]) hc.step
   refine ⟨p, hget, hc.reclaimable, hc.deadline, hr', fun q hq => Tree.get_set_ne t p q none
     (Ne.symm hq), ?_⟩
+  intro hterm
   have hs := Step.sum _ _ _ hc.step
   simp [leafStep] at hs
-  rw [hc.out0_eq]; omega
+  have hf := hc.final
+  simp [Final, hterm] at hf
+  rw [hf]; omega
 
 /-- **Only a reclaimable leaf is ever reclaimed.** Every leaf of the
 committed tree that is not reclaimable is in the tree output 0 commits
 to, at the same position, and a tree without `RECLAIM_KEY` has no
 accepted `RECLAIM_1` at all. -/
 theorem reclaim_only_flagged {auth : Prop} {π : Params} {lockTime d : Nat} (t : Tree d)
-    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) (hwf : path.length = d)
-    (hc : Reclaim auth π lockTime t.root path l r' out0) :
+    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) {terminal : Bool}
+    (hwf : path.length = d)
+    (hc : Reclaim auth π lockTime d t.root path l r' out0 terminal) :
     π.reclaimKey ≠ none ∧
     ∃ p : Pos d 0, r' = (t.set p none).root ∧
       ∀ (q : Pos d 0) (l' : Leaf), t.get q = some l' → ¬ π.Reclaimable l' →

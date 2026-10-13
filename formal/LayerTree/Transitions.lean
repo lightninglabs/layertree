@@ -234,8 +234,8 @@ structure ExitBlock (H : Type) where
   /-- The block's authorisation, abstract here. For an owner exit it is
   either a signature by `leaf.owner_key` over the transaction (7.2 rule 3)
   or, in the tower-delegable variant `EXIT_K^t` (7.2 rule 7), a signature
-  by the same key over `H_exit(tree_id || leaf)`, which names the leaf and
-  the lineage but no transaction; for an eviction it is the evictor's
+  by the same key over `H_exit(tree_id || body(leaf))`, which names the leaf
+  without its amount and the lineage but no transaction; for an eviction it is the evictor's
   transaction signature under the lock time (rule 4). The conservation and
   payout theorems below hold for both forms, since neither says anything
   about what the authorisation signs. -/
@@ -450,8 +450,11 @@ theorem join_sound {auth : Prop} {d h : Nat} (t : Tree d) (path : List (Bool × 
 /-! ### UPDATE (section 7.4) -/
 
 /-- What `UPDATE` accepts: one leaf-level step from `old` to `new`,
-output 0 carrying the new sum, both signatures as `auth`, and the dust
-floor of 7.5 rule 6 on the written leaf: `new.amount ≥ DUST_MIN`. -/
+output 0 carrying the new sum, both signatures as `auth`, and
+`new_dust`, the floor `new.amount ≥ DUST_MIN`. `new_dust` does not model a
+script check: the `UPDATE` script does not enforce the floor. It models the
+honest operator's SHOULD NOT co-sign a sub-dust leaf (7.8), the operator
+being a signer of every `UPDATE`. -/
 structure Update (auth : Prop) (π : Params) (r : Node H) (path : List (Bool × Node H))
     (old new : Leaf) (r' : Node H) (out0 : Nat) : Prop where
   step : (leafStep path (some old) (some new)).valid r r'
