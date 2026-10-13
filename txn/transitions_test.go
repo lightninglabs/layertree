@@ -1081,7 +1081,7 @@ func tierCases(tier Tier, depth int, sparse bool) []txCase {
 		cases = append(cases, updateCases(s)...)
 	}
 	cases = append(cases, carveCases(s)...)
-	if tier == Full {
+	if tier == Full || tier == Mid {
 		cases = append(cases, pendingCases(s)...)
 	}
 	if sparse || tier == Min {
