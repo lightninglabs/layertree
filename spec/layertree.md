@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.14.0
+Version:  0.14.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -1627,7 +1627,8 @@ Rules:
    as in section 7.2).
 2. For every non-empty position, in position order: the leaf's
    `evictor_key` MUST equal `OPERATOR_KEY`; `tx.nLockTime` MUST be at least
-   its `evict_after`; and the next unused output, starting from output 1,
+   its `evict_after`, and input 0's `nSequence` MUST enable lock time
+   (`OP_CHECKLOCKTIMEVERIFY` semantics, as in 7.2 rule 4 and 7.11 rule 2); and the next unused output, starting from output 1,
    MUST pay exactly `leaf.amount` to `P2TR(leaf.exit_key)`.
 3. The old node is the subtree root recomputed from the supplied leaves
    (empty positions contribute `E_0`); it MUST `fold` with the path to
@@ -1646,7 +1647,7 @@ If the post-transition root `r'` equals `E_D` (every position is empty),
 rules 7.1.2 and 7.1.5 do not apply: output 0 is unconstrained, and the
 transaction MUST still contain an output 0 for the payouts to be numbered
 from 1. This lets the last participant leave without creating a zero-value
-tree output. `EXIT`, `EVICT_SUBTREE_h`, `REWRITE_h` and `DETACH_h` can
+tree output. `EXIT`, `EVICT_SUBTREE_h`, `REWRITE_h`, `DETACH_h` and `RECLAIM_1` can
 produce `E_D`; no other transition can. Scripts MUST take this branch
 only when `r' = E_D` exactly; the reference `FINAL` macro compares against
 the constant `E_D` of the tree's depth.
@@ -1733,7 +1734,9 @@ Rules:
      signature, provided the odd position of the same pair holds an old
      leaf that is not reclaimable and whose `owner_key` and `exit_key`
      both equal the reclaimable leaf's `exit_key`, and its new element is that leaf with
-     its `amount` raised by exactly the decrease.
+     its `amount` raised by exactly the decrease. The odd leaf's `seq`
+     MUST NOT be `SEQ_FINAL`, or else its owner signs for it as rule 3
+     requires, since the raise passes only through rule 3's exemption.
    * **Reclaim.** Any other change of a reclaimable leaf, an amount-only
      increase excepted (rule 3), needs no signature and no payout, and
      requires `tx.nLockTime` to be at least the old leaf's `evict_after`
@@ -1859,8 +1862,9 @@ Rules:
 3. `sig` MUST be a valid signature over `tx` by `RECLAIM_KEY`, with a
    hash type that commits to all outputs (7.2 rule 3).
 4. The old node is `(H_leaf(leaf), leaf.amount)` and the new node is
-   `E_0`; output 0's amount is `S − leaf.amount` per 7.1. No output is
-   constrained for the leaf's value.
+   `E_0`; output 0 is `(S − leaf.amount, TREE_SPK(r', m))` per 7.1, or
+   unconstrained if `r' = E_D` (7.8). No output is constrained for the
+   leaf's value.
 
 *(informative)* `RECLAIM_1` is the timeout branch of an HTLC that lives
 in the tree as a leaf: before the deadline a reclaimable leaf is
@@ -3029,22 +3033,27 @@ draws the preimage, the operator issues a `CLAIM^hm` voucher against `P`
 whose target is the landing leaf's settled level plus the payment, and
 the recipient releases the preimage only after verifying it. Then:
 
-1. The operator MUST keep `P`'s amount at least `DUST_MIN` above the draw
-   of every outstanding merge voucher against it. A voucher that would
-   drain `P` exactly is blocked by any amount-only top-up, which leaves a
+1. For every outstanding target `X` of a merge voucher against `P`, the
+   operator MUST keep `P.amount + L.amount − X ≥ DUST_MIN`, with both
+   amounts read from the same confirmed tree. A voucher that would drain
+   `P` exactly is blocked by any amount-only top-up, which leaves a
    sub-dust residual (7.5.4 rule 3).
 2. Before releasing a preimage the recipient MUST verify, against the
-   confirmed tree, that `P` is reclaimable and is `L`'s sibling, that `L`
-   is its own and not reclaimable, that the voucher's target is `L`'s
-   settled level plus the payment, that `P`'s amount exceeds the draw by
-   at least `DUST_MIN`, that `T` leaves at least `Delta(q)` (10.5) for a
-   redemption, and that `L`'s lease runs past `T + Delta(q)`. It MUST
-   release one preimage at a time per pair.
-3. Before `T − Delta(q)` the operator SHOULD raise `L` to the settled
+   confirmed tree, that `P` is reclaimable and is `L`'s sibling, that
+   `P.exit_key = L.owner_key = L.exit_key` is its own key, that `L` is
+   not reclaimable, that neither `P` nor `L` has `seq = SEQ_FINAL`, that
+   the voucher verifies under `P.owner_key` over `tree_id`, the bodies of
+   `P` and `L` and the target `X` as they stand in that tree, that `X` is
+   `L`'s settled level plus the payment, that rule 1 holds for `X`, that
+   `T` is at least `Delta(q) + ε` away (`ε` at least one block, for
+   detection and broadcast), and that `L`'s lease runs past
+   `T + Delta(q)`. It MUST release one preimage at a time per pair.
+3. Before `T − Delta(q) − ε` the operator SHOULD raise `L` to the settled
    level, by redeeming a merge voucher it signs itself or by a transfer
    under 7.9 rule 8; if `L` has not reached it by then, the recipient
    (or a tower holding the voucher and preimage) MUST redeem the latest
-   voucher.
+   voucher, acting no later than `T − Delta(q) − ε`, with `ε` at least
+   one block for detection and broadcast.
 4. The operator MUST NOT fail an inbound HTLC whose merge voucher is
    outstanding until its reclaim of `P` (7.11, or 7.9 rule 8) has
    confirmed, and MUST choose `T` so that the HTLC's expiry is at least
@@ -3073,9 +3082,10 @@ join-time proof is required to construct a valid `EXIT_1`.
 A tower holding an exit authorisation (7.2 rule 7) maintains the leaf's
 path the same way and needs nothing from the owner to rebuild the exit
 against a new root. The leaf itself can change without the owner's
-signature in one case: `REWRITE_h`'s amount-only exemption (7.9 rule 3)
-raises a plain leaf's `amount` and advances nothing else, and the
-authorisation, which binds the leaf without its amount, survives it; the
+signature in three cases: `REWRITE_h`'s amount-only exemption (7.9 rule 3,
+a top-up), a merge (7.5.4) and a reclaim-form transfer (7.9 rule 8, 9.6.3)
+each change a leaf's `amount` and advance nothing else, and the
+authorisation, which binds the leaf without its amount, survives them; the
 tower then builds the exit for the raised amount, which is why it tracks
 the leaf's current bytes and not only its path. Every other change to the
 leaf carries the owner's signature, so an owner that changes its leaf

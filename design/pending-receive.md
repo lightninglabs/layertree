@@ -291,7 +291,7 @@ hands it to `O`.
 
 ### Window close
 
-Before `T − G_claim`, `O` raises `L` to `L₀ + S`, either by redeeming `U`
+Before `T − G_claim − ε`, `O` raises `L` to `L₀ + S`, either by redeeming `U`
 or, under R3, in one rewrite across every recipient settling that window.
 `R`'s vouchers stay valid but now move only what is still in flight above
 the new level. After `T`, `O` reclaims `P` under R1, replacing it with
@@ -303,7 +303,7 @@ preimage, and an HTLC already failed back would leave `O` paying for a
 payment it never received. This is 9.6.2 rule 3's ordering.
 
 `R` or its tower checks one thing per window: that `L` holds at least
-`L₀ + S`, confirmed, by `T − G_claim`. If not, it redeems the latest
+`L₀ + S`, confirmed, by `T − G_claim − ε`. If not, it redeems the latest
 `V_k` with the preimage, raising `L` to `X_k`. That is the whole of the
 recipient's liveness requirement, and the tower needs nothing from `R`
 to meet it.
