@@ -43,8 +43,11 @@ var (
 	fullVoucherPrefix  = fullTagPrefix(tree.TagVoucher)
 	fullVoucherHPrefix = fullTagPrefix(tree.TagVoucherH)
 	fullExitPrefix     = fullTagPrefix(tree.TagExit)
-	fullPosPrefix      = fullTagPrefix(tree.TagPos)
-	fullTapTweakPrefix = fullTagPrefix("TapTweak")
+
+	fullVoucherMPrefix  = fullTagPrefix(tree.TagVoucherM)
+	fullVoucherHMPrefix = fullTagPrefix(tree.TagVoucherHM)
+	fullPosPrefix       = fullTagPrefix(tree.TagPos)
+	fullTapTweakPrefix  = fullTagPrefix("TapTweak")
 
 	// fullNUMS33 is the compressed BIP-341 NUMS point H.
 	fullNUMS33 = tree.NUMS.SerializeCompressed()
@@ -1031,14 +1034,32 @@ func fullRewriteStep(d int, exitConsent bool) []Token {
 // in place of fullRewritePay (tools/layertree_scripts.py _rewrite_step's
 // pay argument); the CCV tier passes its own.
 func fullRewriteStepWith(d int, exitConsent bool, pay []Token) []Token {
-	return fullCat(
+	return fullRewriteStepFor(d, exitConsent, pay, false, false)
+}
+
+// Pair sides of a reclaim-form rewrite step (spec 7.9 rule 8): positions
+// 2i and 2i+1 of the subtree form a pair, and only the left (even) step
+// can make an R3 transfer.
+const (
+	rewriteLeft  = true
+	rewriteRight = false
+)
+
+// fullRewriteStepFor is the rewrite step in either form. With reclaim set
+// it is the reclaim form of spec 7.9 rule 8: the machine keeps RECLAIM_KEY
+// directly below Z (fullRewriteMachine hoists it), so the witness starts
+// one element deeper, at d+4, and a changed position whose old leaf is
+// reclaimable follows fullReclaimRules instead of the owner rules; left
+// names the pair side (tools/layertree_scripts.py _rewrite_step).
+func fullRewriteStepFor(d int, exitConsent bool, pay []Token,
+	reclaim, left bool) []Token {
+
+	o := 0
+	if reclaim {
+		o = 1
+	}
+	oldRules := fullCat(
 		[]Token{
-			Num(int64(d + 3)), Op(ts.OP_ROLL), Num(int64(d + 4)), Op(ts.OP_ROLL), // old new
-			Op(ts.OP_SIZE), Op(ts.OP_1), Op(ts.OP_EQUAL), // new is the one-byte marker?
-			Op(ts.OP_IF), Op(ts.OP_DROP), Op(ts.OP_DUP), Op(ts.OP_ENDIF), // marker: new := old
-			Op(ts.OP_2DUP), Op(ts.OP_EQUAL), Op(ts.OP_NOTIF), // changed?
-			Op(ts.OP_OVER), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
-			Op(ts.OP_IF), // old is a leaf?
 			Op(ts.OP_DUP), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
 			Op(ts.OP_IF), // new is a leaf: rewrite
 			// Exempt from the owner signature iff new[8:] == old[8:],
@@ -1055,12 +1076,37 @@ func fullRewriteStepWith(d int, exitConsent bool, pay []Token) []Token {
 			Op(ts.OP_ELSE), Op(ts.OP_0), Op(ts.OP_ENDIF), // old new exempt
 			Op(ts.OP_NOTIF),
 		},
-		fullOwnerAuth(d+5, exitConsent),
+		fullOwnerAuth(d+5+o, exitConsent),
 		[]Token{Op(ts.OP_ENDIF), Op(ts.OP_ELSE)}, // new is empty: an exit
-		fullOwnerAuth(d+5, exitConsent),
+		fullOwnerAuth(d+5+o, exitConsent),
 		pay, // new is empty: an exit, paid to old.exit_key
+		[]Token{Op(ts.OP_ENDIF)},
+	)
+	leafRules := oldRules
+	if reclaim {
+		leafRules = fullCat(
+			[]Token{
+				Op(ts.OP_OVER), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
+				Num(int64(d + 6)), Op(ts.OP_PICK), Op(ts.OP_EQUAL),
+				Op(ts.OP_IF), // old is reclaimable
+			},
+			fullReclaimRules(d, left),
+			[]Token{Op(ts.OP_ELSE)},
+			oldRules,
+			[]Token{Op(ts.OP_ENDIF)},
+		)
+	}
+	return fullCat(
 		[]Token{
-			Op(ts.OP_ENDIF),
+			Num(int64(d + 3 + o)), Op(ts.OP_ROLL), Num(int64(d + 4 + o)), Op(ts.OP_ROLL), // old new
+			Op(ts.OP_SIZE), Op(ts.OP_1), Op(ts.OP_EQUAL), // new is the one-byte marker?
+			Op(ts.OP_IF), Op(ts.OP_DROP), Op(ts.OP_DUP), Op(ts.OP_ENDIF), // marker: new := old
+			Op(ts.OP_2DUP), Op(ts.OP_EQUAL), Op(ts.OP_NOTIF), // changed?
+			Op(ts.OP_OVER), Op(ts.OP_SIZE), Op(ts.OP_NIP), Op(ts.OP_0NOTEQUAL),
+			Op(ts.OP_IF), // old is a leaf?
+		},
+		leafRules,
+		[]Token{
 			Op(ts.OP_ENDIF), // old empty: a join, operator only
 			Op(ts.OP_ENDIF), // unchanged
 			Op(ts.OP_SWAP),
@@ -1068,6 +1114,93 @@ func fullRewriteStepWith(d int, exitConsent bool, pay []Token) []Token {
 		fullElemNode(d+4, d+3), // new oh os
 		[]Token{Op(ts.OP_ROT)},
 		fullElemNode(d+5, d+4), // oh os nh ns
+	)
+}
+
+// fullReclaimR1 is R1 inside the rewrite: [old new] -> [old new], the lock
+// time at least old.evict_after. No signature but the operator's, and no
+// payout when the position is emptied (tools/layertree_scripts.py
+// _reclaim_r1).
+func fullReclaimR1() []Token {
+	return []Token{
+		Op(ts.OP_OVER), Num(fullOffEvictAfter), Num(fullLenEvictAfter),
+		Op(OP_SUBSTR), Op(ts.OP_CHECKLOCKTIMEVERIFY), Op(ts.OP_DROP),
+	}
+}
+
+// fullTransferCheck is R3's cross-check, [old new delta] -> [old new], run
+// by the left step of a pair on its right sibling's elements, the next two
+// witness elements (old_R at depth d+7, new_R below it): old_R is owned by
+// and exits to old.exit_key and is not reclaimable, and new_R is old_R with its amount
+// raised by exactly delta (tools/layertree_scripts.py _transfer_check).
+func fullTransferCheck(d int) []Token {
+	w := int64(d + 7)
+	return fullCat(
+		[]Token{
+			Num(w), Op(ts.OP_PICK), Num(fullOffExitKey), Num(64), Op(OP_SUBSTR),
+			Num(3), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32), Op(OP_SUBSTR),
+			Op(ts.OP_DUP), Op(OP_CAT),
+			Op(ts.OP_EQUALVERIFY), // old_R.exit == old_R.owner == old.exit_key
+			Num(w), Op(ts.OP_PICK), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
+			Num(w), Op(ts.OP_PICK), Op(ts.OP_EQUAL), Op(ts.OP_NOT),
+			Op(ts.OP_VERIFY), // old_R not reclaimable
+			Num(w), Op(ts.OP_PICK),
+		},
+		fullLeafBody(),
+		[]Token{Num(w + 2), Op(ts.OP_PICK)},
+		fullLeafBody(),
+		[]Token{
+			Op(ts.OP_EQUALVERIFY), // body(new_R) == body(old_R)
+			Num(w + 1), Op(ts.OP_PICK), Num(8), Op(OP_LEFT),
+			Num(w + 1), Op(ts.OP_PICK), Num(8), Op(OP_LEFT), Op(ts.OP_SUB),
+			Op(ts.OP_NUMEQUALVERIFY), // new_R.amt - old_R.amt == delta
+		},
+	)
+}
+
+// fullReclaimRules is [old new] -> [old new] for a changed position whose
+// old element is a reclaimable leaf (spec 7.9 rule 8): an amount-only
+// increase is rule 3's (unless old.seq is SEQ_FINAL), a left step's
+// amount-only decrease is an R3 transfer, and every other change is an R1
+// reclaim (tools/layertree_scripts.py _reclaim_rules).
+func fullReclaimRules(d int, left bool) []Token {
+	s := fullCat(
+		[]Token{Op(ts.OP_2DUP)}, fullLeafBody(), []Token{Op(ts.OP_SWAP)},
+		fullLeafBody(),
+		[]Token{
+			Op(ts.OP_EQUAL), Op(ts.OP_IF), // same body
+			Op(ts.OP_OVER), Num(8), Op(OP_LEFT), Op(ts.OP_OVER), Num(8),
+			Op(OP_LEFT), // old new oa na
+		},
+	)
+	final := []Token{
+		Op(ts.OP_OVER), Num(4), Op(OP_RIGHT), Data(fullSeqFinal), Op(ts.OP_EQUAL),
+	}
+	if left {
+		s = fullCat(s,
+			[]Token{
+				Op(ts.OP_2DUP), Op(ts.OP_LESSTHANOREQUAL),
+				Op(ts.OP_IF), Op(ts.OP_2DROP), // increase: R1 only if final
+			},
+			final,
+			[]Token{Op(ts.OP_ELSE), Op(ts.OP_SUB)}, // decrease: R3 transfer
+			fullTransferCheck(d),
+			[]Token{Op(ts.OP_0), Op(ts.OP_ENDIF)},
+		)
+	} else {
+		s = fullCat(s,
+			[]Token{Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_IF)},
+			final,
+			[]Token{Op(ts.OP_ELSE), Op(ts.OP_1), Op(ts.OP_ENDIF)}, // a decrease on the right: R1
+		)
+	}
+	return fullCat(s,
+		[]Token{
+			Op(ts.OP_ELSE), Op(ts.OP_1), Op(ts.OP_ENDIF), // body changed or emptied: R1
+			Op(ts.OP_IF),
+		},
+		fullReclaimR1(),
+		[]Token{Op(ts.OP_ENDIF)},
 	)
 }
 
@@ -1090,6 +1223,50 @@ func fullHashStep2(d int) []Token {
 	)
 }
 
+// fullRewriteMachine is the REWRITE_h machine between the operator's
+// signature and the path levels: [... blocks] | .. m r -> [T oh os nh ns]
+// | .. m r. It hoists the constants Z, L and T (and, given reclaimKey, the
+// tree's RECLAIM_KEY below Z for the reclaim form of spec 7.9 rule 8), runs
+// POSTORDER2(height) with the exit payout `pay` and drops the constants
+// again (tools/layertree_scripts.py rewrite_machine).
+func fullRewriteMachine(height int, exitConsent bool, pay []Token,
+	reclaimKey *[32]byte) []Token {
+
+	s := []Token{Op(ts.OP_1), Op(ts.OP_TOALTSTACK)} // | m r 1
+	if reclaimKey != nil {
+		s = append(s, Data(reclaimKey[:])) // rk
+	}
+	s = append(s,
+		Data(fullEmptyLeafHash), Data(fullLeafPrefix), Data(fullNodePrefix), // [rk] Z L T
+	)
+	d, pos := 0, 0
+	var gen func(h int)
+	gen = func(h int) {
+		if h == 0 {
+			s = append(s, fullRewriteStepFor(d, exitConsent, pay,
+				reclaimKey != nil, pos%2 == 0)...)
+			pos++
+			d += 4
+			return
+		}
+		gen(h - 1)
+		gen(h - 1)
+		s = append(s, fullHashStep2(d)...)
+		d -= 4
+	}
+	gen(height) // [rk] Z L T oh os nh ns | m r idx
+
+	s = append(s,
+		Op(ts.OP_FROMALTSTACK), Op(ts.OP_DROP), // drop idx
+		Num(6), Op(ts.OP_ROLL), Op(ts.OP_DROP), Num(5), Op(ts.OP_ROLL),
+		Op(ts.OP_DROP), // [rk] T oh os nh ns (drop Z, L)
+	)
+	if reclaimKey != nil {
+		s = append(s, Num(5), Op(ts.OP_ROLL), Op(ts.OP_DROP)) // drop RECLAIM_KEY
+	}
+	return s
+}
+
 // FullRewriteScript is REWRITE_h (spec 7.9, dense profile), and REWRITE_h^x
 // with exitConsent.
 //
@@ -1101,37 +1278,195 @@ func fullHashStep2(d int) []Token {
 func FullRewriteScript(depth, height int, operatorKey [32]byte,
 	exitConsent bool) []Token {
 
-	s := fullCat(
+	return fullRewriteScript(depth, height, operatorKey, exitConsent, nil)
+}
+
+// FullRewriteReclaimScript is the reclaim form of REWRITE_h (spec 7.9 rule
+// 8) in a tree that names reclaimKey as its RECLAIM_KEY, and of REWRITE_h^x
+// with exitConsent; height is at least 1, since R3 pairs positions 2i and
+// 2i+1. The witness is REWRITE_h's: an R3 transfer or an R1 reclaim
+// consumes no signature, and an R1 reclaim needs the lock time at least the
+// reclaimed leaf's evict_after.
+func FullRewriteReclaimScript(depth, height int, operatorKey,
+	reclaimKey [32]byte, exitConsent bool) []Token {
+
+	if height < 1 {
+		panic("the reclaim form of REWRITE_h needs h >= 1")
+	}
+	return fullRewriteScript(depth, height, operatorKey, exitConsent, &reclaimKey)
+}
+
+func fullRewriteScript(depth, height int, operatorKey [32]byte,
+	exitConsent bool, reclaimKey *[32]byte) []Token {
+
+	return fullCat(
 		fullPrologue(),
 		[]Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)}, // ...blocks | m r
-		[]Token{
-			Op(ts.OP_1), Op(ts.OP_TOALTSTACK), // | m r 1
-			Data(fullEmptyLeafHash), Data(fullLeafPrefix), Data(fullNodePrefix), // Z L T
-		},
-	)
-	d := 0
-	var gen func(h int)
-	gen = func(h int) {
-		if h == 0 {
-			s = append(s, fullRewriteStep(d, exitConsent)...)
-			d += 4
-			return
-		}
-		gen(h - 1)
-		gen(h - 1)
-		s = append(s, fullHashStep2(d)...)
-		d -= 4
-	}
-	gen(height) // Z L T oh os nh ns | m r idx
-
-	return fullCat(s,
-		[]Token{
-			Op(ts.OP_FROMALTSTACK), Op(ts.OP_DROP), // drop idx
-			Num(6), Op(ts.OP_ROLL), Op(ts.OP_DROP), Num(5), Op(ts.OP_ROLL),
-			Op(ts.OP_DROP), // T oh os nh ns (drop Z, L)
-		},
+		fullRewriteMachine(height, exitConsent, fullRewritePay(), reclaimKey),
 		fullLevels(false, depth, height),
 		fullCheckOldRootFromAlt(false),
+		fullFinalOutput(depth),
+	)
+}
+
+// ---------------------------------------------------------------------------
+// Pending-leaf receive (spec 6.2, 7.5.4, 7.11; design/pending-receive.md):
+// the merge claims CLAIM^m and CLAIM^hm and the reclaim RECLAIM_1. A tree
+// that carries them names RECLAIM_KEY at creation; a leaf is reclaimable
+// when its evictor_key is RECLAIM_KEY.
+// ---------------------------------------------------------------------------
+
+// FullMergeScript is CLAIM^m (spec 7.5.4), or CLAIM^hm with hashlock: raise
+// the source's sibling to an absolute amount X, taking the difference from
+// the source, whose seq does not advance. Dense profile only.
+//
+// witness (bottom..top) = [dir sc]*(D-1) left right src_is_left X vsig
+// [preimage] r m, with left and right the two leaves of an aligned pair
+// (its node proven at height 1), src_is_left empty or 0x01 and X as le64.
+// reclaimKey, when the tree names one, bars a reclaimable target; dustMin
+// zero means tree.DustMin (tools/layertree_scripts.py merge_script).
+func FullMergeScript(depth int, treeID [32]byte, hashlock bool,
+	reclaimKey *[32]byte, dustMin uint64) []Token {
+
+	s := fullPrologue() // L R f X v [pre] | m r
+	if hashlock {
+		s = fullCat(s, []Token{
+			Op(ts.OP_SIZE), Num(32), Op(ts.OP_EQUALVERIFY), Op(ts.OP_SHA256),
+			Op(ts.OP_TOALTSTACK), // | m r ph
+		})
+	}
+	s = fullCat(s,
+		[]Token{
+			Num(2), Op(ts.OP_ROLL), Op(ts.OP_DUP), Op(ts.OP_TOALTSTACK), // L R X v f | .. f
+			Op(ts.OP_NOTIF), Op(ts.OP_2SWAP), Op(ts.OP_SWAP), Op(ts.OP_2SWAP),
+			Op(ts.OP_ENDIF), // S T X v
+			Num(3), Op(ts.OP_PICK), Op(ts.OP_SIZE), Num(fullLeafLen),
+			Op(ts.OP_EQUALVERIFY), Op(ts.OP_DROP),
+			Num(2), Op(ts.OP_PICK), Op(ts.OP_SIZE), Num(fullLeafLen),
+			Op(ts.OP_EQUALVERIFY), Op(ts.OP_DROP),
+			Op(ts.OP_OVER), Op(ts.OP_SIZE), Num(8), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_DROP), // S T X v (sizes)
+			Num(3), Op(ts.OP_PICK),
+		},
+		fullLeafBody(),
+		[]Token{Num(3), Op(ts.OP_PICK)},
+		fullLeafBody(),
+		[]Token{
+			Op(OP_CAT), Num(2), Op(ts.OP_PICK), Op(OP_CAT),
+			Data(treeID[:]), Op(ts.OP_SWAP), Op(OP_CAT), // S T X v (tid||bS||bT||X)
+		},
+	)
+	prefix := fullVoucherMPrefix
+	if hashlock {
+		s = fullCat(s, []Token{
+			Op(ts.OP_FROMALTSTACK), Op(ts.OP_FROMALTSTACK), Op(ts.OP_SWAP),
+			Op(ts.OP_TOALTSTACK), Op(OP_CAT), // .. ph | .. f
+		})
+		prefix = fullVoucherHMPrefix
+	}
+	s = fullCat(s,
+		fullTagged(prefix), // S T X v msg
+		[]Token{
+			Num(4), Op(ts.OP_PICK), Num(fullOffOwnerKey), Num(32), Op(OP_SUBSTR),
+			Op(OP_CHECKSIGFROMSTACK), Op(ts.OP_VERIFY), // S T X
+			// The target is owned by and exits to the source's exit key
+			// (one compare of tgt[8:72] = exit_key||owner_key), and neither
+			// leaf is final.
+			Op(ts.OP_OVER), Num(fullOffExitKey), Num(64), Op(OP_SUBSTR),
+			Num(3), Op(ts.OP_PICK), Num(fullOffExitKey), Num(32), Op(OP_SUBSTR),
+			Op(ts.OP_DUP), Op(OP_CAT), Op(ts.OP_EQUALVERIFY),
+			Op(ts.OP_OVER), Num(4), Op(OP_RIGHT), Data(fullSeqFinal), Op(ts.OP_EQUAL),
+			Op(ts.OP_NOT), Op(ts.OP_VERIFY),
+			Num(2), Op(ts.OP_PICK), Num(4), Op(OP_RIGHT), Data(fullSeqFinal),
+			Op(ts.OP_EQUAL), Op(ts.OP_NOT), Op(ts.OP_VERIFY),
+		},
+	)
+	if reclaimKey != nil {
+		s = fullCat(s, []Token{
+			Op(ts.OP_OVER), Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR),
+			Data(reclaimKey[:]), Op(ts.OP_EQUAL), Op(ts.OP_NOT),
+			Op(ts.OP_VERIFY), // target not reclaimable
+		})
+	}
+	s = fullCat(s,
+		[]Token{
+			Op(ts.OP_DUP), Num(2), Op(ts.OP_PICK), Num(8), Op(OP_LEFT),
+			Op(ts.OP_SUB),                                                            // S T X d (d = X - tgt.amt)
+			Op(ts.OP_1), Op(ts.OP_OVER), Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // d >= 1
+			Num(3), Op(ts.OP_PICK), Num(8), Op(OP_LEFT), Op(ts.OP_SWAP),
+			Op(ts.OP_SUB),                                                            // S T X res
+			Op(ts.OP_0), Op(ts.OP_OVER), Op(ts.OP_LESSTHANOREQUAL), Op(ts.OP_VERIFY), // res >= 0
+			Op(ts.OP_DUP),
+		},
+		fullLE64(),
+		[]Token{Num(4), Op(ts.OP_PICK)},
+		fullLeafBody(),
+		[]Token{Op(OP_CAT), Num(2), Op(ts.OP_PICK), Num(4), Op(ts.OP_PICK)}, // S T X res newS X T
+		fullLeafBody(),
+		[]Token{
+			Op(OP_CAT),                                     // S T X res newS newT
+			Num(3), Op(ts.OP_ROLL), Op(ts.OP_DROP), Num(2), // S T newS newT
+			Op(ts.OP_ROLL), Op(ts.OP_DROP),
+			Data(fullNodePrefix), Num(4), Op(ts.OP_ROLL), Num(4), Op(ts.OP_ROLL),
+			Num(4), Op(ts.OP_ROLL), Num(4), Op(ts.OP_ROLL), // P S T newS newT
+		},
+		fullLeafAcc(),
+		[]Token{Op(ts.OP_ROT)},
+		fullLeafAcc(),
+		fullDrainRule(dustMin), // P S T nT nS
+		[]Token{Num(4), Op(ts.OP_ROLL)},
+		fullLeafAcc(), // P S nT nS oT
+		[]Token{Num(6), Op(ts.OP_ROLL)},
+		fullLeafAcc(), // P nT nS oT oS
+		[]Token{
+			Op(ts.OP_FROMALTSTACK),
+			Op(ts.OP_IF),
+			Num(5), Op(ts.OP_ROLL), Num(5), Op(ts.OP_ROLL), Num(5), Op(ts.OP_ROLL),
+			Num(5), Op(ts.OP_ROLL), Num(7), Op(ts.OP_ROLL), Num(7),
+			Op(ts.OP_ROLL), // P oS nS oT nT (source left)
+			Op(ts.OP_ELSE),
+			Num(3), Op(ts.OP_ROLL), Num(3), Op(ts.OP_ROLL), Num(7), Op(ts.OP_ROLL),
+			Num(7), Op(ts.OP_ROLL), Num(5), Op(ts.OP_ROLL), Num(5), Op(ts.OP_ROLL),
+			Num(7), Op(ts.OP_ROLL), Num(7), Op(ts.OP_ROLL), // P oT nT oS nS (source right)
+			Op(ts.OP_ENDIF),
+		},
+		fullHashStep2(8), // P poh pos pnh pns
+		fullLevels(false, depth, 1),
+		fullCheckOldRootFromAlt(false),
+		fullFinalOutput(depth),
+	)
+	return s
+}
+
+// FullReclaimScript is RECLAIM_1 (spec 7.11): the operator removes a
+// reclaimable leaf after its deadline with no payout.
+// witness (bottom..top) = [path] leaf sig r m. The leaf's evictor_key MUST
+// be reclaimKey, the lock time at least its evict_after, and sig a
+// transaction signature by reclaimKey; the new node is E_0 and nothing
+// else is constrained (tools/layertree_scripts.py reclaim_script).
+func FullReclaimScript(depth int, reclaimKey [32]byte, sparse bool) []Token {
+	s := fullCat(
+		fullPrologue(),
+		[]Token{
+			Op(ts.OP_OVER), Op(ts.OP_SIZE), Num(fullLeafLen), Op(ts.OP_EQUALVERIFY), // leaf sig leaf
+			Num(fullOffEvictorKey), Num(32), Op(OP_SUBSTR), Data(reclaimKey[:]),
+			Op(ts.OP_EQUALVERIFY), // leaf sig
+			Op(ts.OP_OVER), Num(fullOffEvictAfter), Num(fullLenEvictAfter), Op(OP_SUBSTR),
+			Op(ts.OP_CHECKLOCKTIMEVERIFY), Op(ts.OP_DROP),
+			Data(reclaimKey[:]), Op(ts.OP_CHECKSIGVERIFY), // leaf
+		},
+	)
+	if sparse {
+		s = fullCat(s, fullLeafPos(), fullSparseSetup())
+	}
+	return fullCat(s,
+		fullLeafAcc(),
+		[]Token{
+			Data(fullNodePrefix), Op(ts.OP_ROT), Op(ts.OP_ROT),
+			Data(fullEmptyLeafHash), Op(ts.OP_0),
+		},
+		fullLevels(sparse, depth, 0),
+		fullCheckOldRootFromAlt(sparse),
 		fullFinalOutput(depth),
 	)
 }
@@ -1172,6 +1507,15 @@ type FullTreeOptions struct {
 	// scripts carry as a constant (7.5 rule 6). Zero means tree.DustMin,
 	// the RECOMMENDED 330.
 	DustMin uint64
+
+	// ReclaimKey is the tree's RECLAIM_KEY (spec 6.2) for the pending-leaf
+	// receive, or nil. It adds RECLAIM_1 (7.11) and compiles every
+	// REWRITE_h and REWRITE_h^x, h >= 1, in the reclaim form of 7.9 rule 8
+	// (named REWRITE_R_h and REWRITE_XR_h); ClaimM and ClaimHM add CLAIM^m
+	// and CLAIM^hm (7.5.4, dense profile).
+	ReclaimKey *[32]byte
+	ClaimM     bool
+	ClaimHM    bool
 }
 
 // DustFloor is the DUST_MIN the tree's carve scripts enforce: DustMin, or
@@ -1244,8 +1588,17 @@ func (o FullTreeOptions) Scripts(depth int) []FullNamedScript {
 	if o.Split {
 		add("SPLIT", FullSplitScript(depth, o.Sparse, o.DustMin))
 	}
+	if o.ReclaimKey != nil {
+		add("RECLAIM_1", FullReclaimScript(depth, *o.ReclaimKey, o.Sparse))
+	}
 	if o.Sparse {
 		return out
+	}
+	if o.ClaimM {
+		add("CLAIM_M", FullMergeScript(depth, o.TreeID, false, o.ReclaimKey, o.DustMin))
+	}
+	if o.ClaimHM {
+		add("CLAIM_HM", FullMergeScript(depth, o.TreeID, true, o.ReclaimKey, o.DustMin))
 	}
 	for _, h := range o.EvictHeights {
 		if h <= depth {
@@ -1253,10 +1606,18 @@ func (o FullTreeOptions) Scripts(depth int) []FullNamedScript {
 		}
 	}
 	for _, h := range o.RewriteHeights {
-		if h <= depth {
+		switch {
+		case h > depth:
+		case o.ReclaimKey == nil:
 			add(fmt.Sprintf("REWRITE_%d", h), FullRewriteScript(depth, h, o.OperatorKey, false))
 			if o.RewriteX {
 				add(fmt.Sprintf("REWRITE_X_%d", h), FullRewriteScript(depth, h, o.OperatorKey, true))
+			}
+		case h >= 1:
+			rk := *o.ReclaimKey
+			add(fmt.Sprintf("REWRITE_R_%d", h), FullRewriteReclaimScript(depth, h, o.OperatorKey, rk, false))
+			if o.RewriteX {
+				add(fmt.Sprintf("REWRITE_XR_%d", h), FullRewriteReclaimScript(depth, h, o.OperatorKey, rk, true))
 			}
 		}
 	}
