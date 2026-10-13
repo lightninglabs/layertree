@@ -228,7 +228,8 @@ trade.
 ### R3. Batched transfer (optional)
 
 A `REWRITE_h` in which a reclaimable position's amount falls and its
-sibling, owned by the reclaimable leaf's exit key, rises by the same
+sibling, owned by the reclaimable leaf's exit key and paying out to it,
+rises by the same
 amount, both amount-only, needs `sig_op` and nothing else. It is R2's
 second step without a voucher, and it moves value only toward the
 recipient for the same reasons. Without R3 every window's settlement is a

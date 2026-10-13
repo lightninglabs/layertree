@@ -1500,8 +1500,9 @@ Rules:
 1. `voucher_sig` MUST verify (via `OP_CHECKSIGFROMSTACK`) under
    `source_leaf.owner_key` over the message above with the script's own
    `tree_id`, and for `CLAIM^hm` with `SHA256(preimage)`.
-2. The target is the source's sibling. `target_leaf.owner_key` MUST equal
-   `source_leaf.exit_key`; neither leaf's `seq` may be `SEQ_FINAL`; in a
+2. The target is the source's sibling. `target_leaf.owner_key` and
+   `target_leaf.exit_key` MUST both equal `source_leaf.exit_key`; neither
+   leaf's `seq` may be `SEQ_FINAL`; in a
    tree that names `RECLAIM_KEY` the target MUST NOT be reclaimable.
 3. `d = X − target_leaf.amount` MUST be at least 1, and the source's
    residual `source_leaf.amount − d` MUST be 0 or at least `DUST_MIN`.
@@ -1513,16 +1514,22 @@ Rules:
    the new pair node's fold defines output 0, whose amount is `S`.
 
 *(informative)* Rule 2 is what makes a merge harmless to the party that
-did not sign it. The target belongs to the source's exit key, so value
-can move only into a leaf that key can exit alone, and only into the one
-leaf at the sibling position, which nobody else can remove before its
-lease. Without the position rule a source owner could graft another
+did not sign it. The target is owned by the source's exit key and pays
+out to it, so value can move only into a leaf that key controls and
+exits to itself, and only into the one leaf at the sibling position,
+which nobody else can remove before its lease. Requiring the exit keys
+to match also rules out a cycle in which two siblings, each owned by the
+other's exit key, merge in both directions so that a replayed voucher
+moves value again: with equal exit keys such a cycle can only run
+between two leaves of one key (the Lean model's `merge_cycle_overpays`
+exhibits the cycle the owner condition alone allows). Without the position rule a source owner could graft another
 leaf the exit key owns and drain the source into it just far enough to
 make an outstanding voucher underflow (`design/pending-receive.md`,
 *Review*). Rule 4 leaves the source's body unchanged, so a merge voids
 no voucher against it, and rule 3's absolute target makes replay
-harmless: once the target holds `X` the voucher moves nothing, and an
-older voucher with a lower target is a no-op after a newer one. A target
+harmless while the target's amount only rises: once the target holds
+`X` the voucher moves nothing, and an older voucher with a lower target
+is a no-op after a newer one. A target
 whose amount falls without its body changing would revive merge
 vouchers already spent; the operator MUST advance the target's `seq` in
 any decrease it co-signs, as 9.6 requires of a voucher's source. The
@@ -1685,8 +1692,8 @@ Rules:
    * **Transfer.** At an even position, a new leaf identical to the old
      one in every field but `amount`, with a lower amount, needs no
      signature, provided the odd position of the same pair holds an old
-     leaf that is not reclaimable and whose `owner_key` equals the
-     reclaimable leaf's `exit_key`, and its new element is that leaf with
+     leaf that is not reclaimable and whose `owner_key` and `exit_key`
+     both equal the reclaimable leaf's `exit_key`, and its new element is that leaf with
      its `amount` raised by exactly the decrease.
    * **Reclaim.** Any other change of a reclaimable leaf, an amount-only
      increase excepted (rule 3), needs no signature and no payout, and
