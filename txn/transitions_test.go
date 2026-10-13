@@ -108,6 +108,11 @@ type caseSpec struct {
 	exact    bool
 	tower    bool
 	variants []string
+
+	// pending selects the pending-leaf receive world of pending_test.go
+	// (FULL only): pendingOptions, with UPDATE^x when the variants name
+	// UPDATE_X.
+	pending bool
 }
 
 // newWorld builds the world a case asks for. The FULL reference world is
@@ -126,6 +131,13 @@ func newWorld(t *testing.T, c caseSpec) *world {
 	var opts Options
 	switch c.tier {
 	case Full:
+		if c.pending {
+			opts = pendingOptions(opKey, treeID, c.sparse,
+				c.hasVariant("UPDATE_X"))
+			w.keys = append(w.keys, sk("operator-owner"), sk("rcpt-exit"),
+				sk("operator-reclaim"))
+			break
+		}
 		if !c.exact && !c.tower {
 			w.st = fullSuiteState(t, c, opKey, treeID)
 			break
@@ -469,6 +481,16 @@ func (c *txCase) key() string {
 		profile = "S"
 	}
 	return fmt.Sprintf("%v/%s/D%d/%s", c.tier, profile, c.depth, c.name)
+}
+
+// hasVariant reports whether s names the tree-creation variant.
+func (s caseSpec) hasVariant(name string) bool {
+	for _, v := range s.variants {
+		if v == name {
+			return true
+		}
+	}
+	return false
 }
 
 // withVariant is s with one more tree-creation variant.
@@ -1062,6 +1084,9 @@ func tierCases(tier Tier, depth int, sparse bool) []txCase {
 		cases = append(cases, updateCases(s)...)
 	}
 	cases = append(cases, carveCases(s)...)
+	if tier == Full {
+		cases = append(cases, pendingCases(s)...)
+	}
 	if sparse || tier == Min {
 		return cases
 	}

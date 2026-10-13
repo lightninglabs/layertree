@@ -173,6 +173,11 @@ type rules struct {
 	exact       bool
 	tower       bool
 	exitConsent bool
+
+	// reclaimKey is the tree's RECLAIM_KEY (spec 6.2), or nil: it makes
+	// the leaves that name it as evictor reclaimable, adds RECLAIM_1, and
+	// puts every REWRITE_h in its reclaim form (7.9 rule 8).
+	reclaimKey *[32]byte
 }
 
 // optionRules reads the rules off an option set. An option set of a type
@@ -184,6 +189,7 @@ func optionRules(o Options) (rules, error) {
 			tier: Full, sparse: v.Sparse, operatorKey: v.OperatorKey,
 			treeID: v.TreeID, exact: v.Exact || v.Tower, tower: v.Tower,
 			exitConsent: v.UpdateX || v.ClaimX || v.ClaimHX,
+			reclaimKey:  v.ReclaimKey,
 		}, nil
 	case script.MidTreeOptions:
 		return rules{
