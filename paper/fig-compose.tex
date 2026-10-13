@@ -1,0 +1,32 @@
+% How the predicates compose: each transition consumes the tree output and
+% produces the next one, and some also produce payouts or a second tree
+% output. Input from the section that introduces the predicates, in both
+% versions. Predicate names are those of predicates.tex.
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  box/.style={draw, rounded corners=1pt, align=center, inner sep=2.5pt},
+  pred/.style={box, minimum width=34mm, minimum height=9mm, fill=black!6},
+  arr/.style={-{Latex[length=1.6mm]}, thin},
+  lab/.style={font=\tiny\itshape, text=black!70}
+]
+\node[box, minimum width=23mm, minimum height=14mm] (in) at (0,0.7) {input 0\\ tree output\\ $(\TreeSpk(r,m),\ S)$};
+\node[box, dashed, minimum width=23mm] (fund) at (0,3.2) {other inputs:\\ funding, fees};
+\node[pred] (A) at (4.5,3.2) {$\Phi_{\tr{JOIN}}$, $\Phi_{\tr{UPDATE}}$, $\Phi_{\tr{CLAIM}}$\\ value stays in the tree};
+\node[pred] (D) at (4.5,1.8) {$\Phi_{\tr{RECLAIM}}$\\ a leaf is freed, unpaid};
+\node[pred] (B) at (4.5,0.2) {$\Phi_{\tr{EXIT}}$, $\Phi_{\tr{EVICT\_SUBTREE}}$, $\Phi_{\tr{REWRITE}}$\\ leaves are paid out};
+\node[pred] (C) at (4.5,-1.4) {$\Phi_{\tr{DETACH}}$\\ a subtree gets its own output};
+\node[box, minimum width=27mm, minimum height=40mm] (o0) at (9.3,1.65) {output 0\\ tree output\\ $(\TreeSpk(r',m),\ S')$\\[2pt] a tree again, or\\ free if $r' = \Emp_D$};
+\node[box, minimum width=27mm] (pay) at (9.3,-1.0) {outputs $1,\dots,K$\\ $\Ptr{\ell.\xk}$, $\ell.\amt$};
+\node[box, minimum width=27mm] (o1) at (9.3,-2.5) {output 1 (\tr{DETACH})\\ $(\TreeSpk(R_h,m_h),\ \mathsf{sum}_h)$};
+\draw[arr, dashed] (fund) -- node[above, lab] {increases} (A.west |- fund.east);
+\foreach \p in {A,D,B,C}{\draw[arr] (in.east) -- (\p.west);}
+\foreach \p in {A,D,B}{\draw[arr] (\p.east) -- (\p.east -| o0.west);}
+\draw[arr] (B.south east) -- (pay.west);
+\draw[arr] (C.east) -- (o1.west);
+\draw[arr] (C.north east) to[out=15,in=240] ([xshift=3mm]o0.south west);
+\end{tikzpicture}
+\caption{How the predicates compose. Every transition spends the tree output, input~0, and recreates it as output~0 under the new root; payouts are outputs $1, \dots, K$ and every other input and output is free. \tr{DETACH} writes a second tree output, itself the tree output of a smaller tree under the same rules and $\mathsf{tree\_id}$.}
+\label{fig:compose}
+\end{figure}

@@ -134,6 +134,38 @@
 \newcommand{\iface}[1]{\ensuremath{\mathsf{#1}}}
 \newcommand{\lat}{\ensuremath{\Delta}}
 
+% Predicate boxes (predicates.tex) and party algorithms (algorithms.tex).
+\usepackage{float}
+\floatstyle{ruled}\newfloat{algorithm}{tbp}{loa}\floatname{algorithm}{Algorithm}
+\floatstyle{plain}
+\newcommand{\amt}{\mathsf{amt}}
+\newcommand{\xk}{\mathsf{xk}}
+\newcommand{\ok}{\mathsf{ok}}
+\newcommand{\ek}{\mathsf{ek}}
+\newcommand{\ea}{\mathsf{ea}}
+\newcommand{\sq}{\mathsf{seq}}
+\newcommand{\nc}{\mathsf{nonce}}
+\newcommand{\nd}[1]{\mathsf{nd}(#1)}
+\newcommand{\Ptr}[1]{\mathrm{P2TR}(#1)}
+\newcommand{\lock}{\mathsf{lock}}
+\newcommand{\vin}{\mathsf{in}}
+\newcommand{\vout}{\mathsf{out}}
+\newcommand{\Sig}[2]{\mathsf{Sig}_{#1}(#2)}
+\newcommand{\Csfs}[3]{\mathsf{Csfs}_{#1}(#2,#3)}
+\newcommand{\gl}[1]{\ \textendash\ \textit{#1}}
+\newcommand{\sr}[1]{\ {\color{black!55}\textsf{[#1]}}}
+\newcounter{chk}
+\newenvironment{checks}{\begin{list}{\arabic{chk}.}{\usecounter{chk}%
+  \setlength{\leftmargin}{1.35em}\setlength{\labelwidth}{1.1em}\setlength{\labelsep}{0.25em}%
+  \setlength{\itemsep}{1pt}\setlength{\topsep}{1pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}}}{\end{list}}
+\newcommand{\pbpart}[1]{\par\smallskip\noindent\textbf{#1}\ }
+% A predicate box: a framed figure without a caption, headed by its name.
+\newsavebox{\pbbox}
+\newenvironment{predbox}[1]{\begin{figure}[tbp]\centering\begin{lrbox}{\pbbox}%
+  \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}\footnotesize
+  \raggedright\noindent\textbf{#1}\par\smallskip}{\end{minipage}\end{lrbox}\fbox{\usebox{\pbbox}}\end{figure}}
+\input{algorithms}
+
 \begin{document}
 
 \title{LayerTree: A Shared Bitcoin UTXO\\ with an $O(1)$ Unilateral Exit}
@@ -454,8 +486,11 @@ input's amount (\tr{CHECK\_OLD}), and $(r', S') = \fold(n_{\mathrm{new}},
 node against the previous step's root (\tr{CHECK\_PREV}), an
 authorisation, and a check that output~0 is $(S', \TreeSpk(r', m))$
 unless the tree is now empty (\tr{FINAL}). Table~\ref{tab:pred} gives
-each interface's predicate; Appendix~\ref{app:scripts} gives the step in
-pseudocode and tapscript.
+each interface's predicate, Figure~\ref{fig:compose} shows how they
+compose, and the boxes that follow it state each predicate exactly;
+Appendix~\ref{app:scripts} gives the step in pseudocode and tapscript.
+
+\input{fig-compose}
 
 \begin{table}[tbp]
 \centering
@@ -497,7 +532,18 @@ key consents to a redemption), \tr{REWRITE}$_h$ (a subtree's published
 leaves replaced at once, each emptied leaf paid exactly to its exit key)
 and \tr{DETACH}$_h$ (a subtree moved to an output of its own).
 
+\input{predicates}
+
 \subsection{Honest Parties}\label{sec:parties}
+
+The honest parties are given as algorithms: the operator's
+(Algorithms~\ref{alg:create}, \ref{alg:graft}, \ref{alg:rewrite}
+and~\ref{alg:evict}), a member's (\ref{alg:accept}, \ref{alg:exit}
+and~\ref{alg:follow}), the issuer's and the recipient's of a voucher
+(\ref{alg:vouch}, \ref{alg:redeem} and~\ref{alg:swap}), and those of the
+receive protocol of \S\ref{sec:receive} (\ref{alg:receive} to
+\ref{alg:reclaim}). Each is followed by a paragraph that walks its lines
+against the spec rule it implements and says where the spec is silent.
 
 A member stores its leaf and path and follows every spend of the tree
 output; each witness contains the path it used, so the member updates its
@@ -517,6 +563,17 @@ its amount and the tree's identifier, checked from the stack, so a tower holding
 fees and rebuilds the exit while the owner is offline. Transitions are final at the
 member's confirmation depth. The operator keeps the full tree, assigns
 slots, signs joins and updates, and evicts or sweeps expired leaves.
+
+\algCreate
+\algGraft
+\algAccept
+\algExit
+\algFollow
+\algVouch
+\algRedeem
+\algSwap
+\algRewrite
+\algEvict
 
 \else
 % The short version: the operations, the vouchers and the trust model

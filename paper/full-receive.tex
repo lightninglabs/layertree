@@ -57,3 +57,13 @@ between leaves that exit to one key, that a reclaim removes only flagged
 leaves past their deadline, and that replaying a voucher moves nothing. The
 credit leaf remains the choice for a wallet that accepts one payment of
 trust and wants no deadline.
+
+\paragraph{The parties of the pending-leaf receive.} The recipient and the
+operator run Algorithm~\ref{alg:receive} for each payment; the operator runs
+Algorithms~\ref{alg:settle} and~\ref{alg:reclaim} at the close of each
+window, and the recipient's tower runs Algorithm~\ref{alg:watch}.
+
+\algReceive
+\algSettle
+\algWatch
+\algReclaim
