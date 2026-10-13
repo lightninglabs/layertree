@@ -43,7 +43,7 @@
   <h1>Formal verification</h1>
 
   <p class="takeaway">The rules the covenant enforces are proved correct in
-  Lean 4: 61 machine-checked theorems, no unfinished proofs, about 3,500 lines
+  Lean 4: 72 machine-checked theorems, no unfinished proofs, about 4,500 lines
   with no external libraries. The central one says that anyone holding a leaf
   and its path can always build an accepted exit that pays the leaf's amount,
   without anyone's help and without touching another leaf. The off-chain
@@ -62,7 +62,7 @@
         <tr><th scope="col">Layer</th><th scope="col">Question</th><th scope="col">Method</th><th scope="col">Status</th></tr>
       </thead>
       <tbody>
-        <tr><th scope="row">Transition rules (spec 5, 7, 10.2)</th><td>Do the rules conserve value, bind the right leaf and always allow an exit, for every depth and every tree?</td><td>Lean 4 proofs, <code>formal/</code></td><td>61 theorems, axiom audit clean</td></tr>
+        <tr><th scope="row">Transition rules (spec 5, 7, 10.2)</th><td>Do the rules conserve value, bind the right leaf and always allow an exit, for every depth and every tree?</td><td>Lean 4 proofs, <code>formal/</code></td><td>72 theorems, axiom audit clean</td></tr>
         <tr><th scope="row">Scripts (spec 8)</th><td>Does each script accept exactly the spends its rule allows?</td><td>A tapscript simulator runs every script on real trees with positive and negative cases</td><td>4,687 checks across the four tiers, the channel leaves and the Merkle-sum measurement</td></tr>
         <tr><th scope="row">Go implementation</th><td>Do the Go scripts and transactions match the reference?</td><td>Byte-for-byte golden vectors, and every Go-built witness replayed through the simulator</td><td>121 golden scripts; 287 end-to-end spends, 0 failures</td></tr>
         <tr><th scope="row">Off-chain protocol (spec 9, Appendix C)</th><td>Do honest parties stay safe under every message ordering, reorg and adversarial choice?</td><td>Model checking in P</td><td>Designed in <code>design/p-model.md</code>, not built</td></tr>
@@ -105,7 +105,7 @@
     to the output key, and <code>CCVTweak.binding</code> proves the same for
     the CCV tier's key from its two tweak stages.</dd>
     <dt>Every transition</dt>
-    <dd>Exit, join, update, claim and split, the cohort sweep, the cohort
+    <dd>Exit, join, update, claim and split, merge and reclaim, the cohort sweep, the cohort
     rewrite and the detach each have a soundness theorem: what the old tree
     held, what output 0 commits to, and how the amounts balance. For example
     <code>rewrite_payout_conservation</code> covers a rewrite that mixes exits,
@@ -116,6 +116,33 @@
     issuers. <code>voucher_survives_topup</code>: an operator raising the
     leaf's amount does not void a voucher. <code>voucher_survives_detach</code>:
     a voucher follows its leaf into a detached tree.</dd>
+    <dt>The pending-leaf receive</dt>
+    <dd>The merge claim, the reclaim and the reclaim form of the cohort rewrite
+    (<a href="payment.html#pending">payments</a>) each have a soundness theorem:
+    <code>merge_sound</code> says a merge moves value only from the source into
+    the sibling it exits to, <code>reclaim_sound</code> that a reclaim removes
+    one reclaimable leaf past its deadline and no other, and
+    <code>rewrite_transfer_sound</code> that a rewrite can lower a reclaimable
+    leaf only into its own sibling. <code>reclaim_only_flagged</code> says every
+    leaf that is not flagged reclaimable stays in the tree, and a tree without a
+    reclaim key accepts no reclaim at all. <code>merge_body_preserved</code>:
+    a merge changes no leaf's body, so it voids no voucher.
+    <code>merge_target_monotone</code> and <code>merge_stale_rejected</code>:
+    a merge raises its target exactly to the voucher's level, and once the
+    target holds that level, replaying the voucher or redeeming an older, lower
+    one moves nothing. <code>merge_no_overpay</code> bounds what merges into one
+    leaf can pay, along any history, by the largest level ever signed for it.
+    <code>rewrite_reclaimable_change</code>: a reclaimable leaf changes without
+    its owner only by an amount increase, an exactly absorbed transfer, or after
+    its deadline.</dd>
+    <dt>Histories</dt>
+    <dd><code>Accepts.sound</code> and <code>Chain.sound</code> bridge the
+    chain and the model: every root a chain of accepted spends reaches is the
+    root of a tree reachable by the transition records. <code>Reachable.ledger</code>
+    keeps the books across those records, merges moving nothing and reclaims
+    removing exactly the reclaimed amount. <code>Reachable.dust</code> and
+    <code>Reachable.evictable</code> carry the dust floor and eviction through
+    a whole history.</dd>
     <dt>Eviction cannot be escaped</dt>
     <dd><code>claim_evictable</code> and <code>Reachable.evictable</code>: no
     sequence of carves produces a leaf the cohort's sweep cannot remove.</dd>
@@ -160,6 +187,22 @@
     it. <code>voucher_survives_topup</code> proves the new rule, and its
     proviso exposed the one remaining case: a top-up smaller than the dust
     floor blocks, but does not void, a voucher for the whole balance.</li>
+    <li><strong>The merge target and the transfer sibling.</strong>
+    The first rules for the pending-leaf receive required a merge's target to
+    be owned by the source's exit key but not to exit to it. The model found
+    two consequences: value could leave a key's exits through a merge into a
+    leaf it owned that exits elsewhere, and two leaves each owned by the
+    other's exit key could merge back and forth, so a replayed voucher moved
+    value across keys. Both the merge claim and the reclaim-form rewrite now
+    require equal exit keys (<code>MergeOk.exit_eq</code>,
+    <code>Tree.Transfer</code>). After that
+    <code>Reachable.exit_value</code> holds: along any history of merges and
+    reclaims, the amount held in leaves that are not reclaimable and exit to
+    one key never decreases. The only cycles left are within one key
+    (<code>merge_cycle_overpays</code>), which the bound
+    <code>merge_no_overpay</code> counts. That bound needs the operator to
+    advance a landing leaf's <code>seq</code> in any decrease it co-signs, a
+    rule the scripts do not check.</li>
     <li><strong>Unconditional facts made explicit.</strong> A claim's position
     must be empty after the source step, not before, so a drained source can be
     reused in the same transaction. Published cohorts are grounded by
@@ -247,6 +290,7 @@ lake build    # compiles every module, then prints the axiom audit</code></pre>
     <h2 id="deeper">Deeper</h2>
     <ul>
       <li><a href="../../formal/README.md"><code>formal/README.md</code></a>: every theorem, the assumptions, and where the model is weaker than the spec.</li>
+      <li><a href="../../design/pending-receive.md"><code>design/pending-receive.md</code></a> and <a href="../../design/towers.md"><code>design/towers.md</code></a>: the pending-leaf receive the new theorems cover, and the towers that redeem its vouchers.</li>
       <li><a href="../../design/p-model.md"><code>design/p-model.md</code></a>: the P model's machines, properties, scenarios and limits.</li>
       <li><a href="../../design/review.md"><code>design/review.md</code></a>: the review findings, including F18 on what the Lean model made precise.</li>
       <li><a href="../../spec/layertree.md">Spec 10.2</a>: the security argument the theorems formalise.</li>

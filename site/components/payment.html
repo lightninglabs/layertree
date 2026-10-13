@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&amp;display=swap">
 <title>Paying each other</title>
-<meta name="description" content="How value moves between LayerTree members: vouchers and CLAIM, SPLIT, Lightning channels inside leaves, and a credit leaf for receiving over Lightning.">
+<meta name="description" content="How value moves between LayerTree members: vouchers and CLAIM, SPLIT, Lightning channels inside leaves, a credit leaf for receiving over Lightning, and pending pairs for receiving atomically.">
 <script>try{if(localStorage.getItem("layertree-theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 <link rel="stylesheet" href="../css/tokens.css">
 <link rel="stylesheet" href="../css/site.css">
@@ -191,6 +191,146 @@
   it would need a contest window, which is what a channel leaf provides. Receiving
   suits the credit leaf; two-way traffic suits the channel leaf.</p>
 
+  <h2 id="pending">Receiving atomically: pending pairs</h2>
+  <p>The credit leaf leaves one gap. After the operator settles the payer's
+  Lightning payment and before it signs the recipient a voucher, the operator
+  holds the payment and the recipient holds nothing enforceable. A <em>pending
+  pair</em> closes it: the recipient gets an enforceable claim before it
+  releases the payment's preimage, and the operator gets its money back if the
+  preimage never comes. This needs three additions to the script set, none of
+  them a new opcode: a reclaim key (R1), a voucher that raises a sibling leaf
+  (R2), and a batch rewrite that moves value into that sibling (R3). A tree
+  opts into them when it is created.</p>
+
+  <div class="tree-anim" data-scenario="pending-steps">
+    <noscript><p class="ta-noscript">This figure needs JavaScript. The text below describes the same steps.</p></noscript>
+  </div>
+  <script type="application/json" id="pending-steps">
+  {
+    "label": "Three receive pairs and the three ways a window ends",
+    "depth": 3,
+    "committed": true,
+    "leaves": [
+      {"label": "PA", "amount": 10, "note": "pending"}, {"label": "LA", "amount": 4, "note": "landing"},
+      {"label": "PB", "amount": 10, "note": "pending"}, {"label": "LB", "amount": 4, "note": "landing"},
+      {"label": "PC", "amount": 10, "note": "pending"}, {"label": "LC", "amount": 4, "note": "landing"},
+      null, null
+    ],
+    "steps": [
+      {
+        "title": "Receive pairs",
+        "caption": "Each recipient holds two sibling leaves. The pending leaf P is owned by the operator, but its exit key is the recipient's, so an exit or an eviction pays it to the recipient, and its evictor is a separate reclaim key that works only after the deadline T. The landing leaf L is the recipient's own: it owns it and exits it, and it is not reclaimable. Here A, B and C each hold a pair with 10 in P and 4 in L.",
+        "ops": [
+          {"op": "region", "h": 1, "i": 0, "label": "pair A"},
+          {"op": "badge", "pos": 0, "text": "deadline T", "kind": "sig"}
+        ]
+      },
+      {
+        "title": "A hash-locked merge voucher",
+        "caption": "A payment of 3 reaches the operator for each of A, B and C. Each recipient draws a preimage and the operator signs a voucher against its P: raise the sibling L to 7, locked to the payment hash. The voucher can only move value from P into L, which the recipient alone can exit, and it needs no signature from anyone but the operator. The recipient checks the pair and the voucher against the confirmed tree before going on.",
+        "ops": [
+          {"op": "badge", "pos": 0, "text": "L to 7, hash", "kind": "hash"},
+          {"op": "badge", "pos": 2, "text": "L to 7, hash", "kind": "hash"},
+          {"op": "badge", "pos": 4, "text": "L to 7, hash", "kind": "hash"}
+        ]
+      },
+      {
+        "title": "Preimage reveal",
+        "caption": "A and B release their preimages and the operator settles the payers' payments. Nothing reaches the chain. From this moment each can redeem its voucher with the preimage it drew, and the operator cannot stop it before T. C does not reveal, so the operator's inbound payment from C's payer stays open.",
+        "ops": [
+          {"op": "badge", "pos": 1, "text": "preimage", "kind": "hash"},
+          {"op": "badge", "pos": 3, "text": "preimage", "kind": "hash"},
+          {"op": "badge", "pos": 5, "text": "withheld", "kind": "bad"}
+        ]
+      },
+      {
+        "title": "Way 1: the operator's batch",
+        "caption": "Before T the operator settles the window in one batch rewrite: A's P falls by 3 and A's L rises by 3, and the same rewrite carries every other recipient that settled this window. Only the operator's signature is needed, since the transfer can pay nobody but the recipient. Recipients that received nothing are not touched.",
+        "ops": [
+          {"op": "path", "pos": 0},
+          {"op": "leaf", "pos": 0, "leaf": {"label": "PA", "amount": 7, "note": "pending"}},
+          {"op": "leaf", "pos": 1, "leaf": {"label": "LA", "amount": 7, "note": "landing"}},
+          {"op": "fold", "pos": 0},
+          {"op": "badge", "pos": 0, "text": "operator sig only", "kind": "sig"},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Way 2: a tower redeems the voucher",
+        "caption": "The operator settled B's payment but did not move the value. Before T, B's tower sees that LB has not reached 7. It redeems the voucher with the preimage B gave it, which raises LB to 7 and lowers PB by 3. The tower holds no key of B's and cannot send the value anywhere but into B's own leaf. It pays the fee.",
+        "ops": [
+          {"op": "path", "pos": 2},
+          {"op": "leaf", "pos": 2, "leaf": {"label": "PB", "amount": 7, "note": "pending"}},
+          {"op": "leaf", "pos": 3, "leaf": {"label": "LB", "amount": 7, "note": "landing"}},
+          {"op": "fold", "pos": 2},
+          {"op": "badge", "pos": 3, "text": "voucher + preimage", "kind": "voucher"},
+          {"op": "commit"}
+        ]
+      },
+      {
+        "title": "Way 3: the operator reclaims",
+        "caption": "C never released the preimage, so nothing was owed. After T the operator removes PC with its reclaim key and takes the value back, and only once that has confirmed does it fail the payer's held payment upstream, so the payer is refunded. Had C revealed late, the voucher could still have been redeemed before the reclaim, and the operator would have held the payment open to settle it. LC is untouched.",
+        "ops": [
+          {"op": "path", "pos": 4},
+          {"op": "leaf", "pos": 4, "leaf": null},
+          {"op": "fold", "pos": 4},
+          {"op": "chip", "id": "reclaim", "kind": "payout", "label": "Back to the operator", "amount": 10},
+          {"op": "commit"}
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <p>The figure runs three pairs through one window, one for each way a window
+  ends. In words:</p>
+  <ol>
+    <li><strong>The pair.</strong> <code>P</code> is the pending leaf:
+    operator-owned, exit key the recipient's, evictor <code>RECLAIM_KEY</code>,
+    deadline <code>T</code>. <code>L</code> is the recipient's landing leaf. A
+    recipient that wants payments in flight across a deadline holds two pairs
+    with staggered deadlines.</li>
+    <li><strong>The voucher.</strong> For each payment the operator signs a
+    merge voucher (<code>CLAIM^hm</code>) against <code>P</code>: raise the
+    sibling to an absolute level, under the payment hash. It names a level, not
+    an amount, so an older voucher redeemed after a newer one moves nothing, and
+    one voucher covers every payment of the window. The recipient releases one
+    preimage at a time per pair.</li>
+    <li><strong>The reveal.</strong> The recipient releases the preimage only
+    once the voucher is in hand and checked. Before that the operator has signed
+    nothing it can lose; after it, the recipient can redeem on-chain and the
+    operator cannot stop it before <code>T</code>.</li>
+    <li><strong>The window closes</strong> in one of three ways: the operator's
+    non-interactive batch rewrite (R3), a tower redeeming the voucher, or the
+    operator reclaiming the pending leaf after <code>T</code> (R1) when no
+    preimage came. Value left in <code>P</code> at <code>T</code> is the
+    operator's, which is what makes the timeout work, so the settled total moves
+    to <code>L</code> once per window. The operator keeps any payment whose
+    voucher is outstanding open until its reclaim has confirmed.</li>
+  </ol>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Settle-first credit leaf against pending pairs (<code>design/pending-receive.md</code>)</caption>
+      <thead>
+        <tr><th scope="col"></th><th scope="col">Credit leaf</th><th scope="col">Pending pairs</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">Trust while receiving</th><td>one payment, between settling and signing</td><td>none: the voucher exists before the preimage is released</td></tr>
+        <tr><th scope="row">Recipient's balance</th><td>the credit leaf, one voucher for the running total</td><td>the landing leaf, which the recipient owns</td></tr>
+        <tr><th scope="row">Deadline</th><td>none</td><td>one per window; a tower can meet it with no key of the recipient's</td></tr>
+        <tr><th scope="row">On-chain work</th><td>none until the recipient redeems</td><td>one batch settlement per window, for the pairs that received</td></tr>
+        <tr><th scope="row">Setup</th><td>one leaf</td><td>one or two sibling pairs, and a reclaim key in the tree's parameters</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Settling first suits a wallet that accepts one payment of trust and wants
+  no deadline. Pending pairs suit one that wants the receive to be atomic, at
+  the price of a window and a tower, or a wallet that wakes before the window
+  closes. The merge voucher is also the first voucher a tower can redeem with no
+  key of the recipient's, since it can pay nobody but the recipient's own
+  leaf.</p>
+
   <div class="callout">
     <p>Rewriting a leaf on-chain with <code>UPDATE</code> also moves value, at
     about 1,073 vB at depth 16, ten times a bare spend. <code>UPDATE</code> is for
@@ -205,6 +345,8 @@
       <li><a href="../../spec/layertree.md#96-vouchers">Spec 9.6</a>: the issuer's and recipient's obligations; <a href="../../spec/layertree.md#103-vouchers">10.3</a>: the residual risks.</li>
       <li><a href="../../spec/layertree.md#98-channel-leaves">Spec 9.8</a> and <a href="../../spec/channel-leaves.md">Appendix C</a>, C.1 to C.5: channel leaves, their state machine, HTLCs and deadlines.</li>
       <li><a href="../../design/receive.md"><code>design/receive.md</code></a>: receiving into a credit leaf, compared with an Ark client.</li>
+      <li><a href="../../spec/layertree.md#963-the-pending-leaf-receive">Spec 9.6.3</a>: the pending-leaf receive's obligations; <a href="../../spec/layertree.md#754-claimm-merge-into-the-sibling">7.5.4</a>: <code>CLAIM^m</code>; <a href="../../spec/layertree.md#711-reclaim_1-reclaim-after-a-deadline">7.11</a>: <code>RECLAIM_1</code>.</li>
+      <li><a href="../../design/pending-receive.md"><code>design/pending-receive.md</code></a>: the construction, its timing rule and the flows; <a href="../../design/towers.md"><code>design/towers.md</code></a>: what a tower holds and may do; <a href="../../design/interactivity.md"><code>design/interactivity.md</code></a>: who has to be online.</li>
     </ul>
   </section>
 </main>
