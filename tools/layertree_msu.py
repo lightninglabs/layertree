@@ -349,7 +349,9 @@ def merge_script_msu(depth, tree_id, hashlock=False, reclaim_key=None, dust_min=
     (depth byte D - 1). Everything up to the two new leaves is FULL's
     merge_script: the voucher over H_voucher_m(tree_id || body(S) ||
     body(T) || X [|| SHA256(preimage)]) by S.owner_key, T.owner_key ==
-    S.exit_key, neither leaf at SEQ_FINAL, T not reclaimable, d = X -
+    T.exit_key == S.exit_key (the exit-key match is one compare beyond
+    FULL's script at 668bba7), neither leaf at SEQ_FINAL, T not
+    reclaimable, d = X -
     T.amount >= 1, a residual of zero (S becomes E_0) or at least
     DUST_MIN. Then the four leaves become 40-byte nodes, the old and new
     pair nodes are hashed in script, and one MSU call folds both over the
