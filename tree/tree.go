@@ -33,6 +33,12 @@ const (
 	// never be redeemed as a voucher nor a voucher spent as an exit.
 	TagExit = "LayerTree/exit"
 
+	// TagVoucherM and TagVoucherHM tag the merge voucher of CLAIM^m and
+	// CLAIM^hm (spec 7.5.4): tags of their own, so a merge voucher can
+	// never be redeemed as a carve nor a carve voucher as a merge.
+	TagVoucherM  = "LayerTree/voucher-merge"
+	TagVoucherHM = "LayerTree/voucher-merge-hashlock"
+
 	// TagTreeID tags the RECOMMENDED tree_id derivation (spec 6.2).
 	TagTreeID = "LayerTree/tree-id"
 )
@@ -303,6 +309,22 @@ func VoucherHMsg(treeID [32]byte, source, claim *Leaf,
 
 	return TaggedHash(TagVoucherH, treeID[:], source.Body(),
 		claim.Serialize(), paymentHash[:])
+}
+
+// VoucherMMsg is H_voucher_m(tree_id || body(source) || body(target) ||
+// le64(X)), the message a CLAIM^m merge voucher signs (spec 7.5.4), and
+// with a payment hash H_voucher_hm(... || payment_hash) for CLAIM^hm. X is
+// the absolute amount the target is raised to, so once the target holds X
+// the voucher moves nothing (tools/layertree_ref.py voucher_m_msg).
+func VoucherMMsg(treeID [32]byte, source, target *Leaf, x uint64,
+	paymentHash *[32]byte) [32]byte {
+
+	if paymentHash == nil {
+		return TaggedHash(TagVoucherM, treeID[:], source.Body(),
+			target.Body(), Le64(x))
+	}
+	return TaggedHash(TagVoucherHM, treeID[:], source.Body(), target.Body(),
+		Le64(x), paymentHash[:])
 }
 
 // ExitAuthMsg is H_exit(tree_id || body(leaf)), the message an owner signs
