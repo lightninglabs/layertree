@@ -58,8 +58,8 @@
     that verifies a Merkle-sum path and returns the updated root,
     <code>OP_MERKLESUMUPDATE</code>. With it the script is 252 bytes at any depth
     and the proof carries one 40-byte sibling per occupied level, so the tree can
-    be key-addressed at depth 64 and grow far past 2<sup>16</sup>. The opcode is
-    specified and measured in the repository's simulator (61 checks); nobody has
+    be key-addressed at depth 64 and grow far past 2<sup>16</sup>. Every LayerTree figure on this page uses that model (541 vB at 65,536 members); the spec and the cost comparison quote about 520 vB for the simulator's dense depth-16 tree. The opcode is
+    specified and measured in the repository's simulator (126 checks); nobody has
     proposed it for Bitcoin yet. The FULL tier, built only from existing
     proposals, is drawn dashed for reference. The <a href="tiers.html">tiers
     page</a> has every tier.</p>

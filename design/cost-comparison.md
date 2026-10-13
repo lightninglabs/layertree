@@ -41,7 +41,7 @@ for the same work because they lack the restored arithmetic opcodes. The
 CCV tier from PR #6 saves about a tenth by letting `OP_CHECKCONTRACTVERIFY`
 do the state binding. The hypothetical native opcode measured in PR #7
 brings the exit down to 388 vbytes on the simulator's six-leaf tree, about
-520 in a full depth-16 tree, and that is a floor for any design that
+520 in a full dense depth-16 tree (the simulator's model; the scaling page's key-addressed depth-64 tree gives 541 at 65,536 members), and that is a floor for any design that
 verifies a proof in-script: the proof itself is about 10 vbytes per
 occupied level and still has to be published.
 
@@ -56,7 +56,7 @@ occupied level and still has to be published.
 | MID tier | 1,355 |
 | MIN tier | 1,473 |
 | CCV tier, tapleaf `0xC2` (PR #6) | 908 |
-| CCV plus native Merkle-sum opcode (PR #7, hypothetical) | 388 on a six-leaf tree, about 520 in a full tree |
+| CCV plus native Merkle-sum opcode (PR #7, hypothetical) | 388 on a six-leaf tree, about 520 in a full dense depth-16 tree (541 in the key-addressed depth-64 model of the scaling page) |
 | Transaction-tree exit at `D = 16` (Ark or CTV model) | 2,511 |
 
 The transaction-tree row uses the model of spec section 11: `D`

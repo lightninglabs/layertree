@@ -323,7 +323,8 @@ unroll a transaction-tree branch of the same size. The MID and MIN tiers
 cost 1,355 and 1,473 vB, CCV 908. That is the price of the proof, and it
 is a constant: it does not grow with the number of members. The floor,
 measured in the simulator and never a tier, is about 520 vB for a full
-depth-16 tree (388 on the simulator's six-leaf tree): one purpose-built
+dense depth-16 tree (388 on the simulator's six-leaf tree; the scaling page's
+key-addressed depth-64 model gives 541 at 65,536 members): one purpose-built
 Merkle-sum opcode would replace the unrolled fold with 252 bytes of script
 at any depth and one 40-byte sibling of witness per occupied level
 (`design/native-opcodes.md`).

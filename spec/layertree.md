@@ -3964,11 +3964,15 @@ exits in a batch" as `EXIT_K` (section 13).
     script above: `EXIT_1` measures 252 bytes of script at any depth and
     225 of witness on the simulator's six-leaf tree, about 388 vB on the
     model of section 11; the witness carries one 40-byte sibling per
-    occupied level, so a full depth-16 tree costs about 520 vB, against
+    occupied level, so a full dense depth-16 tree costs about 520 vB
+    (the simulator's model: depth 16, 16 occupied levels), against
     1,716 / 838 (908 vB) for CCV and 2,101 / 902 (1,020 vB) for FULL, and
-    the sparse profile stops costing more than the dense one. `design/native-opcodes.md` specifies the
+    the sparse profile stops costing more than the dense one. The scaling
+    page and `design/native-opcodes.md` use a different model, a
+    key-addressed tree at depth 64 with 65,536 members, in which the same
+    exit is 541 vB (`381 + 10k`, `k` the occupied levels). `design/native-opcodes.md` specifies the
     hypothetical semantics and `tools/layertree_msu.py` measures them
-    behind the simulator's `hypothetical=True` flag (61 checks,
+    behind the simulator's `hypothetical=True` flag (126 checks,
     `tools/test_msu.py`). It is not a tier and never enters
     `all_scripts()` or the golden vectors: this document composes opcodes
     that have been proposed and proposes none.
