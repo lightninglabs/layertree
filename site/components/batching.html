@@ -192,7 +192,7 @@
   fourth exit.</p>
   <p>The larger effect is on throughput. Every transition of a tree spends the
   same output, so they queue one behind another, and relay policy caps the queue
-  at about 25 unconfirmed transactions. A detached cohort has its own output and
+  at 25 unconfirmed transactions before Bitcoin Core 31.0 and at most 64 since. A detached cohort has its own output and
   its own queue. Detaching is a way to split a deployment when a cohort's members
   may need to leave quickly, for example channel leaves with HTLCs near their
   deadlines. Leaf bytes do not change, so channel leaves are unaffected, and vouchers

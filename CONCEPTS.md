@@ -121,7 +121,7 @@ Everything the shared output can do fits on one page:
 | `EVICT` | evictor, after the lease height | Removes an expired leaf, paying the owner exactly |
 | `UPDATE` | owner and operator | Rewrites a leaf in place: resize, renew the lease, rotate keys |
 | `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one; the new leaf keeps the source's evictor and a lease no longer than the source's, so eviction holds per balance |
-| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher; needs no signature-over-stack-data opcode, so it exists in all three tiers, including MIN |
+| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher; needs no signature-over-stack-data opcode, so it exists in all four tiers, including MIN |
 | `SWEEP` (`EVICT_SUBTREE_h` in the spec) | evictor | Removes a whole expired cohort in one transaction |
 
 They are all the same machine underneath. Every one of them is a sequence
@@ -208,9 +208,11 @@ a join. The formal model made this precise, and it is the one place where
 the proofs have a hypothesis the covenant cannot enforce.
 
 **Everything funnels through one output.** Every transition spends and
-recreates the same UTXO, so unconfirmed transitions form a chain. Bitcoin's
-default policy allows about 25 unconfirmed descendants, which puts a hard
-ceiling on how fast a tree can be dissolved against its will. The limit
+recreates the same UTXO, so unconfirmed transitions form a chain. Bitcoin Core's
+policy allowed 25 unconfirmed descendants before release 31.0 and bounds the
+chain by the cluster limit of 64 since, and a deployment must assume the
+lower of what its relay peers enforce, so there is a hard ceiling on how fast
+a tree can be dissolved against its will. The limit
 counts transactions, not leaves, so a batch counts once: a sweep of 51
 leaves is one transaction. The worst case is strangers exiting one at a
 time. Detaching a cohort into an output of its own, which
@@ -377,8 +379,9 @@ each cell are stated on the cost page.
 None of this runs on Bitcoin today. It needs covenant capabilities that
 have been proposed but not activated, and a deliberate part of the work was
 measuring exactly how much of the proposed menu is actually required. So
-every transition is implemented three times, against three shrinking
-opcode sets.
+the transitions are implemented against four opcode sets: three that
+shrink (FULL, MID, MIN) and a fourth, CCV, that swaps the key arithmetic
+for one proposed covenant opcode.
 
 **FULL** uses a new tapleaf version that restores the string and arithmetic
 opcodes disabled in 2010, plus transaction introspection, signature checks
@@ -388,8 +391,11 @@ the cheapest.
 **MID** drops to today's tapscript semantics with only `OP_CAT`,
 introspection, stack signature checks and a point-tweak opcode. Four-byte
 arithmetic means leaves arrive as separate fields and get stitched back
-together, and sums need padding gadgets. Everything but the cohort sweep
-works, at about 31% more cost. Liquid has most of these opcodes today.
+together, and sums need padding gadgets. Every transition works,
+including the cohort sweep (dense, bounded by the 1,000-element stack
+limit, so a full 64-leaf cohort takes two sweeps), at about a third more
+cost for an exit (1,355 vB against 1,020 at depth 16). Liquid has most of
+these opcodes today.
 
 **MIN** is the interesting one: `OP_CAT` and a single point-tweak opcode,
 and nothing else beyond standard tapscript. There is no introspection
@@ -412,10 +418,15 @@ It costs 43% more than FULL and it does only the single-leaf exit and
 bound rather than a recommendation: the load-bearing operation
 needs `OP_CAT` and one point-tweak opcode. No lower bound is claimed.
 
+**CCV** replaces the key arithmetic with `OP_CHECKCONTRACTVERIFY` (BIP-443)
+plus transaction introspection, in either the `0xC2` or the `0xC0`
+numerics. It carries every transition MID does, and its exit is the
+cheapest of the four tiers, 908 vB at depth 16 against 1,020 for FULL.
+
 ## What is proved and what is merely tested
 
-The rules of the state machine are mechanised in Lean 4, about 1,300 lines
-with no external libraries. The theorems say: roots bind trees, so a node
+The rules of the state machine are mechanised in Lean 4, about 4,500 lines
+and 72 theorems, with no external libraries. The theorems say: roots bind trees, so a node
 that verifies against the root really is the node at that position; sums
 are conserved by every valid sequence of steps, unconditionally; and any
 leaf holder can always construct an accepted exit, conditional on the

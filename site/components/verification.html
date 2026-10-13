@@ -64,7 +64,7 @@
       <tbody>
         <tr><th scope="row">Transition rules (spec 5, 7, 10.2)</th><td>Do the rules conserve value, bind the right leaf and always allow an exit, for every depth and every tree?</td><td>Lean 4 proofs, <code>formal/</code></td><td>72 theorems, axiom audit clean</td></tr>
         <tr><th scope="row">Scripts (spec 8)</th><td>Does each script accept exactly the spends its rule allows?</td><td>A tapscript simulator runs every script on real trees with positive and negative cases</td><td>4,687 checks across the four tiers, the channel leaves and the Merkle-sum measurement</td></tr>
-        <tr><th scope="row">Go implementation</th><td>Do the Go scripts and transactions match the reference?</td><td>Byte-for-byte golden vectors, and every Go-built witness replayed through the simulator</td><td>121 golden scripts; 287 end-to-end spends, 0 failures</td></tr>
+        <tr><th scope="row">Go implementation</th><td>Do the Go scripts and transactions match the reference?</td><td>Byte-for-byte golden vectors, and every Go-built witness replayed through the simulator</td><td>121 golden scripts; 387 end-to-end spends, 0 failures</td></tr>
         <tr><th scope="row">Off-chain protocol (spec 9, Appendix C)</th><td>Do honest parties stay safe under every message ordering, reorg and adversarial choice?</td><td>Model checking in P</td><td>Designed in <code>design/p-model.md</code>, not built</td></tr>
       </tbody>
     </table>

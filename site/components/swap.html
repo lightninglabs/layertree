@@ -122,7 +122,7 @@
   signed message also names a payment hash, and redeeming it needs the 32-byte
   preimage of that hash. The script does not compare the preimage against a
   stored hash; it hashes the preimage straight into the message it checks the
-  signature against, which costs 9 bytes of script and no new opcode. The 32-byte
+  signature against, which costs 8 bytes of script and no new opcode. The 32-byte
   length matches Lightning payment preimages, so one secret can lock a voucher and
   a Lightning HTLC, an ordinary Lightning payment or one inside a
   <a href="payment.html#channels">channel leaf</a>.</p>

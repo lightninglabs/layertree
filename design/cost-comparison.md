@@ -115,9 +115,12 @@ variant.
 Batching does not lift the serialisation limit, but it changes what the
 limit counts. Every transition spends the same output, so unconfirmed
 transitions form a chain, and default mempool policy caps that chain at 25
-transactions until a block confirms it. The cap counts transactions, not
+transactions (Bitcoin Core before 31.0) or 64 (the cluster limit since)
+until a block confirms it. The cap counts transactions, not
 leaves: a sweep of 51 leaves is one transaction. Spec 10.5 states the
-limit as about 25 exits per block because that is the worst case, where
+limit as 25 exits per block before Bitcoin Core 31.0 and at most 64 under
+cluster mempool, and as low as 1 once someone attaches descendants to a
+payout; the worst case is where
 strangers exit one at a time without coordinating. Block space is not the
 constraint; 25 exits at `D = 16` are about 25 kvB. The structural answer
 is to shard a deployment into several trees, each sized by exit throughput
@@ -377,8 +380,8 @@ and radix 2 is optimal.
   about 148 vbytes per changed leaf.
 - The sparse profile costs about 1.8 times the dense one (1.7 to 2.8 over `D = 32` to `64`) and cannot graft
   or sweep.
-- Uncoordinated exits serialise through one output at about 25
-  transactions per block, which bounds how many time-sensitive leaves one
+- Uncoordinated exits serialise through one output at 25 transactions per
+  block before Bitcoin Core 31.0 and at most 64 under cluster mempool, which bounds how many time-sensitive leaves one
   tree should host.
 - The opcode set is larger than CTV's: restored arithmetic, `OP_TX`,
   `OP_CHECKSIGFROMSTACK` and the EC ops in FULL, or `OP_CAT` plus
