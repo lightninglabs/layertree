@@ -27,7 +27,7 @@ installed, `lake` picks it up automatically. There are no dependencies to
 fetch.
 
 The build prints one line per headline theorem from `LayerTree/Axioms.lean`
-(73 theorems) of the form `'LayerTree.payable' depends on axioms:
+(72 theorems) of the form `'LayerTree.payable' depends on axioms:
 [propext, Quot.sound]` (the theorems that case on a `Bool` or on `Steps`
 also list `Classical.choice`). Any line naming `sorryAx` means an
 unfinished proof; there are none.
@@ -63,7 +63,7 @@ unfinished proof; there are none.
 | 7.8 terminal branch of `FINAL` | `Final`, `ExitKT` | `Final d r' out0 terminal` is the branch the script took: `r' = E_D` with output 0 free, or `out0 = r'.sum`. `ExitKT` is `ExitK` with it. |
 | 7.7 `EVICT_SUBTREE_h` | `EvictSubtree`, `Tree.sweepPayouts` (`Cohort.lean`) | One step from the root of the published `Tree h` to `E_h`, with the `FINAL` branch of 7.8 and the payout list of rule 2. |
 | 7.9 `REWRITE_h` | `Rewrite`, `Tree.rewritePayouts`, `Tree.keptTotal`, `Leaf.AmountOnlyIncrease` | One step from the old published subtree's root to the new one's; authorisation is a predicate on positions required wherever a leaf that is not reclaimable changes, except for rule 3's amount-only increase on a leaf that is not at `SEQ_FINAL` (0.11.0); a leaf replaced by `E_0` is paid. |
-| 7.9 rule 8 (reclaim form) | `Rewrite.transfer`, `Rewrite.deadline`, `Leaf.TransferShape`, `Tree.Transfer`, `Tree.reclaimedTotal` | A reclaimable leaf never needs its owner: an amount-only increase passes as rule 3, an amount-only decrease at an even position must be absorbed exactly by the odd sibling (not reclaimable, owned by the leaf's exit key), and any other change needs the transaction's lock time (a parameter of `Rewrite`) at or past the leaf's `evict_after`; an emptied reclaimable leaf is not paid. |
+| 7.9 rule 8 (reclaim form) | `Rewrite.transfer`, `Rewrite.deadline`, `Leaf.TransferShape`, `Tree.Transfer`, `Tree.reclaimedTotal` | A reclaimable leaf never needs its owner: an amount-only increase passes as rule 3, an amount-only decrease at an even position must be absorbed exactly by the odd sibling (not reclaimable, owned by the leaf's exit key and exiting to it), and any other change needs the transaction's lock time (a parameter of `Rewrite`) at or past the leaf's `evict_after`; an emptied reclaimable leaf is not paid. |
 | `DETACH_h` (`design/batching.md` Shape 3) | `Detach` | One step from the subtree node to `E_h`, with output 1 stated as a second tree output `(r₁, out1)`. |
 | 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds`, `CCVTweak`, `CCVTweak.binding`, `ccv_input_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. The CCV tier's `TREE_SPK_CCV` (spec 4.6, 6.3) is built as `CCVTweak.binding`, a second `BindingModel` whose injectivity is proved from two stage hypotheses: the BIP-443 data tweak `NUMS + sha256(NUMS‖r)·G` is injective in `r`, and the taproot tweak is injective in `(P, m)`; the theorems then apply unchanged. |
 | 5.3 `enc64`, 8.2 `PAD8` | `Encoding.enc64_eq_minimal` (`Encoding.lean`) | `le64 n ‖ 01` is the minimal BIP-441 encoding of `n + 2^64`. |
@@ -237,14 +237,16 @@ by `lake build`; the names are the Lean identifiers.
 * **`rewrite_transfer_sound`** (7.9 rule 8, the transfer): when the even
   member of a pair has the transfer shape, the committed tree held the
   reclaimable leaf there and, at the odd member, a leaf that is not
-  reclaimable and is owned by the reclaimable leaf's exit key; afterwards
+  reclaimable and is owned by and exits to the reclaimable leaf's exit
+  key; afterwards
   the even member has the lower amount and every other field unchanged,
   the odd member is raised by exactly the decrease, and the pair's total
   is unchanged. Value moves only from a reclaimable leaf into its own
   sibling.
 * **`merge_sound`** (7.5.4): output 0 carries the input amount unchanged
   and the pair's total is conserved; the source position held `src`, the
-  sibling held `tgt`, owned by `src.exit_key`, below `X`; afterwards the
+  sibling held `tgt`, owned by and exiting to `src.exit_key`, below `X`;
+  afterwards the
   target is `tgt` with amount `X` and nothing else changed, the source is
   `src` lowered by the draw with every other field (`seq` included)
   unchanged, or `E_0` when drained; every other position is untouched.
@@ -384,26 +386,30 @@ and `mergedIntoSum p B xs` what the merges of a trace move into `p` under
   Replaying a redeemed voucher, or an older and lower one after a newer,
   moves nothing.
 * **`merge_no_overpay`**: along any trace, the merges into one target
-  position and body move at most `Xmax − level₀` in total, `Xmax` being
-  the largest level signed for it and `level₀` its starting amount,
-  provided no other record lowers the target's level (`hmono`, see
-  *Where the model is weaker than the spec*). This is the form in which
-  "replay and stale vouchers are harmless" is true.
-* **`merge_cycle_overpays`**: a concrete trace showing `hmono` is needed.
-  Two leaves of one pair, each owned by the other's exit key, merge into
-  each other in turn; replaying the first voucher after the second moves
-  value into its target again, 12 in all where the largest level allows
-  5. Every record is accepted by the scripts.
+  position and body move at most `Xmax − level₀` plus what merges move
+  *out* of that target, `Xmax` being the largest level signed for it and
+  `level₀` its starting amount, provided no record other than a merge
+  lowers the target's level (`hmono`, see *Where the model is weaker
+  than the spec*); and every merge into or out of the target moves value
+  between two leaves that exit to the target's exit key. So with no
+  merge out of the target, replays and stale vouchers together pay it at
+  most what the largest voucher signed, and any excess is value the
+  target's own key passed between its own leaves.
+* **`merge_cycle_overpays`**: the case the bound allows for, as a
+  concrete accepted trace. Two leaves of one pair, both owned by and
+  exiting to one key, merge into each other in turn; replaying the first
+  voucher after the second moves value into its target again, 12 in all
+  where the largest level allows 5, and the excess is exactly the 7
+  merged out of it. With 7.5.4 rule 2 requiring equal exit keys, a merge
+  in both directions forces the two leaves' owner and exit keys to be
+  one key, so a cycle across keys is impossible
+  (`merge_no_overpay`'s second conjunct).
 * **`Reachable.exit_value`**: let `heldFor π K` be the amounts of the
   leaves that are not reclaimable and exit to `K`. Along any trace of
-  merges and reclaims it falls only by the leak: the draw of a merge out
-  of such a leaf into a sibling that exits to another key. A reclaim
-  takes nothing from any key, a merge out of a reclaimable leaf only
-  adds, and the leak is signed by the source's owner and lands in a leaf
-  owned by `K` (`merge_sound`). **`Reachable.exit_value_same_key`**: when
-  every merge target carries its source's exit key, as
-  `design/pending-receive.md` R2 states, nothing leaks and no key's
-  value ever falls through the receive.
+  merges and reclaims it never decreases. A reclaim removes only a
+  reclaimable leaf, a merge moves value between two leaves with the same
+  exit key, and a merge out of a reclaimable leaf only adds. No leaf's
+  value that is not reclaimable reaches another key through the receive.
 
 ### Binding (`Binding.lean`)
 
@@ -585,26 +591,29 @@ need a hypothesis the script does not check.
 * **Two tree outputs in one transaction (7.1 rule 1).** The model has one
   tree output per spend; `Detach` states the second output as a root and
   an amount. Merging and the rule-1 argument are not modelled.
-* **Replay of merge vouchers (7.5.4, informative).** The spec says the
-  absolute target makes replay harmless: once the target holds `X` the
-  voucher moves nothing. That holds for one merge
-  (`merge_stale_rejected`) and for a trace in which nothing lowers the
-  target's amount while keeping its body (`merge_no_overpay`, hypothesis
-  `hmono`). 7.5.4 asks the operator to advance the target's `seq` in any
-  decrease it co-signs, but a merge *out of* the target into its own
-  sibling lowers it with neither the operator nor a `seq` change, and
-  `merge_cycle_overpays` shows a replay then moves value again. It needs
-  a pair whose members are each owned by the other's exit key; in the
-  pending receive the landing leaf's sibling is the pending leaf, which
-  is reclaimable and therefore never a merge target, so the cycle cannot
-  form there. Nothing in the scripts rules it out elsewhere.
-* **The merge target's exit key (7.5.4 rule 2).** The rule and the
-  script require the target to be *owned* by the source's exit key, not
-  to *exit* to it; `design/pending-receive.md` R2 lists both. A target
-  owned by `K` that exits to another key receives value that leaves
-  `K`'s exits, signed by the source's owner. `Reachable.exit_value`
-  counts this as the leak, and `Reachable.exit_value_same_key` takes the
-  design's stronger rule as its hypothesis to show the leak is zero.
+* **Replay of merge vouchers (7.5.4, informative).** Once the target
+  holds `X` the voucher moves nothing (`merge_stale_rejected`), and over
+  a trace `merge_no_overpay` bounds what merges move into a target. Its
+  hypothesis `hmono` says that no record other than a merge lowers the
+  target's amount while keeping its body: 7.5.4 asks the operator to
+  advance the target's `seq` in any decrease it co-signs (an `UPDATE` or
+  `REWRITE_h`), and the scripts do not check it. `hmono` also excludes a
+  carve or exit that takes body `B` off the position followed by a
+  record that brings it back at a lower amount (the `seq`
+  monotonicity item above). Merges out of the target are no longer a
+  hypothesis: they are counted in the bound, and the model proves they
+  move value only between leaves of the target's exit key.
+* **Fixed by the rule change: the merge target's exit key (7.5.4 rule
+  2) and the transfer sibling's (7.9 rule 8).** The first version of the
+  rules required the target to be *owned* by the source's exit key but
+  not to *exit* to it. The model found two consequences: value could
+  leave a key's exits through a merge into a leaf owned by that key that
+  exits elsewhere, and two leaves each owned by the other's exit key
+  could merge back and forth, so a replayed voucher moved value across
+  keys again. Both rules now also require equal exit keys
+  (`MergeOk.exit_eq`, `Tree.Transfer`), after which
+  `Reachable.exit_value` holds with no leak term and the only cycles
+  left are within one key (`merge_cycle_overpays`).
 * **The merge level's range.** `X` is an 8-byte field and the script
   does not bound it below `2^51`; `Reachable.wf` takes `X < 2^51` for
   every merge as a hypothesis, like the upper amount bound elsewhere.

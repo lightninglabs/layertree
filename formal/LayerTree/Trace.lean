@@ -746,7 +746,7 @@ theorem Accepts.sound {π : Params} {d : Nat} (t : Tree d) {r' : Node H}
     obtain ⟨p, _, hr', _⟩ := detach_sound t _ _ _ _ _ _ hwf hd
     exact ⟨[.detach p], _, hr', Reachable.cons trivial (Reachable.nil _)⟩
   | merge hm hwf =>
-    obtain ⟨_, _, _, _, c, hs, ht, hr', _⟩ := merge_sound t _ _ _ _ _ _ _ hwf hm
+    obtain ⟨_, _, _, _, _, c, hs, ht, hr', _⟩ := merge_sound t _ _ _ _ _ _ _ hwf hm
     exact ⟨[.merge c _ _ _ _], _, hr', Reachable.cons ⟨hs, ht, hm.ok⟩ (Reachable.nil _)⟩
   | reclaim hc hwf =>
     obtain ⟨p, hget, hrc, hdl, hr', _⟩ := reclaim_sound t _ _ _ _ hwf hc

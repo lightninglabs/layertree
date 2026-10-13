@@ -220,13 +220,13 @@ def Leaf.TransferShape (π : Params) (old : Leaf) (o : Option Leaf) : Prop :=
 /-- The transfer of 7.9 rule 8 at the pair `c` of the published subtree:
 the even member's old leaf `l` is reclaimable and falls in amount alone;
 the odd member's old leaf `m` is not reclaimable, is owned by `l`'s exit
-key, and its new element is `m` with its amount raised by exactly the
+key and exits to it, and its new element is `m` with its amount raised by exactly the
 decrease. -/
 def Tree.Transfer (π : Params) {h : Nat} (old new : Tree h) (c : Pos h 1) : Prop :=
   ∃ l l' m : Leaf, old.get (c.pairAt false) = some l ∧ new.get (c.pairAt false) = some l' ∧
     π.Reclaimable l ∧ l' = { l with amount := l'.amount } ∧ l'.amount < l.amount ∧
     old.get (c.pairAt true) = some m ∧ ¬ π.Reclaimable m ∧ m.ownerKey = l.exitKey ∧
-    new.get (c.pairAt true) = some { m with amount := m.amount + (l.amount - l'.amount) }
+    m.exitKey = l.exitKey ∧ new.get (c.pairAt true) = some { m with amount := m.amount + (l.amount - l'.amount) }
 
 /-- What `REWRITE_h` accepts. The witness carries the shared path above an
 aligned subtree of height `h` and, for each position, an old and a new
@@ -353,7 +353,7 @@ sibling** (7.9 rule 8, the transfer exemption). If the even member of
 pair `c` in a rewrite has the transfer shape (a reclaimable leaf whose
 amount alone falls), then in the committed tree that member held the
 reclaimable leaf `l` and the odd member a leaf `m` that is not
-reclaimable and is owned by `l`'s exit key; afterwards the even member
+reclaimable and is owned by `l`'s exit key and exits to it; afterwards the even member
 holds `l` with the lower amount and every other field unchanged, the
 odd member holds `m` raised by exactly the decrease, and the pair's
 total is unchanged. -/
@@ -368,14 +368,14 @@ theorem rewrite_transfer_sound {d h : Nat} {π : Params} {auth : Pos h 0 → Pro
       (t.setSub p new).get (p.append (c.pairAt false)) = some l' ∧
       (t.setSub p new).get (p.append (c.pairAt true)) =
         some { m with amount := m.amount + (l.amount - l'.amount) } ∧
-      π.Reclaimable l ∧ ¬ π.Reclaimable m ∧ m.ownerKey = l.exitKey ∧
+      π.Reclaimable l ∧ ¬ π.Reclaimable m ∧ m.ownerKey = l.exitKey ∧ m.exitKey = l.exitKey ∧
       l' = { l with amount := l'.amount } ∧ l'.amount < l.amount ∧
       l'.amount + (m.amount + (l.amount - l'.amount)) = l.amount + m.amount := by
   obtain ⟨p, _, hr', hq, _⟩ := rewrite_sound t path old new r' out0 payouts hwf hr
-  obtain ⟨l₀, l', m, hl₀, hl', hrc, hbody, hlt, hm, hnr, hown, hm'⟩ := hr.transfer c l hl hs
+  obtain ⟨l₀, l', m, hl₀, hl', hrc, hbody, hlt, hm, hnr, hown, hexit, hm'⟩ := hr.transfer c l hl hs
   rw [hl] at hl₀
   cases hl₀
-  refine ⟨p, l', m, hr', ?_, ?_, ?_, ?_, hrc, hnr, hown, hbody, hlt, by omega⟩
+  refine ⟨p, l', m, hr', ?_, ?_, ?_, ?_, hrc, hnr, hown, hexit, hbody, hlt, by omega⟩
   · rw [(hq _).1, hl]
   · rw [(hq _).1, hm]
   · rw [(hq _).2, hl']
@@ -515,7 +515,8 @@ theorem mergedSource_total (src : Leaf) (δ : Nat) (hδ : δ ≤ src.amount) :
 
 /-- The rules of 7.5.4 that relate the source `src`, the target `tgt` and
 the target amount `X`, signatures aside: the target is owned by the
-source's exit key (rule 2), neither leaf is at `SEQ_FINAL` (rule 2), the
+source's exit key and exits to it (rule 2, since the rule change that
+closed the leak of `Reachable.exit_value`), neither leaf is at `SEQ_FINAL` (rule 2), the
 target is not reclaimable (rule 2, vacuous without `RECLAIM_KEY`), the
 draw `δ = X − tgt.amount` is at least 1 (rule 3) and fits in the source,
 and the source's residual is zero or at least `DUST_MIN` (rule 3). That
@@ -523,6 +524,7 @@ the target is the source's *sibling* is not a field: it is the shape of
 the step (one pair node at height 1). -/
 structure MergeOk (π : Params) (src tgt : Leaf) (X : Nat) : Prop where
   owner_eq : tgt.ownerKey = src.exitKey
+  exit_eq : tgt.exitKey = src.exitKey
   src_not_final : src.seq ≠ π.seqFinal
   tgt_not_final : tgt.seq ≠ π.seqFinal
   tgt_not_reclaimable : ¬ π.Reclaimable tgt
@@ -559,14 +561,16 @@ theorem Tree.pair_total (b : Bool) (s o : Option Leaf) :
 /-- **A merge moves value only into the source's sibling, owned by the
 source's exit key** (7.5.4). Output 0 carries the input amount
 unchanged; the pair's total is conserved; the source position held
-`src` and its sibling held `tgt`, owned by `src.exit_key` and raised to
+`src` and its sibling held `tgt`, owned by `src.exit_key`, exiting to
+it, and raised to
 exactly `X`, above its old amount; the source keeps every field but its
 amount (or becomes `E_0` when drained); the target changes in amount
 only; and every other position is untouched. -/
 theorem merge_sound {auth : Prop} {π : Params} {d : Nat} (t : Tree d) (path : List (Bool × Node H))
     (b : Bool) (src tgt : Leaf) (X : Nat) (r' : Node H) (out0 : Nat) (hwf : path.length + 1 = d)
     (hm : Merge auth π t.root path b src tgt X r' out0) :
-    out0 = t.root.sum ∧ tgt.ownerKey = src.exitKey ∧ tgt.amount < X ∧
+    out0 = t.root.sum ∧ tgt.ownerKey = src.exitKey ∧ tgt.exitKey = src.exitKey ∧
+    tgt.amount < X ∧
     (Tree.tip (mergedSource src (X - tgt.amount))).total + X = src.amount + tgt.amount ∧
     ∃ c : Pos d 1, t.get (c.pairAt b) = some src ∧ t.get (c.pairAt (!b)) = some tgt ∧
       r' = (mergeTree t c b src tgt X).root ∧
@@ -596,7 +600,7 @@ theorem merge_sound {auth : Prop} {π : Params} {d : Nat} (t : Tree d) (path : L
     rw [Tree.root_sum (Tree.pair b _ _), Tree.root_sum (Tree.pair b _ _), Tree.pair_total,
       Tree.pair_total] at hsum
     have hne := Pos.pairAt_ne c b
-    refine ⟨?_, hok.owner_eq, hok.raise, hcons, c, hs, ht, hr', ?_, ?_, ?_⟩
+    refine ⟨?_, hok.owner_eq, hok.exit_eq, hok.raise, hcons, c, hs, ht, hr', ?_, ?_, ?_⟩
     · rw [hm.out0_eq]
       have e1 : (Tree.tip (some src)).total = src.amount := rfl
       have e2 : (Tree.tip (some tgt)).total = tgt.amount := rfl

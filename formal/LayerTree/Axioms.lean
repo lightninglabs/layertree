@@ -78,7 +78,6 @@ open LayerTree
 #print axioms merge_no_overpay
 #print axioms merge_cycle_overpays
 #print axioms Reachable.exit_value
-#print axioms Reachable.exit_value_same_key
 -- Binding
 #print axioms witness_root_binds
 #print axioms ccv_input_binds
