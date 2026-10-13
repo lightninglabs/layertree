@@ -165,12 +165,8 @@ add("CCV0", "S", 8, "EXIT_1_TOWER", CV._exit_script_ccv0(8, 1, True, tower=True,
 
 # The pending-leaf receive under CCV, both numerics (6.2, 7.5.4, 7.9 rule 8,
 # 7.11): CLAIM^m and CLAIM^hm over the tree_id above, RECLAIM_1 and the
-# reclaim form of REWRITE_2 and REWRITE_2^x, over RECLAIM_KEY. Tree-creation
-# variants, so their names join VARIANTS (the FULL entries of the same names
-# are excluded from taptree_full_d4 for the same reason).
-RECLAIM_KEY = pubkey_x(lt.sha256(b"operator-reclaim"))
-VARIANTS = VARIANTS + tuple(n for n in ("CLAIM_M", "CLAIM_HM", "RECLAIM_1", "REWRITE_R_2", "REWRITE_XR_2")
-                            if n not in VARIANTS)
+# reclaim form of REWRITE_2 and REWRITE_2^x, over RECLAIM_KEY; tree-creation
+# variants whose names VARIANTS already carries for FULL.
 for _tier, _mode, _merge, _reclaim, _rewrite in (
         ("CCV", "c2", CV.merge_script_ccv, lambda d, s: CV.reclaim_script_ccv(d, RECLAIM_KEY, "S" if s else "D"),
          lambda x: CV.rewrite_script_ccv(4, 2, OP_KEY, exit_consent=x, reclaim_key=RECLAIM_KEY)),

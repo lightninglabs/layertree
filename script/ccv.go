@@ -849,22 +849,21 @@ func CCV0RewriteScript(depth, height int, operatorKey [32]byte,
 // ------------------------- pending-leaf receive (6.2, 7.5.4, 7.9 rule 8, 7.11) --
 // CLAIM^m and CLAIM^hm, RECLAIM_1 and the reclaim form of REWRITE_h under
 // CCV in both numerics (tools/layertree_ccv.py). Under 0xC2 the bodies are
-// FULL's (tools/layertree_scripts.py merge_script, reclaim_script and
-// _rewrite_step with reclaim_key), ported here token for token since the
-// Go FULL tier does not carry them; under 0xC0 they are the CCV tier's own.
-// RECLAIM_1 checks output 0 in the DEDUCT mode, so the reclaimed value is
-// unassigned and free for the transaction, and the reclaim-form rewrite
-// takes a witness flag at the bottom that selects assign or DEDUCT; the
-// OP_TX equality pins out0 == ns in every case.
+// FULL's (FullMergeScript, FullReclaimScript, fullRewriteMachine) between
+// CCV's two bindings; under 0xC0 they are the CCV tier's own. RECLAIM_1
+// checks output 0 in the DEDUCT mode, so the reclaimed value is unassigned
+// and free for the transaction, and the reclaim-form rewrite takes a
+// witness flag at the bottom that selects assign or DEDUCT; the OP_TX
+// equality pins out0 == ns in every case.
 
 var (
-	ccvVoucherMPrefix  = fullTagPrefix("LayerTree/voucher-merge")
-	ccvVoucherHMPrefix = fullTagPrefix("LayerTree/voucher-merge-hashlock")
+	ccvVoucherMPrefix  = fullTagPrefix(tree.TagVoucherM)
+	ccvVoucherHMPrefix = fullTagPrefix(tree.TagVoucherHM)
 )
 
 // tk builds a token list from opcodes (the untyped txscript constants,
 // which arrive as int), tokens (numbers as Num), token lists and pushes
-// ([]byte), in the order given, so the long FULL bodies below read as the
+// ([]byte), in the order given, so the long bodies below read as the
 // Python token lists they port.
 func tk(items ...interface{}) []Token {
 	out := make([]Token, 0, len(items))
@@ -885,59 +884,17 @@ func tk(items ...interface{}) []Token {
 	return out
 }
 
-const ccvLeafRest = fullLeafLen - fullOffExitKey
-
-// ccvFullMergeBody is FULL's merge_script between its prologue and its
-// FINAL: [dir sc]*(D-1) left right f X vsig [pre] -> [T oh os nh ns].
-func ccvFullMergeBody(depth int, treeID [32]byte, hashlock bool, rk *[32]byte,
-	dustMin uint64) []Token {
-
-	s := []Token{}
-	if hashlock {
-		s = tk(ts.OP_SIZE, Num(int64(32)), ts.OP_EQUALVERIFY, ts.OP_SHA256, ts.OP_TOALTSTACK)
+// ccvFullBody is a FULL script's transition body: toks without
+// fullPrologue in front and FINAL's root check and output construction
+// behind (tools/layertree_ccv.py _full_body). The body never touches r or
+// m, which sit on the altstack below everything it parks.
+func ccvFullBody(toks []Token, depth int, sparse bool) []Token {
+	pre := fullPrologue()
+	post := fullCat(fullCheckOldRootFromAlt(sparse), fullFinalOutput(depth))
+	if len(toks) < len(pre)+len(post) {
+		panic("ccvFullBody: script too short")
 	}
-	s = append(s, tk(Num(int64(2)), ts.OP_ROLL, ts.OP_DUP, ts.OP_TOALTSTACK,
-		ts.OP_NOTIF, ts.OP_2SWAP, ts.OP_SWAP, ts.OP_2SWAP, ts.OP_ENDIF,
-		Num(int64(3)), ts.OP_PICK, ts.OP_SIZE, Num(int64(fullLeafLen)), ts.OP_EQUALVERIFY, ts.OP_DROP,
-		Num(int64(2)), ts.OP_PICK, ts.OP_SIZE, Num(int64(fullLeafLen)), ts.OP_EQUALVERIFY, ts.OP_DROP,
-		ts.OP_OVER, ts.OP_SIZE, Num(int64(8)), ts.OP_EQUALVERIFY, ts.OP_DROP,
-		Num(int64(3)), ts.OP_PICK, fullLeafBody(), Num(int64(3)), ts.OP_PICK, fullLeafBody(), OP_CAT,
-		Num(int64(2)), ts.OP_PICK, OP_CAT, treeID[:], ts.OP_SWAP, OP_CAT)...)
-	prefix := ccvVoucherMPrefix
-	if hashlock {
-		s = append(s, tk(ts.OP_FROMALTSTACK, ts.OP_FROMALTSTACK, ts.OP_SWAP,
-			ts.OP_TOALTSTACK, OP_CAT)...)
-		prefix = ccvVoucherHMPrefix
-	}
-	s = append(s, fullTagged(prefix)...)
-	s = append(s, tk(Num(int64(4)), ts.OP_PICK, Num(int64(fullOffOwnerKey)), Num(int64(32)), OP_SUBSTR,
-		OP_CHECKSIGFROMSTACK, ts.OP_VERIFY,
-		ts.OP_OVER, Num(int64(fullOffOwnerKey)), Num(int64(32)), OP_SUBSTR,
-		Num(int64(3)), ts.OP_PICK, Num(int64(fullOffExitKey)), Num(int64(32)), OP_SUBSTR, ts.OP_EQUALVERIFY,
-		ts.OP_OVER, Num(int64(4)), OP_RIGHT, fullSeqFinal, ts.OP_EQUAL, ts.OP_NOT, ts.OP_VERIFY,
-		Num(int64(2)), ts.OP_PICK, Num(int64(4)), OP_RIGHT, fullSeqFinal, ts.OP_EQUAL, ts.OP_NOT, ts.OP_VERIFY)...)
-	if rk != nil {
-		s = append(s, tk(ts.OP_OVER, Num(int64(fullOffEvictorKey)), Num(int64(32)), OP_SUBSTR, rk[:],
-			ts.OP_EQUAL, ts.OP_NOT, ts.OP_VERIFY)...)
-	}
-	s = append(s, tk(ts.OP_DUP, Num(int64(2)), ts.OP_PICK, Num(int64(8)), OP_LEFT, ts.OP_SUB,
-		ts.OP_1, ts.OP_OVER, ts.OP_LESSTHANOREQUAL, ts.OP_VERIFY,
-		Num(int64(3)), ts.OP_PICK, Num(int64(8)), OP_LEFT, ts.OP_SWAP, ts.OP_SUB,
-		ts.OP_0, ts.OP_OVER, ts.OP_LESSTHANOREQUAL, ts.OP_VERIFY,
-		ts.OP_DUP, fullLE64(), Num(int64(4)), ts.OP_PICK, fullLeafBody(), OP_CAT,
-		Num(int64(2)), ts.OP_PICK, Num(int64(4)), ts.OP_PICK, fullLeafBody(), OP_CAT,
-		Num(int64(3)), ts.OP_ROLL, ts.OP_DROP, Num(int64(2)), ts.OP_ROLL, ts.OP_DROP,
-		fullNodePrefix, Num(int64(4)), ts.OP_ROLL, Num(int64(4)), ts.OP_ROLL, Num(int64(4)), ts.OP_ROLL, Num(int64(4)), ts.OP_ROLL,
-		fullLeafAcc(), ts.OP_ROT, fullLeafAcc(), fullDrainRule(dustMin),
-		Num(int64(4)), ts.OP_ROLL, fullLeafAcc(),
-		Num(int64(6)), ts.OP_ROLL, fullLeafAcc(),
-		ts.OP_FROMALTSTACK,
-		ts.OP_IF, Num(int64(5)), ts.OP_ROLL, Num(int64(5)), ts.OP_ROLL, Num(int64(5)), ts.OP_ROLL, Num(int64(5)), ts.OP_ROLL,
-		Num(int64(7)), ts.OP_ROLL, Num(int64(7)), ts.OP_ROLL,
-		ts.OP_ELSE, Num(int64(3)), ts.OP_ROLL, Num(int64(3)), ts.OP_ROLL, Num(int64(7)), ts.OP_ROLL, Num(int64(7)), ts.OP_ROLL,
-		Num(int64(5)), ts.OP_ROLL, Num(int64(5)), ts.OP_ROLL, Num(int64(7)), ts.OP_ROLL, Num(int64(7)), ts.OP_ROLL,
-		ts.OP_ENDIF, fullHashStep2(8))...)
-	return append(s, fullLevels(false, depth, 1)...)
+	return toks[len(pre) : len(toks)-len(post)]
 }
 
 // CCVMergeScript is CLAIM^m (spec 7.5.4), or CLAIM^hm with hashlock, under
@@ -948,8 +905,8 @@ func ccvFullMergeBody(depth int, treeID [32]byte, hashlock bool, rk *[32]byte,
 func CCVMergeScript(depth int, treeID [32]byte, hashlock bool, rk *[32]byte,
 	dustMin uint64) []Token {
 
-	return fullCat(ccvFullMergeBody(depth, treeID, hashlock, rk, dustMin),
-		ccvCheckOld(false), ccvFinal(depth))
+	body := ccvFullBody(FullMergeScript(depth, treeID, hashlock, rk, dustMin), depth, false)
+	return fullCat(body, ccvCheckOld(false), ccvFinal(depth))
 }
 
 // CCVReclaimScript is RECLAIM_1 (spec 7.11) under CCV (0xC2): FULL's body
@@ -959,19 +916,8 @@ func CCVMergeScript(depth int, treeID [32]byte, hashlock bool, rk *[32]byte,
 //
 // witness (bottom..top) = [path] leaf sig.
 func CCVReclaimScript(depth int, rk [32]byte, sparse bool) []Token {
-	s := tk(ts.OP_OVER, ts.OP_SIZE, Num(int64(fullLeafLen)), ts.OP_EQUALVERIFY,
-		Num(int64(fullOffEvictorKey)), Num(int64(32)), OP_SUBSTR, rk[:], ts.OP_EQUALVERIFY,
-		ts.OP_OVER, Num(int64(fullOffEvictAfter)), Num(int64(fullLenEvictAfter)), OP_SUBSTR,
-		ts.OP_CHECKLOCKTIMEVERIFY, ts.OP_DROP,
-		rk[:], ts.OP_CHECKSIGVERIFY)
-	if sparse {
-		s = append(s, fullLeafPos()...)
-		s = append(s, fullSparseSetup()...)
-	}
-	s = append(s, tk(fullLeafAcc(), fullNodePrefix, ts.OP_ROT, ts.OP_ROT,
-		fullEmptyLeafHash, ts.OP_0)...)
-	return fullCat(s, fullLevels(sparse, depth, 0), ccvCheckOld(sparse),
-		ccvFinalMode(depth, ccvModeDeductOut))
+	body := ccvFullBody(FullReclaimScript(depth, rk, sparse), depth, sparse)
+	return fullCat(body, ccvCheckOld(sparse), ccvFinalMode(depth, ccvModeDeductOut))
 }
 
 // ccvFinalSel is [flag T nh ns] -> [1]: ccvFinal with the output-0 mode
@@ -992,124 +938,17 @@ func ccvFinalSel(depth int) []Token {
 		ts.OP_1, ts.OP_ENDIF)
 }
 
-// The R1/R3 pieces of FULL's REWRITE_STEP (tools/layertree_scripts.py
-// _rewrite_exempt, _reclaim_r1, _transfer_shape, _transfer_record,
-// _transfer_absorb).
-
-func ccvRewriteExempt() []Token {
-	return tk(ts.OP_2DUP, Num(int64(fullOffExitKey)), Num(int64(ccvLeafRest)), OP_SUBSTR,
-		ts.OP_SWAP, Num(int64(fullOffExitKey)), Num(int64(ccvLeafRest)), OP_SUBSTR, ts.OP_EQUAL,
-		ts.OP_IF, ts.OP_2DUP, ts.OP_SWAP, Num(int64(8)), OP_LEFT, ts.OP_SWAP, Num(int64(8)), OP_LEFT,
-		ts.OP_LESSTHANOREQUAL,
-		ts.OP_OVER, Num(int64(4)), OP_RIGHT, fullSeqFinal, ts.OP_EQUAL, ts.OP_NOT, ts.OP_BOOLAND,
-		ts.OP_ELSE, ts.OP_0, ts.OP_ENDIF)
-}
-
-func ccvReclaimR1() []Token {
-	return tk(ts.OP_OVER, Num(int64(fullOffEvictAfter)), Num(int64(fullLenEvictAfter)), OP_SUBSTR,
-		ts.OP_CHECKLOCKTIMEVERIFY, ts.OP_DROP)
-}
-
-func ccvTransferShape(rk [32]byte) []Token {
-	return tk(ts.OP_OVER, ts.OP_SIZE, ts.OP_NIP, Num(int64(fullLeafLen)), ts.OP_NUMEQUAL,
-		ts.OP_OVER, ts.OP_SIZE, ts.OP_NIP, Num(int64(fullLeafLen)), ts.OP_NUMEQUAL, ts.OP_BOOLAND,
-		ts.OP_IF,
-		ts.OP_OVER, Num(int64(fullOffEvictorKey)), Num(int64(32)), OP_SUBSTR, rk[:], ts.OP_EQUAL,
-		ts.OP_OVER, Num(int64(fullOffExitKey)), Num(int64(ccvLeafRest)), OP_SUBSTR,
-		Num(int64(3)), ts.OP_PICK, Num(int64(fullOffExitKey)), Num(int64(ccvLeafRest)), OP_SUBSTR,
-		ts.OP_EQUAL, ts.OP_BOOLAND,
-		Num(int64(2)), ts.OP_PICK, Num(int64(8)), OP_LEFT, Num(int64(2)), ts.OP_PICK, Num(int64(8)), OP_LEFT,
-		ts.OP_LESSTHANOREQUAL, ts.OP_NOT, ts.OP_BOOLAND,
-		ts.OP_ELSE, ts.OP_0, ts.OP_ENDIF)
-}
-
-func ccvTransferRecord(rk [32]byte) []Token {
-	return tk(ccvTransferShape(rk),
-		ts.OP_IF,
-		ts.OP_OVER, Num(int64(8)), OP_LEFT, ts.OP_OVER, Num(int64(8)), OP_LEFT, ts.OP_SUB,
-		Num(int64(2)), ts.OP_PICK, Num(int64(fullOffExitKey)), Num(int64(32)), OP_SUBSTR,
-		ts.OP_SWAP, ts.OP_TOALTSTACK, ts.OP_TOALTSTACK,
-		ts.OP_ELSE, ts.OP_0, ts.OP_TOALTSTACK, ts.OP_0, ts.OP_TOALTSTACK, ts.OP_ENDIF)
-}
-
-func ccvTransferAbsorb(rk [32]byte) []Token {
-	return tk(ts.OP_FROMALTSTACK, ts.OP_FROMALTSTACK,
-		ts.OP_DUP, ts.OP_0NOTEQUAL, ts.OP_IF,
-		Num(int64(3)), ts.OP_PICK, ts.OP_SIZE, Num(int64(fullLeafLen)), ts.OP_EQUALVERIFY,
-		Num(int64(fullOffOwnerKey)), Num(int64(32)), OP_SUBSTR, Num(int64(2)), ts.OP_PICK, ts.OP_EQUALVERIFY,
-		Num(int64(3)), ts.OP_PICK, Num(int64(fullOffEvictorKey)), Num(int64(32)), OP_SUBSTR, rk[:],
-		ts.OP_EQUAL, ts.OP_NOT, ts.OP_VERIFY,
-		Num(int64(2)), ts.OP_PICK, ts.OP_SIZE, Num(int64(fullLeafLen)), ts.OP_EQUALVERIFY,
-		Num(int64(fullOffExitKey)), Num(int64(ccvLeafRest)), OP_SUBSTR,
-		Num(int64(4)), ts.OP_PICK, Num(int64(fullOffExitKey)), Num(int64(ccvLeafRest)), OP_SUBSTR,
-		ts.OP_EQUALVERIFY,
-		Num(int64(2)), ts.OP_PICK, Num(int64(8)), OP_LEFT, Num(int64(4)), ts.OP_PICK, Num(int64(8)), OP_LEFT, ts.OP_SUB,
-		ts.OP_OVER, ts.OP_NUMEQUALVERIFY,
-		ts.OP_ENDIF, ts.OP_2DROP)
-}
-
-// ccvRewriteStepR is FULL's REWRITE_STEP with reclaim_key and side ("L" for
-// an even position, "R" for an odd one), with `pay` as the exit payout.
-func ccvRewriteStepR(d int, exitConsent bool, pay []Token, rk [32]byte,
-	left bool) []Token {
-
-	auth := fullOwnerAuth(d+5, exitConsent)
-	oldRules := tk(ts.OP_DUP, ts.OP_SIZE, ts.OP_NIP, ts.OP_0NOTEQUAL, ts.OP_IF,
-		ccvRewriteExempt(), ts.OP_NOTIF, auth, ts.OP_ENDIF,
-		ts.OP_ELSE, auth, pay, ts.OP_ENDIF)
-	r1 := ccvReclaimR1()
-	decrease := r1
-	if left {
-		decrease = tk(ccvTransferShape(rk), ts.OP_NOTIF, r1, ts.OP_ENDIF)
-	}
-	leafRules := tk(ts.OP_OVER, Num(int64(fullOffEvictorKey)), Num(int64(32)), OP_SUBSTR, rk[:], ts.OP_EQUAL,
-		ts.OP_IF,
-		ts.OP_DUP, ts.OP_SIZE, ts.OP_NIP, ts.OP_0NOTEQUAL, ts.OP_IF,
-		ccvRewriteExempt(), ts.OP_NOTIF, decrease, ts.OP_ENDIF,
-		ts.OP_ELSE, r1, ts.OP_ENDIF,
-		ts.OP_ELSE, oldRules, ts.OP_ENDIF)
-	s := tk(Num(int64(d+3)), ts.OP_ROLL, Num(int64(d+4)), ts.OP_ROLL,
-		ts.OP_SIZE, ts.OP_1, ts.OP_EQUAL,
-		ts.OP_IF, ts.OP_DROP, ts.OP_DUP, ts.OP_ENDIF)
-	if !left {
-		s = append(s, ccvTransferAbsorb(rk)...)
-	}
-	s = append(s, tk(ts.OP_2DUP, ts.OP_EQUAL, ts.OP_NOTIF,
-		ts.OP_OVER, ts.OP_SIZE, ts.OP_NIP, ts.OP_0NOTEQUAL, ts.OP_IF,
-		leafRules, ts.OP_ENDIF, ts.OP_ENDIF)...)
-	if left {
-		s = append(s, ccvTransferRecord(rk)...)
-	}
-	return tk(s, ts.OP_SWAP, fullElemNode(d+4, d+3), ts.OP_ROT, fullElemNode(d+5, d+4))
-}
-
 // CCVRewriteRScript is the reclaim form of REWRITE_h (spec 7.9 rule 8),
-// REWRITE_R_h or REWRITE_XR_h with exitConsent, under CCV (0xC2)
+// REWRITE_R_h or REWRITE_XR_h with exitConsent, under CCV (0xC2): FULL's
+// machine with RECLAIM_KEY hoisted and ccvRewritePay as the exit payout
 // (tools/layertree_ccv.py rewrite_script_ccv with reclaim_key). witness
 // (bottom..top) = flag [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op.
 func CCVRewriteRScript(depth, height int, operatorKey, rk [32]byte,
 	exitConsent bool) []Token {
 
-	s := tk(operatorKey[:], ts.OP_CHECKSIGVERIFY, ts.OP_1, ts.OP_TOALTSTACK,
-		fullEmptyLeafHash, fullLeafPrefix, fullNodePrefix)
-	pay := ccvRewritePay()
-	d, pos := 0, 0
-	var gen func(h int)
-	gen = func(h int) {
-		if h == 0 {
-			s = append(s, ccvRewriteStepR(d, exitConsent, pay, rk, pos%2 == 0)...)
-			pos++
-			d += 4
-			return
-		}
-		gen(h - 1)
-		gen(h - 1)
-		s = append(s, fullHashStep2(d)...)
-		d -= 4
-	}
-	gen(height)
-	return fullCat(s,
-		tk(ts.OP_FROMALTSTACK, ts.OP_DROP, Num(int64(6)), ts.OP_ROLL, ts.OP_DROP, Num(int64(5)), ts.OP_ROLL, ts.OP_DROP),
+	return fullCat(
+		[]Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)},
+		fullRewriteMachine(height, exitConsent, ccvRewritePay(), &rk),
 		fullLevels(false, depth, height), ccvCheckOld(false), ccvFinalSel(depth))
 }
 

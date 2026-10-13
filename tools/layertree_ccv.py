@@ -679,25 +679,7 @@ def rewrite_script_ccv(depth, height, operator_key, exit_consent=False, reclaim_
     """
     assert 1 <= height <= depth
     s = prologue_ccv() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks
-    s += ["OP_1", "OP_TOALTSTACK",                                #            | idx
-          lt.EMPTY_LEAF_HASH, F.LEAF_PREFIX, F.NODE_PREFIX]       # Z L T      (hoisted constants)
-    d = [0]
-    pos = [0]
-    pay = _rewrite_pay_ccv()
-
-    def gen(h):
-        if h == 0:
-            side = "L" if pos[0] % 2 == 0 else "R"
-            s.extend(F._rewrite_step(d[0], exit_consent, pay, reclaim_key=reclaim_key, side=side))
-            pos[0] += 1
-            d[0] += 4
-        else:
-            gen(h - 1); gen(h - 1)
-            s.extend(F._hash_step2(d[0]))
-            d[0] -= 4
-    gen(height)                                                  # Z L T oh os nh ns   | idx
-    s += ["OP_FROMALTSTACK", "OP_DROP",                          # drop idx
-          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]      # T oh os nh ns       (drop Z, L)
+    s += F.rewrite_machine(height, exit_consent, _rewrite_pay_ccv(), reclaim_key)   # T oh os nh ns
     s += F.levels("D", depth, height)
     s += check_old_ccv("D")
     return s + (final_ccv(depth) if reclaim_key is None else _final_ccv_sel(depth))

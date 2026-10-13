@@ -2577,23 +2577,6 @@ def test_exit_tower_ccv(depth, profile, numeric="c2"):
 RECLAIM_SK = sk("operator-reclaim")
 
 
-def _full_exit_key_rules():
-    """(merge, transfer): whether FULL's merge_script and _transfer_absorb,
-    which the 0xC2 forms reuse token for token, carry the exit-key equality
-    of 7.5.4 rule 2 and 7.9 rule 8 (target and odd sibling exit to the
-    source's exit key). The 0xC0 forms carry it themselves; the 0xC2
-    negatives for it run once FULL has it."""
-    import inspect
-    return (inspect.getsource(ls.merge_script).count("OFF_EXIT_KEY") >= 2,
-            inspect.getsource(ls._transfer_absorb).count("OFF_EXIT_KEY") > 4)
-
-
-def _exit_rule_negative(pw, which, fn, msg):
-    if pw.c0 or _full_exit_key_rules()[which]:
-        expect_fail(fn, msg)
-    else:
-        print(f"    (skipped until FULL carries the exit-key rule: {msg})")
-
 
 class PendingWorldCCV:
     """test_scripts.PendingWorld under CCV in either numerics: a dense tree
@@ -2737,8 +2720,8 @@ def test_merge_ccv(depth, numeric="c2", verbose=True):
     expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, stranger, 13_000)),
                 f"{tag} CLAIM^m into a sibling the source's exit key does not own")
     elsewhere = lt.Leaf(10_000, pubkey_x(sk("mallory-exit")), pw.rcpt, w.op_pk, 900_000, 77, 0)
-    _exit_rule_negative(pw, 0, lambda: w.run("CLAIM_M", *case(2, 3, P, elsewhere, 13_000)),
-                        f"{tag} CLAIM^m into a sibling owned by the source's exit key but exiting elsewhere")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, elsewhere, 13_000)),
+                f"{tag} CLAIM^m into a sibling owned by the source's exit key but exiting elsewhere")
     flagged = pw.landing(10_000, evictor=pw.rk)
     expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, flagged, 13_000)), f"{tag} CLAIM^m into a reclaimable target")
     final_t = pw.landing(10_000, seq=pw.seq_final)
@@ -3041,9 +3024,9 @@ def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
         expect_fail(lambda: run(name, 2, 1, {0: P, 1: other}, {0: P.with_amount_seq(13_000, 0), 1: other.with_amount_seq(17_000, 0)}),
                     f"{t} R3 into a sibling the pending leaf's exit key does not own")
         away = lt.Leaf(10_000, pubkey_x(sk("mallory-exit")), pw.rcpt, pw.w.op_pk, 900_000, 77, 0)
-        _exit_rule_negative(pw, 1, lambda: run(name, 2, 1, {0: P, 1: away},
-                                               {0: P.with_amount_seq(13_000, 0), 1: away.with_amount_seq(17_000, 0)}),
-                            f"{t} R3 into a sibling owned by the pending leaf's exit key but exiting elsewhere")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: away},
+                                {0: P.with_amount_seq(13_000, 0), 1: away.with_amount_seq(17_000, 0)}),
+                    f"{t} R3 into a sibling owned by the pending leaf's exit key but exiting elsewhere")
         flagged = pw.landing(10_000, evictor=pw.rk)
         expect_fail(lambda: run(name, 2, 1, {0: P, 1: flagged}, {0: P.with_amount_seq(13_000, 0), 1: flagged.with_amount_seq(17_000, 0)}),
                     f"{t} R3 into a reclaimable sibling")
