@@ -432,30 +432,6 @@ def reclaim_script_msu(depth, reclaim_key):
             + ccv_input_on_old_root() + ccv_output0(depth, 2) + ["OP_1"])
 
 
-def _transfer_absorb_msu(reclaim_key):
-    """FULL's _transfer_absorb with the rule 8 exit-key match: after
-    old.owner_key == key (the reclaimable leaf's exit key), also
-    old.exit_key == key. Stack there: [old new key delta].
-      3 PICK 8 32 SUBSTR 2 PICK EQUALVERIFY      (old.exit == key)
-    """
-    full = C.F._transfer_absorb(reclaim_key)
-    owner_check = [OFF_OWNER_KEY, 32, "OP_SUBSTR", 2, "OP_PICK", "OP_EQUALVERIFY"]
-    i = next(j for j in range(len(full)) if full[j:j + len(owner_check)] == owner_check) + len(owner_check)
-    return full[:i] + [3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", 2, "OP_PICK", "OP_EQUALVERIFY"] + full[i:]
-
-
-def _rewrite_step_msu(d, exit_consent, pay, reclaim_key, side):
-    """FULL's _rewrite_step; with reclaim_key, a right step takes
-    _transfer_absorb_msu in place of FULL's absorb (spliced, so every
-    other token, and every depth, is FULL's)."""
-    step = C.F._rewrite_step(d, exit_consent, pay, reclaim_key=reclaim_key, side=side)
-    if reclaim_key is None or side != "R":
-        return step
-    old = C.F._transfer_absorb(reclaim_key)
-    i = next(j for j in range(len(step)) if step[j:j + len(old)] == old)
-    return step[:i] + _transfer_absorb_msu(reclaim_key) + step[i + len(old):]
-
-
 def rewrite_script_msu(depth, height, operator_key, exit_consent=True, reclaim_key=None):
     """REWRITE_h (7.9), with reclaim_key the reclaim form of rule 8, under
     CCV + MSU. exit_consent=True is REWRITE_h^x, the form a credit-leaf tree
@@ -473,26 +449,8 @@ def rewrite_script_msu(depth, height, operator_key, exit_consent=True, reclaim_k
     """
     assert 1 <= height < depth
     pay = C._rewrite_pay_ccv()
-    s = [operator_key, "OP_CHECKSIGVERIFY",                           # f p ...blocks
-         "OP_1", "OP_TOALTSTACK",                                     #   | idx
-         lt.EMPTY_LEAF_HASH, LEAF_PREFIX, NODE_PREFIX]                # Z L T
-    d = [0]
-    pos = [0]
-
-    def gen(h):
-        if h == 0:
-            side = "L" if pos[0] % 2 == 0 else "R"
-            s.extend(_rewrite_step_msu(d[0], exit_consent, pay, reclaim_key, side))
-            pos[0] += 1
-            d[0] += 4
-        else:
-            gen(h - 1)
-            gen(h - 1)
-            s.extend(C.F._hash_step2(d[0]))
-            d[0] -= 4
-    gen(height)                                                       # f p Z L T oh os nh ns | idx
-    s += ["OP_FROMALTSTACK", "OP_DROP",
-          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]           # f p T oh os nh ns
+    s = [operator_key, "OP_CHECKSIGVERIFY"]                           # f p ...blocks
+    s += C.F.rewrite_machine(height, exit_consent, pay, reclaim_key)  # f p T oh os nh ns
     s += LE64 + ["OP_CAT", "OP_TOALTSTACK"]                           # f p T oh os | nh40
     s += LE64 + ["OP_CAT", "OP_FROMALTSTACK", "OP_ROT", "OP_DROP",    # f p oh40 nh40
                  MSU]                                                 # f old40 new40
