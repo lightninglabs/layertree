@@ -952,6 +952,13 @@ var midRewriteSame = []byte{0x02}
 // beside the re-joined rest (leaf[8:]): copies of ek and ok, fin = (seq ==
 // SEQ_FINAL) and the amount as a non-negative number.
 func midLeafJoinOld() []Token {
+	return midLeafJoinOldR(nil)
+}
+
+// midLeafJoinOldR is midLeafJoinOld, and with a reclaim key (the reclaim
+// form, spec 7.9 rule 8) two more items below amt8, the raw ea field and
+// isR = (evk == RECLAIM_KEY): [ea isR amt8 rest ek ok fin amt].
+func midLeafJoinOldR(reclaimKey *[32]byte) []Token {
 	s := []Token{Num(2), Op(txscript.OP_PICK)}
 	s = append(s, midNonneg()...)
 	s = append(s, Op(txscript.OP_TOALTSTACK))
@@ -964,7 +971,16 @@ func midLeafJoinOld() []Token {
 		Num(5), Op(txscript.OP_PICK), Num(5), Op(txscript.OP_PICK),
 		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK),
 	)
+	if reclaimKey != nil {
+		s = append(s, Num(3), Op(txscript.OP_PICK), Data(reclaimKey[:]),
+			Op(txscript.OP_EQUAL), Op(txscript.OP_TOALTSTACK),
+			Num(2), Op(txscript.OP_PICK), Op(txscript.OP_TOALTSTACK))
+	}
 	s = append(s, midRepeat([]Token{Op(txscript.OP_CAT)}, 5)...)
+	if reclaimKey != nil {
+		s = append(s, Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK),
+			Op(txscript.OP_2SWAP))
+	}
 	return append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 4)...)
 }
 
@@ -999,12 +1015,13 @@ func midFieldSizeChecks() []Token {
 
 // midRewriteOwnerAuth: [sig C_new(3) C_old(6)] -> [C_new(3) C_old(6)]; the
 // next witness element, nine deep, is a signature by old.ok, and under ^x
-// one more by old.ek.
-func midRewriteOwnerAuth(exitConsent bool) []Token {
-	s := []Token{Num(9), Op(txscript.OP_ROLL), Num(3), Op(txscript.OP_PICK),
+// one more by old.ek. k is the number of extra C_old items (2 in the
+// reclaim form).
+func midRewriteOwnerAuth(exitConsent bool, k int64) []Token {
+	s := []Token{Num(9 + k), Op(txscript.OP_ROLL), Num(3), Op(txscript.OP_PICK),
 		Op(txscript.OP_CHECKSIGVERIFY)}
 	if exitConsent {
-		s = append(s, Num(9), Op(txscript.OP_ROLL), Num(4), Op(txscript.OP_PICK),
+		s = append(s, Num(9+k), Op(txscript.OP_ROLL), Num(4), Op(txscript.OP_PICK),
 			Op(txscript.OP_CHECKSIGVERIFY))
 	}
 	return s
@@ -1052,66 +1069,167 @@ func midRewriteStep(exitConsent bool) []Token {
 // place of midRewritePay (tools/layertree_mid.py _rewrite_step's pay
 // argument); the CCV tier's 0xC0 numerics pass their own.
 func midRewriteStepWith(exitConsent bool, pay []Token) []Token {
-	s := midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 3)
+	return midRewriteStepR(exitConsent, pay, nil, false)
+}
+
+// midRewriteStepR is midRewriteStepWith, and with a reclaim key the reclaim
+// form's step (spec 7.9 rule 8; tools/layertree_mid.py _rewrite_step with
+// reclaim_key): C_old carries [ea isR] below its six items, the machine is
+// [idx delta key L Z] with (delta, key) the transfer record a left step
+// (even position) leaves for its right sibling, and a changed reclaimable
+// leaf takes rule 3's increase, an R3 transfer (left only) or R1.
+func midRewriteStepR(exitConsent bool, pay []Token, reclaimKey *[32]byte,
+	right bool) []Token {
+
+	r := reclaimKey != nil
+	var k, mc int64 = 0, 3
+	if r {
+		k, mc = 2, 5
+	}
+	toAlt := []Token{Op(txscript.OP_TOALTSTACK)}
+	fromAlt := []Token{Op(txscript.OP_FROMALTSTACK)}
+	s := midRepeat(toAlt, int(mc))
 	s = append(s, Op(txscript.OP_IF))
-	s = append(s, midLeafJoinOld()...)
+	s = append(s, midLeafJoinOldR(reclaimKey)...)
 	s = append(s, Op(txscript.OP_ELSE))
-	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, 6)...)
+	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, int(6+k))...)
 	s = append(s, Op(txscript.OP_ENDIF))
 	// The marker: new = old, so the old node is parked as both pairs.
 	s = append(s,
-		Num(6), Op(txscript.OP_PICK), Data(midRewriteSame), Op(txscript.OP_EQUAL),
+		Num(6+k), Op(txscript.OP_PICK), Data(midRewriteSame), Op(txscript.OP_EQUAL),
 		Op(txscript.OP_IF),
-		Num(6), Op(txscript.OP_ROLL), Op(txscript.OP_DROP),
+		Num(6+k), Op(txscript.OP_ROLL), Op(txscript.OP_DROP),
 		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
-		Op(txscript.OP_FROMALTSTACK),
-		Op(txscript.OP_FROMALTSTACK), Op(txscript.OP_FROMALTSTACK),
-		Op(txscript.OP_FROMALTSTACK),
 	)
-	s = append(s, midRoll(5, 2)...)
+	if r {
+		s = append(s, Op(txscript.OP_2SWAP), Op(txscript.OP_2DROP))
+	}
+	s = append(s, Op(txscript.OP_FROMALTSTACK))
+	s = append(s, midRepeat(fromAlt, int(mc))...)
+	if r && right {
+		// No transfer may be pending into an unchanged leaf.
+		s = append(s, Num(3), Op(txscript.OP_PICK), Op(txscript.OP_NOT),
+			Op(txscript.OP_VERIFY))
+	}
+	s = append(s, midRoll(5+k, 2)...)
 	s = append(s, midRewriteConv()...)
-	s = append(s, midRoll(4, 1)...)
+	s = append(s, midRoll(4+k, 1)...)
 	s = append(s, Op(txscript.OP_2DUP))
-	s = append(s, midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 4)...)
+	s = append(s, midRepeat(toAlt, 4)...)
 	s = append(s, Op(txscript.OP_ELSE))
-	s = append(s, midRepeat([]Token{Op(txscript.OP_TOALTSTACK)}, 6)...)
+	s = append(s, midRepeat(toAlt, int(6+k))...)
 	s = append(s, Op(txscript.OP_IF))
 	s = append(s, midLeafJoinNew()...)
 	s = append(s, Op(txscript.OP_ELSE))
 	s = append(s, midRepeat([]Token{Op(txscript.OP_0)}, 3)...)
 	s = append(s, Op(txscript.OP_ENDIF))
-	s = append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 6)...)
-	s = append(s,
-		Num(4), Op(txscript.OP_PICK), Num(8), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
-		Num(6), Op(txscript.OP_PICK), Num(10), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
-		Op(txscript.OP_BOOLAND), Op(txscript.OP_NOTIF),
-		Num(4), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
+	s = append(s, midRepeat(fromAlt, int(6+k))...)
+
+	// Rules 3 and 5 for an old leaf that is not reclaimable.
+	oldRules := []Token{
+		Num(7 + k), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
 		Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
-		Num(7), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
-		Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
-		Num(4), Op(txscript.OP_PICK), Num(8), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
-		Op(txscript.OP_OVER), Num(8), Op(txscript.OP_PICK),
+		Num(4), Op(txscript.OP_PICK), Num(8 + k), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_OVER), Num(8 + k), Op(txscript.OP_PICK),
 		Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_BOOLAND),
 		Num(2), Op(txscript.OP_PICK), Op(txscript.OP_NOT), Op(txscript.OP_BOOLAND),
 		Op(txscript.OP_NOTIF),
-	)
-	s = append(s, midRewriteOwnerAuth(exitConsent)...)
-	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ELSE))
-	s = append(s, midRewriteOwnerAuth(exitConsent)...)
-	s = append(s, pay...)
-	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF))
+	}
+	oldRules = append(oldRules, midRewriteOwnerAuth(exitConsent, k)...)
+	oldRules = append(oldRules, Op(txscript.OP_ENDIF), Op(txscript.OP_ELSE))
+	oldRules = append(oldRules, midRewriteOwnerAuth(exitConsent, k)...)
+	oldRules = append(oldRules, pay...)
+	oldRules = append(oldRules, Op(txscript.OP_ENDIF))
+
+	leafRules := oldRules
+	if r {
+		r1 := midRewriteR1()
+		decrease := r1
+		if !right {
+			// An R3 transfer (body unchanged, amount lowered) passes here.
+			decrease = []Token{
+				Num(4), Op(txscript.OP_PICK), Num(10), Op(txscript.OP_PICK),
+				Op(txscript.OP_EQUAL),
+				Op(txscript.OP_OVER), Num(10), Op(txscript.OP_PICK),
+				Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_NOT),
+				Op(txscript.OP_BOOLAND), Op(txscript.OP_NOTIF),
+			}
+			decrease = append(decrease, r1...)
+			decrease = append(decrease, Op(txscript.OP_ENDIF))
+		}
+		leafRules = []Token{
+			Num(6), Op(txscript.OP_PICK), Op(txscript.OP_IF), // old is reclaimable
+			Num(9), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
+			Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF), // new is a leaf
+			Num(4), Op(txscript.OP_PICK), Num(10), Op(txscript.OP_PICK),
+			Op(txscript.OP_EQUAL),
+			Op(txscript.OP_OVER), Num(10), Op(txscript.OP_PICK),
+			Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_BOOLAND),
+			Num(2), Op(txscript.OP_PICK), Op(txscript.OP_NOT), Op(txscript.OP_BOOLAND),
+			Op(txscript.OP_NOTIF),
+		}
+		leafRules = append(leafRules, decrease...)
+		leafRules = append(leafRules, Op(txscript.OP_ENDIF), Op(txscript.OP_ELSE))
+		leafRules = append(leafRules, r1...) // emptied: reclaimed, no payout
+		leafRules = append(leafRules, Op(txscript.OP_ENDIF), Op(txscript.OP_ELSE))
+		leafRules = append(leafRules, oldRules...)
+		leafRules = append(leafRules, Op(txscript.OP_ENDIF))
+	}
 	s = append(s,
-		Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP),
-		Op(txscript.OP_FROMALTSTACK),
+		Num(4), Op(txscript.OP_PICK), Num(8+k), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
+		Num(6), Op(txscript.OP_PICK), Num(10+k), Op(txscript.OP_PICK), Op(txscript.OP_EQUAL),
+		Op(txscript.OP_BOOLAND), Op(txscript.OP_NOTIF),
+		Num(4), Op(txscript.OP_PICK), Op(txscript.OP_SIZE), Op(txscript.OP_NIP),
+		Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
 	)
-	s = append(s, midRepeat([]Token{Op(txscript.OP_FROMALTSTACK)}, 3)...)
-	s = append(s, midRoll(8, 2)...)
+	s = append(s, leafRules...)
+	s = append(s, Op(txscript.OP_ENDIF), Op(txscript.OP_ENDIF))
+	if r {
+		// The transfer record, with [idx delta key] popped: key 0, delta
+		// 1, idx 2, amt_o 3, fin 4, ok 5, ek 6, rest_o 7, amt8_o 8, isR 9,
+		// ea 10, amt_n 11, rest_n 12, amt8_n 13.
+		s = append(s, midRepeat(fromAlt, 3)...)
+		if !right {
+			s = append(s,
+				Op(txscript.OP_2DROP),
+				Num(7), Op(txscript.OP_PICK),
+				Num(6), Op(txscript.OP_PICK), Num(12), Op(txscript.OP_PICK),
+				Op(txscript.OP_EQUAL), Op(txscript.OP_BOOLAND),
+				Num(2), Op(txscript.OP_PICK), Num(11), Op(txscript.OP_PICK),
+				Op(txscript.OP_LESSTHANOREQUAL), Op(txscript.OP_NOT), Op(txscript.OP_BOOLAND),
+				Op(txscript.OP_IF), Op(txscript.OP_OVER), Num(10), Op(txscript.OP_PICK),
+				Op(txscript.OP_SUB),
+				Num(5), Op(txscript.OP_PICK),
+				Op(txscript.OP_ELSE), Op(txscript.OP_0), Op(txscript.OP_0), Op(txscript.OP_ENDIF),
+			)
+		} else {
+			s = append(s,
+				Op(txscript.OP_OVER), Op(txscript.OP_0NOTEQUAL), Op(txscript.OP_IF),
+				Op(txscript.OP_DUP), Num(6), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+				Op(txscript.OP_DUP), Num(7), Op(txscript.OP_PICK), Op(txscript.OP_EQUALVERIFY),
+				Num(9), Op(txscript.OP_PICK), Op(txscript.OP_NOT), Op(txscript.OP_VERIFY),
+				Num(7), Op(txscript.OP_PICK), Num(13), Op(txscript.OP_PICK),
+				Op(txscript.OP_EQUALVERIFY),
+				Num(11), Op(txscript.OP_PICK), Num(4), Op(txscript.OP_PICK), Op(txscript.OP_SUB),
+				Num(2), Op(txscript.OP_PICK), Op(txscript.OP_NUMEQUALVERIFY),
+				Op(txscript.OP_ENDIF), Op(txscript.OP_2DROP), Op(txscript.OP_0), Op(txscript.OP_0),
+			)
+		}
+		s = append(s, midRepeat(toAlt, 3)...)
+	}
+	s = append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_2DROP), Op(txscript.OP_DROP))
+	if r {
+		s = append(s, Op(txscript.OP_2SWAP), Op(txscript.OP_2DROP))
+	}
+	s = append(s, Op(txscript.OP_FROMALTSTACK))
+	s = append(s, midRepeat(fromAlt, int(mc))...)
+	s = append(s, midRoll(8+k, 2)...)
 	s = append(s, midRewriteConv()...)
-	s = append(s, midRoll(7, 1)...)
+	s = append(s, midRoll(7+k, 1)...)
 	s = append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
-	s = append(s, midRoll(5, 2)...)
+	s = append(s, midRoll(5+k, 2)...)
 	s = append(s, midRewriteConv()...)
-	s = append(s, midRoll(4, 1)...)
+	s = append(s, midRoll(4+k, 1)...)
 	s = append(s, Op(txscript.OP_TOALTSTACK), Op(txscript.OP_TOALTSTACK))
 	return append(s, Op(txscript.OP_ENDIF))
 }
@@ -1156,9 +1274,24 @@ func MidRewriteScript(depth, height int, operatorKey [32]byte,
 // exit payout check (tools/layertree_mid.py rewrite_body). Shared with the
 // CCV tier's 0xC0 numerics, as midEvictBody is for the sweep.
 func midRewriteBody(height int, exitConsent bool, pay []Token) []Token {
-	s := []Token{Op(txscript.OP_1), Data(midLeafPrefix), Data(midEvictE0Sc)}
+	return midRewriteBodyR(height, exitConsent, pay, nil)
+}
+
+// midRewriteBodyR is midRewriteBody, and with a reclaim key the reclaim
+// form's body, whose machine starts with the transfer record (0, 0).
+func midRewriteBodyR(height int, exitConsent bool, pay []Token,
+	reclaimKey *[32]byte) []Token {
+
+	s := []Token{Op(txscript.OP_1)}
+	if reclaimKey != nil {
+		s = append(s, Op(txscript.OP_0), Op(txscript.OP_0))
+	}
+	s = append(s, Data(midLeafPrefix), Data(midEvictE0Sc))
 	for i := 0; i < 1<<height; i++ {
-		s = append(s, midRewriteStepWith(exitConsent, pay)...)
+		s = append(s, midRewriteStepR(exitConsent, pay, reclaimKey, i%2 == 1)...)
+	}
+	if reclaimKey != nil {
+		s = append(s, Op(txscript.OP_2DROP))
 	}
 	s = append(s, Op(txscript.OP_2DROP), Op(txscript.OP_DROP), Data(midNodePrefix))
 	var t int64
@@ -1245,6 +1378,14 @@ type MidTreeOptions struct {
 	RewriteX       bool
 	DetachHeights  []int
 
+	// ReclaimKey is the tree's RECLAIM_KEY (spec 6.2) or nil. When set the
+	// set carries RECLAIM_1 (7.11) and every REWRITE_h in its reclaim form
+	// (7.9 rule 8), named REWRITE_R_h and REWRITE_XR_h. ClaimM and ClaimHM
+	// add the merge claims CLAIM^m and CLAIM^hm (7.5.4, dense only).
+	ReclaimKey *[32]byte
+	ClaimM     bool
+	ClaimHM    bool
+
 	// DustMin is the tree's DUST_MIN (spec 6.2), the floor the carve
 	// scripts carry as a constant (7.5 rule 6). Zero means tree.DustMin.
 	DustMin uint64
@@ -1312,8 +1453,17 @@ func (o MidTreeOptions) Scripts(depth int) []FullNamedScript {
 	if o.Split {
 		add("SPLIT", MidSplitScript(depth, o.Sparse, o.DustMin))
 	}
+	if o.ReclaimKey != nil {
+		add("RECLAIM_1", MidReclaimScript(depth, *o.ReclaimKey, o.Sparse))
+	}
 	if o.Sparse {
 		return out
+	}
+	if o.ClaimM {
+		add("CLAIM_M", MidMergeScript(depth, o.TreeID, false, o.ReclaimKey, o.DustMin))
+	}
+	if o.ClaimHM {
+		add("CLAIM_HM", MidMergeScript(depth, o.TreeID, true, o.ReclaimKey, o.DustMin))
 	}
 	for _, h := range o.EvictHeights {
 		if h <= depth {
@@ -1321,7 +1471,15 @@ func (o MidTreeOptions) Scripts(depth int) []FullNamedScript {
 		}
 	}
 	for _, h := range o.RewriteHeights {
-		if h <= depth {
+		switch {
+		case h > depth:
+		case o.ReclaimKey != nil:
+			rk := *o.ReclaimKey
+			add(fmt.Sprintf("REWRITE_R_%d", h), MidRewriteRScript(depth, h, o.OperatorKey, false, rk))
+			if o.RewriteX {
+				add(fmt.Sprintf("REWRITE_XR_%d", h), MidRewriteRScript(depth, h, o.OperatorKey, true, rk))
+			}
+		default:
 			add(fmt.Sprintf("REWRITE_%d", h), MidRewriteScript(depth, h, o.OperatorKey, false))
 			if o.RewriteX {
 				add(fmt.Sprintf("REWRITE_X_%d", h), MidRewriteScript(depth, h, o.OperatorKey, true))

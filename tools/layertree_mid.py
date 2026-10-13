@@ -497,6 +497,119 @@ def carve_claim(depth, sparse=False):
     return s + levels(sparse, depth) + check_prev(sparse)            # T nh2 ns2
 
 
+# ------------------------------------- pending-leaf receive (7.5.4, 7.11) --
+# FULL's merge claim CLAIM^m / CLAIM^hm and RECLAIM_1 under MID numerics
+# (design/pending-receive.md R1, R2). A tree that carries them names
+# RECLAIM_KEY at creation; a leaf is reclaimable when its evictor_key is
+# RECLAIM_KEY.
+def _sc(a, r, l):
+    """Push a leaf's 41-byte node H_leaf(amt8||rest) || amt8 || 01 built
+    from copies: amt8 at depth a, rest at depth r, the TAG_LEAF prefix at
+    depth l. Nothing is consumed."""
+    return [a, "OP_PICK", r + 1, "OP_PICK", "OP_CAT",
+            l + 1, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",
+            a + 1, "OP_PICK", b"\x01", "OP_CAT", "OP_CAT"]
+
+
+def merge_script(depth, tree_id, hashlock=False, reclaim_key=None, dust_min=lt.DUST_MIN):
+    """CLAIM^m (7.5.4), or CLAIM^hm with hashlock=True, in the MID tier:
+    raise the source's sibling to an absolute amount X, taking the
+    difference from the source. Dense profile only.
+
+    witness (bottom..top):
+      zf wf zi wi [levels 1..D-1] f zr wr xn zx wx S(10) T(10) vsig [preimage] r m
+
+    S and T are the source and target leaf blocks of an aligned pair, its
+    node proven at height 1, and f (empty or 0x01) is src_is_left: the
+    blocks arrive source first whatever their positions, and f orders them
+    in the pair's node. X arrives as the minimal number xn with its PADZ
+    pad (zx wx), and zr wr pad the source's residual. The voucher is a
+    signature by S.owner_key over H_voucher_m(tree_id || body(S) ||
+    body(T) || le64(X) [|| SHA256(preimage)]), the FULL message byte for
+    byte, checked with OP_CHECKSIGFROMSTACK. The script requires
+    T.owner_key == S.exit_key and T.exit_key == S.exit_key, neither seq
+    at MID's SEQ_FINAL, T not
+    reclaimable (when the tree names a RECLAIM_KEY), d = X - T.amount >= 1
+    and a residual S.amount - d of zero (the source position becomes E_0)
+    or at least DUST_MIN. The source keeps its body, seq included, and the
+    target changes in its amount only. The pair's sum is unchanged, so it
+    is computed once, as residual + X.
+
+    xn needs no NONNEG check: a negative xn makes d negative, which rule 3
+    rejects, and le64(xn) is what the voucher signs whatever its sign."""
+    assert len(tree_id) == 32 and depth >= 1
+    hl = 1 if hashlock else 0
+    s = prologue()                                                   # .. S(10) T(10) vsig [pre]  | m r
+    if hashlock:
+        s += ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256"]          # .. vsig ph
+    s += [23 + hl, "OP_PICK"] * 3 + le64() + ["OP_DUP", "OP_TOALTSTACK"]   # .. vsig [ph] X8   | m r X8
+    if hashlock:
+        s += ["OP_SWAP", "OP_CAT"]                                   # .. vsig (X8||ph)
+    s += [20, "OP_PICK"] * 6 + ["OP_CAT"] * 5                        # .. vsig sfx body(S)
+    s += [11, "OP_PICK"] * 6 + ["OP_CAT"] * 6                        # .. vsig sfx (body(S)||body(T))
+    s += ["OP_SWAP", "OP_CAT", tree_id, "OP_SWAP", "OP_CAT"]          # .. vsig (tree_id||bS||bT||X8[||ph])
+    s += tagged(F.VOUCHER_HM_PREFIX if hashlock else F.VOUCHER_M_PREFIX)
+    s += [19, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]         # f zr wr xn zx wx S(10) T(10)
+    # rule 2: the target belongs and exits to the source's exit key, neither leaf is final
+    s += [7, "OP_PICK", 19, "OP_PICK", "OP_EQUALVERIFY",             # T.ok == S.ek
+          8, "OP_PICK", 19, "OP_PICK", "OP_EQUALVERIFY",             # T.ek == S.ek
+          3, "OP_PICK", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_VERIFY",    # T.seq != SEQ_FINAL
+          13, "OP_PICK", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_VERIFY"]   # S.seq != SEQ_FINAL
+    if reclaim_key is not None:
+        s += [6, "OP_PICK", reclaim_key, "OP_EQUAL", "OP_NOT", "OP_VERIFY"]   # T not reclaimable
+    s += _leaf_join_new() + ["OP_TOALTSTACK"] * 3                    # f zr wr xn zx wx S(10)   | .. X8 T.amt T.rest T.amt8
+    s += _leaf_join_new() + ["OP_FROMALTSTACK"] * 3                  # .. S.amt8 S.rest S.amt T.amt8 T.rest T.amt
+    # rule 3: d = X - T.amount >= 1, residual 0 or >= DUST_MIN
+    s += [8, "OP_PICK", "OP_SWAP", "OP_SUB",                          # .. S.amt T.amt8 T.rest d
+          "OP_DUP", "OP_1", "OP_GREATERTHANOREQUAL", "OP_VERIFY",
+          3, "OP_ROLL", "OP_SWAP", "OP_SUB",                          # .. S.amt8 S.rest T.amt8 T.rest res
+          "OP_DUP", 10, "OP_PICK", 10, "OP_PICK"] + le64() + [        # .. res le64(res)
+          F.LEAF_PREFIX, "OP_FROMALTSTACK"]                           # .. res le64r L X8
+    # depths: X8 0, L 1, le64r 2, res 3, T.rest 4, T.amt8 5, S.rest 6, S.amt8 7,
+    # wx 8, zx 9, xn 10, wr 11, zr 12, f 13
+    s += _sc(0, 4, 1)                                                 # .. nT
+    s += [4, "OP_PICK", "OP_0NOTEQUAL", "OP_IF",
+          dust_min, 5, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_VERIFY"] + _sc(3, 7, 2) + [
+          "OP_ELSE", E0_SC, "OP_ENDIF"]                               # .. nT nS   (drained: E_0)
+    s += _sc(7, 6, 3) + _sc(10, 9, 4)                                 # .. nT nS oT oS
+    s += [17, "OP_PICK", "OP_IF", "OP_SWAP", "OP_ENDIF", "OP_CAT", "OP_TOALTSTACK",   # | .. pre_old
+          15, "OP_PICK", "OP_IF", "OP_SWAP", "OP_ENDIF", "OP_CAT",                    # .. pre_new
+          4, "OP_PICK", 12, "OP_PICK", "OP_ADD",                      # .. pre_new sum   (res + X)
+          "OP_TOALTSTACK", "OP_TOALTSTACK"] + ["OP_2DROP"] * 7 + [    # | m r pre_old sum pre_new
+          F.NODE_PREFIX, "OP_FROMALTSTACK", "OP_OVER", "OP_SWAP", "OP_CAT", "OP_SHA256",   # T nh
+          "OP_FROMALTSTACK", "OP_FROMALTSTACK",                       # T nh sum pre_old
+          3, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",             # T nh sum oh
+          "OP_SWAP", "OP_ROT", "OP_OVER"]                             # T oh os nh ns
+    s += levels(False, depth, 1)
+    return s + check_old(False) + final(depth)
+
+
+def reclaim_script(depth, reclaim_key, sparse=False):
+    """RECLAIM_1 (7.11) in the MID tier: the operator removes a reclaimable
+    leaf after its deadline with no payout.
+
+    witness (bottom..top) = zf wf zi wi [levels] [sparse: ok nonce plo phi]
+                            leaf(10) ea_num ze we sig r m
+
+    The leaf's evictor_key MUST be RECLAIM_KEY, the lock time at least its
+    evict_after (ea_num, the field as a minimal number with its PADZ pad,
+    as EXIT_1's eviction branch takes it) and sig a transaction signature
+    by RECLAIM_KEY. The new node is E_0; output 0 carries S - leaf.amount
+    and nothing else is constrained. It is EXIT_1's eviction branch with
+    the payout check removed and RECLAIM_KEY in place of the leaf's own
+    evictor key."""
+    assert len(reclaim_key) == 32
+    s = prologue() + [reclaim_key, "OP_CHECKSIGVERIFY",               # leaf(10) ea_num ze we
+                      2, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"] + padz() + [
+                      6, "OP_PICK", "OP_EQUALVERIFY",                  # leaf(10)   (le32(ea_num) == ea)
+                      6, "OP_PICK", reclaim_key, "OP_EQUALVERIFY"]     # evictor_key == RECLAIM_KEY
+    s += leaf_join() + tagged(F.LEAF_PREFIX) + ["OP_FROMALTSTACK"]   # oh os
+    if sparse:
+        s += roll(5, 4) + sparse_setup()
+    s += [F.NODE_PREFIX, "OP_ROT", "OP_ROT", lt.EMPTY_LEAF_HASH, "OP_0"]
+    return s + levels(sparse, depth) + check_old(sparse) + final(depth)
+
+
 # ------------------------------------------------- EVICT_SUBTREE_h (7.7) --
 # The FULL tier's post-order fold (section 8.7) under MID numerics. FULL
 # rolls each 116-byte leaf up from below T as it reaches it; a MID leaf is
@@ -678,21 +791,31 @@ REWRITE_SLOT_WITNESS = LEAF_WITNESS + 1
 REWRITE_SAME = b"\x02"
 
 
-def _leaf_join_old():
+def _leaf_join_old(reclaim_key=None):
     """[amt8 ek ok evk ea nonce seq amt_num za wa] -> [amt8 rest ek ok fin amt]
 
     LEAF_JOIN with the fields the rewrite rules need kept beside the
     re-joined rest: copies of ek and ok, fin = (seq == SEQ_FINAL) and the
     amount as a (non-negative) number. rest is ek||ok||evk||ea||nonce||seq,
-    so amt8||rest is the leaf."""
+    so amt8||rest is the leaf.
+
+    With reclaim_key (the reclaim form, 7.9 rule 8) two more items sit
+    below amt8, the raw ea field and isR = (evk == RECLAIM_KEY):
+    [ea isR amt8 rest ek ok fin amt], so every depth of the plain form's
+    six items is unchanged."""
     s = [2, "OP_PICK"] + nonneg() + ["OP_TOALTSTACK"]                          # ... amt_num za wa    | amt
     s += le64() + [7, "OP_PICK", "OP_EQUALVERIFY"]                             # amt8 ek ok evk ea nonce seq
     for d, size in FIELD_SIZES:
         s += ([d, "OP_PICK"] if d else ["OP_DUP"]) + ["OP_SIZE", size, "OP_EQUALVERIFY", "OP_DROP"]
     s += ["OP_DUP", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_TOALTSTACK"]              # | amt fin
     s += [5, "OP_PICK", 5, "OP_PICK", "OP_TOALTSTACK", "OP_TOALTSTACK"]        # | amt fin ok ek
+    if reclaim_key is not None:
+        s += [3, "OP_PICK", reclaim_key, "OP_EQUAL", "OP_TOALTSTACK",          # | .. ek isR
+              2, "OP_PICK", "OP_TOALTSTACK"]                                   # | .. ek isR ea
     s += ["OP_CAT"] * 5                                                        # amt8 rest
-    return s + ["OP_FROMALTSTACK"] * 4                                         # amt8 rest ek ok fin amt
+    if reclaim_key is not None:
+        s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_2SWAP"]                # ea isR amt8 rest
+    return s + ["OP_FROMALTSTACK"] * 4                                         # [ea isR] amt8 rest ek ok fin amt
 
 
 def _leaf_join_new():
@@ -704,12 +827,13 @@ def _leaf_join_new():
     return s + ["OP_CAT"] * 5 + ["OP_FROMALTSTACK"]                            # amt8 rest amt
 
 
-def _rewrite_owner_auth(exit_consent):
+def _rewrite_owner_auth(exit_consent, k=0):
     """[sig C_new(3) C_old(6)] -> [C_new(3) C_old(6)]: the next witness element,
-    nine deep, is a signature by old.ok; under ^x one more by old.ek."""
-    s = [9, "OP_ROLL", 3, "OP_PICK", "OP_CHECKSIGVERIFY"]
+    nine deep, is a signature by old.ok; under ^x one more by old.ek. k is
+    the number of extra C_old items (2 in the reclaim form)."""
+    s = [9 + k, "OP_ROLL", 3, "OP_PICK", "OP_CHECKSIGVERIFY"]
     if exit_consent:
-        s += [9, "OP_ROLL", 4, "OP_PICK", "OP_CHECKSIGVERIFY"]
+        s += [9 + k, "OP_ROLL", 4, "OP_PICK", "OP_CHECKSIGVERIFY"]
     return s
 
 
@@ -733,7 +857,19 @@ def _rewrite_conv():
             "OP_ENDIF"]
 
 
-def _rewrite_step(exit_consent, pay=None):
+def _rewrite_r1():
+    """[.. we ze ea_num C_new(3) C_old(8)] -> [.. C_new(3) C_old(8)]: R1 inside
+    the reclaim-form rewrite (7.9 rule 8). The old leaf's deadline has
+    passed: the next three witness elements are its evict_after as a
+    minimal number with its PADZ pad, checked against the raw ea field
+    (C_old's deepest item) and against the lock time. No signature, and no
+    payout when the position is emptied."""
+    return ([11, "OP_ROLL", 12, "OP_ROLL", 13, "OP_ROLL"] +                   # .. C_old ea_num ze we
+            [2, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"] + padz() +     # .. C_old le32(ea_num)
+            [8, "OP_PICK", "OP_EQUALVERIFY"])
+
+
+def _rewrite_step(exit_consent, pay=None, reclaim_key=None, side=None):
     """One position of the pre-pass:
     [.. {xsig} {sig} new_slot old_slot idx L Z] | .. -> [.. idx' L Z] | .. ns nsc os osc
 
@@ -746,40 +882,106 @@ def _rewrite_step(exit_consent, pay=None):
     block, from the top: amt_o 0, fin 1, ok 2, ek 3, rest_o 4, amt8_o 5,
     amt_n 6, rest_n 7, amt8_n 8, and the next witness element 9. `pay` is
     the exit payout check, _rewrite_pay's by default; the CCV tier's 0xC0
-    numerics pass their own."""
+    numerics pass their own.
+
+    With reclaim_key (the reclaim form, 7.9 rule 8, as FULL's
+    _rewrite_step) C_old carries [ea isR] below its six items, so the new
+    items and the next witness element sit two deeper, and the machine is
+    [idx delta key L Z]: (delta, key) is the transfer record a left step
+    (side "L", even position) leaves for its right sibling (side "R"),
+    (old.amount - new.amount, old.exit_key) for an R3 transfer and (0, 0)
+    otherwise; a right step checks it (its old leaf owned by and exiting to
+    key, not reclaimable, raised by exactly delta) and resets it to (0, 0). idx stays
+    the altstack's top while the machine is parked, so `pay` is unchanged.
+    A changed position whose old leaf is reclaimable takes no owner
+    signature: an amount-only increase passes as rule 3, a left decrease
+    with the body unchanged is a transfer its right sibling must absorb,
+    and any other change is R1 (_rewrite_r1)."""
     if pay is None:
         pay = _rewrite_pay()
-    s = ["OP_TOALTSTACK"] * 3                                                  # .. new_slot old_slot   | .. Z L idx
-    s += ["OP_IF"] + _leaf_join_old() + ["OP_ELSE"] + ["OP_0"] * 6 + ["OP_ENDIF"]   # .. new_slot C_old(6)
-    s += [6, "OP_PICK", REWRITE_SAME, "OP_EQUAL", "OP_IF",                     # -- the marker: new = old --
-          6, "OP_ROLL", "OP_DROP",                                             # .. C_old(6)
-          "OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK",           # .. amt8 rest amt
-          "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK"]             # .. amt8 rest amt idx L Z
-    s += roll(5, 2) + _rewrite_conv()                                          # .. amt idx L Z sc
-    s += roll(4) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4                         # .. idx L Z              | .. ns nsc os osc
+    r = reclaim_key is not None
+    k = 2 if r else 0                        # extra C_old items
+    mc = 5 if r else 3                       # machine size
+    s = ["OP_TOALTSTACK"] * mc                                                 # .. new_slot old_slot   | .. machine
+    s += ["OP_IF"] + _leaf_join_old(reclaim_key) + ["OP_ELSE"] + ["OP_0"] * (6 + k) + ["OP_ENDIF"]   # .. new_slot C_old
+    s += [6 + k, "OP_PICK", REWRITE_SAME, "OP_EQUAL", "OP_IF",                 # -- the marker: new = old --
+          6 + k, "OP_ROLL", "OP_DROP",                                         # .. C_old
+          "OP_TOALTSTACK", "OP_2DROP", "OP_DROP"]                              # .. [ea isR] amt8 rest
+    if r:
+        s += ["OP_2SWAP", "OP_2DROP"]                                          # .. amt8 rest
+    s += ["OP_FROMALTSTACK"]                                                   # .. amt8 rest amt
+    s += ["OP_FROMALTSTACK"] * mc                                              # .. amt8 rest amt idx [delta key] L Z
+    if r and side == "R":
+        s += [3, "OP_PICK", "OP_NOT", "OP_VERIFY"]                             # no transfer into an unchanged leaf
+    s += roll(5 + k, 2) + _rewrite_conv()                                      # .. amt machine sc
+    s += roll(4 + k) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4                     # .. machine              | .. ns nsc os osc
     s += ["OP_ELSE"]                                                           # -- a leaf or empty --
-    s += ["OP_TOALTSTACK"] * 6                                                 # .. new_slot            | .. Z L idx C_old
+    s += ["OP_TOALTSTACK"] * (6 + k)                                           # .. new_slot            | .. machine C_old
     s += ["OP_IF"] + _leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]   # .. C_new(3)
-    s += ["OP_FROMALTSTACK"] * 6                                               # .. C_new(3) C_old(6)   | .. Z L idx
-    s += [4, "OP_PICK", 8, "OP_PICK", "OP_EQUAL",                              # same_rest
-          6, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",                             # same_amt8
+    s += ["OP_FROMALTSTACK"] * (6 + k)                                         # .. C_new(3) C_old      | .. machine
+    old_rules = ([7 + k, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",      # -- new is a leaf: rewrite --
+                  4, "OP_PICK", 8 + k, "OP_PICK", "OP_EQUAL",                          # same_rest
+                  "OP_OVER", 8 + k, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",     # .. and amt_o <= amt_n
+                  2, "OP_PICK", "OP_NOT", "OP_BOOLAND",                                # .. and seq != SEQ_FINAL
+                  "OP_NOTIF"] + _rewrite_owner_auth(exit_consent, k) + ["OP_ENDIF",
+                  "OP_ELSE"] + _rewrite_owner_auth(exit_consent, k) + pay + [          # -- new is empty: exit --
+                  "OP_ENDIF"])
+    if not r:
+        leaf_rules = old_rules
+    else:
+        r1 = _rewrite_r1()
+        if side == "L":   # an R3 transfer (body unchanged, amount lowered) passes here
+            decrease = ([4, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",
+                         "OP_OVER", 10, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_NOT", "OP_BOOLAND",
+                         "OP_NOTIF"] + r1 + ["OP_ENDIF"])
+        else:
+            decrease = r1
+        leaf_rules = ([6, "OP_PICK", "OP_IF",                                          # -- old is reclaimable --
+                       9, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",      # new is a leaf
+                       4, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",
+                       "OP_OVER", 10, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",
+                       2, "OP_PICK", "OP_NOT", "OP_BOOLAND",                            # rule 3's exemption
+                       "OP_NOTIF"] + decrease + ["OP_ENDIF",
+                       "OP_ELSE"] + r1 + ["OP_ENDIF",                                   # emptied: reclaimed, no payout
+                       "OP_ELSE"] + old_rules + ["OP_ENDIF"])
+    s += [4, "OP_PICK", 8 + k, "OP_PICK", "OP_EQUAL",                          # same_rest
+          6, "OP_PICK", 10 + k, "OP_PICK", "OP_EQUAL",                         # same_amt8
           "OP_BOOLAND", "OP_NOTIF",                                            # -- changed --
-          4, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",          # -- old is a leaf --
-          7, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",          # -- new is a leaf: rewrite --
-          4, "OP_PICK", 8, "OP_PICK", "OP_EQUAL",                              # same_rest
-          "OP_OVER", 8, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",         # .. and amt_o <= amt_n
-          2, "OP_PICK", "OP_NOT", "OP_BOOLAND",                                # .. and seq != SEQ_FINAL
-          "OP_NOTIF"] + _rewrite_owner_auth(exit_consent) + ["OP_ENDIF",
-          "OP_ELSE"] + _rewrite_owner_auth(exit_consent) + pay + [          # -- new is empty: exit --
-          "OP_ENDIF",
+          4, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"]          # -- old is a leaf --
+    s += leaf_rules + [
           "OP_ENDIF",                                                          # (old empty: a join, operator only)
           "OP_ENDIF"]                                                          # (unchanged)
-    s += ["OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK"]           # .. amt8_n rest_n amt_n amt8_o rest_o amt_o
-    s += ["OP_FROMALTSTACK"] * 3                                               # .. amt8_n rest_n amt_n amt8_o rest_o amt_o idx L Z
-    s += roll(8, 2) + _rewrite_conv()                                          # .. amt_n amt8_o rest_o amt_o idx L Z nsc
-    s += roll(7) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                          # .. amt8_o rest_o amt_o idx L Z   | .. ns nsc
-    s += roll(5, 2) + _rewrite_conv()                                          # .. amt_o idx L Z osc
-    s += roll(4) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                          # .. idx L Z                       | .. ns nsc os osc
+    if r:
+        # the transfer record; depths with [idx delta key] popped: key 0,
+        # delta 1, idx 2, amt_o 3, fin 4, ok 5, ek 6, rest_o 7, amt8_o 8,
+        # isR 9, ea 10, amt_n 11, rest_n 12, amt8_n 13
+        s += ["OP_FROMALTSTACK"] * 3
+        if side == "L":
+            s += ["OP_2DROP",                                                  # .. idx
+                  7, "OP_PICK",                                                # isR
+                  6, "OP_PICK", 12, "OP_PICK", "OP_EQUAL", "OP_BOOLAND",       # .. and same_rest
+                  2, "OP_PICK", 11, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_NOT", "OP_BOOLAND",   # .. and amt_o > amt_n
+                  "OP_IF", "OP_OVER", 10, "OP_PICK", "OP_SUB",                 # .. idx delta'
+                  5, "OP_PICK",                                                # .. idx delta' key'
+                  "OP_ELSE", "OP_0", "OP_0", "OP_ENDIF"]
+        else:
+            s += ["OP_OVER", "OP_0NOTEQUAL", "OP_IF",
+                  "OP_DUP", 6, "OP_PICK", "OP_EQUALVERIFY",                    # old.ok == key
+                  "OP_DUP", 7, "OP_PICK", "OP_EQUALVERIFY",                    # old.ek == key
+                  9, "OP_PICK", "OP_NOT", "OP_VERIFY",                         # old not reclaimable
+                  7, "OP_PICK", 13, "OP_PICK", "OP_EQUALVERIFY",               # same_rest
+                  11, "OP_PICK", 4, "OP_PICK", "OP_SUB", 2, "OP_PICK", "OP_NUMEQUALVERIFY",   # amt_n - amt_o == delta
+                  "OP_ENDIF", "OP_2DROP", "OP_0", "OP_0"]                      # .. idx 0 0
+        s += ["OP_TOALTSTACK"] * 3
+    s += ["OP_TOALTSTACK", "OP_2DROP", "OP_DROP"]                              # .. C_new [ea isR] amt8_o rest_o
+    if r:
+        s += ["OP_2SWAP", "OP_2DROP"]                                          # .. C_new amt8_o rest_o
+    s += ["OP_FROMALTSTACK"]                                                   # .. C_new amt8_o rest_o amt_o
+    s += ["OP_FROMALTSTACK"] * mc                                              # .. amt8_n rest_n amt_n amt8_o rest_o amt_o machine
+    s += roll(8 + k, 2) + _rewrite_conv()                                      # .. amt_n amt8_o rest_o amt_o machine nsc
+    s += roll(7 + k) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                      # .. amt8_o rest_o amt_o machine   | .. ns nsc
+    s += roll(5 + k, 2) + _rewrite_conv()                                      # .. amt_o machine osc
+    s += roll(4 + k) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]                      # .. machine                       | .. ns nsc os osc
     return s + ["OP_ENDIF"]
 
 
@@ -798,7 +1000,7 @@ def _rewrite_hash_step2(t, root):
             _evict_hash_step(t - 2, root))                                     # posc pos pnsc pns
 
 
-def rewrite_script(depth, height, operator_key, exit_consent=False):
+def rewrite_script(depth, height, operator_key, exit_consent=False, reclaim_key=None):
     """REWRITE_h (7.9, dense) in the MID tier, or REWRITE_h^x with exit_consent.
 
     witness (bottom..top):
@@ -809,24 +1011,31 @@ def rewrite_script(depth, height, operator_key, exit_consent=False):
       0x01 or one empty element, and new_slot_i may be the one-byte marker
       REWRITE_SAME for an unchanged position; sig_i only where 7.9 rule 3
       requires it, xsig_i only under ^x and only where sig_i is present.
+
+    With reclaim_key this is the reclaim form (7.9 rule 8; REWRITE_R_h,
+    REWRITE_XR_h), h >= 1: a position that takes R1 carries, in place of
+    its signatures, the old leaf's evict_after as we ze ea_num (w_reclaim).
     """
     assert 1 <= height <= depth
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]                       # .. blocks            | m r
-    s += rewrite_body(height, exit_consent)                                    # T oh os nh ns        | m r
+    s += rewrite_body(height, exit_consent, reclaim_key=reclaim_key)           # T oh os nh ns        | m r
     s += levels(False, depth, height)
     return s + check_old(False) + final(depth)
 
 
-def rewrite_body(height, exit_consent, pay=None):
+def rewrite_body(height, exit_consent, pay=None, reclaim_key=None):
     """The tier-independent middle of REWRITE_h after the operator's
     signature: [.. blocks] -> [T oh os nh ns], the pre-pass over every
     position and the mirrored post-order hash pass. Shared with the CCV
     tier's 0xC0 numerics, which pass their own exit payout check as
-    `pay`, as evict_body is for the sweep."""
-    s = ["OP_1", F.LEAF_PREFIX, E0_SC]                                         # .. blocks idx L Z
-    for _ in range(1 << height):
-        s += _rewrite_step(exit_consent, pay)                                  # .. idx' L Z          | .. (ns nsc os osc)*
-    s += ["OP_2DROP", "OP_DROP", F.NODE_PREFIX]                                # T
+    `pay`, as evict_body is for the sweep. reclaim_key compiles the
+    reclaim form (7.9 rule 8), whose machine carries the transfer record."""
+    r = reclaim_key is not None
+    s = ["OP_1"] + (["OP_0", "OP_0"] if r else []) + [F.LEAF_PREFIX, E0_SC]    # .. blocks idx [0 0] L Z
+    for i in range(1 << height):
+        s += _rewrite_step(exit_consent, pay, reclaim_key, "L" if i % 2 == 0 else "R")
+    s += ["OP_2DROP", "OP_2DROP", "OP_DROP"] if r else ["OP_2DROP", "OP_DROP"]
+    s += [F.NODE_PREFIX]                                                       # T
     t = [0]
 
     def gen(k, root):
@@ -954,7 +1163,8 @@ class TreeOptions:
     def __init__(self, operator_key, tree_id, sparse=False, join_heights=(0,), exit_ks=(1, 2),
                  join_ks=(2,), tower=False, update_x=False, claim=True, claim_h=False,
                  claim_x=False, claim_hx=False, split=False, evict_heights=(),
-                 rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN):
+                 rewrite_heights=(), rewrite_x=False, detach_heights=(), dust_min=lt.DUST_MIN,
+                 reclaim_key=None, claim_m=False, claim_hm=False):
         self.operator_key, self.tree_id, self.sparse = operator_key, tree_id, sparse
         self.dust_min = dust_min
         self.join_heights, self.exit_ks, self.join_ks = tuple(join_heights), tuple(exit_ks), tuple(join_ks)
@@ -963,6 +1173,11 @@ class TreeOptions:
         self.split = split
         self.evict_heights, self.rewrite_heights = tuple(evict_heights), tuple(rewrite_heights)
         self.rewrite_x, self.detach_heights = rewrite_x, tuple(detach_heights)
+        # The pending-leaf receive (design/pending-receive.md), as FULL's
+        # options: RECLAIM_KEY adds RECLAIM_1 and compiles every REWRITE_h
+        # in its reclaim form (REWRITE_R_h, REWRITE_XR_h); claim_m and
+        # claim_hm add the merge claims (dense profile).
+        self.reclaim_key, self.claim_m, self.claim_hm = reclaim_key, claim_m, claim_hm
 
     def at_depth(self, depth):
         """Ordered dict name -> token list: the set compiled for depth `depth`,
@@ -985,15 +1200,24 @@ class TreeOptions:
                                          exit_consent=xc)
         if self.split:
             out["SPLIT"] = split_script(depth, sp, dust_min=self.dust_min)
+        rk = self.reclaim_key
+        if rk is not None:
+            out["RECLAIM_1"] = reclaim_script(depth, rk, sp)
         if not sp:
+            for name, hl, on in (("CLAIM_M", False, self.claim_m), ("CLAIM_HM", True, self.claim_hm)):
+                if on:
+                    out[name] = merge_script(depth, self.tree_id, hashlock=hl, reclaim_key=rk,
+                                             dust_min=self.dust_min)
             for h in self.evict_heights:
                 if h <= depth:
                     out[f"EVICT_SUBTREE_{h}"] = evict_subtree_script(depth, h, op)
+            r = "R" if rk is not None else ""
             for h in self.rewrite_heights:
                 if h <= depth:
-                    out[f"REWRITE_{h}"] = rewrite_script(depth, h, op)
+                    out[f"REWRITE_{r}{'_' if r else ''}{h}"] = rewrite_script(depth, h, op, reclaim_key=rk)
                     if self.rewrite_x:
-                        out[f"REWRITE_X_{h}"] = rewrite_script(depth, h, op, exit_consent=True)
+                        out[f"REWRITE_X{r}_{h}"] = rewrite_script(depth, h, op, exit_consent=True,
+                                                                 reclaim_key=rk)
             for h in self.detach_heights:
                 if h < depth:
                     out[f"DETACH_{h}"] = detach_script(depth, h, op, self.taptree_root(h))
@@ -1093,6 +1317,38 @@ def w_carve_extras(src, claim, amt_new=None, claim_ea=None):
         claim_ea = (scriptnum(claim.evict_after),) + pad(claim.evict_after)
     return ([scriptnum(src.seq)] + list(pad(src.seq)) + list(pad(src.seq + 1)) + list(pad(amt_new)) +
             [scriptnum(src.evict_after)] + list(pad(src.evict_after)) + list(claim_ea))
+
+
+def w_reclaim(leaf):
+    """The three items an R1 position of the reclaim-form rewrite consumes,
+    in consumption order (w_rewrite reverses them as it does signatures):
+    the old leaf's evict_after as a minimal number, then its PADZ pad."""
+    return [scriptnum(leaf.evict_after), *pad(leaf.evict_after)]
+
+
+def w_merge(tree, depth, src_slot, tgt_slot, x, t1=None):
+    """Everything MID CLAIM^m / CLAIM^hm consumes below vsig [preimage] r m:
+    final pads, input-amount pads, levels from height 1, the flag, the
+    residual's pad, X with its pad, and the source and target blocks. t1
+    is the tree after the merge, lt.apply_merge's by default; a test of an
+    invalid merge passes the tree its transaction claims."""
+    assert src_slot ^ 1 == tgt_slot
+    src, tgt = tree.leaves[src_slot], tree.leaves[tgt_slot]
+    if t1 is None:
+        t1 = lt.Tree(depth); t1.leaves = dict(tree.leaves)
+        lt.apply_merge(t1, src_slot, tgt_slot, x)
+    base = min(src_slot, tgt_slot)
+    root, r1 = tree.root(), t1.root()
+    res = src.amount - (x - tgt.amount)
+    # a negative residual (an invalid merge, for a test) gets the pad of
+    # its own encoding, so the script reaches the rule that rejects it
+    from script_sim import scriptnum_encode
+    res_pad = pad(res) if res >= 0 else (bytes(4 - len(scriptnum_encode(res))), bytes(len(scriptnum_encode(res))))
+    items = list(pad(r1[1])) + list(pad(root[1]))
+    items += w_levels(tree.path(base, height=1), tree.subtree(1, base >> 1), t1.subtree(1, base >> 1),
+                      False, 1)
+    items += [b"\x01" if src_slot % 2 == 0 else b"", *res_pad, scriptnum(x), *pad(x)]
+    return items + w_leaf(src) + w_leaf(tgt)
 
 
 def w_pos(leaf):

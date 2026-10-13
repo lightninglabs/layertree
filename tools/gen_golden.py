@@ -163,6 +163,22 @@ add("CCV", "S", 8, "EXIT_1_TOWER", CV.exit_script_ccv(8, 1, "S", tower=True, tre
 add("CCV0", "D", 4, "EXIT_1_TOWER", CV._exit_script_ccv0(4, 1, False, tower=True, tree_id=TREE_ID), "c0")
 add("CCV0", "S", 8, "EXIT_1_TOWER", CV._exit_script_ccv0(8, 1, True, tower=True, tree_id=TREE_ID), "c0")
 
+# ---- MID: the pending-leaf receive (7.5.4, 7.9 rule 8, 7.11) ----
+# CLAIM^m and CLAIM^hm (dense only), RECLAIM_1 in both profiles, and the
+# reclaim form of REWRITE_2 and REWRITE_2^x, all over RECLAIM_KEY below.
+# Tree-creation variants, so out of taptree_full_d4 (the names are added
+# to VARIANTS here as well as by the FULL block; duplicates are harmless).
+VARIANTS = VARIANTS + ("CLAIM_M", "CLAIM_HM", "RECLAIM_1", "REWRITE_R_2", "REWRITE_XR_2")
+MID_RECLAIM_KEY = pubkey_x(lt.sha256(b"operator-reclaim"))
+add("MID", "D", 4, "CLAIM_M", M.merge_script(4, TREE_ID, reclaim_key=MID_RECLAIM_KEY), "c0")
+add("MID", "D", 4, "CLAIM_HM", M.merge_script(4, TREE_ID, hashlock=True, reclaim_key=MID_RECLAIM_KEY), "c0")
+add("MID", "D", 4, "RECLAIM_1", M.reclaim_script(4, MID_RECLAIM_KEY), "c0")
+add("MID", "S", 8, "RECLAIM_1", M.reclaim_script(8, MID_RECLAIM_KEY, sparse=True), "c0")
+add("MID", "D", 4, "REWRITE_R_2", M.rewrite_script(4, 2, OP_KEY, reclaim_key=MID_RECLAIM_KEY), "c0")
+add("MID", "D", 4, "REWRITE_XR_2", M.rewrite_script(4, 2, OP_KEY, exit_consent=True,
+                                                    reclaim_key=MID_RECLAIM_KEY), "c0")
+# ---- end MID pending-leaf receive ----
+
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()
            if k.startswith("FULL/D/D4/") and not k.rsplit("/", 1)[1] in VARIANTS]
