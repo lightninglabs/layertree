@@ -18,21 +18,62 @@ import (
 // RECLAIM_KEY at creation; a leaf is reclaimable when its evictor_key is
 // that key.
 //
-// Only the FULL tier's scripts exist so far. Each builder checks its rules
-// in a tier-neutral way and then asks pendingLayout for the witness items
-// that differ by tier; adding MID or CCV is a matter of teaching
-// pendingLayout their encodings (the 0xC0 tiers' X and amounts as numbers
-// with PADZ pads, CCV's missing r m, which finish already handles).
+// FULL and MID carry the scripts. Each builder checks its rules in a
+// tier-neutral way and takes the witness items that differ by tier from
+// the rules methods: under 0xC0 numerics X, the residual and evict_after
+// arrive as minimal numbers with PADZ pads, and the merge lists the source
+// block before the target block rather than left before right. CCV has no
+// pending-leaf receive scripts yet.
 
 // pendingLayout refuses a pending-leaf receive transition in a tier whose
-// scripts do not carry it yet.
+// scripts do not carry it.
 func (r rules) pendingLayout(name string) error {
-	if r.tier != Full {
-		return fmt.Errorf("txn: %s is not built for the %v tier yet; "+
-			"only FULL carries the pending-leaf receive scripts "+
+	if r.tier != Full && r.tier != Mid {
+		return fmt.Errorf("txn: %s is not built for the %v tier; only "+
+			"FULL and MID carry the pending-leaf receive scripts "+
 			"(spec 7.5.4, 7.11)", name, r.tier)
 	}
 	return nil
+}
+
+// mergeTail renders the part of a merge witness above its levels (spec
+// 7.5.4), below the voucher. In 0xC2 it is the pair's left and right leaf
+// records, src_is_left and le64(x). Under 0xC0 numerics it is src_is_left,
+// the PADZ pad of the source's residual, x as a minimal number with its
+// pad, and then the source block and the target block, each ten field
+// elements (tools/layertree_mid.py w_merge).
+func (r rules) mergeTail(cur *tree.Tree, srcPos, tgtPos, x,
+	residual uint64) [][]byte {
+
+	flag := boolElem(srcPos&1 == 0)
+	src, tgt := cur.Leaves[srcPos], cur.Leaves[tgtPos]
+	if !r.tier.elements() {
+		pair := srcPos >> 1
+		var out [][]byte
+		out = append(out, r.leaf(cur.Leaves[pair<<1], false)...)
+		out = append(out, r.leaf(cur.Leaves[pair<<1|1], false)...)
+		return append(out, flag, tree.Le64(x))
+	}
+	out := [][]byte{flag}
+	out = append(out, pad(residual)...)
+	out = append(out, r.paddedSum(x)...)
+	out = append(out, r.leaf(src, false)...)
+	return append(out, r.leaf(tgt, false)...)
+}
+
+// reclaimItems are the items an R1 position of the reclaim-form rewrite
+// carries in place of its signatures (spec 7.9 rule 8): under 0xC0
+// numerics the old leaf's evict_after as a minimal number with its PADZ
+// pad, bottom to top w z ea_num, since the script consumes the number
+// first (tools/layertree_mid.py w_reclaim, reversed as w_rewrite reverses
+// signatures). Nothing in 0xC2, whose script reads the field out of the
+// old leaf's record.
+func (r rules) reclaimItems(old *tree.Leaf) [][]byte {
+	if !r.tier.elements() {
+		return nil
+	}
+	ea := r.paddedSum(uint64(old.EvictAfter))
+	return [][]byte{ea[2], ea[1], ea[0]}
 }
 
 // reclaimable reports whether a leaf is reclaimable in the tree (spec 6.2):
@@ -132,18 +173,21 @@ func BuildMerge(st *TreeState, srcPos, tgtPos, x uint64, voucherSig []byte,
 		next.Leaves[srcPos] = &newSrc
 	}
 
-	// Witness (spec 7.5.4): the pair's path from height 1, the left and
-	// right leaves, src_is_left, le64(x), the voucher and the preimage.
+	if err := r.checkTotals(cur, next); err != nil {
+		return nil, nil, err
+	}
+
+	// Witness (spec 7.5.4): the pair's path from height 1, the pair's
+	// leaves with src_is_left and x (mergeTail), the voucher and the
+	// preimage.
 	pair := srcPos >> 1
-	left, right := cur.Leaves[pair<<1], cur.Leaves[pair<<1|1]
 	in := st.input(r)
 	body := r.inputPad(uint64(in.Amount))
 	body = append(body, r.levels(
 		cur.Path(pair<<1, 1), 1, cur.Subtree(1, pair), next.Subtree(1, pair),
 	)...)
-	body = append(body, r.leaf(left, false)...)
-	body = append(body, r.leaf(right, false)...)
-	body = append(body, boolElem(srcPos&1 == 0), tree.Le64(x), voucherSig)
+	body = append(body, r.mergeTail(cur, srcPos, tgtPos, x, residual)...)
+	body = append(body, voucherSig)
 	if preimage != nil {
 		body = append(body, preimage[:])
 	}
@@ -192,15 +236,20 @@ func BuildReclaim(st *TreeState, pos uint64, opts *TxOpts) (*Spend,
 
 	next := st.Tree.Clone()
 	delete(next.Leaves, pos)
+	if err := r.checkTotals(st.Tree, next); err != nil {
+		return nil, nil, err
+	}
 
-	// Witness (spec 7.11): path, leaf, sig by RECLAIM_KEY.
+	// Witness (spec 7.11): path, leaf, sig by RECLAIM_KEY. Under 0xC0
+	// numerics the leaf carries its evict_after as a minimal number with
+	// its pad, as an exit's eviction branch does.
 	in := st.input(r)
 	body := r.inputPad(uint64(in.Amount))
 	body = append(body, r.levels(
 		st.Tree.Path(pos, 0), 0, leaf.Node(), tree.EmptyLeaf,
 	)...)
 	body = append(body, r.pos(leaf)...)
-	body = append(body, r.leaf(leaf, false)...)
+	body = append(body, r.leaf(leaf, true)...)
 	sigs := []SigSlot{{
 		Index: len(body), Key: *r.reclaimKey, Role: "reclaim",
 	}}
@@ -215,10 +264,12 @@ func BuildReclaim(st *TreeState, pos uint64, opts *TxOpts) (*Spend,
 
 // rewriteStep is how the rewrite treats one position: whether the old
 // owner signs (spec 7.9 rule 3, and rule 7's exit key with it) and whether
-// the old leaf is paid out (rule 5).
+// the old leaf is paid out (rule 5), and whether the position is an R1
+// reclaim of rule 8, which carries reclaimItems in place of signatures.
 type rewriteStep struct {
-	owner  bool
-	payout bool
+	owner   bool
+	payout  bool
+	reclaim bool
 }
 
 // reclaimRewriteStep decides one position of the reclaim form of REWRITE_h
@@ -281,5 +332,5 @@ func (r rules) reclaimRewriteStep(cur *tree.Tree, base, off uint64,
 		return rewriteStep{}, fmt.Errorf("txn: position %d: reclaim: %w",
 			pos, err)
 	}
-	return rewriteStep{}, nil
+	return rewriteStep{reclaim: true}, nil
 }
