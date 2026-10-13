@@ -132,8 +132,8 @@ give is the HTLC shape, an operator void branch after a deadline, and
 the deadline would have to sit in the leaf. Per payment that is a chain
 write per payment; shared across payments it lets the operator void
 settled vouchers too, unless the recipient redeems before each
-deadline. Atomic receive is a channel leaf, at the price of an online
-recipient or a tower.
+deadline. What closes the gap is a conditional claim in the tree, which
+step~(8) describes, or a channel leaf and an online recipient.
 (5)~\emph{Top-up.} Before the running total exceeds the credit leaf's
 amount, the operator raises the amount by an amount-only
 \tr{REWRITE}$_h^{x}$, about $122\vB$ per credit leaf batched per cohort (a changed position
@@ -151,6 +151,25 @@ credit leaf's $\mathsf{seq}$ and lowers its amount by one
 redeems its latest voucher with \tr{CLAIM}$^{x}$ and leaves with the
 exact exit, paying both fees from a confirmed coin of its own
 (Appendix~\ref{app:impl-fees}).
+(8)~\emph{Atomic variant.} A tree that names a reclaim key and carries the
+merge claim and the reclaim-form rewrite (spec 6.2, 7.5.4, 7.9 rule~8, 7.11;
+FULL, MID and CCV) replaces steps (1) to (4) with a receive pair: a pending
+leaf $P$ that the operator owns, with the recipient's key as exit key and
+the reclaim key as evictor, and the recipient's own landing leaf $L$ as its
+sibling. For each payment the recipient draws the preimage and the operator
+signs a hash-locked merge voucher against $P$ whose target is $L$'s settled
+level plus the payment. The recipient checks it against the confirmed tree
+and only then releases the preimage, so the operator has signed nothing it
+can lose before the reveal and the recipient holds an enforceable claim
+after it. Before the pending leaf's deadline $T$ the operator raises $L$ to
+the settled level, by redeeming a voucher it signs itself or in one batch
+rewrite for every recipient of the window, which needs no recipient
+signature because it can only pay the recipient; if it does not, the
+recipient's tower redeems the latest voucher with the preimage, holding no
+key of the recipient's. After $T$ the operator reclaims $P$, and only once
+the reclaim has confirmed does it fail an inbound HTLC whose voucher is
+outstanding. The recipient accepts a voucher only if $L$'s lease outlasts
+$T$ plus the confirmation bound, since evicting $L$ voids its vouchers.
 
 \subsection{Fee Reserves and Break-Even Balances}\label{app:impl-fees}
 

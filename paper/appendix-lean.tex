@@ -3,8 +3,8 @@
 
 This appendix describes the mechanised model behind \S\ref{sec:security}
 in enough detail that a reader can judge what has been proved, under
-what assumptions, and what has not. The development is about 3{,}400
-lines of Lean~4~\cite{lean4} in eight modules and depends on nothing but the
+what assumptions, and what has not. The development is about 4{,}500
+lines of Lean~4~\cite{lean4} in eleven modules and depends on nothing but the
 core library: no Mathlib, no external tactics. It builds in seconds and
 prints an axiom audit for \LeanTheoremCount{} headline theorems; as \texttt{lake build}
 prints it, every theorem lists a subset of \lean{propext},
@@ -15,7 +15,8 @@ prints it, every theorem lists a subset of \lean{propext},
 
 The model states the \emph{rules} of \S\ref{sec:transitions} as
 relations over the objects the scripts manipulate: nodes, paths, amounts.
-It does not model tapscript bytecode, signatures, keys or lock times.
+It does not model tapscript bytecode, signatures or keys, and a lock time
+is a parameter, not a block height that grows along a chain.
 Authorisation is carried as an opaque proposition, and the input and
 output amounts the scripts read with \op{TX} are parameters. Three
 choices keep the proofs short.
@@ -84,7 +85,8 @@ transfers to any adversary that cannot exhibit a collision.
 
 \subsection{Theorem Statements}
 
-The statements below are verbatim from the development\iffullversion; those
+The statements below are from the development, with the implicit
+arguments the elaborator infers omitted\iffullversion; those
 shown with their theorems in \S\ref{sec:security} are not repeated\fi.
 \lean{t.root} is
 the root node of a tree, \lean{t.getSub p} the subtree at position
@@ -175,7 +177,7 @@ theorem join_sound (t : Tree d) (hwf : path.length + h = d)
 \begin{lstlisting}
 theorem claim_sound (t : Tree d) (hwf₁ : srcPath.length = d)
     (hwf₂ : claimPath.length = d)
-    (hc : Claim auth t.root srcPath claimPath src claim r' out0) :
+    (hc : Claim auth π t.root srcPath claimPath src claim r' out0) :
     out0 = t.root.sum ∧
     ∃ (p₁ p₂ : Pos d 0), t.get p₁ = some src ∧
       (t.set p₁ (claimedSource src claim.amount)).get p₂ = none ∧
@@ -213,7 +215,7 @@ replaced by $\Emp_0$, in position order:
 
 \begin{lstlisting}
 theorem rewrite_sound (t : Tree d) (hwf : path.length + h = d)
-    (hr : Rewrite h auth t.root path old new r' out0 payouts) :
+    (hr : Rewrite h π auth lockTime t.root path old new r' out0 payouts) :
     ∃ p : Pos d h, t.getSub p = old ∧ r' = (t.setSub p new).root ∧
       (∀ q : Pos h 0, t.get (p.append q) = old.get q ∧
         (t.setSub p new).get (p.append q) = new.get q) ∧
@@ -238,6 +240,94 @@ sweep's analogue of \lean{rewrite\_sound} with the new subtree empty, on
 either \textsf{Final} branch. \lean{Detach} states its second tree output as a
 root hash and an amount rather than generalising \lean{Step}: the
 detached output's taptree $m_h$ is a binding fact, outside the step.
+
+\paragraph{The pending-leaf receive.} \lean{Params} carries the optional
+reclaim key, and a leaf is \lean{Reclaimable} when its evictor is that key;
+a tree without a reclaim key has no reclaimable leaf, and every rule
+reduces to its form before the receive. \lean{Merge} (\tr{CLAIM}$^{m}$,
+\tr{CLAIM}$^{hm}$) is one step at height~1 over a sibling pair, and
+\lean{Reclaim} (\tr{RECLAIM}$_1$) one leaf-level step to $\Emp_0$ with the
+deadline compared against a lock-time parameter:
+
+\begin{lstlisting}
+theorem merge_sound (t : Tree d) (path : List (Bool × Node H))
+    (b : Bool) (src tgt : Leaf) (X : Nat) (r' : Node H) (out0 : Nat)
+    (hwf : path.length + 1 = d)
+    (hm : Merge auth π t.root path b src tgt X r' out0) :
+    out0 = t.root.sum ∧ tgt.ownerKey = src.exitKey ∧
+    tgt.exitKey = src.exitKey ∧ tgt.amount < X ∧
+    (Tree.tip (mergedSource src (X - tgt.amount))).total + X
+      = src.amount + tgt.amount ∧
+    ∃ c : Pos d 1, t.get (c.pairAt b) = some src ∧
+      t.get (c.pairAt (!b)) = some tgt ∧ ...
+
+theorem reclaim_sound (t : Tree d) (path : List (Bool × Node H))
+    (l : Leaf) (r' : Node H) (out0 : Nat) (hwf : path.length = d)
+    (hc : Reclaim auth π lockTime t.root path l r' out0) :
+    ∃ p : Pos d 0, t.get p = some l ∧ π.Reclaimable l ∧
+      l.evictAfter ≤ lockTime ∧ r' = (t.set p none).root ∧
+      (∀ q : Pos d 0, q ≠ p → (t.set p none).get q = t.get q) ∧
+      out0 + l.amount = t.root.sum
+\end{lstlisting}
+
+The tail of \lean{merge\_sound} is elided; it says the successor tree is
+\lean{mergeTree}, in which the source is lowered by the draw, with every
+field but its amount unchanged and its \lean{seq} included, and the
+target is raised to exactly $X$. \lean{reclaim\_only\_flagged} adds that
+every leaf that is not reclaimable survives a reclaim and that a tree
+with no reclaim key accepts none. \lean{rewrite\_transfer\_sound} is the
+analogue for the reclaim form of \tr{REWRITE}$_h$ (spec 7.9 rule~8): an
+amount-only decrease of a reclaimable leaf at an even position is
+absorbed exactly by its sibling, which the same key owns and exits to,
+and \lean{rewrite\_reclaimable\_change} says a reclaimable leaf otherwise
+changes only by an amount-only increase or after its deadline, never
+needing its owner.
+
+Three theorems state the properties the construction was designed for.
+\lean{merge\_stale\_rejected}: if the target already holds $X$ or more, no
+merge to $X$ is accepted, so replaying a voucher, or redeeming an older
+and lower one after a newer, moves nothing; \lean{merge\_target\_monotone}
+gives the accepted case, where the target's level rises to exactly $X$.
+\lean{merge\_body\_preserved}: a merge changes no leaf's body, so it voids
+no voucher against its source. \lean{merge\_no\_overpay}: along any
+history, merges into one target move at most the largest level signed for
+it plus what merges move out of it, under the hypothesis that nothing but
+a merge lowers the target (the operator's duty to advance the target's
+\lean{seq} in any decrease it co-signs, which the scripts do not check),
+and every such merge moves value between leaves exiting to one key.
+\lean{merge\_cycle\_overpays} is the case the bound allows for, a cycle
+between two leaves of one key. The first version of the rules required the
+merge target to be owned by the source's exit key but not to exit to it,
+and the model showed two consequences: value could leave a key's exits
+through a leaf it owned that exits elsewhere, and two leaves each owned by
+the other's exit key could merge back and forth. Both rules now require
+equal exit keys, after which \lean{Reachable.exit\_value} holds: along any
+history of merges and reclaims, the amount held in leaves that are not
+reclaimable and exit to one key never decreases.
+
+\paragraph{Histories.} \lean{Trace.lean} composes the transitions along a
+whole history. \lean{Trans} is a transition record in the tree's
+vocabulary, \lean{Trans.apply} the tree it produces and \lean{Trans.Pre}
+what the script requires of the current tree; \lean{Chain} is a history of
+accepted spends. \lean{Chain.sound} is the bridge:
+
+\begin{lstlisting}
+theorem Chain.sound (t : Tree d) (h : Chain π d t.root r') :
+    ∃ (xs : List (Trans d)) (t' : Tree d),
+      r' = t'.root ∧ Reachable π t xs t'
+
+theorem Reachable.ledger (h : Reachable π t xs t') :
+    t'.total + removedSum xs t = t.total + addedSum xs t
+\end{lstlisting}
+
+Every root that a chain of accepted spends reaches from the root of a real
+tree is the root of a tree reachable by the transition records, and the
+books balance over the records: merges move nothing in or out, and a
+reclaim removes its leaf's amount with no payout. \lean{Reachable.dust} and
+\lean{Reachable.evictable} carry the dust floor and the evictability of
+every leaf through a history, \lean{Reachable.wf} well-formedness, and
+\lean{chain\_state} the statement that every on-chain root is the root of
+a reachable tree whose every leaf has an accepted exit.
 
 \subsection{Assumption Ledger}
 
@@ -285,13 +375,16 @@ range.
 module & lines & contents \\
 \midrule
 \lean{Hash.lean} & 59 & the \lean{HashModel} class \\
-\lean{Leaf.lean} & 96 & \lean{Leaf}, \lean{Leaf.WF}, \lean{Node}, \lean{leafNode}, \lean{leafNode\_inj} \\
-\lean{Tree.lean} & 440 & trees, positions, paths, \lean{fold}, subtree positions (\lean{Pos.append}), all tree theorems \\
-\lean{Transitions.lean} & 625 & \lean{Step}, \lean{Steps}, the transitions, the terminal branch, sparse positions \\
-\lean{Cohort.lean} & 300 & \tr{EVICT\_SUBTREE}$_h$, \tr{REWRITE}$_h$, \tr{DETACH}$_h$ on published subtrees \\
-\lean{Binding.lean} & 111 & \lean{BindingModel}, the binding theorems, the CCV tweak (\lean{CCVTweak}) \\
-\lean{Encoding.lean} & 238 & encodings, serialisation injectivity, \lean{SEQ\_FINAL} \\
-\lean{Axioms.lean} & 45 & the axiom audit \\
+\lean{Leaf.lean} & 132 & \lean{Leaf}, \lean{Leaf.WF}, \lean{Params}, \lean{Node}, \lean{leafNode}, \lean{leafNode\_inj} \\
+\lean{Tree.lean} & 646 & trees, positions, sibling pairs, paths, \lean{fold}, subtree positions (\lean{Pos.append}), all tree theorems \\
+\lean{Transitions.lean} & 771 & \lean{Step}, \lean{Steps}, the transitions, the terminal branch, sparse positions \\
+\lean{Cohort.lean} & 666 & \tr{EVICT\_SUBTREE}$_h$, \tr{REWRITE}$_h$ with rule~8, \tr{DETACH}$_h$ on published subtrees, \lean{Merge}, \lean{Reclaim} \\
+\lean{Voucher.lean} & 340 & vouchers, non-replay, survival of a top-up and of a detach \\
+\lean{Receive.lean} & 459 & merge vouchers, target monotonicity, the overpay bound, \lean{Reachable.exit\_value} \\
+\lean{Trace.lean} & 793 & transition records, \lean{Reachable}, \lean{Chain}, the trace invariants \\
+\lean{Binding.lean} & 123 & \lean{BindingModel}, the binding theorems, the CCV tweak (\lean{CCVTweak}) \\
+\lean{Encoding.lean} & 447 & encodings, serialisation injectivity, \lean{SEQ\_FINAL} \\
+\lean{Axioms.lean} & 94 & the axiom audit \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -361,7 +454,10 @@ reference tree with positive and negative cases, and the Go generators are
 compared byte for byte with the Python output. A verified interpreter for
 the tapscript subset (BIP-441 numerics, \op{TX}, \op{CHECKSIGFROMSTACK})
 would close this gap and is a project of a different size. Signatures
-and lock times are authorisation and deliberately opaque. Payout
+are authorisation and deliberately opaque. A lock time is a parameter
+that the deadline checks of \lean{Reclaim} and \lean{Rewrite} compare
+against; that it is a height that only grows along a chain is not
+modelled. Payout
 destinations are not authorisation but are not proved either: that
 output $k$ pays $\mathrm{P2TR}$ of leaf $k$'s exit key, and that an
 eviction pays the exit key and not the evictor, is established by

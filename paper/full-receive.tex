@@ -28,3 +28,32 @@ recipient redeems). Both are closed by the source leaf's shape.
 Where one operator leaf backs many recipients instead, over-issuance is
 equivocation with a compact proof, which a slashable bond can deter;
 voiding has no compact proof, so no bond reaches it.
+
+\paragraph{Atomic receive with pending leaves.}\label{sec:pending}
+Settling first still leaves the recipient exposed for one payment. The
+tree closes the gap with three added script variants, none needing an
+opcode outside its tier's set. \emph{R1}: a leaf whose evictor is a
+separate reclaim key can, after its deadline, be removed by the operator
+alone with no payout. \emph{R2}: a hash-locked voucher (\tr{CLAIM}$^{hm}$)
+that raises the source leaf's sibling to an absolute level and lowers the
+source by the difference without advancing its $\mathsf{seq}$; the
+sibling must be owned by the source's exit key and exit to it. \emph{R3}:
+a \tr{REWRITE}$_h$ that moves value from a reclaimable leaf into that
+sibling with the operator's signature alone. A recipient holds a pair, a
+pending leaf the operator owns, naming the recipient's key as exit key
+and the reclaim key as evictor, next to the recipient's own landing leaf.
+The operator signs the merge voucher before the recipient releases the
+preimage. The voucher can only move value from the pending leaf into a
+leaf the recipient alone can exit, and the level it names is absolute, so
+an older voucher redeemed after a newer moves nothing and one voucher
+covers a whole window. A window ends in one of three ways: the operator
+settles it with an R3 rewrite, a tower redeems the voucher before the
+deadline, or the operator reclaims the pending leaf after it (R1) and
+only then fails any inbound HTLC whose voucher is outstanding. The
+recipient's liveness duty is one check of its landing leaf per window,
+which a tower performs holding no key of the recipient's. The model of
+Appendix~\ref{app:lean} proves that a merge or a transfer moves value only
+between leaves that exit to one key, that a reclaim removes only flagged
+leaves past their deadline, and that replaying a voucher moves nothing. The
+credit leaf remains the choice for a wallet that accepts one payment of
+trust and wants no deadline.
