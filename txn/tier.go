@@ -209,6 +209,7 @@ func optionRules(o Options) (rules, error) {
 			tier: tier, sparse: v.Sparse, operatorKey: v.OperatorKey,
 			treeID: v.TreeID, exact: true, tower: v.Tower,
 			exitConsent: v.UpdateX || v.ClaimX || v.ClaimHX,
+			reclaimKey:  v.ReclaimKey,
 		}, nil
 	}
 	return rules{}, fmt.Errorf("txn: unknown option set %T", o)

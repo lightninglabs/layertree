@@ -110,8 +110,8 @@ type caseSpec struct {
 	variants []string
 
 	// pending selects the pending-leaf receive world of pending_test.go
-	// (FULL and MID): pendingOptions, with UPDATE^x when the variants
-	// name UPDATE_X.
+	// (FULL, MID, CCV and CCV0): pendingOptions, with UPDATE^x when the
+	// variants name UPDATE_X.
 	pending bool
 }
 
@@ -470,6 +470,15 @@ type txCase struct {
 	caseSpec
 	name  string
 	build func(w *world) (*Spend, *tree.Tree, error)
+
+	// tamper, when set, edits the signed spend's stack after every Go
+	// check has passed, and expectFail marks the result as one the
+	// scripts must reject: the dump records it so, and the replay counts
+	// it as a failure if the simulator accepts it. Only an edit no Go
+	// check can see belongs here (the CCV output-0 mode flag, which the
+	// signature hash does not cover).
+	tamper     func(s *Spend)
+	expectFail bool
 }
 
 func (c *txCase) key() string {
@@ -1081,7 +1090,7 @@ func tierCases(tier Tier, depth int, sparse bool) []txCase {
 		cases = append(cases, updateCases(s)...)
 	}
 	cases = append(cases, carveCases(s)...)
-	if tier == Full || tier == Mid {
+	if tier != Min {
 		cases = append(cases, pendingCases(s)...)
 	}
 	if sparse || tier == Min {
@@ -1146,6 +1155,7 @@ type dumpCase struct {
 	TaptreeRoot string    `json:"taptree_root"`
 	Stack       []string  `json:"stack"`
 	Sighash     string    `json:"sighash"`
+	Expect      string    `json:"expect,omitempty"`
 }
 
 type dumpIn struct {
@@ -1181,6 +1191,9 @@ func recordDump(c *txCase, w *world, s *Spend, sighash []byte) error {
 		Script:      hex.EncodeToString(s.Leaf.Script),
 		LeafVersion: s.Leaf.Version,
 		Sighash:     hex.EncodeToString(sighash),
+	}
+	if c.expectFail {
+		d.Expect = "fail"
 	}
 	leafHash := s.TapleafHash()
 	d.TapleafHash = hex.EncodeToString(leafHash[:])
@@ -1237,6 +1250,9 @@ func TestTransitionsEndToEnd(t *testing.T) {
 			// so w.st.Tree is the tree before the transition.
 			before := w.st.Tree
 			checkSpend(t, w, before, spend, next)
+			if c.tamper != nil {
+				c.tamper(spend)
+			}
 
 			sighash, err := spend.Sighash()
 			if err != nil {

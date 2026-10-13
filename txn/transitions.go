@@ -158,6 +158,16 @@ func finish(st *TreeState, r rules, next *tree.Tree, name string,
 	payouts []Payout, body [][]byte, sigs []SigSlot, opts *TxOpts) (*Spend,
 	error) {
 
+	return finishFramed(st, r, next, name, payouts, nil, body, sigs, opts)
+}
+
+// finishFramed is finish with bottom, the elements the script reads last,
+// placed beneath everything finish frames: the CCV reclaim-form rewrite's
+// output-0 mode flag (ccvModeFlag), which sits below the 0xC0 pads.
+func finishFramed(st *TreeState, r rules, next *tree.Tree, name string,
+	payouts []Payout, bottom, body [][]byte, sigs []SigSlot,
+	opts *TxOpts) (*Spend, error) {
+
 	if opts == nil {
 		opts = &TxOpts{}
 	}
@@ -226,9 +236,9 @@ func finish(st *TreeState, r rules, next *tree.Tree, name string,
 	}
 
 	// Frame the body for the tier.
-	var prefix [][]byte
+	prefix := append([][]byte{}, bottom...)
 	if r.tier.elements() {
-		prefix = pad(newRoot.Sum)
+		prefix = append(prefix, pad(newRoot.Sum)...)
 	}
 	if r.tier == Min {
 		raw, err := minRawPieces(tx, prevOuts, leaf.Hash(), 1+len(payouts))

@@ -18,22 +18,56 @@ import (
 // RECLAIM_KEY at creation; a leaf is reclaimable when its evictor_key is
 // that key.
 //
-// FULL and MID carry the scripts. Each builder checks its rules in a
-// tier-neutral way and takes the witness items that differ by tier from
-// the rules methods: under 0xC0 numerics X, the residual and evict_after
-// arrive as minimal numbers with PADZ pads, and the merge lists the source
-// block before the target block rather than left before right. CCV has no
-// pending-leaf receive scripts yet.
+// FULL, MID and CCV in both numerics carry the scripts. Each builder
+// checks its rules in a tier-neutral way and takes the witness items that
+// differ by tier from the rules methods: under 0xC0 numerics X, the
+// residual and evict_after arrive as minimal numbers with PADZ pads, and
+// the merge lists the source block before the target block rather than
+// left before right. The CCV tier's witnesses are FULL's (CCV) or MID's
+// (CCV0) without r and m (spec 4.6), and output 0 is committed
+// differently there: RECLAIM_1 checks it in the DEDUCT mode, which asks
+// nothing more of the builder since output 0 already holds the new sum,
+// and the reclaim-form rewrite takes a bottom witness flag choosing the
+// mode, which ccvModeFlag derives.
 
 // pendingLayout refuses a pending-leaf receive transition in a tier whose
-// scripts do not carry it.
+// scripts do not carry it: the MIN tier, whose option set names no
+// RECLAIM_KEY and carries no merge claim.
 func (r rules) pendingLayout(name string) error {
-	if r.tier != Full && r.tier != Mid {
-		return fmt.Errorf("txn: %s is not built for the %v tier; only "+
-			"FULL and MID carry the pending-leaf receive scripts "+
+	if r.tier == Min {
+		return fmt.Errorf("txn: %s is not built for the %v tier; the "+
+			"pending-leaf receive scripts exist in FULL, MID and CCV "+
 			"(spec 7.5.4, 7.11)", name, r.tier)
 	}
 	return nil
+}
+
+// ccvModeFlag is the bottom witness element of the CCV reclaim-form
+// rewrite (spec 4.6), choosing how output 0 is committed: empty for the
+// assign mode, 0x01 for DEDUCT. BIP-443's assign mode makes output 0
+// receive at least the input's residual (its amount less the DEDUCT
+// payouts of 7.9 rule 5), and DEDUCT lets it receive at most that
+// residual; the out0 == ns read pins the amount in both. The flag
+// therefore follows from the net change: a rewrite whose new sum is below
+// the residual frees value (an R1 reclaim, an owner-signed decrease) and
+// needs DEDUCT, and any other, a value-neutral transfer or a top-up funded
+// by other inputs, needs assign. The builder derives it so that no caller
+// can commit a reclaim under the assign mode, which no node accepts.
+// Nothing outside the CCV tier.
+func (r rules) ccvModeFlag(inAmount int64, payouts []Payout,
+	newSum uint64) [][]byte {
+
+	if !r.tier.ccv() {
+		return nil
+	}
+	residual := inAmount
+	for _, p := range payouts {
+		residual -= p.Amount
+	}
+	if int64(newSum) < residual {
+		return [][]byte{{0x01}}
+	}
+	return [][]byte{{}}
 }
 
 // mergeTail renders the part of a merge witness above its levels (spec
@@ -64,15 +98,20 @@ func (r rules) mergeTail(cur *tree.Tree, srcPos, tgtPos, x,
 // reclaimItems are the items an R1 position of the reclaim-form rewrite
 // carries in place of its signatures (spec 7.9 rule 8): under 0xC0
 // numerics the old leaf's evict_after as a minimal number with its PADZ
-// pad, bottom to top w z ea_num, since the script consumes the number
-// first (tools/layertree_mid.py w_reclaim, reversed as w_rewrite reverses
-// signatures). Nothing in 0xC2, whose script reads the field out of the
-// old leaf's record.
+// pad. MID's step rolls them up one at a time, number first, so they sit
+// bottom to top w z ea_num (tools/layertree_mid.py w_reclaim, reversed as
+// w_rewrite reverses signatures). CCV0's step rolls the three up as one group instead
+// (tools/layertree_ccv.py _r1_ccv0), so there they sit in their natural
+// order, ea_num z w, bottom to top. Nothing in 0xC2, whose scripts read
+// the field out of the old leaf's record.
 func (r rules) reclaimItems(old *tree.Leaf) [][]byte {
 	if !r.tier.elements() {
 		return nil
 	}
 	ea := r.paddedSum(uint64(old.EvictAfter))
+	if r.tier == CCV0 {
+		return ea
+	}
 	return [][]byte{ea[2], ea[1], ea[0]}
 }
 
@@ -202,7 +241,8 @@ func BuildMerge(st *TreeState, srcPos, tgtPos, x uint64, voucherSig []byte,
 // BuildReclaim builds RECLAIM_1 (spec 7.11): remove the reclaimable leaf at
 // pos after its deadline and pay nothing for it, signed by RECLAIM_KEY.
 // opts.LockTime must have reached the leaf's evict_after; the leaf's value
-// is the transaction's to spend. If the reclaim empties the tree,
+// is the transaction's to spend (under CCV because the script commits
+// output 0 in the DEDUCT mode, spec 4.6). If the reclaim empties the tree,
 // opts.Terminal is output 0.
 func BuildReclaim(st *TreeState, pos uint64, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {

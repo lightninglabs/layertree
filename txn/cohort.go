@@ -180,7 +180,10 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 // reclaimRewriteStep: an amount-only decrease at an even offset is an R3
 // transfer its odd sibling must absorb exactly, and any other change but
 // an amount-only increase is an R1 reclaim, which pays nothing and needs
-// opts.LockTime at the leaf's evict_after.
+// opts.LockTime at the leaf's evict_after. Under CCV the reclaim form's
+// witness starts with the output-0 mode flag of spec 4.6, which the
+// builder derives from the net change (ccvModeFlag): DEDUCT when the
+// rewrite frees value, assign otherwise.
 func BuildRewrite(st *TreeState, height int, index uint64,
 	after map[uint64]*tree.Leaf, exitConsent bool, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {
@@ -321,18 +324,30 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 	}
 	body, opSig := operatorSlot(r, body)
 	sigs = append(sigs, opSig...)
+
+	// Under CCV the reclaim form commits output 0 in the mode its bottom
+	// flag names (spec 4.6), chosen here from the net change.
+	var bottom [][]byte
+	if reclaim {
+		bottom = r.ccvModeFlag(in.Amount, payouts, next.Root().Sum)
+	}
+
 	// The 0xC0 pre-pass peaks four elements above the witness (spec 4.5),
-	// six in the reclaim form, whose machine carries the transfer record:
-	// at D = 16 every h <= 5 fits, h = 6 only at low occupancy.
+	// six in the reclaim form, whose machine carries the transfer record.
+	// Both figures are the simulator's maximum stack depth less the
+	// witness length, measured on every dumped case of MID and CCV0
+	// alike (the flag counts as witness). At D = 16 every h <= 5 fits,
+	// h = 6 only at low occupancy.
 	peak := 4
 	if reclaim {
 		peak = 6
 	}
-	if err := r.checkStack(name, len(body), peak); err != nil {
+	if err := r.checkStack(name, len(bottom)+len(body), peak); err != nil {
 		return nil, nil, err
 	}
 
-	spend, err := finish(st, r, next, name, payouts, body, sigs, opts)
+	spend, err := finishFramed(st, r, next, name, payouts, bottom, body,
+		sigs, opts)
 	if err != nil {
 		return nil, nil, err
 	}
