@@ -283,10 +283,10 @@
     \begin{column}{0.32\textwidth}
       \small
       \only<1>{Only the operator adds leaves. A single join proves that a slot holds the empty node, with the same kind of proof an exit uses.}
-      \only<2>{E's leaf folds up the same path. The output must grow by exactly 2, brought in by another input. \textbf{About 980 vB at depth 16.}}
+      \only<2>{E's leaf folds up the same path. The output must grow by exactly 2, brought in by another input. \textbf{About 937 vB at depth 16.}}
       \only<3>{For a cohort the operator builds a subtree off-chain and sends each joiner their leaf and path. \hl{Each joiner checks their own path before paying.}}
       \only<4>{The graft proves one empty node of height 2 and replaces it with the cohort's node. The covenant never looks inside.\\[0.4em]
-        \textbf{256 members: 722 vB. 1,024: 657 vB.} Under 1 vB per member, against 43 vB for an output in a batch.\\[0.3em]
+        \textbf{256 members: 679 vB. 1,024: 614 vB.} Under 1 vB per member, against 43 vB for an output in a batch.\\[0.3em]
         \muted{A bad graft freezes value, it can't create or steal any: the sums still balance.}}
     \end{column}
   \end{columns}
@@ -304,7 +304,7 @@
     \begin{column}{0.32\textwidth}
       \small
       \only<1>{\tr{UPDATE} rewrites a leaf in place: resize, renew the lease, rotate keys. It needs the owner \emph{and} the operator.}
-      \only<2>{Here E renews its lease. One step, about 1,073 vB alone, which is why payments must not do this one at a time.}
+      \only<2>{Here E renews its lease. One step, about 1,030 vB alone, which is why payments must not do this one at a time.}
       \only<3>{An \hl{amount-only increase} needs no owner signature: nobody can use it to rotate a key or shorten a lease. The operator tops E up by 3 from its own funds.\\[0.4em]
         \muted{Except on a \code{SEQ\_FINAL} leaf: a channel leaf's amount is the capacity its signed states commit to, so changing it needs the owner.}}
     \end{column}
@@ -410,7 +410,7 @@
       \only<1>{A, B and C were grafted together, so above their subtree they share one path.}
       \only<2>{In one rewrite: A leaves, B pays C 1, N joins. The witness has every slot twice, before and after. A and B sign because their leaves change. C's change is amount-only, so C needn't sign. The operator signs once.}
       \only<3>{The script rebuilds the old subtree, checks it against the root, rebuilds the new one and folds it up the same path. A is paid exactly 5; N's 4 comes from an input.\\[0.4em]
-        \textbf{64 positions: 148 vB per changed leaf (vs 1,073 per \tr{UPDATE}), 162 per exit, 92 per leaf left alone} (a one-byte ``unchanged'' marker).}
+        \textbf{64 positions: 148 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 162 per exit, 92 per leaf left alone} (a one-byte ``unchanged'' marker).}
     \end{column}
   \end{columns}
 \end{frame}
@@ -732,7 +732,7 @@
             xlabel={vB per leaf, FULL tier, depth 16},label style={font=\scriptsize},
             axis line style={ltstrong},tick style={ltstrong},bar width=9pt,
             nodes near coords,nodes near coords style={font=\tiny},enlarge y limits=0.08]
-          \addplot[fill=ltaccent!70,draw=ltaccent] coordinates {(92,unch) (148,rwup) (162,rwex) (158,sw51) (203,sw13) (842,ex2) (1073,up1) (1020,ex1)};
+          \addplot[fill=ltaccent!70,draw=ltaccent] coordinates {(92,unch) (148,rwup) (162,rwex) (158,sw51) (203,sw13) (842,ex2) (1030,up1) (1020,ex1)};
         \end{axis}
       \end{tikzpicture}
     \end{column}
@@ -760,7 +760,7 @@
   \end{tabular}
   \vspace{1em}
   \begin{itemize}
-    \item Entry is nearly free: a cohort graft of 1,024 members is 657 vB, \textbf{under 1 vB each}, when the operator funds it and members buy balances off-chain.
+    \item Entry is nearly free: a cohort graft of 1,024 members is 614 vB, \textbf{under 1 vB each}, when the operator funds it and members buy balances off-chain.
     \item A member who's swept at lease end, or sells their balance by voucher, pays almost nothing.
     \item A member who exits alone pays for the proof, and loses to a bare UTXO and roughly ties Lightning.
     \item The UTXO set: a tree of any size is \hl{one output}.
@@ -795,7 +795,7 @@
     \item \textbf{Against a bare output, on every solo exit.} 541 vB against 111. The proof is the price of sharing, and only batching gets it back.
     \item \textbf{Roughly level with a Lightning force close in bytes} (530 vB), but one transaction and one block against three and about a day.
     \item \textbf{A non-cooperative mass exit from one big tree.} Exits serialise through one output; transaction-tree branches unroll in parallel.
-    \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,073 vB. Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
+    \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,030 vB. Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
     \item \textbf{It needs opcodes that aren't active.} With today's proposals the cheapest exit is CCV's 908 vB; the scaling numbers assume an opcode nobody has proposed.
     \item \textbf{Joining needs the operator.} No liveness guarantee for getting in, only for getting out.
   \end{itemize}
