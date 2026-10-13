@@ -11,83 +11,41 @@ prints it, every theorem lists a subset of \lean{propext},
 \lean{Quot.sound} and \lean{Classical.choice}, and none lists
 \lean{sorryAx}. The code is in the artefact~\cite{layertreerepo}.
 
-\subsection{Design of the Model}
+The appendix is organised as the Lean development was read against the
+paper. Section~\ref{app:lean-heads} lists the headline theorems and states
+the main ones; \S\ref{app:lean-abs} says what the model keeps and what it
+drops; \S\ref{app:lean-corr} maps every predicate box, algorithm, lemma and
+theorem of the paper to its Lean names and shows the key definitions;
+the remaining sections give the assumption ledger, the module sizes, the
+binding to the output, the encodings and what is not proved.
 
-The model states the \emph{rules} of \S\ref{sec:transitions} as
-relations over the objects the scripts manipulate: nodes, paths, amounts.
-It does not model tapscript bytecode, signatures or keys, and a lock time
-is a parameter, not a block height that grows along a chain.
-Authorisation is carried as an opaque proposition, and the input and
-output amounts the scripts read with \op{TX} are parameters. Three
-choices keep the proofs short.
 
-\paragraph{Depth as a type index.} A tree of depth $d$ is
-\lean{Tree d}, a perfect binary tree whose tips are \lean{Option Leaf}.
-Positions are \lean{Pos d h}, paths from depth $d$ down to a subtree of
-height $h$, so that \lean{Pos d 0} addresses a leaf and \lean{Pos d h}
-addresses the slot a \tr{JOIN}$_h$ fills. Indexing by both endpoints
-avoids all arithmetic on depths: the recursions on \lean{getSub},
-\lean{setSub} and \lean{pathSub} pattern-match on the position and the
-tree simultaneously, and the one impossible case (a \lean{cons} step below
-height~$0$) is dismissed by \lean{Pos.height\_le}.
+\subsection{Headline Theorems}\label{app:lean-heads}
 
-\begin{lstlisting}
-inductive Tree : Nat → Type
-  | tip : Option Leaf → Tree 0
-  | bin {d : Nat} : Tree d → Tree d → Tree (d + 1)
+The audit file \lean{Axioms.lean} prints one line for each of the
+\LeanTheoremCount{} headline theorems, in eight groups.
 
-inductive Pos : Nat → Nat → Type
-  | nil {h : Nat} : Pos h h
-  | cons {d h : Nat} : Bool → Pos d h → Pos (d + 1) h
+\begin{center}\scriptsize
+\begin{tabular}{@{}llrp{7.2cm}@{}}
+\toprule
+group & module & \# & what the theorems say \\
+\midrule
+Tree & \lean{Tree} & 4 & roots bind trees (\lean{root\_inj}); a node and path that fold to the root are a subtree and its honest path (\lean{fold\_sound}); a member's path for the next root is its old path with one entry replaced (\lean{path\_maintenance}, \lean{path\_maintenance\_valid}) \\
+Transitions & \lean{Transitions} & 21 & a step is a subtree replacement; steps conserve sums with no hash assumption; the honest exit witness is valid; \tr{EXIT}$_K$ pays within the exit rule; \tr{JOIN}, \tr{UPDATE} and \tr{CLAIM} are sound; the terminal branch; the sparse profile \\
+Cohort & \lean{Cohort} & 14 & sweep, \tr{REWRITE} (with the reclaim form), \tr{DETACH}, merge and reclaim are sound and conserve value \\
+Trace & \lean{Trace} & 9 & along a history the books balance, leaves stay well formed, above the dust floor and evictable, and every on-chain root is that of a reachable tree \\
+Voucher & \lean{Voucher} & 6 & a voucher cannot be replayed and survives a top-up and a detach; a final leaf is never carved \\
+Receive & \lean{Receive} & 6 & a merge changes no body, raises its target monotonically, cannot be replayed and cannot overpay; value held for one exit key never decreases \\
+Binding & \lean{Binding} & 2 & a witness root and taptree that pass the scriptPubKey check are the committed ones, in FULL and CCV \\
+Encoding & \lean{Encoding} & 10 & serialisations are injective; \lean{enc64} is the minimal encoding; the \lean{SEQ\_FINAL} and \lean{PADZ} facts \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-def parent (a b : Node H) : Node H :=
-  ⟨M.hNode a.hash a.sum b.hash b.sum, a.sum + b.sum⟩
+The statements of the main ones follow, from the development, with the implicit
+arguments the elaborator infers omitted; the types they use (\lean{Tree},
+\lean{Pos}, \lean{fold}, \lean{HashModel}) are in \S\ref{app:lean-abs}.
 
-def combine (n : Node H) (x : Bool × Node H) : Node H :=
-  if x.1 then parent x.2 n else parent n x.2
-
-def fold (n : Node H) : List (Bool × Node H) → Node H
-  | [] => n
-  | x :: rest => combine (fold n rest) x
-\end{lstlisting}
-
-\paragraph{Root-first paths.} The model orders a sibling path from the
-root down, so \lean{fold} is a structural recursion on the list and the
-soundness proof is a plain induction. The witness of \S\ref{sec:scripts}
-supplies the same pairs leaf-first, because the script consumes the
-deepest level first; nothing in the theorems depends on the order.
-
-\paragraph{Hashes as parameters.} Everything is parametric in a class
-\lean{HashModel} whose fields are the two hash functions, the zero digest,
-and the assumptions the argument uses:
-
-\begin{lstlisting}
-class HashModel (Leaf : Type) (H : outParam Type) where
-  hLeaf : Leaf → H
-  hNode : H → Nat → H → Nat → H
-  empty0 : H
-  hLeaf_inj : ∀ {l₁ l₂}, hLeaf l₁ = hLeaf l₂ → l₁ = l₂
-  hNode_inj : ∀ {a₁ b₁ a₂ b₂ sa₁ sb₁ sa₂ sb₂},
-    hNode a₁ sa₁ b₁ sb₁ = hNode a₂ sa₂ b₂ sb₂ →
-      a₁ = a₂ ∧ sa₁ = sa₂ ∧ b₁ = b₂ ∧ sb₁ = sb₂
-  hNode_ne_hLeaf : ∀ a sa b sb l, hNode a sa b sb ≠ hLeaf l
-  hNode_ne_empty : ∀ a sa b sb, hNode a sa b sb ≠ empty0
-  hLeaf_ne_empty : ∀ l, hLeaf l ≠ empty0
-\end{lstlisting}
-
-Injectivity is collision resistance idealised; the three inequalities are
-the tag separation that distinct BIP-340 tags provide. The encodings
-module discharges the serialisation half of each injectivity field
-(Lemma~\ref{lem:enc}): given SHA-256 collision resistance,
-\lean{serializeLeaf\_inj} and \lean{serializeNode\_inj} are what remains.
-Nothing quantifies the adversary's advantage; a proof under injectivity
-transfers to any adversary that cannot exhibit a collision.
-
-\subsection{Theorem Statements}
-
-The statements below are from the development, with the implicit
-arguments the elaborator infers omitted\iffullversion; those
-shown with their theorems in \S\ref{sec:security} are not repeated\fi.
 \lean{t.root} is
 the root node of a tree, \lean{t.getSub p} the subtree at position
 \lean{p}, \lean{t.setSub p u} the tree with that subtree replaced by
@@ -329,6 +287,316 @@ every leaf through a history, \lean{Reachable.wf} well-formedness, and
 \lean{chain\_state} the statement that every on-chain root is the root of
 a reachable tree whose every leaf has an accepted exit.
 
+
+\subsection{Model Abstractions}\label{app:lean-abs}
+
+The model keeps the rules and drops the machinery that carries them out. It
+states the \emph{rules} of \S\ref{sec:transitions} as relations over the
+objects the scripts manipulate (leaves, nodes, positions, sibling paths,
+amounts), with one structure per transition whose fields are the checks of
+that transition's predicate box, in protocol order, and it composes the
+transitions along histories. What it abstracts, following
+\texttt{formal/README.md}:
+
+\begin{itemize}
+\item \emph{Tiers and bytecode.} There is no model of tapscript, of
+BIP-441 numerics, of \op{TX} or of the BIP-341 message. The four tiers
+(FULL, MID, MIN, CCV) differ in how a script computes a rule, not in the
+rule, so the model states each rule once; the tier-dependent constants
+are parameters of \lean{Params} (\lean{seqFinal}, \lean{dustMin}, the
+optional \lean{reclaimKey}). That a script implements the relation is
+established by execution (\S\ref{sec:eval}), not by proof.
+\item \emph{Authorisation.} Signatures, lock times and the hash lock are
+an opaque proposition \lean{auth} of each transition (a predicate on
+positions for \lean{Rewrite}). The variants that differ only in what is
+signed, \tr{EXIT}$^{t}$, \tr{UPDATE}$^{x}$, \tr{CLAIM}$^{h}$,
+\tr{CLAIM}$^{x}$ and \tr{SPLIT}, are therefore the same relation in the
+model, and the theorems hold for each. The lock time is a parameter that
+the deadline checks compare against, not a height that grows along a
+chain.
+\item \emph{Transaction fields.} The input and output amounts the scripts
+read with \op{TX} are parameters (\lean{out0}); a payout is the pair of
+key and amount that output $i$ carries, with its key required to be the
+leaf's exit key (\lean{ExitBlock.payoutOk}).
+\item \emph{Paths and positions.} Depth is a type index and a position is
+\lean{Pos d h}; a sibling path is \emph{root-first}, the reverse of the
+witness, which supplies the deepest pair first. In the sparse profile the
+position is an arbitrary function of the owner key and nonce; the hash
+that derives it is not modelled.
+\item \emph{Hashes.} Parameters of a \lean{HashModel}: collision
+resistance as injectivity, tag separation as inequalities. Nothing
+quantifies an adversary's advantage. Sums are unbounded naturals; the
+$2^{64}$ range belongs to the encodings.
+\item \emph{What is outside.} Concurrency, mempool policy,
+reorganisations and the off-chain protocol are not theorems about hash
+trees; the party algorithms of \S\ref{sec:parties} are not formalised,
+only the facts about the tree and its histories that their lines rely on.
+\end{itemize}
+
+\paragraph{The types.} The definitions below are those the theorems of \S\ref{app:lean-heads} are stated over.
+
+The model states the \emph{rules} of \S\ref{sec:transitions} as
+relations over the objects the scripts manipulate: nodes, paths, amounts.
+It does not model tapscript bytecode, signatures or keys, and a lock time
+is a parameter, not a block height that grows along a chain.
+Authorisation is carried as an opaque proposition, and the input and
+output amounts the scripts read with \op{TX} are parameters. Three
+choices keep the proofs short.
+
+\paragraph{Depth as a type index.} A tree of depth $d$ is
+\lean{Tree d}, a perfect binary tree whose tips are \lean{Option Leaf}.
+Positions are \lean{Pos d h}, paths from depth $d$ down to a subtree of
+height $h$, so that \lean{Pos d 0} addresses a leaf and \lean{Pos d h}
+addresses the slot a \tr{JOIN}$_h$ fills. Indexing by both endpoints
+avoids all arithmetic on depths: the recursions on \lean{getSub},
+\lean{setSub} and \lean{pathSub} pattern-match on the position and the
+tree simultaneously, and the one impossible case (a \lean{cons} step below
+height~$0$) is dismissed by \lean{Pos.height\_le}.
+
+\begin{lstlisting}
+inductive Tree : Nat → Type
+  | tip : Option Leaf → Tree 0
+  | bin {d : Nat} : Tree d → Tree d → Tree (d + 1)
+
+inductive Pos : Nat → Nat → Type
+  | nil {h : Nat} : Pos h h
+  | cons {d h : Nat} : Bool → Pos d h → Pos (d + 1) h
+
+def parent (a b : Node H) : Node H :=
+  ⟨M.hNode a.hash a.sum b.hash b.sum, a.sum + b.sum⟩
+
+def combine (n : Node H) (x : Bool × Node H) : Node H :=
+  if x.1 then parent x.2 n else parent n x.2
+
+def fold (n : Node H) : List (Bool × Node H) → Node H
+  | [] => n
+  | x :: rest => combine (fold n rest) x
+\end{lstlisting}
+
+\paragraph{Root-first paths.} The model orders a sibling path from the
+root down, so \lean{fold} is a structural recursion on the list and the
+soundness proof is a plain induction. The witness of \S\ref{sec:scripts}
+supplies the same pairs leaf-first, because the script consumes the
+deepest level first; nothing in the theorems depends on the order.
+
+\paragraph{Hashes as parameters.} Everything is parametric in a class
+\lean{HashModel} whose fields are the two hash functions, the zero digest,
+and the assumptions the argument uses:
+
+\begin{lstlisting}
+class HashModel (Leaf : Type) (H : outParam Type) where
+  hLeaf : Leaf → H
+  hNode : H → Nat → H → Nat → H
+  empty0 : H
+  hLeaf_inj : ∀ {l₁ l₂}, hLeaf l₁ = hLeaf l₂ → l₁ = l₂
+  hNode_inj : ∀ {a₁ b₁ a₂ b₂ sa₁ sb₁ sa₂ sb₂},
+    hNode a₁ sa₁ b₁ sb₁ = hNode a₂ sa₂ b₂ sb₂ →
+      a₁ = a₂ ∧ sa₁ = sa₂ ∧ b₁ = b₂ ∧ sb₁ = sb₂
+  hNode_ne_hLeaf : ∀ a sa b sb l, hNode a sa b sb ≠ hLeaf l
+  hNode_ne_empty : ∀ a sa b sb, hNode a sa b sb ≠ empty0
+  hLeaf_ne_empty : ∀ l, hLeaf l ≠ empty0
+\end{lstlisting}
+
+Injectivity is collision resistance idealised; the three inequalities are
+the tag separation that distinct BIP-340 tags provide. The encodings
+module discharges the serialisation half of each injectivity field
+(Lemma~\ref{lem:enc}): given SHA-256 collision resistance,
+\lean{serializeLeaf\_inj} and \lean{serializeNode\_inj} are what remains.
+Nothing quantifies the adversary's advantage; a proof under injectivity
+transfers to any adversary that cannot exhibit a collision.
+
+
+\subsection{Correspondence with the Paper}\label{app:lean-corr}
+
+Each predicate box is represented by a structure or inductive predicate
+whose fields are the checks of the box, in protocol order; the table maps
+the paper's boxes, algorithms and results to the Lean names.
+
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{3.55cm}>{\raggedright\arraybackslash}p{8.4cm}@{}}
+\caption{Correspondence between the paper and the Lean development.}\label{tab:lean-corr}\\
+\toprule
+Paper & Lean \\
+\midrule
+\endfirsthead
+\toprule
+Paper & Lean \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{2}{@{}l}{\emph{Objects and the step}} \\
+tree, positions, paths, $\fold$ (\S\ref{sec:tree}) & \lean{Tree}, \lean{Pos}, \lean{Tree.pathSub}, \lean{fold}, \lean{combine}, \lean{parent} \\
+hashes, tag separation & \lean{HashModel} \\
+leaf, body $\hat\ell$, node & \lean{Leaf}, \lean{Leaf.WF}, \lean{Leaf.body}, \lean{leafNode} \\
+step, chained steps (check 2 of each box) & \lean{Step}, \lean{Step.valid}, \lean{Step.WF}, \lean{Steps} \\
+check 1 of each box (binding of $r$, $m$) & \lean{BindingModel}, \lean{witness\_root\_binds}, \lean{output\_binds}, \lean{CCVTweak}, \lean{ccv\_input\_binds} \\
+last check, terminal branch & \lean{Final}, \lean{ExitKT} \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Predicate boxes}} \\
+$\Phi_{\tr{EXIT}}$, $=$ and evict branch & \lean{ExitBlock}, \lean{ExitBlock.payoutOk}, \lean{ExitK}, \lean{ExitKT}, \lean{ExitK.no\_inflation}, \lean{ExitK.exact\_conservation}, \lean{ExitK.pays\_exit\_key} \\
+$\Phi_{\tr{EXIT}}$, $t$ & as above; the tower signature is the opaque \lean{ExitBlock.authorised} \\
+$\Phi_{\tr{JOIN}}$, dense & \lean{Join}, \lean{join\_sound} \\
+$\Phi_{\tr{JOIN}}$, sparse and \tr{JOINK} & \lean{SparseJoin}, \lean{Tree.Sparse}, \lean{sparseJoin\_sound}, \lean{sparse\_collision\_rejected}; $K$ joins are \lean{Steps} \\
+$\Phi_{\tr{UPDATE}}$, $x$ & \lean{Update}, \lean{update\_sound}; $x$ is in \lean{auth} \\
+$\Phi_{\tr{CLAIM}}$, carve forms & \lean{Claim}, \lean{claimedSource}, \lean{claim\_sound}, \lean{claim\_evictable}, \lean{claim\_not\_final}; $h$, $x$, \textsf{split} are in \lean{auth} \\
+$\Phi_{\tr{CLAIM}}$, merge forms & \lean{Merge}, \lean{MergeOk}, \lean{mergeTree}, \lean{merge\_sound} \\
+$\Phi_{\tr{EVICT\_SUBTREE}}$ & \lean{EvictSubtree}, \lean{Tree.sweepPayouts}, \lean{evictSubtree\_sound}, \lean{sweepPayouts\_total} \\
+$\Phi_{\tr{REWRITE}}$ & \lean{Rewrite}, \lean{Tree.rewritePayouts}, \lean{Leaf.AmountOnlyIncrease}, \lean{rewrite\_sound}, \lean{rewrite\_unsigned\_change}, \lean{rewrite\_final\_authorised}, \lean{rewrite\_payout\_conservation}, \lean{rewrite\_exit\_conservation} \\
+$\Phi_{\tr{REWRITE}}$, reclaim form (check 8) & \lean{Rewrite.transfer}, \lean{Rewrite.deadline}, \lean{Leaf.TransferShape}, \lean{Tree.Transfer}, \lean{rewrite\_transfer\_sound}, \lean{rewrite\_reclaimable\_change} \\
+$\Phi_{\tr{DETACH}}$ & \lean{Detach}, \lean{detach\_sound}, \lean{detach\_member\_payable}; $m_h$ is a binding fact, outside the step \\
+$\Phi_{\tr{RECLAIM}}$ & \lean{Reclaim}, \lean{reclaim\_sound}, \lean{reclaim\_only\_flagged} \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Algorithms (the facts their lines rely on)}} \\
+Alg.~\ref{alg:create} Create & none; its outputs are the hypotheses \lean{treeSpk\_inj} and the real-tree invariant \\
+Alg.~\ref{alg:graft} Graft, \ref{alg:accept} AcceptLeaf & \lean{Join}, \lean{join\_sound}, \lean{Step.Grounded}, \lean{Steps.sound}, \lean{fold\_sound} \\
+Alg.~\ref{alg:exit} Exit & \lean{payable}, \lean{exit\_available}, \lean{ExitK.single\_sound}, \lean{ExitKT.single\_terminal}, \lean{exit\_blocks\_reachable} \\
+Alg.~\ref{alg:follow} Follow & \lean{Tree.path\_maintenance}, \lean{Tree.path\_maintenance\_valid} \\
+Alg.~\ref{alg:vouch} Vouch & \lean{Voucher.issue}, \lean{voucher\_no\_replay}, \lean{voucher\_survives\_topup}, \lean{self\_voucher\_fixed}, \lean{final\_never\_carved}, \lean{voucher\_survives\_detach} \\
+Alg.~\ref{alg:redeem} Redeem & \lean{Voucher.Redeemable}, \lean{Voucher.issue\_redeemable}, \lean{Voucher.redeem\_pre}, \lean{claim\_sound} \\
+Alg.~\ref{alg:swap} Swap & the voucher half only (\lean{Voucher}); the ordering with an HTLC is outside the model \\
+Alg.~\ref{alg:rewrite} Rewrite & \lean{Rewrite}, \lean{rewrite\_sound}, \lean{rewrite\_payout\_conservation} \\
+Alg.~\ref{alg:evict} Evict & \lean{evictSubtree\_sound}, \lean{claim\_evictable}, \lean{Reachable.evictable} \\
+Alg.~\ref{alg:receive} Receive & \lean{MergeVoucher}, \lean{merge\_body\_preserved}, \lean{merge\_stale\_rejected}, \lean{merge\_no\_overpay}, \lean{merge\_cycle\_overpays} \\
+Alg.~\ref{alg:settle} SettleWindow & \lean{rewrite\_transfer\_sound}, \lean{merge\_target\_monotone}, \lean{Reachable.exit\_value} \\
+Alg.~\ref{alg:watch} Watch & \lean{MergeVoucher.Redeemable}, \lean{merge\_target\_monotone}, \lean{Tree.path\_maintenance} \\
+Alg.~\ref{alg:reclaim} Reclaim & \lean{Reclaim}, \lean{reclaim\_sound}, \lean{reclaim\_only\_flagged} \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Lemmas and theorems of \S\ref{sec:security}}} \\
+Lemma~\ref{lem:enc} (encodings) & \lean{Encoding.enc64\_eq\_minimal}, \lean{serializeLeaf\_inj}, \lean{serializeNode\_inj}, \lean{minimalLE\_two\_pow\_32\_length}, \lean{scriptNum\_two\_pow\_31\_length}, \lean{scriptNum\_neg\_max31\_succ} \\
+Theorem~\ref{thm:binding} (binding) & \lean{root\_inj}, \lean{fold\_sound} \\
+Lemma~\ref{lem:step} & \lean{Step.sound} \\
+Theorem~\ref{thm:cons} (conservation) & \lean{Steps.sum}, \lean{ExitK.no\_inflation} \\
+Theorem~\ref{thm:pay} (payability) & \lean{payable} \\
+Theorem~\ref{thm:ground} (real-tree invariant) & \lean{Steps.sound}, \lean{join\_sound} \\
+Lemma~\ref{lem:path} (path maintenance) & \lean{Tree.path\_maintenance}, \lean{path\_maintenance\_valid} for a real tree; the opaque-node case is a paper proof \\
+histories, \S\ref{sec:security} & \lean{Trans}, \lean{Reachable}, \lean{Accepts}, \lean{Chain}, \lean{Chain.sound}, \lean{chain\_state}, \lean{Reachable.ledger} \\
+Theorem~\ref{thm:uc} (UC realisation) & not in Lean; the paper proof of \lifted{app:uc} \\
+\end{longtable}
+}
+
+Two entries differ from the paper's boxes in what they check, and the
+difference is deliberate. \lean{Update} carries a hypothesis
+\lean{new\_dust}, that the written leaf is at least \textsf{DUST\_MIN},
+which the script of $\Phi_{\tr{UPDATE}}$ does not check: the spec
+(7.8) asks operators not to co-sign such a leaf and the model takes the
+operator to honour it, so that \lean{Reachable.dust} holds along a whole
+history. And \lean{Claim} states the carve rules as fields
+(\lean{evictorKey\_eq}, \lean{evictAfter\_le}, \lean{claim\_dust},
+\lean{residual\_dust}), which are checks 7 and 8 of $\Phi_{\tr{CLAIM}}$.
+
+The key definitions follow, as they stand in the Lean source. A step is a
+path, a height, an old and a new node, valid when the old node folds to
+the current root and the new node to the root written to output~0:
+
+\begin{lstlisting}[style=leansig]
+structure Step (H : Type) where
+  height : Nat
+  path : List (Bool × Node H)
+  old : Node H
+  new : Node H
+
+def Step.valid (s : Step H) (r r' : Node H) : Prop :=
+  fold s.old s.path = r ∧ fold s.new s.path = r'
+
+inductive Steps : Node H → List (Step H) → Node H → Prop
+  | nil (r : Node H) : Steps r [] r
+  | cons {r r₁ r' : Node H} {s : Step H} {rest : List (Step H)} :
+      s.valid r r₁ → Steps r₁ rest r' → Steps r (s :: rest) r'
+\end{lstlisting}
+
+The predicates are structures over steps. $\Phi_{\tr{EXIT}}$, $\Phi_{\tr{JOIN}}$,
+$\Phi_{\tr{UPDATE}}$ and $\Phi_{\tr{CLAIM}}$ (carve forms):
+
+\begin{lstlisting}[style=leansig]
+structure ExitK (exact : Bool) (r : Node H) (blocks : List (ExitBlock H)) (r' : Node H)
+    (out0 : Nat) : Prop where
+  steps : Steps r (blocks.map ExitBlock.step) r'
+  out0_eq : out0 = r'.sum
+  payouts : ∀ b ∈ blocks, b.payoutOk exact
+  auth : ∀ b ∈ blocks, b.authorised
+
+structure Join (auth : Prop) (h : Nat) (r : Node H) (path : List (Bool × Node H)) (new : Node H)
+    (r' : Node H) (out0 : Nat) : Prop where
+  step : (Step.mk h path (Tree.emptyNode h) new).valid r r'
+  out0_eq : out0 = r'.sum
+  authorised : auth
+
+structure Update (auth : Prop) (π : Params) (r : Node H) (path : List (Bool × Node H))
+    (old new : Leaf) (r' : Node H) (out0 : Nat) : Prop where
+  step : (leafStep path (some old) (some new)).valid r r'
+  out0_eq : out0 = r'.sum
+  new_dust : π.dustMin ≤ new.amount
+  authorised : auth
+
+structure Claim (auth : Prop) (π : Params) (r : Node H)
+    (srcPath claimPath : List (Bool × Node H)) (src claim : Leaf) (r' : Node H) (out0 : Nat) :
+    Prop where
+  amount_le : claim.amount ≤ src.amount
+  seq_lt : src.seq < π.seqFinal
+  evictorKey_eq : claim.evictorKey = src.evictorKey
+  evictAfter_le : claim.evictAfter ≤ src.evictAfter
+  claim_dust : π.dustMin ≤ claim.amount
+  residual_dust : claim.amount = src.amount ∨ π.dustMin ≤ src.amount - claim.amount
+  steps : Steps r [leafStep srcPath (some src) (claimedSource src claim.amount),
+                   leafStep claimPath none (some claim)] r'
+  out0_eq : out0 = r'.sum
+  authorised : auth
+\end{lstlisting}
+
+The cohort and receive predicates, $\Phi_{\tr{REWRITE}}$ (with the reclaim form
+as \lean{transfer} and \lean{deadline}), $\Phi_{\tr{DETACH}}$,
+$\Phi_{\tr{CLAIM}}$ (merge forms) and $\Phi_{\tr{RECLAIM}}$:
+
+\begin{lstlisting}[style=leansig]
+structure Rewrite (h : Nat) (π : Params) (auth : Pos h 0 → Prop) (lockTime : Nat) (r : Node H)
+    (path : List (Bool × Node H)) (old new : Tree h) (r' : Node H) (out0 : Nat)
+    (payouts : List Payout) : Prop where
+  steps : Steps r [Step.mk h path old.root new.root] r'
+  out0_eq : out0 = r'.sum
+  authorised : ∀ (q : Pos h 0) (l : Leaf), old.get q = some l → new.get q ≠ some l →
+    ¬ l.AmountOnlyIncrease π (new.get q) → ¬ π.Reclaimable l → auth q
+  transfer : ∀ (c : Pos h 1) (l : Leaf), old.get (c.pairAt false) = some l →
+    l.TransferShape π (new.get (c.pairAt false)) → old.Transfer π new c
+  deadline : ∀ (q : Pos h 0) (l : Leaf), old.get q = some l → new.get q ≠ some l →
+    π.Reclaimable l → ¬ l.AmountOnlyIncrease π (new.get q) →
+    (¬ ∃ c : Pos h 1, q = c.pairAt false ∧ l.TransferShape π (new.get q)) →
+    l.evictAfter ≤ lockTime
+  payouts_eq : payouts = old.rewritePayouts π new
+
+structure Detach (auth : Prop) (h : Nat) (r : Node H) (path : List (Bool × Node H))
+    (sub : Node H) (r' : Node H) (out0 : Nat) (r₁ : H) (out1 : Nat) : Prop where
+  steps : Steps r [Step.mk h path sub (Tree.emptyNode h)] r'
+  out0_eq : out0 = r'.sum
+  r₁_eq : r₁ = sub.hash
+  out1_eq : out1 = sub.sum
+  authorised : auth
+
+structure MergeOk (π : Params) (src tgt : Leaf) (X : Nat) : Prop where
+  owner_eq : tgt.ownerKey = src.exitKey
+  exit_eq : tgt.exitKey = src.exitKey
+  src_not_final : src.seq ≠ π.seqFinal
+  tgt_not_final : tgt.seq ≠ π.seqFinal
+  tgt_not_reclaimable : ¬ π.Reclaimable tgt
+  raise : tgt.amount < X
+  draw_le : X - tgt.amount ≤ src.amount
+  residual_dust : X - tgt.amount = src.amount ∨ π.dustMin ≤ src.amount - (X - tgt.amount)
+
+structure Reclaim (auth : Prop) (π : Params) (lockTime : Nat) (r : Node H)
+    (path : List (Bool × Node H)) (l : Leaf) (r' : Node H) (out0 : Nat) : Prop where
+  reclaimable : π.Reclaimable l
+  deadline : l.evictAfter ≤ lockTime
+  step : (leafStep path (some l) none).valid r r'
+  out0_eq : out0 = r'.sum
+  authorised : auth
+\end{lstlisting}
+
+A spend accepted by some predicate is an \lean{Accepts} step between two
+roots, and a history is a \lean{Chain} of them; \lean{Chain.sound} bridges
+every on-chain root back to a reachable tree (\S\ref{app:lean-heads}).
+
+
 \subsection{Assumption Ledger}
 
 Every hypothesis outside Lean's logic, what it stands for in the
@@ -351,7 +619,7 @@ compiler correctness & the bytecode implements $\Pred_\tau$ (tested, 3{,}019 che
 opcode semantics & [A-1] to [A-6] (Table~\ref{tab:assume}) & every tier \\
 {[C]} & contention: $\kappa$, $\beta$ (\S\ref{sec:func}) & liveness \\
 {[MIN]} & CR of TapSighash and the challenge hash & MIN \\
-Lemma~\ref{lem:path} & paper proof from \lean{hNode\_inj} & honest paths \\
+Lemma~\ref{lem:path}, opaque nodes & paper proof from \lean{hNode\_inj} (real tree: \lean{path\_maintenance}) & honest paths \\
 \midrule
 (none) & & \lean{Steps.sum}, \lean{ExitK.no\_inflation}, encodings \\
 \bottomrule
@@ -366,6 +634,7 @@ $2^{64}$; the bridge is that every sum on a verified path is at most the
 input amount, and the 41-byte size check on each sibling bounds its sum
 below $2^{64}$, so the axioms are only ever applied inside the encodings'
 range.
+
 
 \subsection{Modules and Effort}
 
@@ -399,6 +668,7 @@ BIP-441 numerics, of \op{TX}'s serialisations and of the BIP-341 message,
 and a proof that each generated script's execution relation equals the
 corresponding \lean{Step} relation; we estimate it at several thousand
 lines and regard it as the natural sequel.
+
 
 \subsection{Binding to the Output}
 
@@ -434,6 +704,7 @@ taproot tweak by $m$, each of which carries the same case split, so the
 binding theorems hold for a CCV tree unchanged (\lean{ccv\_input\_binds}
 states the first for the input's own taptree).
 
+
 \subsection{Encodings}
 
 \lean{Encoding.lean} proves the byte-level facts the design leans on, over
@@ -445,7 +716,8 @@ addition; the 116-byte leaf and the 82-byte node preimage are injective;
 and the \lean{SEQ\_FINAL} facts of Lemma~\ref{lem:enc}, computed by
 \lean{decide} on a bounded-recursion model of \texttt{CScriptNum}.
 
-\subsection{What Is Not Proved}
+
+\subsection{What Is Not Proved}\label{app:lean-not}
 
 The tapscript bytecode is outside the model. That the scripts of
 \S\ref{sec:scripts} implement the relations above is established by
@@ -458,11 +730,12 @@ are authorisation and deliberately opaque. A lock time is a parameter
 that the deadline checks of \lean{Reclaim} and \lean{Rewrite} compare
 against; that it is a height that only grows along a chain is not
 modelled. Payout
-destinations are not authorisation but are not proved either: that
-output $k$ pays $\mathrm{P2TR}$ of leaf $k$'s exit key, and that an
-eviction pays the exit key and not the evictor, is established by
-execution, since \lean{ExitBlock} carries no exit key. Nor is
-Lemma~\ref{lem:path}, which has a paper proof only. Concurrency,
+destinations are modelled as the payout the script reads from output
+$k$, whose key \lean{ExitBlock.payoutOk} requires to be the leaf's exit
+key, for an eviction as for an owner exit (\lean{ExitK.pays\_exit\_key});
+that the bytecode makes the output script $\mathrm{P2TR}$ of that key
+is established by execution. Lemma~\ref{lem:path} is mechanised for a real tree;
+its extension to a path through an opaque node has a paper proof only. Concurrency,
 mempool policy, reorganisations and the off-chain protocol are not
 theorems about hash trees and belong to a model checker; a design for a
 P~\cite{plang} model is in the artefact.

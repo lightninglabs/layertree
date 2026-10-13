@@ -49,6 +49,7 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{multirow}
+\usepackage{longtable}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{tikz}
@@ -136,7 +137,7 @@
 
 % Predicate boxes (predicates.tex) and party algorithms (algorithms.tex).
 \usepackage{float}
-\floatstyle{ruled}\newfloat{algorithm}{tbp}{loa}\floatname{algorithm}{Algorithm}
+\floatstyle{ruled}\newfloat{algorithm}{htbp}{loa}\floatname{algorithm}{Algorithm}
 \floatstyle{plain}
 \newcommand{\amt}{\mathsf{amt}}
 \newcommand{\xk}{\mathsf{xk}}
@@ -719,15 +720,17 @@ theorem join_sound {auth : Prop} {d h} (t : Tree d) (path) (new r' : Node H) (ou
 \end{lstlisting}
 \fi
 
-\begin{lemma}[Path maintenance, not mechanised]\label{lem:path}
+\begin{lemma}[Path maintenance]\label{lem:path}
 If leaf $\ell$ at $p$ with path $\pi$ folds to the root $r$, and a valid
 step at a position $p'$ that is neither $p$ nor above it takes $r$ to
 $r'$, then $\ell$ folds to $r'$ with the path $\pi$ in which the one
 sibling on the step's path is replaced by the node the step computes at
 that height.
 \end{lemma}
-\noindent Lemma~\ref{lem:path} needs no real tree, so it covers a path
-through an opaque node; \lifted{app:uc} proves it on paper. Other
+\noindent The Lean model proves the statement for a real tree
+(\lean{Tree.path\_maintenance}, \lean{Tree.path\_maintenance\_valid}).
+The lemma as stated needs no real tree, so it also covers a path through
+an opaque node, for which \lifted{app:uc} gives a paper proof. Other
 transitions have theorems of their own (Appendix~\ref{app:lean}).
 Authorisation and lock times are an opaque proposition \lean{auth} in
 the theorems, discharged by $\Fsig$ and $\Gclock$; which key a payout
@@ -738,6 +741,23 @@ to the spent output through $\TreeSpk(r', m') = \TreeSpk(r, m)$
 $\NUMS$ and hash collisions when the two internal keys have opposite
 signs, and to taproot binding in the random-oracle model, as in BIP-341's
 own argument, when they share one (Appendix~\ref{app:lean}).
+
+\paragraph{Predicates, algorithms and lemmas.} The lemmas meet the boxes
+and the algorithms at fixed places. Check~1 of every box is the binding
+of the witness root and taptree to the spent output
+(\lean{witness\_root\_binds}). The fold checks of every box are the
+hypothesis of Lemma~\ref{lem:step} and their conclusion is a step, so
+the amounts that the last check of each box fixes are Theorem~\ref{thm:cons}
+applied to its steps. Lines 2 to 4 of Algorithm~\ref{alg:exit} build the
+honest witness of Theorem~\ref{thm:pay} (the leaf, its path, $\Emp_0$),
+and line~5 of Algorithm~\ref{alg:follow} is Lemma~\ref{lem:path}.
+Lines 3 to 6 of Algorithm~\ref{alg:accept} are the checks that
+Theorem~\ref{thm:ground} needs and that $\Phi_{\tr{JOIN}}$ cannot make:
+a graft without them can give an opaque node, which freezes the value it
+brought and nothing else. The signature checks of the boxes are the
+opaque authorisation of the Lean structures, discharged by $\Fsig$ and
+$\Gclock$. Appendix~\ref{app:lean} lists every box, algorithm and
+result with its Lean name.
 
 \subsection{The Composable Statement}
 
@@ -910,7 +930,8 @@ it with a tree kept off-chain as data: a one-transaction exit of about a
 kilobyte, no pre-signing, no expiry of the shared output, from proposed
 opcodes; its price is that all activity funnels through one UTXO.
 Future work: a verified compiler, a proof of
-Conjecture~\ref{thm:chan}, mechanising Lemma~\ref{lem:path}, and a P
+Conjecture~\ref{thm:chan}, extending the mechanised path maintenance of
+Lemma~\ref{lem:path} to opaque nodes, and a P
 model~\cite{plang}.
 \else
 % The short version's closing sentences sit at the end of body-discussion.

@@ -16,11 +16,11 @@
 \newcommand{\algCreate}{%
 \begin{algorithm}
 \caption{Create \textendash\ operator, founding a tree}\label{alg:create}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
-\kw{choose}\ D,\ \mathsf{OPERATOR\_KEY},\ \text{the option set } \mathcal{O} \text{ (heights, sizes, variants)} \\
+\pseudocode[linenumbering,codesize=\scriptsize]{%
+\kw{choose}\ D,\ \mathsf{OPERATOR\_KEY} \text{ and the option set } \mathcal{O} \text{ (heights, sizes, variants)} \\
 \kw{choose}\ \text{the outpoint } o_0 \text{ that input 0 of the funding transaction will spend} \\
 \mathsf{tree\_id} \gets H_{\mathsf{tree\text{-}id}}(o_0) \\
-m \gets \text{Merkle root of the taptree compiled from } (D, \mathsf{OPERATOR\_KEY}, \mathsf{tree\_id}, \mathcal{O}) \\
+m \gets \text{Merkle root of the taptree for } (D, \mathsf{OPERATOR\_KEY}, \mathsf{tree\_id}, \mathcal{O}) \\
 \kw{build}\ \text{the initial leaves, at least one, and their root } r_0 \\
 \kw{publish}\ (D, \mathsf{OPERATOR\_KEY}, \mathsf{tree\_id}, \mathcal{O}, m, r_0) \text{ and each member's leaf and path} \\
 \kw{after}\ \text{every member has run } \fn{AcceptLeaf}\text{:} \\
@@ -47,31 +47,32 @@ open (spec~9, introduction), and says nothing of a timeout.
 \newcommand{\algGraft}{%
 \begin{algorithm}
 \caption{Graft \textendash\ operator, adding a cohort at height $h$}\label{alg:graft}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{pick}\ \text{an empty position } (h, i) \text{ with path } \pi,\ \text{ at root } r \text{ and sum } S \\
 \kw{build}\ \text{the subtree of the new leaves; } \bar n = (\bar h, \bar s) \gets \text{its node} \\
-r' \gets \fold(\bar n, \pi);\quad \mathsf{tx} \gets \text{input 0 spends the tree output; output 0} = (S + \bar s, \TreeSpk(r', m)) \\
+r' \gets \fold(\bar n, \pi) \\
+\mathsf{tx}\text{: input 0 spends the tree output; output 0} = (S + \bar s, \TreeSpk(r', m)) \\
 \kw{add}\ \text{funding inputs (the operator's, or each member's own)} \\
 \kw{if}\ \text{more than one funder:}\ \text{add a change output or a P2A anchor} \\
 \kw{for each}\ \text{member } U\text{:}\ \kw{send}\ (\mathsf{tx},\ \ell_U,\ \text{path of } \ell_U \text{ in the subtree},\ \pi,\ r,\ m) \\
 \kw{collect}\ \text{the signatures of the members' inputs, if any} \\
-\kw{if}\ \text{a member withdraws or does not sign:}\ \text{drop it, rebuild the subtree, go to line 2} \\
+\kw{if}\ \text{a member withdraws or does not sign:}\ \text{drop it, rebuild, go to line 2} \\
 \text{sign input 0 with } \mathsf{OPERATOR\_KEY};\ \kw{broadcast}
 }
 \end{algorithm}%
-Lines 1 to 3 build the transaction that $\Phi_{\tr{JOIN}}$ accepts: the
+Lines 1 to 4 build the transaction that $\Phi_{\tr{JOIN}}$ accepts: the
 slot is empty, output~0 carries $S + \bar s$ and the operator signs. The
 slot's height fixes the script, since each height $h$ is a tapleaf fixed
 at creation (spec~6.2), and the operator chooses the slot that later
-batching depends on (design/graft.md). Line~4 covers the three funding
+batching depends on (design/graft.md). Line~5 covers the three funding
 modes: in an operator-funded graft the operator supplies $\bar s$ and is
 paid off-chain, so there is nothing to collect and no round (spec~9.2); in a
-member-funded one each member adds an input. Line~5 is the spec's advice
+member-funded one each member adds an input. Line~6 is the spec's advice
 for more than one funder: because each funder signs with
 \textsf{SIGHASH\_DEFAULT} or \textsf{SIGHASH\_ALL}, the graft cannot be
 replaced at a higher fee without every funder signing again, so the
-operator must be able to bump it by CPFP (spec~9.2). Line~6 sends each
-member what \fn{AcceptLeaf} needs, and lines 7 and 8 are the abort and
+operator must be able to bump it by CPFP (spec~9.2). Line~7 sends each
+member what \fn{AcceptLeaf} needs, and lines 8 and 9 are the abort and
 retry of a signing round: the output commits to the whole subtree, so one
 member who changes its leaf or never signs invalidates every other
 signature (spec~9.2, informative). The spec states the round but gives
@@ -82,16 +83,16 @@ the operator no rule for when to give up on a member or how long to wait.
 \newcommand{\algAccept}{%
 \begin{algorithm}
 \caption{AcceptLeaf \textendash\ joiner $U$, before funding or paying for a leaf}\label{alg:accept}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{input:}\ \text{unsigned } \mathsf{tx},\ \ell_U,\ \text{subtree path } \rho,\ \text{path } \pi \text{ of the slot},\ r,\ m \\
 \kw{if}\ \vin_0 \text{ is not an unspent output with } \spk = \TreeSpk(r, m) \text{ and amount } S\text{:}\ \kw{reject} \\
 \kw{if}\ \fold(\Emp_h, \pi) \ne (r, S)\text{:}\ \kw{reject} \\
-\kw{if}\ |\rho| \ne h \text{ or } \fold(\nd{\ell_U}, \rho) \ne (\bar h, \bar s) \text{ (every sum recomputed)}\text{:}\ \kw{reject} \\
+\kw{if}\ |\rho| \ne h \text{ or } \fold(\nd{\ell_U}, \rho) \ne (\bar h, \bar s) \text{ (all sums recomputed)}\text{:}\ \kw{reject} \\
 r' \gets \fold((\bar h, \bar s), \pi) \\
 \kw{if}\ \vout_0 \ne (S + \bar s, \TreeSpk(r', m))\text{:}\ \kw{reject} \\
 \kw{if}\ \ell_U \text{'s fields or } U \text{'s inputs and change differ from the agreed, or} \\
 \pcind (\ell_U.\ok, \ell_U.\nc, \ell_U.\sq) \text{ was held in this lineage before}\text{:}\ \kw{reject} \\
-\kw{if}\ U \text{ has an input to sign:}\ \text{sign it with } \mathsf{SIGHASH\_DEFAULT}\text{; store } \ell_U, \rho, \pi, r, r', \mathsf{txid} \\
+\kw{if}\ U \text{ has an input to sign:}\ \text{sign it } (\mathsf{SIGHASH\_DEFAULT});\ \text{store } \ell_U, \rho, \pi, r, r', \mathsf{txid} \\
 \kw{else}\ (\text{pays off-chain}):\ \text{wait for the confirmed graft; } \kw{check}\ \vout_0 \text{ is unspent} \\
 \pcind \text{and } \fold(\nd{\ell_U}, \text{its path in } r') = (r', S')\text{;}\ \text{only then pay}
 }
@@ -122,34 +123,35 @@ already holds (spec~9.2, Algorithm~\ref{alg:swap}).
 \newcommand{\algExit}{%
 \begin{algorithm}
 \caption{Exit \textendash\ member $U$ with wallet $(\ell, \pi, r, o)$, or a tower holding $\tau$}\label{alg:exit}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{loop}\ \text{(rebuild)}: \\
-\pcind (r', S') \gets \fold(\Emp_0, \pi);\quad \mathsf{tx} \gets \vin_0 = o,\ \text{a fee input},\ \vout_0 = (S - \ell.\amt, \TreeSpk(r', m)) \\
-\pcind \vout_1 \gets (v, \Ptr{\ell.\xk}),\ v = \ell.\amt \text{ (less, only for a plain exit that pays the fee itself)} \\
+\pcind (r', S') \gets \fold(\Emp_0, \pi) \\
+\pcind \mathsf{tx}\text{: } \vin_0 = o,\ \text{a fee input};\ \vout_0 = (S - \ell.\amt, \TreeSpk(r', m)) \\
+\pcind \vout_1 \gets (v, \Ptr{\ell.\xk}),\ v = \ell.\amt \text{ (less, for a plain exit that pays the fee)} \\
 \pcind \sigma \gets \fn{Sign}_{\ell.\ok}(\mathsf{tx}),\ \text{ or } \tau \text{ under } \tr{EXIT}^{t}_K\text{; } \kw{broadcast} \\
 \pcind \kw{wait}\ \text{until } \mathsf{tx} \text{ is buried or a spend } \mathsf{tx}' \text{ of } o \text{ confirms:} \\
-\pcind\pcind \kw{if}\ \mathsf{tx} \text{ is pending and too cheap:}\ \text{bump by replacement or by an anchor child} \\
+\pcind\pcind \kw{if}\ \mathsf{tx} \text{ is pending and too cheap:}\ \text{bump by replacement or an anchor child} \\
 \pcind\pcind \kw{if}\ \mathsf{tx}' \text{ confirms:}\ (\ell, \pi, r, o) \gets \fn{Follow}(\mathsf{tx}') \\
-\pcind\pcind \pcind \kw{if}\ \ell \text{ is gone:}\ \kw{stop};\ \kw{else}\ \kw{continue loop}
+\pcind\pcind\pcind \kw{if}\ \ell \text{ is gone:}\ \kw{stop};\ \kw{else}\ \kw{continue loop}
 }
 \end{algorithm}%
-Line~2 is $\Phi_{\tr{EXIT}}$ for $K = 1$: the leaf is removed along its own
+Lines 2 to 4 are $\Phi_{\tr{EXIT}}$ for $K = 1$: the leaf is removed along its own
 path (check~2), output~1 pays the exit key (check~3) and output~0
-recreates the tree output (check~7); line~3 is the payout rule, in
+recreates the tree output (check~7); line~4 is the payout rule, in
 which a plain exit may pay less than the balance and the exact variants
-may not. Line~4 signs all outputs, which is what stops a relayer from
+may not. Line~5 signs all outputs, which is what stops a relayer from
 diverting the shortfall or the fee slack (spec~7.2 rule~3). The
 signature commits to the tree outpoint $o$, which every transition
 changes, so it cannot be made in advance: a plain exit needs the owner
-online to rebuild it (lines 1 to 4 again). Under $\tr{EXIT}^{t}$ the owner makes
+online to rebuild it (lines 1 to 5 again). Under $\tr{EXIT}^{t}$ the owner makes
 $\tau = \fn{Sign}_{\ell.\ok}(H_{\mathsf{exit}}(\mathsf{tree\_id}\,\|\,\hat\ell))$ once and hands $(\ell, \tau)$ to a tower, which then runs the whole
 algorithm and pays the fee from its own input (spec~7.2 rule~7, 9.3); the
 tower also tracks the leaf's bytes, not only its path, since a
 \tr{REWRITE} top-up changes the amount the exit must pay without the
-owner (spec~9.7). Lines 5 to 7 reflect that every transition spends the
+owner (spec~9.7). Lines 6 to 8 reflect that every transition spends the
 one tree output, so an exit can be overtaken by any conflicting spend
 that confirms first and has to be rebuilt against the new root
-(spec~10.5), after \fn{Follow} (Algorithm~\ref{alg:follow}, line~7) has
+(spec~10.5), after \fn{Follow} (Algorithm~\ref{alg:follow}) has
 brought the path up to date; under~[C] this takes at most $\Dl$ blocks. The spec names
 replacement (BIP-125) and anchor outputs as the ways to bump a fee but
 does not fix a policy, and for a cooperative exit it advises asking the
@@ -163,14 +165,15 @@ rule~7).
 \newcommand{\algFollow}{%
 \begin{algorithm}
 \caption{Follow \textendash\ member or tower, on each spend of the tree output}\label{alg:follow}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{input:}\ (\ell, \pi, r, o),\ \text{and a transaction } \mathsf{tx}' \text{ that spends } o \text{ at input 0} \\
-\text{read from the witness of } \mathsf{tx}'\text{: the position(s) changed, the paths used, the old and new nodes} \\
-r' \gets \text{the root committed by } \vout_0 \text{ of } \mathsf{tx}' \text{ (or } \Emp_D \text{ if the tree is gone)} \\
+\text{read from } \mathsf{tx}'\text{'s witness: changed positions, paths used, old and new nodes} \\
+r' \gets \text{the root committed by } \vout_0 \text{ of } \mathsf{tx}' \text{ (} \Emp_D \text{ if the tree is gone)} \\
 \kw{if}\ \text{the position of } \ell \text{ changed:}\ \ell \gets \text{the new leaf the witness shows (or none)} \\
 \kw{else}\ \text{replace the one entry of } \pi \text{ where the two paths diverge} \\
 \pcind \text{by the node the witness computes at that height} \\
-\kw{if}\ \ell \ne \text{none and } \fold(\nd{\ell}, \pi) \ne r'\text{:}\ \text{ask the operator for the path; } \kw{check}\ \text{it against } r' \\
+\kw{if}\ \ell \ne \text{none and } \fold(\nd{\ell}, \pi) \ne r'\text{:} \\
+\pcind \text{ask the operator for the path and } \kw{check}\ \text{it against } r' \\
 (r, o) \gets (r', (\mathsf{txid}(\mathsf{tx}'), 0))
 }
 \end{algorithm}%
@@ -197,15 +200,16 @@ MUST process every spend (spec~9.7).
 \newcommand{\algVouch}{%
 \begin{algorithm}
 \caption{Vouch \textendash\ issuer $I$ of a voucher against its leaf $\ell_s$}\label{alg:vouch}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
-\kw{on}\ \text{request for a voucher paying } \ell_c \text{ (and, for } \tr{CLAIM}^{h}\text{, a payment hash } \eta\text{)}: \\
+\pseudocode[linenumbering,codesize=\scriptsize]{%
+\kw{on}\ \text{request for a voucher paying } \ell_c \text{ (for } \tr{CLAIM}^{h}\text{, with a payment hash } \eta\text{)}: \\
 \pcind \kw{if}\ \text{another leaf has the body of } \ell_s \text{ (dense profile)}\text{:}\ \kw{refuse} \\
 \pcind \kw{if}\ \textstyle\sum_{\text{outstanding}} + \ell_c.\amt > \ell_s.\amt\text{:}\ \kw{refuse} \\
 \pcind \nu \gets \fn{Sign}_{\ell_s.\ok}\bigl(H_{\mathsf{voucher}}(\mathsf{tree\_id}\,\|\,\hat\ell_s\,\|\,\ell_c [\,\|\,\eta])\bigr) \\
 \pcind \kw{record}\ (\nu, \ell_s.\sq) \text{ as a liability};\ \kw{send}\ (\mathsf{tree\_id}, \ell_s, \ell_c, \nu) \\
 \kw{on}\ \text{a transition that changes a field of } \ell_s \text{ other than } \amt\text{:} \\
 \pcind \text{re-sign every outstanding voucher over the new } \ell_s \text{ and the reduced amount} \\
-\kw{on}\ \text{a decrease of } \ell_s.\amt \text{ that leaves } \sq \text{ alone:}\ \text{keep the outstanding sum within it, or advance } \sq \text{ and re-sign} \\
+\kw{on}\ \text{a decrease of } \ell_s.\amt \text{ that leaves } \sq \text{ alone:} \\
+\pcind \text{keep the outstanding sum within it, or advance } \sq \text{ and re-sign} \\
 \kw{retire}\ \text{a liability once } \ell_s.\sq \text{ exceeds its value at issuance}
 }
 \end{algorithm}%
@@ -219,14 +223,14 @@ against both, and the dense profile does not check this on chain. Line~4
 binds the voucher to $\mathsf{tree\_id}$, the source without its amount
 and the claim leaf in full, and for $\tr{CLAIM}^{h}$ to the payment hash
 under a tag of its own, so that a plain and a hash-locked voucher are
-disjoint instruments. Lines 6 to 8 follow from what the message binds. A
+disjoint instruments. Lines 6 to 9 follow from what the message binds. A
 \tr{CLAIM} or \tr{SPLIT} advances $\sq$, an \tr{UPDATE} or
 \tr{REWRITE} may rotate a key, renew a lease or change $\sq$, and each of
 these voids every outstanding voucher, so the issuer re-signs them
 against the new leaf, which also lowers the balance they draw on. A
 change of the amount alone voids nothing: a top-up is harmless, and
 after a decrease the issuer must keep the outstanding sum within the
-reduced amount or advance $\sq$ and rebuild. Line~9 is how a voucher is
+reduced amount or advance $\sq$ and rebuild. Line~10 is how a voucher is
 retired, since the covenant gives it no deadline (spec~7.5.1). The spec
 does not tell the issuer to check that $\ell_c$ obeys the carve rule or
 the dust floor; a voucher that violates either simply fails at
@@ -237,31 +241,33 @@ redemption.
 \newcommand{\algRedeem}{%
 \begin{algorithm}
 \caption{Redeem \textendash\ recipient of a voucher $(\mathsf{tree\_id}, \ell_s, \ell_c, \nu)$}\label{alg:redeem}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{on}\ \text{receipt:}\ \kw{if}\ \nu \text{ does not verify under } \ell_s.\ok \text{ over the voucher message, or} \\
 \pcind \mathsf{tree\_id} \text{ is not the value from which } m \text{ was recomputed}\text{:}\ \kw{reject} \\
-\kw{obtain}\ \text{a path for a leaf with the body of } \ell_s \text{ in the confirmed tree; } \kw{if}\ \text{it fails or } \ell_s.\amt < \ell_c.\amt\text{:}\ \kw{reject} \\
-\kw{read}\ \ell_s.\ek,\ \ell_s.\ea \text{; } \kw{if}\ \ell_s.\ea \text{ can pass before a redemption would confirm } (\Dl) \text{ and} \\
+\kw{obtain}\ \text{a path for a leaf with the body of } \ell_s \text{ in the confirmed tree;} \\
+\pcind \kw{if}\ \text{it fails or } \ell_s.\amt < \ell_c.\amt\text{:}\ \kw{reject} \\
+\kw{read}\ \ell_s.\ek,\ \ell_s.\ea\text{;}\ \kw{if}\ \ell_s.\ea \text{ can pass before a redemption confirms } (\Dl) \text{ and} \\
 \pcind \ell_s.\ek \notin \{\mathsf{NUMS}, U\} \text{ and } \ell_s.\xk \ne U\text{:}\ \text{treat as unsecured credit} \\
-\kw{if}\ \ell_c.\amt < \ell_s.\amt \text{ and no empty position is known in the source's cohort:}\ \text{prefer a full-balance voucher} \\
-\kw{to redeem}\text{:}\ \kw{build}\ \mathsf{tx} \text{ for } \Phi_{\tr{CLAIM}} \text{ (position, } \nu, \text{ fee input, preimage if any); } \kw{broadcast} \\
-\pcind \text{rebuild as in } \fn{Exit} \text{ if a conflicting spend confirms; } \kw{settled}\ \text{only once it confirms}
+\kw{if}\ \ell_c.\amt < \ell_s.\amt \text{ and no empty position is known in the source's cohort:} \\
+\pcind \text{prefer a full-balance voucher} \\
+\kw{to redeem}\text{:}\ \kw{build}\ \mathsf{tx} \text{ for } \Phi_{\tr{CLAIM}} \text{ (position, } \nu, \text{ fee input, preimage if any);} \\
+\pcind \kw{broadcast};\ \text{rebuild as in } \fn{Exit} \text{ on a conflicting spend; settled once it confirms}
 }
 \end{algorithm}%
-Lines 1 to 3 are the recipient's MUSTs of spec~9.6: verify the signature,
+Lines 1 to 4 are the recipient's MUSTs of spec~9.6: verify the signature,
 check that $\mathsf{tree\_id}$ is one of the published creation
 parameters from which $m$ is recomputed (spec~9.1), and verify that a
 leaf with the voucher's source body is in the tree with an amount that
-covers the voucher. Lines 4 and 5 are the lease check. Eviction voids a
+covers the voucher. Lines 5 and 6 are the lease check. Eviction voids a
 voucher without the issuer doing anything, since the evictor can pay the
 whole balance to the source's exit key once $\ell_s.\ea$ has passed, so a
 recipient treats a voucher whose lease can pass within $\Dl$ as unsecured
 credit and should want the lease to outlast its own redemption deadline
 plus $\Dl$; the check is moot when the evictor is $\mathsf{NUMS}$ or the
 recipient, or when the exit key is the recipient's, the credit leaf of
-spec~10.3. Line~6 is the empty-position caveat: a voucher for less than
+spec~10.3. Lines 7 and 8 are the empty-position caveat: a voucher for less than
 the whole balance needs an empty position for its claim leaf, which the
-operator controls. Line~7 is the redemption, which only the voucher's
+operator controls. Lines 9 and 10 are the redemption, which only the voucher's
 signature authorises; it can be built by anyone who holds the voucher,
 a tower included. The spec states that the voucher is settled only after
 the redemption, or after the issuer includes the claim leaf and the
@@ -276,16 +282,16 @@ advancing $\sq$ (spec~9.6.1).
 \newcommand{\algSwap}{%
 \begin{algorithm}
 \caption{Swap \textendash\ issuer $A$ and holder $B$ of a $\tr{CLAIM}^{h}$ voucher paired with an HTLC (an ordered exchange)}\label{alg:swap}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
-A\text{:}\ \text{draw } R;\ \eta \gets \mathsf{SHA256}(R);\ \text{issue } B \text{ a } \tr{CLAIM}^{h} \text{ voucher on } \eta \text{ and an invoice on } \eta \\
-B\text{:}\ \kw{if}\ \text{the lease of the source can pass before } \mathsf{cltv\_expiry} + \Dl\text{:}\ \kw{abort} \\
+\pseudocode[linenumbering,codesize=\scriptsize]{%
+A\text{:}\ \text{draw } R;\ \eta \gets \mathsf{SHA256}(R);\ \text{issue } B \text{ a } \tr{CLAIM}^{h} \text{ voucher and an invoice on } \eta \\
+B\text{:}\ \kw{if}\ \text{the source's lease can pass before } \mathsf{cltv\_expiry} + \Dl\text{:}\ \kw{abort} \\
 B\text{:}\ \kw{pay}\ \text{the invoice (offer the HTLC)} \\
 A\text{:}\ \kw{from}\ \text{the offer until the voucher is redeemed or the HTLC fails or times out:} \\
 \pcind \text{do not advance } \ell_s.\sq \\
 A\text{:}\ \text{settle the HTLC off-chain, releasing } R \text{ through the payment} \\
 B\text{:}\ \kw{on}\ \text{learning } R\text{:}\ \text{redeem the voucher at once (} \fn{Redeem}\text{)} \\
-B\text{:}\ \text{call the swap complete only when the redemption is buried deeper than a reorganisation} \\
-\pcind \text{could replace it with a transition that advances } \sq \\
+B\text{:}\ \text{call the swap complete only when the redemption is buried so deep} \\
+\pcind \text{that no reorganisation can replace it by a transition advancing } \sq \\
 A\text{:}\ \kw{if}\ \text{the HTLC failed or timed out:}\ \text{retire the voucher by advancing } \ell_s.\sq
 }
 \end{algorithm}%
@@ -316,28 +322,31 @@ one $\tr{CLAIM}^{h}$.
 \newcommand{\algRewrite}{%
 \begin{algorithm}
 \caption{Rewrite \textendash\ operator coordinating a cohort rewrite at height $h$}\label{alg:rewrite}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
-\kw{collect}\ \text{the requested changes for one aligned subtree; } n_j \gets \text{new element, } \circ \text{ if unchanged} \\
-\mathsf{tx} \gets \vin_0 = \text{tree output, funding for any increase; } \vout_0 = (S - \textstyle\sum o_j.\amt + \sum n_j.\amt, \TreeSpk(r', m)) \\
-\pcind \vout_{1\dots} \gets (o_j.\amt, \Ptr{o_j.\xk}) \text{ for each emptied leaf, in position order} \\
-\kw{for each}\ j \text{ whose leaf changes (not an amount-only increase):}\ \kw{send}\ (\mathsf{tx}, o_j, n_j, \pi, r, m) \text{ to its owner} \\
-\kw{each owner}\text{:}\ \kw{if}\ o_j \text{ is in } r \text{ (fold), } n_j \text{ and every output are as agreed:}\ \text{sign (and the exit key, under } x) \\
-\kw{if}\ \text{a required signature is missing:}\ \text{set } n_j \gets \circ,\ \text{rebuild, and collect again from line 2} \\
+\pseudocode[linenumbering,codesize=\scriptsize]{%
+\kw{collect}\ \text{the changes for one aligned subtree; } n_j \gets \text{new element, } \circ \text{ if unchanged} \\
+\mathsf{tx}\text{: } \vin_0 = \text{tree output, plus funding for any increase} \\
+\pcind \vout_0 = (S - \textstyle\sum o_j.\amt + \sum n_j.\amt,\ \TreeSpk(r', m)) \\
+\pcind \vout_{1}, \dots \gets (o_j.\amt, \Ptr{o_j.\xk}) \text{ for each emptied leaf, in position order} \\
+\kw{for each}\ j \text{ whose leaf changes (not an amount-only increase):} \\
+\pcind \kw{send}\ (\mathsf{tx}, o_j, n_j, \pi, r, m) \text{ to its owner} \\
+\kw{each owner}\text{:}\ \kw{if}\ o_j \text{ is in } r \text{ (fold), and } n_j \text{ and every output are as agreed:} \\
+\pcind \text{sign (and, under } x\text{, the exit key)} \\
+\kw{if}\ \text{a required signature is missing:}\ \text{set } n_j \gets \circ,\ \text{rebuild, collect from line 2} \\
 \sigma_p \gets \fn{Sign}_{\mathsf{OPERATOR\_KEY}}(\mathsf{tx});\ \text{assemble the witness;}\ \kw{broadcast}
 }
 \end{algorithm}%
-The algorithm produces a transaction $\Phi_{\tr{REWRITE}}$ accepts. Lines 2 and 3
+The algorithm produces a transaction $\Phi_{\tr{REWRITE}}$ accepts. Lines 3 and 4
 are checks 7 and 6: each emptied leaf is paid exactly, which is why the
 operator cannot remove a leaf without paying it, and the output~0 amount
-nets the subtree's old and new amounts. Line~4 sends the transaction only
+nets the subtree's old and new amounts. Lines 5 and 6 send the transaction only
 to the owners whose leaves change in a way check~5 names, since a leaf
 that only gains amount, unless it is $\mathsf{SEQ\_FINAL}$, and a leaf nobody
 signs for pass through unchanged; positions in the reclaim form need the
-operator alone (check~8). Line~5 is the owner's side, which the spec
+operator alone (check~8). Lines 7 and 8 are the owner's side, which the spec
 states for \tr{UPDATE}, whose signers MUST verify the full transaction
 (spec~9.5), and which carries over to the cohort form by analogy; an
 owner who emptied its position is paid by the covenant, and one who did
-not sign keeps its leaf. Line~6 follows from the signature coverage: every
+not sign keeps its leaf. Line~9 follows from the signature coverage: every
 signature covers all outputs, so any change to the transaction
 invalidates the others and the round restarts, as for a self-funded graft
 (spec~9.2). The spec does not specify the message flow, when to give up
@@ -349,30 +358,33 @@ the transition, not the coordination).
 \newcommand{\algEvict}{%
 \begin{algorithm}
 \caption{Evict \textendash\ operator, removing expired leaves}\label{alg:evict}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
-\kw{admit}\ \text{a leaf to a cohort subtree only if } \ell.\ek = \mathsf{OPERATOR\_KEY},\ \text{and align the leases per cohort} \\
+\pseudocode[linenumbering,codesize=\scriptsize]{%
+\kw{admit}\ \text{a leaf to a cohort subtree only if } \ell.\ek = \mathsf{OPERATOR\_KEY}\text{,} \\
+\pcind \text{and align the leases per cohort} \\
 \kw{before}\ \ell.\ea\text{:}\ \text{notify the owner; offer an } \tr{UPDATE} \text{ extending } \ell.\ea \\
 \kw{when}\ \lock \ge T = \max_j o_j.\ea \text{ over an aligned subtree:} \\
 \pcind \mathsf{tx} \gets \Phi_{\tr{EVICT\_SUBTREE}} \text{ with the } 2^h \text{ elements published},\ \lock = T \\
-\pcind \vout_{k_j} \gets (o_j.\amt, \Ptr{o_j.\xk}) \text{ for each leaf; } \vout_0 \gets (S - \textstyle\sum o_j.\amt, \TreeSpk(r', m)) \\
-\pcind \text{sign with } \mathsf{OPERATOR\_KEY};\ \kw{broadcast},\ \text{paying the fee} \\
-\kw{for}\ \text{a leaf that blocks the sweep (later lease, other evictor):}\ \text{wait, or remove it with } \Phi_{\tr{EXIT}},\ e = 1
+\pcind \vout_{k_j} \gets (o_j.\amt, \Ptr{o_j.\xk}) \text{ for each leaf} \\
+\pcind \vout_0 \gets (S - \textstyle\sum o_j.\amt, \TreeSpk(r', m));\ \text{sign with } \mathsf{OPERATOR\_KEY}\text{;} \\
+\pcind \kw{broadcast},\ \text{paying the fee} \\
+\kw{for}\ \text{a leaf that blocks the sweep (later lease, other evictor):} \\
+\pcind \text{wait, or remove it with } \Phi_{\tr{EXIT}},\ e = 1
 }
 \end{algorithm}%
-Lines 3 to 6 are the sweep of spec~7.7: one transaction pays every leaf
+Lines 4 to 8 are the sweep of spec~7.7: one transaction pays every leaf
 of the subtree in full to its exit key, so an eviction returns the
 member's money and does not take it, at a small fraction of the per-leaf
 cost of evicting each leaf alone (spec~9.4). The sweep requires a lock
 time of at least the lease of every leaf in the subtree and
-$\mathsf{OPERATOR\_KEY}$ as every evictor, which is why line~1 makes the
-evictor key a condition of joining a cohort and aligns the leases: one
+$\mathsf{OPERATOR\_KEY}$ as every evictor, which is why lines 1 and 2 make the
+evictor key a condition of joining a cohort and align the leases: one
 leaf with a later lease holds up its whole cohort, and one with another
-evictor blocks it outright. Line~2 is the spec's advice (SHOULD) to notify
+evictor blocks it outright. Line~3 is the spec's advice (SHOULD) to notify
 and to offer a renewal; a renewal by \tr{UPDATE} in place blocks the sweep
 the same way, so the spec recommends relocating the renewed leaf into a
 cohort whose lease matches, by an \tr{UPDATE} followed by a \tr{SPLIT} of
 the whole balance or by a cooperative exit and a $\tr{JOIN}_0$
-(spec~9.4). Line~7 is the spec's remedy for a blocking leaf (spec~7.7). A
+(spec~9.4). Lines 9 and 10 are the spec's remedy for a blocking leaf (spec~7.7). A
 member whose lease is later than the cohort's can carve into the
 cohort's empty positions and delay its sweep; the spec asks operators to
 keep cohorts full or detach them, and gives no mechanism.
@@ -382,13 +394,16 @@ keep cohorts full or detach them, and gives no mechanism.
 \newcommand{\algReceive}{%
 \begin{algorithm}
 \caption{Receive \textendash\ recipient $R$ and operator $O$, for one payment into a pair $(P, L)$}\label{alg:receive}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 R\text{:}\ \text{draw } \rho;\ \eta \gets \mathsf{SHA256}(\rho);\ \text{invoice on } \eta;\ \text{the HTLC } (\eta, a, E) \text{ reaches } O \\
-O\text{:}\ \kw{require}\ E \ge T + \Dl + \text{(time to settle an HTLC from an on-chain preimage)} \\
-O\text{:}\ \kw{if}\ P.\amt < \text{draw of every outstanding merge voucher} + a + \mathsf{DUST\_MIN}\text{:}\ \text{top up } P \\
-O\text{:}\ X \gets \text{settled level of } L + a;\ \text{sign a } \tr{CLAIM}^{hm} \text{ voucher } V \text{ on } (\eta, X) \text{ against } P;\ \kw{send}\ V \\
-R\text{:}\ \kw{if}\ \text{not }[P \text{ reclaimable and } L\text{'s sibling};\ L \text{ is } R\text{'s, not reclaimable};\ X = \text{settled level} + a; \\
-\pcind P.\amt - (X - L.\amt) \ge \mathsf{DUST\_MIN};\ T \text{ leaves } \Dl \text{ for a redemption};\ L.\ea > T + \Dl]\text{:}\ \kw{refuse} \\
+O\text{:}\ \kw{require}\ E \ge T + \Dl + \text{time to settle from an on-chain preimage} \\
+O\text{:}\ \kw{if}\ P.\amt < \text{draws of all outstanding merge vouchers} + a + \mathsf{DUST\_MIN}\text{:} \\
+\pcind \text{top up } P \\
+O\text{:}\ X \gets \text{settled level of } L + a;\ \text{sign a } \tr{CLAIM}^{hm} \text{ voucher } V \text{ on } (\eta, X) \text{ against } P \\
+\pcind \kw{send}\ V \text{ to } R \\
+R\text{:}\ \kw{verify}\ P \text{ is reclaimable and } L\text{'s sibling, } L \text{ is } R\text{'s and not reclaimable,} \\
+\pcind X = \text{settled level of } L + a,\ P.\amt - (X - L.\amt) \ge \mathsf{DUST\_MIN}, \\
+\pcind T \text{ leaves } \Dl \text{ for a redemption, and } L.\ea > T + \Dl\text{; else } \kw{refuse} \\
 R\text{:}\ \text{release } \rho \text{ (one preimage at a time per pair); hand } (V, \rho) \text{ to its tower} \\
 O\text{:}\ \kw{on}\ \text{learning } \rho\text{:}\ \text{settle the inbound HTLC; nothing reaches the chain}
 }
@@ -401,21 +416,21 @@ landing leaf $L$, which the recipient owns and exits to. Line~1 has the
 recipient draw the preimage, the party the HTLC pays, as the ordering
 rules of \fn{Swap} require. Line~2 is rule~4 of the spec: $T$ must be
 chosen so that the HTLC cannot expire before the operator learns a
-preimage published late on-chain. Line~3 is rule~1: the headroom is
+preimage published late on-chain. Lines 3 and 4 are rule~1: the headroom is
 required, since a voucher that drains $P$ exactly would be blocked by any
 amount-only top-up, which leaves a sub-dust residual that
 $\Phi_{\tr{CLAIM}}$ check~10 rejects, after which the operator could
-reclaim the payment at $T$. Line~4 signs the merge voucher of
+reclaim the payment at $T$. Lines 5 and 6 sign the merge voucher of
 $\Phi_{\tr{CLAIM}}$ (checks~8 to 11): it raises $L$ to the absolute level
 $X$ and lowers $P$ by the difference without advancing $P$'s $\sq$, so it
 voids nothing and an older, lower voucher is a no-op after a newer one.
-Lines 5 and 6 are the recipient's verification of rule~2, against the
+Lines 7 to 9 are the recipient's verification of rule~2, against the
 \emph{confirmed} tree and before it releases anything, which also
 excludes a pending leaf that is not $L$'s sibling or an $L$ that the
-operator could evict inside the window; line~7 is the release rule, one
+operator could evict inside the window; line~10 is the release rule, one
 preimage at a time per pair, because the targets are levels of one leaf
 and a second voucher that included an unsettled payment would hand the
-recipient that payment without its preimage. Before line~7 the
+recipient that payment without its preimage. Before line~10 the
 operator has signed nothing it can lose, since $V$ needs a preimage that
 only $R$ holds and publishing it on-chain hands it to $O$; after it $R$
 can redeem alone. The spec fixes none of the invoice's expiry
@@ -427,18 +442,20 @@ final delta in terms of the window length).
 \newcommand{\algSettle}{%
 \begin{algorithm}
 \caption{SettleWindow \textendash\ operator, at the close of a window of a pair $(P, L)$}\label{alg:settle}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{before}\ T - \Dl\text{:}\ \kw{for each}\ \text{pair that settled amounts in the window:} \\
-\pcind \text{raise } L \text{ to its settled level, either by redeeming the merge voucher } U \text{ the operator signs itself,} \\
+\pcind \text{raise } L \text{ to its settled level, either by redeeming the merge voucher } U \\
+\pcind \text{that the operator signs itself,} \\
 \pcind \text{or by a transfer in } \Phi_{\tr{REWRITE}} \text{ (reclaim form), batched across recipients} \\
-\kw{hold}\ \text{every inbound HTLC with an outstanding merge voucher open until the reclaim of } P \text{ has confirmed} \\
+\kw{hold}\ \text{every inbound HTLC with an outstanding merge voucher open} \\
+\pcind \text{until the reclaim of } P \text{ has confirmed} \\
 \kw{after}\ T\text{:}\ \text{run } \fn{Reclaim} \text{ on every } P \text{ of the window}
 }
 \end{algorithm}%
 Line~1 is the operator's duty under rule~3 of spec~9.6.3: before
 $T - \Dl$ it should raise $L$ to the level the recipient has settled in
 the window, so that the recipient's vouchers move only what is still in
-flight above it. The two ways of lines 2 and 3 are the voucher the operator signs
+flight above it. The two ways of lines 2 to 4 are the voucher the operator signs
 for itself, which needs no one else, and the transfer of the reclaim form
 of the rewrite (spec~7.9 rule~8), which moves value from $P$ into the
 sibling that the same key owns and exits to and needs the operator's
@@ -446,8 +463,8 @@ signature alone, so a cohort of recipients settles in one transaction
 without any of them signing. Pairs that received nothing cost nothing.
 The operator's promise is a SHOULD, because the recipient does not rely
 on it: if $L$ has not reached the settled level by $T - \Dl$, the
-recipient or its tower MUST redeem the latest voucher (\fn{Watch}). Line~4
-is rule~4 and is a MUST: until the reclaim confirms, the recipient can
+recipient or its tower MUST redeem the latest voucher (\fn{Watch}). Lines 5 and 6
+are rule~4 and a MUST: until the reclaim confirms, the recipient can
 still redeem and publish the preimage, and an HTLC already failed back
 would leave the operator paying for a payment it never received. The
 spec leaves open the length of a window, how many pairs a recipient
@@ -459,12 +476,12 @@ vouchers are outstanding.
 \newcommand{\algWatch}{%
 \begin{algorithm}
 \caption{Watch \textendash\ tower holding $(V, \rho)$ for a pair $(P, L)$}\label{alg:watch}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{on every}\ \text{spend of the tree output:}\ \fn{Follow}\ \text{the paths and the bytes of } P \text{ and } L \\
 \kw{at}\ \text{height } T - \Dl - \text{margin}\text{:} \\
 \pcind \kw{if}\ L.\amt < \text{the settled level (confirmed)}\text{:} \\
-\pcind\pcind \text{build } \Phi_{\tr{CLAIM}} \text{ (merge form) from the latest } V \text{ and } \rho \text{ with its own fee input;}\ \kw{broadcast} \\
-\pcind\pcind \text{if a conflicting spend confirms, rebuild as in } \fn{Exit} \\
+\pcind\pcind \text{build } \Phi_{\tr{CLAIM}} \text{ (merge form) from the latest } V \text{ and } \rho \text{, own fee input} \\
+\pcind\pcind \kw{broadcast};\ \text{if a conflicting spend confirms, rebuild as in } \fn{Exit} \\
 \kw{stop}\ \text{once } L.\amt \ge X \text{ or after } T
 }
 \end{algorithm}%
@@ -490,22 +507,23 @@ design/towers.md lists both as not designed.
 \newcommand{\algReclaim}{%
 \begin{algorithm}
 \caption{Reclaim \textendash\ operator, taking back a pending leaf after its deadline}\label{alg:reclaim}
-\pseudocode[linenumbering,codesize=\footnotesize]{%
+\pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{when}\ \lock \ge P.\ea = T \text{ for a pending leaf } P \text{ with } P.\ek = \mathsf{RECLAIM\_KEY}\text{:} \\
-\pcind \mathsf{tx} \gets \Phi_{\tr{RECLAIM}}\ (\text{or the reclaim branch of } \Phi_{\tr{REWRITE}}, \text{ replacing } P \text{ by the next window's pending leaf}) \\
+\pcind \mathsf{tx} \gets \Phi_{\tr{RECLAIM}},\ \text{or the reclaim branch of } \Phi_{\tr{REWRITE}} \text{ replacing } P \text{ by the} \\
+\pcind \text{next window's pending leaf} \\
 \pcind \text{sign with } \mathsf{RECLAIM\_KEY};\ \kw{broadcast};\ \text{rebuild on a conflicting spend} \\
-\kw{only after}\ \text{the reclaim has confirmed:}\ \text{fail upstream the HTLCs that were not settled}
+\kw{only after}\ \text{the reclaim has confirmed:}\ \text{fail upstream the HTLCs not settled}
 }
 \end{algorithm}%
 Line~1 is the deadline of $\Phi_{\tr{RECLAIM}}$ (checks 2 and 3): a leaf
 whose evictor is $\mathsf{RECLAIM\_KEY}$ is reclaimable, and after $T$ the
 operator alone removes it with no payout, so that value in $P$ at its
 deadline is the operator's, which is what makes the timeout of the
-construction work. The batch form of line~2 shares one transaction among
+construction work. The batch form of lines 2 and 3 shares one transaction among
 many pairs and writes the next window's pending leaf in the same
 rewrite (spec~7.9 rule~8). A reclaimable leaf is never swept by
 $\Phi_{\tr{EVICT\_SUBTREE}}$, whose evictor must be $\mathsf{OPERATOR\_KEY}$,
-and an ordinary eviction of one still pays its exit key. Line~4 is rule~4
+and an ordinary eviction of one still pays its exit key. Line~5 is rule~4
 of spec~9.6.3: only after the reclaim confirms may the operator fail an
 inbound HTLC whose merge voucher is outstanding, since until then the
 recipient can still redeem and publish the preimage. The spec does not
