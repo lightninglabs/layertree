@@ -423,10 +423,10 @@ keep cohorts full or detach them, and gives no mechanism.
 \pseudocode[linenumbering,codesize=\scriptsize]{%
 R\text{:}\ \text{draw } \rho;\ \eta \gets \mathsf{SHA256}(\rho);\ \text{invoice on } \eta;\ \text{the HTLC } (\eta, a, E) \text{ reaches } O \\
 O\text{:}\ \kw{require}\ E \ge T + \Dl + \text{time to settle from an on-chain preimage} \\
-O\text{:}\ \kw{if}\ P.\amt < \text{draws of all outstanding merge vouchers} + a + \mathsf{DUST\_MIN}\text{:} \\
-\pcind \text{top up } P \\
-O\text{:}\ X \gets \text{settled level of } L + a;\ \text{sign a } \tr{CLAIM}^{hm} \text{ voucher } V \text{ on } (\eta, X) \text{ against } P \\
-\pcind \kw{send}\ V \text{ to } R \\
+O\text{:}\ X \gets \text{settled level of } L + a \\
+O\text{:}\ \kw{if}\ P.\amt < (X' - L.\amt) + \mathsf{DUST\_MIN} \text{ for } X' = X \text{ or an outstanding target:} \\
+\pcind \text{top up } P \text{ by an amount-only increase} \\
+O\text{:}\ \text{sign a } \tr{CLAIM}^{hm} \text{ voucher } V \text{ on } (\eta, X) \text{ against } P;\ \kw{send}\ V \text{ to } R \\
 R\text{:}\ \kw{verify}\ P \text{ is reclaimable and } L\text{'s sibling, } L \text{ is } R\text{'s and not reclaimable,} \\
 \pcind X = \text{settled level of } L + a,\ P.\amt - (X - L.\amt) \ge \mathsf{DUST\_MIN}, \\
 \pcind T \text{ leaves } \Dl \text{ for a redemption, and } L.\ea > T + \Dl\text{; else } \kw{refuse} \\
@@ -443,11 +443,11 @@ landing leaf $L$, which the recipient owns and exits to. Line~1 has the
 recipient draw the preimage, the party the HTLC pays, as the ordering
 rules of \fn{Swap} require. Line~2 is rule~4 of the spec: $T$ must be
 chosen so that the HTLC cannot expire before the operator learns a
-preimage published late on-chain. Lines 3 and 4 are rule~1: the headroom is
+preimage published late on-chain. Lines 3 to 5 are rule~1: the headroom is
 required, since a voucher that drains $P$ exactly would be blocked by any
 amount-only top-up, which leaves a sub-dust residual that
 $\Phi_{\tr{CLAIM}}$ check~10 rejects, after which the operator could
-reclaim the payment at $T$. Lines 5 and 6 sign the merge voucher of
+reclaim the payment at $T$. Line~6 signs the merge voucher of
 $\Phi_{\tr{CLAIM}}$ (checks~8 to 11): it raises $L$ to the absolute level
 $X$ and lowers $P$ by the difference without advancing $P$'s $\sq$, so it
 voids nothing and an older, lower voucher is a no-op after a newer one.
@@ -468,9 +468,9 @@ The recipient holds a \emph{receive pair}: a pending leaf $P$ (owned by
 the operator, exit key the recipient's, evictor $\mathsf{RECLAIM\_KEY}$,
 deadline $T$) and its sibling, the landing leaf $L$, which the recipient
 owns (spec~9.6.3). Line~2 keeps the HTLC alive past a preimage published
-late; lines 3 and 4 leave headroom, since a voucher that drains $P$
+late; lines 3 to 5 leave headroom, since a voucher that drains $P$
 exactly is blocked by an amount-only top-up that leaves a sub-dust
-residual. Lines 5 and 6 sign a hash-locked merge voucher that raises $L$ to
+residual. Line~6 signs a hash-locked merge voucher that raises $L$ to
 the absolute level $X$ and lowers $P$ without advancing its $\sq$, so it
 voids nothing and an older, lower voucher is a no-op. Lines 7 to 9 verify
 against the \emph{confirmed} tree before anything is released, and line~10
@@ -534,7 +534,7 @@ outstanding voucher stays open.
 \caption{Watch \textendash\ tower holding $(V, \rho)$ for a pair $(P, L)$}\label{alg:watch}
 \pseudocode[linenumbering,codesize=\scriptsize]{%
 \kw{on every}\ \text{spend of the tree output:}\ \fn{Follow}\ \text{the paths and the bytes of } P \text{ and } L \\
-\kw{at}\ \text{height } T - \Dl - \text{margin}\text{:} \\
+\kw{at}\ \text{height } T - \Dl\text{:} \\
 \pcind \kw{if}\ L.\amt < \text{the settled level (confirmed)}\text{:} \\
 \pcind\pcind \text{build } \Phi_{\tr{CLAIM}} \text{ (merge form) from the latest } V \text{ and } \rho \text{, own fee input} \\
 \pcind\pcind \kw{broadcast};\ \text{if a conflicting spend confirms, rebuild as in } \fn{Exit} \\
@@ -543,9 +543,9 @@ outstanding voucher stays open.
 \end{algorithm}%
 This is the one liveness duty of the recipient (spec~9.6.3 rule~3, which
 puts the check on the recipient \emph{or} a tower holding the voucher and
-preimage): once per window, confirm that $L$ holds at least the settled
-level before $T - \Dl$, and if it does not, redeem the latest voucher with
-the preimage. A tower can do it because the merge voucher raises the
+preimage): once per window, at $T - \Dl$ (line~2), confirm that $L$ holds
+at least the settled level and, if it does not, redeem the latest voucher
+with the preimage. A tower can do it because the merge voucher raises the
 source's sibling, a leaf the recipient owns and exits to, so it moves
 value only to a leaf the recipient alone can exit and needs no signature
 beyond the voucher's (spec~7.5.4; design/towers.md); the tower holds no
@@ -555,8 +555,8 @@ paths, since a merge voucher binds $L$'s body, and a change to $L$ other
 than its amount voids it (spec~7.5.4). Lines 3 to 5 are the redemption,
 rebuilt against a new root if a conflicting spend wins, within the bound
 $\Dl$ of spec~10.5. The spec gives no tower protocol (registration,
-payment, how a voucher is handed over) and no margin before $T - \Dl$;
-design/towers.md lists both as not designed.
+payment, how a voucher is handed over); design/towers.md lists it as not
+designed, together with an incentive for towers.
 }
 
 % ------------------------------------------------------------------

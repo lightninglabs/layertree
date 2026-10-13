@@ -12,7 +12,7 @@ without a real preimage freezes only the value it brought; that a
 voucher cannot be replayed and a carve keeps the evictor, lease and dust
 floor; and that the cohort operations and encodings behave as the
 scripts assume. An exit is guaranteed only to a member who verified its
-path. Scripts are matched to the rules by executable checks
+path (lines 2 to 6 of Algorithm~\ref{alg:accept}). Scripts are matched to the rules by executable checks
 (\S\ref{sec:eval}), not a verified compiler.
 
 For each tier, the protocol UC-realises an ideal functionality of the
