@@ -659,6 +659,36 @@ elements `r` and `m` and the prologue's three pushes to spare: `h ≤ 5`
 fits at any occupancy and a full 64-leaf cohort is rewritten as two
 `REWRITE_5` spends, as in MID.
 
+**The pending-leaf receive.** `CLAIM^m`, `CLAIM^hm` (7.5.4),
+`RECLAIM_1` (7.11) and the reclaim form of `REWRITE_h` (7.9 rule 8)
+exist in both numerics. Under `0xC2` the merge and the reclaim are
+FULL's script bodies between the two tree bindings and the rewrite is
+FULL's machine with the CCV payout; under `0xC0` they are built from
+MID's element machinery. A reclaim frees value with no payout, which the
+assign mode cannot express: it forces output 0 to carry the input's
+whole residual. `RECLAIM_1` therefore commits output 0 with the `DEDUCT`
+mode (`<nh> <0> <> <-1> <2> CCV`), which caps output 0 at the residual
+and leaves the freed value unassigned, and the `out0.amount == ns` read
+pins the amount exactly as before. The reclaim-form rewrite takes one
+witness flag, the bottom element, choosing the mode for output 0: empty
+for assign (a rewrite whose net change is zero or an increase) and
+`0x01` for `DEDUCT` (one that frees value); `MINIMALIF` rejects any
+other value, and either choice is safe because the amount read pins
+output 0. Two tree inputs with the same state still cannot share output
+0 (a second `DEDUCT`, or a `DEDUCT` beside an assign, fails), which
+`tools/test_ccv.py` checks. Under `0xC0` the merge's witness supplies
+the source leaf's block before the target's, with `src_is_left` setting
+only their order inside the pair node, and `X` and the source's
+residual arrive as minimal numbers with `PADZ` pads; the reclaim branch
+needs the leaf's `evict_after` as a number and pad for
+`OP_CHECKLOCKTIMEVERIFY`, so `RECLAIM_1` and each reclaimed position of
+the rewrite carry those elements where a signature would go. The
+`0xC0` rewrite keeps MID's bound: `h ≤ 4` at any occupancy, `h = 5` for
+cohorts of pending and landing pairs, `h = 6` over the 1,000-element
+limit. The plain CCV `UPDATE` and `REWRITE_h` still commit output 0 in
+the assign mode, so under CCV a net decrease that the other tiers leave
+free for the transaction (7.4, 7.9 rule 6) is not spendable there.
+
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
 output, so two tree inputs in one transaction each require output 0 to be
@@ -1535,7 +1565,13 @@ vouchers already spent; the operator MUST advance the target's `seq` in
 any decrease it co-signs, as 9.6 requires of a voucher's source. The
 `SEQ_FINAL` exclusion keeps merges away from channel leaves (C.6.5). The
 script is measured in 8.8; it carries one path where `CLAIM` carries
-two.
+two. In the `0xC0` numerics (MID, CCV0) the
+witness supplies the source's block before the target's, `X` arrives as
+a minimal number with a `PADZ` pad (so an `X` of `2^31` or more cannot
+be redeemed there; the signed message still carries `le64(X)`, so one
+voucher serves every tier), and a reclaimed position carries its
+lease as a number and pad for `OP_CHECKLOCKTIMEVERIFY` (7.9 rule 8,
+7.11).
 
 ### 7.6 Composition and variants
 
