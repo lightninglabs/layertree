@@ -1807,6 +1807,453 @@ def test_detach(depth, height, verbose=True):
     return it, len(w.compiled[name]), sum(len(x) for x in wit)
 
 
+RECLAIM_SK = sk("operator-reclaim")
+
+
+class PendingMidWorld:
+    """A MID tree carrying the pending-leaf receive (design/pending-receive.md),
+    as test_scripts.PendingWorld is for FULL: RECLAIM_KEY, RECLAIM_1,
+    CLAIM^m, CLAIM^hm, CLAIM^x and the reclaim-form REWRITE_h^x at heights 1
+    and 2, beside UPDATE^x and EXIT_1. Dense unless sparse, where only
+    RECLAIM_1 of the receive applies."""
+
+    def __init__(self, depth, sparse=False):
+        self.depth = depth
+        self.rk = pubkey_x(RECLAIM_SK)
+        self.w = MidWorld(depth, sparse)
+        op_pk = self.w.op_pk
+        self.opts = M.TreeOptions(op_pk, TREE_ID, sparse=sparse, exit_ks=(1,), update_x=True, claim=False,
+                                  claim_x=True, rewrite_heights=(1, 2), rewrite_x=True,
+                                  reclaim_key=self.rk, claim_m=True, claim_hm=True)
+        scripts = self.opts.at_depth(depth)
+        for name, toks in scripts.items():
+            bad = {t for t in toks if isinstance(t, str)} - MID_OPCODES
+            check(not bad, f"MID {name}: opcodes outside the MID set: {sorted(bad)}")
+        self.w.scripts = scripts
+        self.w.compiled = {k: assemble(v, mode="c0") for k, v in scripts.items()}
+        self.w.m = self.opts.taptree_root(depth)
+        self.rcpt = pubkey_x(sk("rcpt-exit"))
+        self.sparse = sparse
+
+    def _nonce(self, label):
+        return int.from_bytes(lt.sha256(label.encode())[:4], "little")
+
+    def _grind(self, lf):
+        while self.sparse and not M.pos_ok(lf, self.depth):
+            lf.nonce = (lf.nonce + 1) & 0xffffffff
+        return lf
+
+    def pending(self, amount, deadline, label="P", seq=0):
+        """P: owned by the operator, paid to the recipient, reclaimable at `deadline`."""
+        return self._grind(lt.Leaf(amount, self.rcpt, pubkey_x(sk("operator-owner")), self.rk, deadline,
+                                   self._nonce(label), seq))
+
+    def landing(self, amount, label="L", lease=900_000, owner=None, evictor=None, seq=0):
+        """L: owned and exited by the recipient, evictable by the operator after a long lease."""
+        return self._grind(lt.Leaf(amount, self.rcpt, owner or self.rcpt, evictor or self.w.op_pk, lease,
+                                   self._nonce(label), seq))
+
+
+def _merge_case_mid(pw, s_slot, t_slot, P, L, X, preimage=None, signer="operator-owner", flag=None,
+                    tree_id=TREE_ID, msg_target=None, msg_x=None, mutate=None):
+    """A MID CLAIM^m (or CLAIM^hm with a preimage) redemption against the
+    pair, as test_scripts._merge_case: returns (witness, ctx, new tree)."""
+    w = pw.w
+    w.tree.leaves = {s_slot: P, t_slot: L, 0: mk_leaf("alice", 50_000)}
+    root = w.tree.root()
+    t1 = w.clone()
+    try:
+        lt.apply_merge(t1, s_slot, t_slot, X)
+    except AssertionError:
+        # an invalid merge, for a negative: the tree the transaction claims
+        d = X - L.amount
+        t1.leaves[t_slot] = L.with_amount_seq(X, L.seq)
+        if P.amount - d > 0:
+            t1.leaves[s_slot] = P.with_amount_seq(P.amount - d, P.seq)
+        else:
+            t1.leaves.pop(s_slot, None)
+    r1 = t1.root()
+    ctx = w.ctx([(r1[1], w.spk(r1))], (600, P2WPKH))
+    ph = lt.sha256(preimage) if preimage is not None else None
+    msg = lt.voucher_m_msg(tree_id, P, msg_target or L, msg_x if msg_x is not None else X, ph)
+    body = M.w_merge(w.tree, pw.depth, s_slot, t_slot, X, t1)
+    if flag is not None:
+        body[len(body) - 26] = flag
+    if mutate:
+        body = mutate(body)
+    wit = body + [schnorr_sign(msg, sk(signer))]
+    if preimage is not None:
+        wit.append(preimage)
+    return wit + [root[0], w.m], ctx, t1
+
+
+def test_merge_mid(depth, verbose=True):
+    """MID CLAIM^m and CLAIM^hm (7.5.4), mirroring test_scripts.test_merge."""
+    pw = PendingMidWorld(depth)
+    w = pw.w
+    pre = lt.sha256(b"receive-preimage")
+    P = pw.pending(20_000, 700_000)
+    L = pw.landing(10_000)
+    wit, ctx, t1 = _merge_case_mid(pw, 2, 3, P, L, 13_000, pre)
+    it = w.run("CLAIM_HM", wit, ctx)
+    check(t1.leaves[3].amount == 13_000 and t1.leaves[2].amount == 17_000 and t1.leaves[2].seq == P.seq,
+          "mid: CLAIM^hm target raised to X, source lowered by the difference, source seq unchanged")
+    hm_size, hm_wit = len(w.compiled["CLAIM_HM"]), sum(len(x) for x in wit)
+    w.run("CLAIM_HM", *_merge_case_mid(pw, 5, 4, P, L, 13_000, pre)[:2])
+    check(True, "mid: CLAIM^hm with the source on the right of the pair")
+    w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 12_500)[:2])
+    check(True, "mid: CLAIM^m raises the target with no preimage")
+    m_size = len(w.compiled["CLAIM_M"])
+    _, _, t_d = _merge_case_mid(pw, 2, 3, P, L, 30_000)
+    w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 30_000)[:2])
+    check(2 not in t_d.leaves, "mid: CLAIM^m draining the source leaves E_0")
+    w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 30_000 - lt.DUST_MIN)[:2])
+    check(True, "mid: CLAIM^m leaving exactly DUST_MIN in the source")
+
+    # replay and ordering: target levels are absolute
+    raised = L.with_amount_seq(13_000, L.seq)
+    lowered = P.with_amount_seq(17_000, P.seq)
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, lowered, raised, 13_000, pre)[:2]),
+                "mid: CLAIM^hm replayed after the target reached X")
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, lowered, raised, 11_000, pre)[:2]),
+                "mid: CLAIM^hm older, smaller target after a larger one")
+    w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, P.with_amount_seq(19_000, 0),
+                                       L.with_amount_seq(11_000, 0), 13_000, pre)[:2])
+    check(True, "mid: CLAIM^hm newer target after an older one moves only the difference")
+
+    # negatives, one per rule
+    expect_fail(lambda: w.run("CLAIM_HM", wit[:-3] + [lt.sha256(b"x")] + wit[-2:], ctx),
+                "mid: CLAIM^hm wrong preimage")
+    expect_fail(lambda: w.run("CLAIM_HM", wit[:-3] + [pre[:31]] + wit[-2:], ctx),
+                "mid: CLAIM^hm preimage not 32 bytes")
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, P, L, 13_000, pre, signer="rcpt-exit")[:2]),
+                "mid: CLAIM^hm voucher not by the source owner")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, tree_id=w.m)[:2]),
+                "mid: CLAIM^m voucher over m instead of tree_id")
+    plain = _merge_case_mid(pw, 2, 3, P, L, 13_000)[0]
+    expect_fail(lambda: w.run("CLAIM_HM", plain[:-2] + [pre] + plain[-2:], ctx),
+                "mid: CLAIM^hm with a plain merge voucher")
+    expect_fail(lambda: w.run("CLAIM_M", wit[:-3] + wit[-2:], ctx),
+                "mid: CLAIM^m with a hash-locked merge voucher")
+    carve_sig = schnorr_sign(lt.voucher_msg(TREE_ID, P, L), sk("operator-owner"))
+    expect_fail(lambda: w.run("CLAIM_M", plain[:-3] + [carve_sig] + plain[-2:], ctx),
+                "mid: CLAIM^m with a carve voucher over the same pair")
+    stranger = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, stranger, 13_000)[:2]),
+                "mid: CLAIM^m into a sibling the source's exit key does not own")
+    elsewhere = lt.Leaf(10_000, pubkey_x(sk("mallory-exit")), pw.rcpt, pw.w.op_pk, 900_000, pw._nonce("L"), 0)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, elsewhere, 13_000)[:2]),
+                "mid: CLAIM^m into a sibling owned by the source's exit key but exiting to another key")
+    flagged = pw.landing(10_000, evictor=pw.rk)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, flagged, 13_000)[:2]),
+                "mid: CLAIM^m into a reclaimable target")
+    final_t = pw.landing(10_000, seq=M.SEQ_FINAL)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, final_t, 13_000)[:2]),
+                "mid: CLAIM^m into a SEQ_FINAL (0x7FFFFFFF) target")
+    final_s = pw.pending(20_000, 700_000, seq=M.SEQ_FINAL)
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, final_s, L, 13_000)[:2]),
+                "mid: CLAIM^m from a SEQ_FINAL (0x7FFFFFFF) source")
+    full_final = pw.landing(10_000, seq=0xFFFFFFFF)
+    w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, full_final, 13_000)[:2])
+    check(True, "mid: a target seq of 0xFFFFFFFF is not MID's SEQ_FINAL: the merge applies")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 10_000)[:2]),
+                "mid: CLAIM^m with X not above the target's amount")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 30_001)[:2]),
+                "mid: CLAIM^m drawing more than the source holds")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 29_800)[:2]),
+                "mid: CLAIM^m leaving a sub-dust residual")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, flag=b"")[:2]),
+                "mid: CLAIM^m with the source flag pointing at the target")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, msg_x=14_000)[:2]),
+                "mid: CLAIM^m with X other than the signed target")
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, msg_target=pw.landing(10_000, label="L-other"))[:2]),
+                "mid: CLAIM^m with a voucher naming another target body")
+    # MID numerics: X and the residual arrive as numbers with PADZ pads
+
+    def bad_x_pad(b):
+        b = list(b); i = len(b) - 20 - 2            # zx
+        b[i], b[i + 1] = b[i] + b"\x00", b[i + 1][1:]
+        return b
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, mutate=bad_x_pad)[:2]),
+                "mid: CLAIM^m with a malformed pad for X")
+
+    def neg_x(b):
+        b = list(b); i = len(b) - 20 - 3            # xn: a minimal four-byte negative number, no pad
+        b[i], b[i + 1], b[i + 2] = NEG_X.to_bytes(4, "little"), b"", bytes(4)
+        return b
+    # the voucher signs le64 of the same four bytes, so only the sign of X fails
+    NEG_X = 0x810032C8
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, mutate=neg_x, msg_x=NEG_X)[:2]),
+                "mid: CLAIM^m with X a negative number")
+
+    def bad_res_pad(b):
+        b = list(b); i = len(b) - 20 - 5            # zr
+        b[i], b[i + 1] = b[i][1:], b[i + 1] + b"\x00"
+        return b
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, mutate=bad_res_pad)[:2]),
+                "mid: CLAIM^m with a malformed pad for the residual")
+
+    def bad_amt(b):
+        b = list(b); i = len(b) - 3                 # T.amt_num
+        b[i] = M.scriptnum(L.amount + 256)
+        return b
+    expect_fail(lambda: w.run("CLAIM_M", *_merge_case_mid(pw, 2, 3, P, L, 13_000, mutate=bad_amt)[:2]),
+                "mid: CLAIM^m with the target's amount field and number disagreeing")
+    wit_o, _, t_o = _merge_case_mid(pw, 2, 3, P, L, 13_000)
+    r_o = t_o.root()
+    expect_fail(lambda: w.run("CLAIM_M", wit_o, w.ctx([(r_o[1] - 1, w.spk(r_o))], (600, P2WPKH))),
+                "mid: CLAIM^m with output 0 short")
+    expect_fail(lambda: w.run("CLAIM_M", wit_o[:-1] + [lt.sha256(b"evil")], w.ctx([(r_o[1], w.spk(r_o))], (600, P2WPKH))),
+                "mid: CLAIM^m with a wrong m")
+
+    # the exact-fit funding hole and the DUST_MIN headroom that closes it
+    tight = pw.pending(3_000, 700_000)
+    w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, tight, L, 13_000, pre)[:2])
+    check(True, "mid: CLAIM^hm draining an exactly funded pending leaf")
+    expect_fail(lambda: w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, tight.with_amount_seq(3_001, 0), L, 13_000, pre)[:2]),
+                "mid: CLAIM^hm blocked by a one-satoshi top-up of an exactly funded pending leaf")
+    roomy = pw.pending(3_000 + lt.DUST_MIN, 700_000)
+    for extra in (0, 1, 50_000):
+        w.run("CLAIM_HM", *_merge_case_mid(pw, 2, 3, roomy.with_amount_seq(roomy.amount + extra, 0), L, 13_000, pre)[:2])
+    check(True, "mid: CLAIM^hm with DUST_MIN of headroom redeems after any top-up")
+    if verbose:
+        print(f"MID CLAIM^m D={depth}: script {m_size} B; CLAIM^hm script {hm_size} B, witness {hm_wit} B "
+              f"({len(wit)} elements), maxdepth {it.max_depth}")
+    return hm_size, hm_wit
+
+
+def test_reclaim_mid(depth, sparse=False, verbose=True):
+    """MID RECLAIM_1 (7.11), mirroring test_scripts.test_reclaim."""
+    pw = PendingMidWorld(depth, sparse)
+    w = pw.w
+    S = sparse
+    P = pw.pending(20_000, 700_000)
+    Lf = pw.landing(10_000)
+    alice = mk_leaf("alice", 50_000, sparse=S)
+    sp, sl, sa = w.slot(P, 2), w.slot(Lf, 3), w.slot(alice, 0)
+    w.tree.leaves = {sp: P, sl: Lf, sa: alice}
+
+    def spend(leaf=P, locktime=700_000, signer=RECLAIM_SK, out0=None, ea=None):
+        slot = next(k for k, v in w.tree.leaves.items() if v is leaf)
+        root = w.tree.root()
+        t = w.clone(); del t.leaves[slot]
+        rn = t.root()
+        ctx = TxContext([(root[1], w.spk(root)), (600, P2WPKH)],
+                        [(out0 if out0 is not None else rn[1], w.spk(rn)), (20_000, P2WPKH)], locktime=locktime)
+        sig = schnorr_sign(ctx.sighash(), signer)
+        items = M.w_leaf_exit(leaf)
+        if ea is not None:
+            items = items[:-3] + list(ea)
+        wit = (list(M.pad(rn[1])) + w.pads_for(root[1]) +
+               M.w_levels(w.tree.path(slot), leaf.node(), lt.EMPTY_NODE, S) + w.pos(leaf) +
+               items + [sig, root[0], w.m])
+        return w.run("RECLAIM_1", wit, ctx), wit
+    it, wit = spend()
+    check(True, f"mid: RECLAIM_1 {'S' if S else 'D'} after the deadline, value free for the transaction")
+    expect_fail(lambda: spend(locktime=699_999), "mid: RECLAIM_1 before the deadline")
+    expect_fail(lambda: spend(signer=sk("operator")), "mid: RECLAIM_1 signed by OPERATOR_KEY, not RECLAIM_KEY")
+    expect_fail(lambda: spend(out0=w.clone().root()[1] - P.amount - 1), "mid: RECLAIM_1 with output 0 short")
+    # the lock-time number must match the leaf's field: an earlier number
+    # with the field's pad, and the field's number with a malformed pad
+    expect_fail(lambda: spend(locktime=600_000, ea=(M.scriptnum(600_000),) + M.pad(600_000)),
+                "mid: RECLAIM_1 with an evict_after number below the leaf's field")
+    z, wpad = M.pad(700_000)
+    expect_fail(lambda: spend(ea=(M.scriptnum(700_000), z + b"\x00", wpad[1:])),
+                "mid: RECLAIM_1 with a malformed evict_after pad")
+    plain = mk_leaf("bob", 20_000, w.op_pk, 600_000, sparse=S)
+    w.tree.leaves[w.slot(plain, 6)] = plain
+    expect_fail(lambda: spend(leaf=plain, locktime=700_000), "mid: RECLAIM_1 of a leaf whose evictor is not RECLAIM_KEY")
+    del w.tree.leaves[w.slot(plain, 6)]
+    expect_fail(lambda: spend(leaf=Lf, locktime=900_000), "mid: RECLAIM_1 of the landing leaf")
+    if verbose:
+        print(f"MID RECLAIM_1 {'S' if S else 'D'} D={depth}: script {len(w.compiled['RECLAIM_1'])} B, "
+              f"witness {sum(len(x) for x in wit)} B ({len(wit)} elements), maxdepth {it.max_depth}")
+    return len(w.compiled["RECLAIM_1"]), sum(len(x) for x in wit)
+
+
+def _pending_rewrite_mid(pw, name, base, height, old, new, locktime=0, sign=(), reclaim=(), mutate=None,
+                         extra=None):
+    """Run a MID REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1,
+    as test_scripts._pending_rewrite. `sign` lists the offsets that carry
+    an owner signature by operator-owner (and under ^x an exit-key one by
+    rcpt-exit), or maps them to the owner's key label; `reclaim` the
+    offsets that carry the R1 items (w_reclaim of the old leaf); `extra`
+    puts further leaves in the tree outside the subtree. Returns
+    (interp, witness)."""
+    w = pw.w
+    n = 1 << height
+    leaves = {base + i: lf for i, lf in old.items() if lf}
+    leaves[0] = mk_leaf("alice", 50_000)
+    leaves.update(extra or {})
+    w.tree.leaves = leaves
+    root = w.tree.root()
+    t1 = w.clone()
+    for i in range(n):
+        if new[i]:
+            t1.leaves[base + i] = new[i]
+        else:
+            t1.leaves.pop(base + i, None)
+    r1 = t1.root()
+    freed = root[1] - r1[1]
+    ctx = TxContext([(root[1], w.spk(root)), (5_000 + max(-freed, 0), P2WPKH)],
+                    [(r1[1], w.spk(r1)), (max(freed, 0) + 1_000, P2WPKH)], locktime=locktime)
+    items = {}
+    for i in range(n):
+        if i in sign:
+            items[i] = [schnorr_sign(ctx.sighash(), sk(sign[i] if isinstance(sign, dict) else "operator-owner"))]
+            if "X" in name:
+                items[i].append(schnorr_sign(ctx.sighash(), sk("rcpt-exit")))
+        elif i in reclaim:
+            items[i] = M.w_reclaim(old[i])
+    wit = M.w_rewrite(w.tree, pw.depth, height, base >> height, {i: new[i] for i in range(n)}, items)
+    wit += [schnorr_sign(ctx.sighash(), w.op_sk), root[0], w.m]
+    if mutate:
+        wit = mutate(wit)
+    return w.run(name, wit, ctx), wit
+
+
+def test_pending_rewrite_mid(depth, verbose=True):
+    """The MID reclaim-form rewrite (7.9 rule 8), mirroring
+    test_scripts.test_pending_rewrite: a non-interactive settlement (R3),
+    a reclaim and roll after the deadline (R1), and the negatives that keep
+    both away from every other leaf."""
+    pw = PendingMidWorld(depth)
+    T = 700_000
+    P, L = pw.pending(20_000, T), pw.landing(10_000)
+    run = _pending_rewrite_mid
+    for name in ("REWRITE_R_1", "REWRITE_XR_1"):
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)})
+        check(True, f"mid: {name} R3 transfer P -> L, operator only, before the deadline")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L},
+                                {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
+                    f"mid: {name} R3 with the landing leaf raised by less than the transfer")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L},
+                                {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_001, 0)}),
+                    f"mid: {name} R3 with the landing leaf raised by more than the transfer")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L}),
+                    f"mid: {name} R3 with the landing leaf unchanged (marker)")
+        other = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: other},
+                                {0: P.with_amount_seq(13_000, 0), 1: other.with_amount_seq(17_000, 0)}),
+                    f"mid: {name} R3 into a sibling the pending leaf's exit key does not own")
+        elsewhere = lt.Leaf(10_000, pubkey_x(sk("mallory-exit")), pw.rcpt, pw.w.op_pk, 900_000, pw._nonce("L"), 0)
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: elsewhere},
+                                {0: P.with_amount_seq(13_000, 0), 1: elsewhere.with_amount_seq(17_000, 0)}),
+                    f"mid: {name} R3 into a sibling owned by the pending leaf's exit key but exiting to another key")
+        flagged = pw.landing(10_000, evictor=pw.rk)
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: flagged},
+                                {0: P.with_amount_seq(13_000, 0), 1: flagged.with_amount_seq(17_000, 0)}),
+                    f"mid: {name} R3 into a reclaimable sibling")
+        rekeyed = lt.Leaf(17_000, L.exit_key, L.owner_key, L.evictor_key, L.evict_after + 1, L.nonce, L.seq)
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: rekeyed}),
+                    f"mid: {name} R3 into a sibling whose body changes")
+        expect_fail(lambda: run(pw, name, 4, 1, {0: L, 1: P},
+                                {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)},
+                                reclaim=(1,)),
+                    f"mid: {name} R3 with the pending leaf on the right (R1 before the deadline)")
+        expect_fail(lambda: run(pw, name, 4, 1, {0: L, 1: P},
+                                {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}),
+                    f"mid: {name} R3 with the pending leaf on the right (no R1 items)")
+        # R1: reclaim after the deadline, emptied with no payout, or rolled
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T, reclaim=(0,))
+        check(True, f"mid: {name} R1 reclaim after the deadline, no payout")
+        run(pw, name, 4, 1, {0: L, 1: P}, {0: L, 1: None}, locktime=T, reclaim=(1,))
+        check(True, f"mid: {name} R1 reclaim of a pending leaf on the right")
+        P2 = pw.pending(25_000, T + 1_008, label="P2")
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T, reclaim=(0,))
+        check(True, f"mid: {name} R1 roll: the expired pending leaf replaced by the next window's")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T - 1, reclaim=(0,)),
+                    f"mid: {name} R1 reclaim before the deadline")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T - 1, reclaim=(0,)),
+                    f"mid: {name} R1 roll before the deadline")
+
+        def early_ea(wit):
+            # the R1 items claim an earlier deadline than the leaf's field
+            wit = list(wit); i = wit.index(M.scriptnum(T))
+            wit[i] = M.scriptnum(T - 100)
+            return wit
+        expect_fail(lambda: run(pw, name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T - 100,
+                                reclaim=(0,), mutate=early_ea),
+                    f"mid: {name} R1 with an evict_after number below the leaf's field")
+        # an amount-only top-up of the pending leaf is still rule 3's
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L})
+        check(True, f"mid: {name} top-up of the pending leaf, operator only")
+        # an owner-signed change of the landing leaf still works as rule 3
+        run(pw, name, 2, 1, {0: P, 1: L}, {0: P, 1: L.with_amount_seq(9_000, 1)}, sign={1: "rcpt-exit"})
+        check(True, f"mid: {name} a signed change of the landing leaf beside an unchanged pending leaf")
+        # nothing reaches a leaf that is not reclaimable
+        A = mk_leaf("c0", 20_000, pw.w.op_pk, 600_000)
+        B = mk_leaf("c1", 10_000, pw.w.op_pk, 600_000)
+        expect_fail(lambda: run(pw, name, 2, 1, {0: A, 1: B}, {0: None, 1: B}, locktime=T, reclaim=(0,)),
+                    f"mid: {name} emptying an ordinary leaf with R1 items in place of a signature")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: L, 1: P}, {0: None, 1: P}, locktime=900_000, reclaim=(0,)),
+                    f"mid: {name} reclaiming the landing leaf")
+        expect_fail(lambda: run(pw, name, 2, 1, {0: A, 1: B},
+                                {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
+                    f"mid: {name} R3 from an ordinary leaf")
+    # two pairs in one rewrite: one settles, the other reclaims and rolls
+    P_b, L_b = pw.pending(9_000, T, label="Pb"), pw.landing(4_000, label="Lb")
+    it, wit = run(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                  {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+                   2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T, reclaim=(2,))
+    check(True, "mid: REWRITE_XR_2 a settlement and a roll in one rewrite, operator only")
+    # a transfer record does not leak into the next pair: pair one settles,
+    # pair two is unchanged (both markers), so its right step must see (0, 0)
+    run(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+        {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0), 2: P_b, 3: L_b})
+    check(True, "mid: REWRITE_XR_2 a settlement beside an unchanged pair: the record is reset")
+    expect_fail(lambda: run(pw, "REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                            {0: P.with_amount_seq(13_000, 0), 1: L, 2: P_b,
+                             3: L_b.with_amount_seq(L_b.amount + 7_000, 0)}),
+                "mid: REWRITE_XR_2 a transfer whose own right sibling does not absorb it")
+    s1, s2 = len(pw.w.compiled["REWRITE_XR_1"]), len(pw.w.compiled["REWRITE_XR_2"])
+    if verbose:
+        plain = len(assemble(M.rewrite_script(depth, 2, pw.w.op_pk, exit_consent=True), mode="c0"))
+        print(f"MID REWRITE_XR_h D={depth}: h=1 {s1} B, h=2 {s2} B (REWRITE_X_2 {plain} B); "
+              f"h=2 settle+roll witness {sum(len(x) for x in wit)} B ({len(wit)} elements), maxdepth {it.max_depth}")
+    return s1, s2
+
+
+def pending_rewrite_full_mid(depth, height, scenario="settle", verbose=True):
+    """A full reclaim-form REWRITE_XR_h: every position occupied, each pair
+    a pending leaf and its landing leaf. scenario "settle" transfers in
+    every pair (R3), "roll" rolls every pending leaf after its deadline
+    (R1). Returns the interpreter or None when the 1,000-element stack
+    limit rejects it, which is checked to be the failure."""
+    pw = PendingMidWorld(depth)
+    name = f"REWRITE_XR_{height}"
+    if name not in pw.w.compiled:
+        toks = M.rewrite_script(depth, height, pw.w.op_pk, exit_consent=True, reclaim_key=pw.rk)
+        pw.w.compiled[name] = assemble(toks, mode="c0")
+        pw.w.m = lt.taptree_root([lt.tapleaf_hash(c, 0xc0) for c in pw.w.compiled.values()])
+    T = 700_000
+    n = 1 << height
+    old, new, rec = {}, {}, []
+    for j in range(n // 2):
+        P = pw.pending(20_000, T, label=f"P{j}")
+        L = pw.landing(10_000, label=f"L{j}")
+        old[2 * j], old[2 * j + 1] = P, L
+        if scenario == "settle":
+            new[2 * j], new[2 * j + 1] = P.with_amount_seq(13_000, 0), L.with_amount_seq(17_000, 0)
+        else:
+            new[2 * j], new[2 * j + 1] = pw.pending(21_000, T + 1_008, label=f"Q{j}"), L
+            rec.append(2 * j)
+    base = 1 << height          # the subtree at index 1
+    try:
+        it, wit = _pending_rewrite_mid(pw, name, base, height, old, new, locktime=T, reclaim=rec)
+    except ScriptError as e:
+        check("stack size limit" in str(e), f"mid: {name} full {scenario}: rejected only by the stack limit: {str(e)[:60]}")
+        if verbose:
+            print(f"MID {name} D={depth} full {scenario}: over the 1,000-element stack limit (rejected), "
+                  f"script {len(pw.w.compiled[name])} B")
+        return None
+    check(True, f"mid: {name} D={depth} full {scenario} of {n} positions")
+    if verbose:
+        print(f"MID {name} D={depth} full {scenario}: script {len(pw.w.compiled[name])} B, "
+              f"witness {sum(len(x) for x in wit)} B ({len(wit)} elements), maxdepth {it.max_depth}")
+    return it
+
+
 if __name__ == "__main__":
     test_mid(16, False)
     test_mid(31, True)
@@ -1839,5 +2286,13 @@ if __name__ == "__main__":
         test_rewrite(16, 5, scenario=scenario)
     for scenario in ("mixed", "exit"):    # h = 6 does not, at the suite's occupancies (spec 4.5)
         test_rewrite(16, 6, scenario=scenario)
+    for d in (4, 16):
+        test_merge_mid(d)
+        test_reclaim_mid(d)
+        test_pending_rewrite_mid(d)
+    test_reclaim_mid(31, sparse=True)
+    for h in (4, 5, 6):   # the reclaim form, every position occupied (spec 4.5)
+        for scenario in ("settle", "roll"):
+            pending_rewrite_full_mid(16, h, scenario)
     print(f"\n{TS.CHECKS} checks, {TS.FAILS} failures")
     sys.exit(1 if TS.FAILS else 0)
