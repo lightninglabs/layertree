@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.14.0
+Version:  0.14.1
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -418,8 +418,8 @@ script / witness data:
 | `EXIT_1^t` (7.2 rule 7) | 2,207 / 902 | 3,488 / 978 | — | 1,826 / 838 | 5,253 / 326 | 9,523 / 796 | 4,872 / 262 |
 | `JOIN_h` (`h = 2` dense, `h = 0` sparse) | 1,841 / 743 | 2,884 / 794 | — | 1,456 / 679 | 5,131 / 367 | 9,382 / 783 | 4,746 / 303 |
 | `JOINK_2` | 3,545 / 1,525 | 5,885 / 1,637 | — | 3,160 / 1,461 | 9,773 / 606 | 18,241 / 1,433 | 9,388 / 542 |
-| `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,752 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,962 / 483 |
-| `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,759 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,969 / 547 |
+| `UPDATE` | 2,137 / 1,080 | 3,479 / 1,156 | — | 1,760 / 1,016 | 5,347 / 547 | 9,525 / 1,002 | 4,970 / 483 |
+| `UPDATE^x` | 2,144 / 1,144 | 3,483 / 1,225 | — | 1,767 / 1,080 | 5,354 / 611 | 9,529 / 1,032 | 4,977 / 547 |
 | `CLAIM` | 3,877 / 1,690 | 6,526 / 1,840 | n/a | 3,490 / 1,626 | 9,971 / 688 | 18,596 / 1,551 | 9,584 / 419 |
 | `CLAIM^h` | 3,885 / 1,722 | 6,534 / 1,869 | n/a | 3,498 / 1,658 | 9,979 / 515 | 18,604 / 1,446 | 9,592 / 451 |
 | `SPLIT` | 3,765 / 1,674 | 6,371 / 1,821 | 6,655 / 2,018 | 3,378 / 1,610 | 9,859 / 483 | 18,441 / 1,420 | 9,472 / 419 |
@@ -427,18 +427,18 @@ script / witness data:
 | `EVICT_SUBTREE_4` (13 of 16 swept) | 5,281 / 2,129 | 7,977 / 2,417 | — | 4,960 / 2,065 | — | — | — |
 | `EVICT_SUBTREE_6` (51 of 64 swept) | 16,097 / 6,455 | 24,169 / 7,461 | — | 15,968 / 6,391 | — | — | — |
 | `CLAIM^x` | 3,884 / 1,754 | 6,530 / 1,901 | n/a | 3,497 / 1,690 | 9,978 / 547 | 18,600 / 1,483 | 9,591 / 483 |
-| `REWRITE_4` (16 positions, mixed) | 5,624 / 4,099 | 10,516 / 4,436 | — | 5,303 / 4,035 | n/a | n/a | n/a |
+| `REWRITE_4` (16 positions, mixed) | 5,624 / 4,099 | 10,516 / 4,436 | — | 5,311 / 4,035 | n/a | n/a | n/a |
 | `DETACH_8` | 1,548 / 497 | 2,174 / 534 | — | 973 / 433 | n/a | n/a | n/a |
 
 The same transitions under the CCV tier's `0xC0` numerics (the MID
 encoding: seven-element leaves, `PADZ`, `NONNEG`): dense `D = 16`: `EXIT_1`
-3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,111 / 1,092, `UPDATE^x`
-3,115 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `CLAIM^x`
+3,002 / 914, `JOIN_2` 2,516 / 730, `UPDATE` 3,119 / 1,092, `UPDATE^x`
+3,123 / 1,156, `CLAIM` 6,156 / 1,773, `CLAIM^h` 6,164 / 1,805, `CLAIM^x`
 6,160 / 1,837, `CLAIM^hx` 6,168 / 1,869, `SPLIT`
 6,001 / 1,757, `EVICT_SUBTREE_2/4/6` 3,817 / 1,093, 7,673 / 2,353 and
-24,057 / 7,397, `REWRITE_4` (16 positions, mixed) 10,212 / 4,372,
+24,057 / 7,397, `REWRITE_4` (16 positions, mixed) 10,220 / 4,372,
 `DETACH_8` 1,628 / 470; sparse `D = 31`: `EXIT_1` 9,037 / 732, `JOIN_0`
-9,014 / 719, `UPDATE` 9,157 / 905, `UPDATE^x` 9,161 / 969, `CLAIM`
+9,014 / 719, `UPDATE` 9,165 / 905, `UPDATE^x` 9,169 / 969, `CLAIM`
 18,226 / 1,350, `CLAIM^h` 18,234 / 1,382, `CLAIM^x` 18,230 / 1,419,
 `CLAIM^hx` 18,238 / 1,451, `SPLIT` 18,071 / 1,356. The CCV call saves about 360 bytes of script
 over MID at either profile (MID `EXIT_1` at `D = 16`: 3,367 / 978),
@@ -567,7 +567,8 @@ Three CCV calls per transition, in place of the scripts' key arithmetic:
 * **Commit the next state.** `<nh> <0> <> <-1> <0> CCV` asserts output 0
   carries the new root under the same taptree and assigns the input's
   residual amount to it; `out0.amount == ns` remains one `OP_TX` read
-  (rule 5 unchanged).
+  (rule 5 unchanged). `UPDATE` and `REWRITE_h`, whose net change can be a
+  decrease, take the call's mode from a witness flag (below).
 * **Constrain a payout.** `<> <k> <exit_key> <> <2> CCV` asserts output
   `k` is a bare P2TR to the leaf's exit key and deducts its amount from
   the residual; the exact-payout comparison remains one `OP_TX` read.
@@ -598,7 +599,7 @@ numerics (`claim_script_ccv` and `_claim_script_ccv0`, with
 `exit_consent` for the `^x` forms, and `split_script_ccv`;
 `CCVTreeOptions` carries each as a flag).
 `UPDATE^x` (both numerics), terminal exits and every other transition are
-unchanged. The `0xC2` `SEQ_FINAL` is FULL's `0xFFFFFFFF` and the `0xC0`
+unchanged apart from the mode flag below. The `0xC2` `SEQ_FINAL` is FULL's `0xFFFFFFFF` and the `0xC0`
 one MID's `0x7FFFFFFF`, since the carve bodies are those tiers'.
 
 The tier needs one introspection read per constrained amount (the three
@@ -633,6 +634,29 @@ Under `0xC0` the subtree sum arrives as a minimal number with its `PADZ`
 pad, `NONNEG` keeps it non-negative before it enters the fold, and
 `le64` of it is compared with output 1's amount as bytes (8.10).
 
+**The output-0 mode flag.** The assign mode forces output 0 to carry at
+least the input's residual (its amount less the payouts already deducted),
+so it cannot express a transition that removes value without paying it
+out, which 7.4 and 7.9 rule 6 leave free for the transaction to spend. The
+transitions whose net change can have either sign therefore take the
+output-0 mode from one witness flag, the bottom element, in both
+numerics: `UPDATE`, `UPDATE^x`, `REWRITE_h`, `REWRITE_h^x` and the reclaim
+forms of the rewrite (below). The flag is `0x01` for `DEDUCT` (`<nh> <0>
+<> <-1> <2> CCV`, which caps output 0 at the residual and leaves the rest
+of the input unassigned) exactly when the new sum `ns` is below the input
+amount less the rule-5 payouts the transition deducts, that is, when value
+is freed, and empty for assign otherwise (an increase funded by other
+inputs, or an equal sum). `MINIMALIF` rejects any other value, and either
+choice is safe because the `out0.amount == ns` read pins output 0 in both
+modes: a wrong choice fails (`DEDUCT` on an increase leaves output 0 above
+the residual, assign on a decrease below it), and a decrease the leaf rules
+do not authorise is rejected by the same rules as in the other tiers. A
+builder derives the flag from the net change (`rules.ccvModeFlag`). The
+fixed-output transitions (`EXIT_K`, `JOIN`, `CLAIM`, `SPLIT`, `DETACH_h`,
+`EVICT_SUBTREE_h`) never need it: a join and a claim conserve or add value
+and an exit's payout is itself a `DEDUCT` call, so those scripts keep the
+assign mode, and `RECLAIM_1`, which only frees value, fixes `DEDUCT`.
+
 **`REWRITE_h`.** The cohort rewrite of 7.9 and its `^x` form exist in
 both numerics (8.9). Under `0xC2` the machine is FULL's `POSTORDER2(h)`
 and under `0xC0` MID's element-based pre-pass and hash pass, each with
@@ -645,14 +669,14 @@ old leaf's exit key at the dynamic output index, followed by the exact
 numerics' own `REWRITE_STEP`, token for token, so the `0xC2` form keeps
 FULL's `SEQ_FINAL` and the `0xC0` form MID's. The witness is FULL's
 (`0xC2`) or MID's (`0xC0`) minus `r` and `m`, and no prologue runs. At
-`D = 16` on the mixed 16-position cohort `REWRITE_4` measures 5,303 /
+`D = 16` on the mixed 16-position cohort `REWRITE_4` measures 5,311 /
 4,035 bytes of script / witness data under `0xC2` beside FULL's 5,624 /
-4,099, and 10,212 / 4,372 under `0xC0` beside MID's 10,516 / 4,436: the
+4,099, and 10,220 / 4,372 under `0xC0` beside MID's 10,516 / 4,436: the
 CCV payout is 4 bytes longer than either tier's P2TR compare, so the
 saving is the fixed part alone (`PROLOGUE` and the key arithmetic of
-`FINAL` gone, `CHECK_INPUT` in), 385 bytes under `0xC2` and 368 under
+`FINAL` gone, `CHECK_INPUT` in, the 8-byte mode flag added), 377 bytes under `0xC2` and 360 under
 `0xC0`, less 4 per position, and the witness loses the 64 bytes of `r`
-and `m`. Per leaf the rewrite therefore costs what it costs in FULL and
+and `m` (the empty mode flag adds none). Per leaf the rewrite therefore costs what it costs in FULL and
 MID to within a few vB (11).
 Under `0xC0` the 1,000-element bound of 4.5 applies with the two
 elements `r` and `m` and the prologue's three pushes to spare: `h ≤ 5`
@@ -669,13 +693,8 @@ assign mode cannot express: it forces output 0 to carry the input's
 whole residual. `RECLAIM_1` therefore commits output 0 with the `DEDUCT`
 mode (`<nh> <0> <> <-1> <2> CCV`), which caps output 0 at the residual
 and leaves the freed value unassigned, and the `out0.amount == ns` read
-pins the amount exactly as before. The reclaim-form rewrite takes one
-witness flag, the bottom element, choosing the mode for output 0:
-`0x01` for `DEDUCT` exactly when the new sum `ns` is below the input
-amount less the rule-5 payouts the rewrite deducts (value is freed),
-and empty for assign otherwise; `MINIMALIF` rejects any
-other value, and either choice is safe because the amount read pins
-output 0. Two tree inputs with the same state still cannot share output
+pins the amount exactly as before. The reclaim-form rewrite takes the
+mode flag described above, as every rewrite does. Two tree inputs with the same state still cannot share output
 0 (a second `DEDUCT`, or a `DEDUCT` beside an assign, fails), which
 `tools/test_ccv.py` checks. Under `0xC0` the merge's witness supplies
 the source leaf's block before the target's, with `src_is_left` setting
@@ -687,9 +706,7 @@ the rewrite carry those elements where a signature would go, as
 `ea_num z w` bottom to top in CCV0 (MID carries them as `w z ea_num`). The
 `0xC0` rewrite keeps MID's bound: `h ≤ 4` at any occupancy, `h = 5` for
 cohorts of pending and landing pairs, `h = 6` over the 1,000-element
-limit. The plain CCV `UPDATE` and `REWRITE_h` still commit output 0 in
-the assign mode, so under CCV a net decrease that the other tiers leave
-free for the transaction (7.4, 7.9 rule 6) is not spendable there.
+limit.
 
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
@@ -2179,6 +2196,34 @@ The rest of the script is byte for byte the `UPDATE` script above. In MID
 the same line is `21 OP_PICK OP_CHECKSIGVERIFY`, picking the `ek` element of
 the old leaf directly.
 
+**CCV tier.** Under CCV (4.6, both numerics) `PROLOGUE` is dropped (no `r`,
+no `m`), `CHECK_OLD` is `CHECK_INPUT` and `FINAL` is `FINAL_SEL`, the
+mode-selecting form, so the witness has one more element at the very
+bottom, the output-0 mode flag `flag`: `path(D)` is preceded by `flag`.
+A decrease of the leaf's amount (7.4 leaves it free for the transaction)
+needs `flag = 0x01`:
+
+```
+OP_ROT OP_DROP                                 # flag nh ns
+OP_OVER <E_D> OP_EQUAL OP_IF                   # terminal: no output check
+  OP_2DROP OP_DROP OP_1
+OP_ELSE
+  OP_TOALTSTACK                                # flag nh              | ns
+  OP_SWAP OP_IF OP_2 OP_ELSE OP_0 OP_ENDIF     # nh mode
+  OP_0 <> <-1> OP_3 OP_ROLL                    # nh 0 <> -1 mode
+  OP_CHECKCONTRACTVERIFY                       # output 0, assign or DEDUCT
+  OP_FROMALTSTACK
+  OP_0 <SEL_OUT_SINGLE> OP_TX OP_DROP OP_NUMEQUALVERIFY
+  OP_1
+OP_ENDIF
+```
+
+This is the `FINAL_SEL` of 4.6 and 8.9, 8 bytes longer than the CCV
+`FINAL`; `MINIMALIF` keeps `flag` to empty and `0x01`. Under `0xC0` the
+final pads `zf wf` sit above `flag` and the sum is compared as `le64`
+bytes (`ccv0FinalSel`). Listings: `spec/scripts/CCV_UPDATE_D4.txt`,
+`spec/scripts/CCV_UPDATE_X_D4.txt`.
+
 ### 8.6 CLAIM
 
 Witness: `claim_path(D)  source_path(D)  source_leaf  claim_leaf
@@ -2592,7 +2637,12 @@ OP_2 OP_PICK OP_8 OP_LEFT OP_NUMEQUALVERIFY    # old new              (exact pay
 
 The `OWNER_AUTH`, `ELEM_NODE` and `HASH_STEP2` macros and every roll
 depth are unchanged, so the `0xC2` `REWRITE_STEP` is FULL's plus 4
-bytes. Under `0xC0` numerics the rewrite is the MID machine above with
+bytes. The script ends in `CHECK_OLD` and `FINAL_SEL` (8.5), and the
+witness has the output-0 mode flag of 4.6 as its very bottom element
+(empty for assign, `0x01` for `DEDUCT` exactly when the new sum is below
+the input amount less the payouts), so a rewrite that lowers the tree's
+total, which 7.9 rule 6 leaves free for the transaction, is spendable;
+the reclaim forms use the same flag. Under `0xC0` numerics the rewrite is the MID machine above with
 the same two bindings replaced and `REWRITE_PAY` as a `DEDUCT` call on
 the old slot's exit-key element (five deep once the empty data operand
 and the index are in place) followed by the byte equality of the `OP_TX`
@@ -3763,21 +3813,22 @@ per changed leaf against FULL's 148 at `h = 6`).
 
 The CCV tier's rewrite (4.6, 8.9) is each numerics' machine with the
 exit payout as one `CHECK_OUTPUT|DEDUCT` call, 4 bytes longer than the
-P2TR compare it replaces, and the fixed part 385 bytes shorter under
-`0xC2` and 368 under `0xC0` (`PROLOGUE` and the key arithmetic of
-`FINAL` gone), with `r` and `m` gone from the witness. Under `0xC2`
-`REWRITE_2/4/6` measure 2,434 / 1,464, 5,303 / 4,035 and 17,467 /
-14,040 bytes on the mixed cohorts (`REWRITE_X_4` 5,601 / 4,611), and the
+P2TR compare it replaces, and the fixed part 377 bytes shorter under
+`0xC2` and 360 under `0xC0` (`PROLOGUE` and the key arithmetic of
+`FINAL` gone, the 8-byte output-0 mode flag of 4.6 added), with `r` and
+`m` gone from the witness. Under `0xC2`
+`REWRITE_2/4/6` measure 2,442 / 1,464, 5,311 / 4,035 and 17,475 /
+14,040 bytes on the mixed cohorts (`REWRITE_X_4` 5,609 / 4,611), and the
 per-leaf figures are FULL's to within a few vB: 337, 194 and 162 vB per
-exiting leaf at `h = 2, 4, 6` (1,346, 3,099 and 10,344 vB), 148 per
-changed leaf for a rewrite of every balance at `h = 6` (9,448 vB), 167
-per changed leaf and 133 per position on the mixed cohort (8,490 vB).
-Under `0xC0` it is MID's rewrite less the same: `REWRITE_2/4` 4,435 /
-1,578 and 10,212 / 4,372 (`REWRITE_X_4` 10,372 / 4,948), and at `h =
+exiting leaf at `h = 2, 4, 6` (1,348, 3,101 and 10,346 vB), 148 per
+changed leaf for a rewrite of every balance at `h = 6` (9,450 vB), 167
+per changed leaf and 133 per position on the mixed cohort (8,492 vB).
+Under `0xC0` it is MID's rewrite less the same: `REWRITE_2/4` 4,443 /
+1,578 and 10,220 / 4,372 (`REWRITE_X_4` 10,380 / 4,948), and at `h =
 5`, the largest height a full cohort fits under the stack limit here as
-in MID (4.5), a 32-leaf mass exit 18,202 / 6,787 (7,849 vB, 245 per
-leaf against MID's 248) and a rewrite of every balance 18,202 / 10,723
-(7,457 vB, 233 per changed leaf against MID's 235).
+in MID (4.5), a 32-leaf mass exit 18,210 / 6,787 (7,851 vB, 245 per
+leaf against MID's 248) and a rewrite of every balance 18,210 / 10,723
+(7,459 vB, 233 per changed leaf against MID's 235).
 
 `DETACH_h` (section 7.10) caches the shared path across transactions. At
 `D = 16`, `h = 8` it costs 1,548 bytes of script and 497 of witness,
@@ -3968,7 +4019,7 @@ exits in a batch" as `EXIT_K` (section 13).
     1,716 / 838 (908 vB) for CCV and 2,101 / 902 (1,020 vB) for FULL, and
     the sparse profile stops costing more than the dense one. `design/native-opcodes.md` specifies the
     hypothetical semantics and `tools/layertree_msu.py` measures them
-    behind the simulator's `hypothetical=True` flag (61 checks,
+    behind the simulator's `hypothetical=True` flag (126 checks,
     `tools/test_msu.py`). It is not a tier and never enters
     `all_scripts()` or the golden vectors: this document composes opcodes
     that have been proposed and proposes none.
@@ -3991,7 +4042,7 @@ exits in a batch" as `EXIT_K` (section 13).
   tier generators (section 4.5) with their witness helpers; `tools/test_mid.py`
   and `tools/test_min.py` execute them under tapleaf-`0xC0` semantics
   (including the `MINIMALDATA` policy checks that caught two non-minimal
-  operands during development), 777 and 57 checks respectively; the MID
+  operands during development), 1,209 and 57 checks respectively; the MID
   checks include both `SEQ_FINAL` candidates, showing that `0xFFFFFFFF`
   *is* claimable under `CScriptNum` and `0x7FFFFFFF` is not, the voucher
   binding of `CLAIM` and `CLAIM^h` (a wrong signer, a voucher signed for
@@ -4227,12 +4278,12 @@ exits in a batch" as `EXIT_K` (section 13).
   element,
   and for `EVICT_SUBTREE_2` an occupied position presented as empty,
   swapped positions, payouts out of order and an empty position supplied
-  as 116 zero bytes, all rejected), 1,244 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  as 116 zero bytes, all rejected), 1,458 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
   and `0xC0` at dense `D = 4`/`16` and sparse `D = 31` (the MID tier's
-  `25 ≤ D ≤ 31` limit applies, 4.5), 2,328 checks in total: the positive owner,
+  `25 ≤ D ≤ 31` limit applies, 4.5), 3,984 checks in total: the positive owner,
   evictor and terminal exits, subtree and single-leaf joins, batched
   joins, `UPDATE` and `EXIT_2`, cohort sweeps (`EVICT_SUBTREE_1/2` at
   `D = 4` and `EVICT_SUBTREE_2/4/6` at `D = 16`, in both numerics, over
@@ -4335,7 +4386,14 @@ exits in a batch" as `EXIT_K` (section 13).
   voucher after a sub-dust top-up fail) and the credit leaf of 10.3 in
   both numerics (`REWRITE_2^x` by the operator alone, then `CLAIM^x` by
   the recipient on the vouchers signed before it; the operator's own
-  redemption and exit-key move fail); and one direct opcode test
+  redemption and exit-key move fail); the output-0 mode flag of 4.6
+  (`UPDATE`, `UPDATE^x` and `REWRITE_h`, `REWRITE_h^x` at `h = 1, 2` in
+  both numerics: a net decrease, an exit with a decrease, an offset and
+  an exit with an increase each spend under the flag the rule calls for,
+  the decrease with the freed value paid to another output, and fail
+  under the other flag, under a flag other than empty or `0x01`, without
+  the owner's signature and with output 0 off its new sum by one); and
+  one direct opcode test
   for each BIP-443 amount rule of 4.1 item 7 (**[A-6]**). Run:
   `python3 tools/test_ccv.py`.
 * `spec/scripts/` — annotated listings for `D = 4` (dense), `D = 8`
@@ -4403,7 +4461,7 @@ exits in a batch" as `EXIT_K` (section 13).
   introspection testable. `txn` builds, signs and verifies every
   transition of every tier end to end against the tier's real taptree
   and tree output, one builder per transition selected by the option
-  set's tier: 387 cases (95 FULL, 94 MID, 8 MIN, 94 CCV, 96 CCV0,
+  set's tier: 427 cases (105 FULL, 104 MID, 8 MIN, 104 CCV, 106 CCV0,
   four of them negatives the simulator must reject), each pinned to the
   simulator's signature hash, and
   `tools/replay_txn_dump.py` runs every signed Go witness through
