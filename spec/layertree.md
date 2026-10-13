@@ -3954,13 +3954,17 @@ exits in a batch" as `EXIT_K` (section 13).
 10. **`UPDATE` with `exit_key` consent.** Now specified as 7.4 rule 5
    (`UPDATE^x`); the entry is kept so the numbering stays stable.
 11. **A `CLAIM` that credits an existing leaf.** A partial-balance
-   voucher needs an empty position, whose supply the operator controls
-   (10.1, 9.6). A `CLAIM` form whose second step is an amount-only
-   increase of a leaf the recipient already holds, named by the voucher,
-   needs no empty position and reuses the exemption test of `REWRITE_h`'s
-   step (7.9 rule 3). It is also the natural shape for the sibling-pair
-   claim of item 4 and `design/receive.md`. It is new script work and
-   is not specified (`design/audit/protocol.md`, A5).
+   voucher (`CLAIM`) needs an empty position, whose supply the operator
+   controls (10.1, 9.6). The merge claim `CLAIM^m` (7.5.4, with the
+   hash-locked `CLAIM^hm`) is the form whose second step is an
+   amount-only increase of a leaf the recipient already holds, here the
+   source's sibling, so it needs no empty position; it reuses the
+   exemption test of `REWRITE_h`'s step (7.9 rule 3) and is built in
+   FULL, MID and CCV (spec 0.14.0). What is still not specified is the
+   general form that credits any existing leaf the voucher names, rather
+   than the source's sibling, and the sibling-pair claim of item 4 and
+   `design/receive.md` that folds both positions under one path
+   (`design/audit/protocol.md`, A5).
 12. **A native Merkle-sum opcode.** *(informative, measurement only)* One
     opcode that verifies a Merkle-sum path and returns the root with one
     leaf replaced would collapse the unrolled fold that is most of every

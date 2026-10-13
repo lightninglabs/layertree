@@ -717,7 +717,9 @@ Three forms, in increasing cost:
   plain leaf of `b_U` owned by the user, and the operator's `b_V` is taken as
   a decrease of the tree total (7.4 rule 3) into its own output, or added to
   an operator leaf in a following transition. One tree transition
-  (≈ 840 vB at `D = 16` dense), and the user is left with a leaf that exits
+  (≈ 1,030 vB at `D = 16` dense on the model of section 11, which prices an
+  `UPDATE` without a payout, plus 43 vB when the operator's `b_V` is paid
+  out in the same transaction), and the user is left with a leaf that exits
   in one transaction.
 * **On-chain cooperative close**: only after the funding output has already
   materialised; the key path of `P_chan` spends it in ~110 vB.
@@ -761,9 +763,14 @@ this table counted a 33-byte one and gave 146 and 130 vB.
 
 Dominated by the `EXIT`: the channel machinery itself is ≈ 660 vB, but
 materialising the funding output costs about 1 kvB because it carries the
-Merkle-sum proof. A force-closed channel leaf therefore costs roughly 13× a
-BOLT-3 force close (~130 vB), and the difference is exactly the price of
-never having had the funding output on-chain in the first place.
+Merkle-sum proof. A force-closed channel leaf therefore costs roughly three times
+the force close of a taproot channel with its own funding output, about
+530 vB on the same model (a 240 vB commitment, its 152 vB anchor child and a
+138 vB sweep, `design/cost-comparison.md`): 1,681 against 530. A bare
+commitment transaction alone is not the comparable figure, since the 530
+also counts the anchor child and the sweep. The difference is
+exactly the price of never having had the funding output on-chain in the
+first place.
 
 *(informative)* The update transaction cannot be packaged with the `EXIT`
 transaction: TRUC (BIP-431) forbids a v3 transaction from spending an
@@ -1256,7 +1263,9 @@ trust of C.6.6. The list is kept for the record.
    `TAG_CHAN_SET` in 5.1.
 8. **13**: note that hash-locked vouchers (13.6) and channel leaves compose —
    a voucher HTLC and a channel-leaf HTLC can share a payment hash, giving
-   atomic swaps between the credit instrument and the settlement instrument.
+   an ordered exchange between the credit instrument and the settlement
+   instrument (HTLC first, voucher second; not an atomic swap, see 9.6.1
+   and 9.6.2).
 
 ## C.11 Assumptions
 
