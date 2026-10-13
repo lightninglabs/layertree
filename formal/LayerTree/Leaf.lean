@@ -70,6 +70,23 @@ standard transaction. -/
 structure Params where
   seqFinal : Nat
   dustMin : Nat
+  /-- `RECLAIM_KEY` (6.2), when the tree names one. A tree that does
+  carries `RECLAIM_1` (7.11) and compiles its rewrites in the reclaim
+  form of 7.9 rule 8; one that does not has no reclaimable leaves. -/
+  reclaimKey : Option Nat := none
+
+/-- A leaf is **reclaimable** (6.2) when the tree names `RECLAIM_KEY` and
+the leaf's `evictor_key` equals it. In a tree that names none, no leaf
+is. -/
+def Params.Reclaimable (π : Params) (l : Leaf) : Prop := π.reclaimKey = some l.evictorKey
+
+instance (π : Params) (l : Leaf) : Decidable (π.Reclaimable l) :=
+  inferInstanceAs (Decidable (π.reclaimKey = some l.evictorKey))
+
+/-- A tree without `RECLAIM_KEY` has no reclaimable leaf. -/
+theorem Params.not_reclaimable {π : Params} (h : π.reclaimKey = none) (l : Leaf) :
+    ¬ π.Reclaimable l := by
+  unfold Params.Reclaimable; rw [h]; exact fun h' => Option.noConfusion h'
 
 /-- A Merkle-sum node: a digest and the sum of all leaf amounts below it
 (section 5.3). On the wire it is the 41-byte `sc = hash || enc64 sum`. -/

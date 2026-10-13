@@ -7,7 +7,7 @@ It proves that the rules the scripts enforce have the properties the
 specification claims, and it makes explicit the cryptographic assumptions
 those properties rest on.
 
-It is deliberately small: about 3,400 lines of Lean, core library only, no
+It is deliberately small: about 4,500 lines of Lean, core library only, no
 Mathlib. It builds in a few seconds from a bare toolchain.
 
 The off-chain protocol (section 9, Appendix C) is a different kind of
@@ -27,7 +27,7 @@ installed, `lake` picks it up automatically. There are no dependencies to
 fetch.
 
 The build prints one line per headline theorem from `LayerTree/Axioms.lean`
-(61 theorems) of the form `'LayerTree.payable' depends on axioms:
+(72 theorems) of the form `'LayerTree.payable' depends on axioms:
 [propext, Quot.sound]` (the theorems that case on a `Bool` or on `Steps`
 also list `Classical.choice`). Any line naming `sorryAx` means an
 unfinished proof; there are none.
@@ -51,14 +51,19 @@ unfinished proof; there are none.
 | 7.3 `JOIN_h` | `Join` | Old node is `E_h`. |
 | 7.4 `UPDATE` (and `UPDATE^x`) | `Update` | Authorisation is an opaque `Prop`; the two variants differ only in it. `new_dust` is the 0.11.0 floor on the written leaf. |
 | 5.1 `SEQ_FINAL`, 7.5 rule 6 `DUST_MIN` | `Params`, `Leaf.seqFinalFull`, `Leaf.seqFinalMid` | The tree-creation constants the carve scripts carry; `Claim`, `Update`, `Rewrite` and the trace layer take a `Params`. |
+| 6.2 `RECLAIM_KEY`, reclaimable leaves | `Params.reclaimKey`, `Params.Reclaimable` | An optional key; a leaf is reclaimable when the tree names one and the leaf's `evictor_key` equals it. With `reclaimKey = none` no leaf is (`Params.not_reclaimable`) and every rule below reduces to its 0.13 form. |
+| 7.5.4, 7.9 rule 8 sibling pairs | `Pos.pairAt`, `Tree.pair`, `Tree.setSub_pair` (`Tree.lean`) | A pair is a `c : Pos d 1`; its even and odd members are `c.pairAt false` and `c.pairAt true`. |
+| 7.5.4 `CLAIM^m`, `CLAIM^hm` | `Merge`, `MergeOk`, `mergedSource`, `mergeTree` (`Cohort.lean`); `MergeVoucher` (`Receive.lean`) | One step at height 1 from the published pair of `src` and `tgt` to the pair of the residual source and the target at `X`; the sibling rule is the shape of the step. The voucher signature, and the preimage check of `CLAIM^hm`, are the opaque `auth`. `MergeVoucher` is the message's four fields by content. |
+| 7.11 `RECLAIM_1` | `Reclaim` | One leaf-level step to `E_0` with the reclaimable and deadline checks; the transaction's lock time is a parameter. No payout. |
 | 7.5 `CLAIM` (and 7.5.1 `CLAIM^h`, 7.5.2 `SPLIT`) | `Claim`, `claimedSource`, `claim_evictable`, `claim_not_final` | Two steps; the drained case becomes `E_0`. Authorisation is an opaque `Prop`, so the hash-locked variant is the same relation with the preimage check folded into it, and `SPLIT` the same relation with the owner's transaction signature in place of the voucher. What the voucher message binds lives inside that `Prop` at this level; `Voucher.lean` models the message's three fields, the source as its body without the amount. Rule 2's `seq` check is `seq_lt : src.seq < π.seqFinal`; rule 5 is `evictorKey_eq` and `evictAfter_le`; rule 6 is `claim_dust` and `residual_dust`. |
 | 9.7 proof maintenance | `Pos.fork`, `Tree.path_maintenance`, `path_maintenance_valid` | A replacement at any position changes exactly one sibling of every other leaf's path, the one at the fork, and its new value is the new node folded up the modified position's path below the fork. |
-| 7 as a whole: histories | `Trans`, `Trans.apply`, `Trans.Pre`, `Reachable`, `Accepts`, `Chain` (`Trace.lean`) | Transition records in the tree's vocabulary, their result and the script's preconditions; reachability at the tree level and acceptance at the chain level, bridged by `Accepts.sound` and `Chain.sound`. |
+| 7 as a whole: histories | `Trans`, `Trans.apply`, `Trans.Pre`, `Reachable`, `Accepts`, `Chain` (`Trace.lean`) | Transition records in the tree's vocabulary, their result and the script's preconditions; reachability at the tree level and acceptance at the chain level, bridged by `Accepts.sound` and `Chain.sound`. `Trans.merge` and `Trans.reclaim` (with `MergePre`) record the two new single-step transitions; the rewrite record carries no authorisation, so rule 8 is stated per transaction. |
 | 7.5, 9.6, 10.3 vouchers; 6.2 `tree_id` | `Leaf.Body`, `Leaf.body`, `Voucher`, `TreeOutput`, `Voucher.Redeemable`, `TreeOutput.detachChild` (`Voucher.lean`) | The message's three fields by content, the source leaf as its body (every field but `amount`, 0.13.0); redeemability is the script's checks minus signatures, against whatever amount the leaf holds; the detached child inherits `tree_id` by definition. |
 | 4.5, 8.2 `PADZ` | `Encoding.padz`, `padz_unique`, `padz_scriptNum` | The MID and MIN fixed-width gadget: result `le32 n`, unique pad, and `n < 2^31` enforced. |
 | 7.8 terminal branch of `FINAL` | `Final`, `ExitKT` | `Final d r' out0 terminal` is the branch the script took: `r' = E_D` with output 0 free, or `out0 = r'.sum`. `ExitKT` is `ExitK` with it. |
 | 7.7 `EVICT_SUBTREE_h` | `EvictSubtree`, `Tree.sweepPayouts` (`Cohort.lean`) | One step from the root of the published `Tree h` to `E_h`, with the `FINAL` branch of 7.8 and the payout list of rule 2. |
-| 7.9 `REWRITE_h` | `Rewrite`, `Tree.rewritePayouts`, `Tree.keptTotal`, `Leaf.AmountOnlyIncrease` | One step from the old published subtree's root to the new one's; authorisation is a predicate on positions required wherever a leaf changes, except for rule 3's amount-only increase on a leaf that is not at `SEQ_FINAL` (0.11.0); a leaf replaced by `E_0` is paid. |
+| 7.9 `REWRITE_h` | `Rewrite`, `Tree.rewritePayouts`, `Tree.keptTotal`, `Leaf.AmountOnlyIncrease` | One step from the old published subtree's root to the new one's; authorisation is a predicate on positions required wherever a leaf that is not reclaimable changes, except for rule 3's amount-only increase on a leaf that is not at `SEQ_FINAL` (0.11.0); a leaf replaced by `E_0` is paid. |
+| 7.9 rule 8 (reclaim form) | `Rewrite.transfer`, `Rewrite.deadline`, `Leaf.TransferShape`, `Tree.Transfer`, `Tree.reclaimedTotal` | A reclaimable leaf never needs its owner: an amount-only increase passes as rule 3, an amount-only decrease at an even position must be absorbed exactly by the odd sibling (not reclaimable, owned by the leaf's exit key and exiting to it), and any other change needs the transaction's lock time (a parameter of `Rewrite`) at or past the leaf's `evict_after`; an emptied reclaimable leaf is not paid. |
 | `DETACH_h` (`design/batching.md` Shape 3) | `Detach` | One step from the subtree node to `E_h`, with output 1 stated as a second tree output `(r₁, out1)`. |
 | 6.3 / 6.4 / 10.4 root binding | `BindingModel`, `witness_root_binds`, `output_binds`, `CCVTweak`, `CCVTweak.binding`, `ccv_input_binds` (`Binding.lean`) | `TREE_SPK` injective in `(r, m)` is the hypothesis. The CCV tier's `TREE_SPK_CCV` (spec 4.6, 6.3) is built as `CCVTweak.binding`, a second `BindingModel` whose injectivity is proved from two stage hypotheses: the BIP-443 data tweak `NUMS + sha256(NUMS‖r)·G` is injective in `r`, and the taproot tweak is injective in `(P, m)`; the theorems then apply unchanged. |
 | 5.3 `enc64`, 8.2 `PAD8` | `Encoding.enc64_eq_minimal` (`Encoding.lean`) | `le64 n ‖ 01` is the minimal BIP-441 encoding of `n + 2^64`. |
@@ -211,15 +216,46 @@ by `lake build`; the names are the Lean identifiers.
   `ExitK.exact_conservation` for a whole cohort.
 * **`rewrite_payout_conservation`**: for a rewrite that mixes exits,
   joins, resizes and unchanged positions, output 0 plus the payouts (one
-  per exiting position) plus the old amounts of the positions that keep a
-  leaf equals the input amount plus the new total. This is the
-  several-exits case; `rewrite_exit_conservation` is the instance with
-  nothing kept.
+  per exiting position) plus the reclaimed amounts (7.9 rule 8, zero
+  without `RECLAIM_KEY` by `Tree.reclaimedTotal_none`) plus the old
+  amounts of the positions that keep a leaf equals the input amount plus
+  the new total. This is the several-exits case;
+  `rewrite_exit_conservation` (output 0, payouts and reclaims sum to the
+  input amount) is the instance with nothing kept.
 * **`rewrite_final_authorised`** (7.9 rule 3, 0.11.0): a position whose
-  old leaf is at `SEQ_FINAL` and whose element changes in any way is
-  authorised; the amount-only exemption does not reach it.
-  **`rewrite_unsigned_change`**: an unsigned change keeps every field but
-  `amount`, does not lose amount, and was not at `SEQ_FINAL`.
+  old leaf is at `SEQ_FINAL`, is not reclaimable, and whose element
+  changes in any way is authorised; the amount-only exemption does not
+  reach it. **`rewrite_unsigned_change`**: an unsigned change of a leaf
+  that is not reclaimable keeps every field but `amount`, does not lose
+  amount, and was not at `SEQ_FINAL`. Rule 8 gives such a leaf no
+  exemption, so this holds in the reclaim form unchanged.
+* **`rewrite_reclaimable_change`** (7.9 rule 8): a changed reclaimable
+  leaf is an amount-only increase, the even member of a pair whose
+  transfer its sibling absorbs exactly, or past its deadline (the lock
+  time reached its `evict_after`). None needs the leaf's owner, and a
+  reclaim before the deadline is impossible.
+* **`rewrite_transfer_sound`** (7.9 rule 8, the transfer): when the even
+  member of a pair has the transfer shape, the committed tree held the
+  reclaimable leaf there and, at the odd member, a leaf that is not
+  reclaimable and is owned by and exits to the reclaimable leaf's exit
+  key; afterwards
+  the even member has the lower amount and every other field unchanged,
+  the odd member is raised by exactly the decrease, and the pair's total
+  is unchanged. Value moves only from a reclaimable leaf into its own
+  sibling.
+* **`merge_sound`** (7.5.4): output 0 carries the input amount unchanged
+  and the pair's total is conserved; the source position held `src`, the
+  sibling held `tgt`, owned by and exiting to `src.exit_key`, below `X`;
+  afterwards the
+  target is `tgt` with amount `X` and nothing else changed, the source is
+  `src` lowered by the draw with every other field (`seq` included)
+  unchanged, or `E_0` when drained; every other position is untouched.
+* **`reclaim_sound`** (7.11): a reclaim removes one leaf that is
+  reclaimable and past its deadline, output 0 commits to the tree without
+  it and carries the input amount less its amount, and every other
+  position is untouched. **`reclaim_only_flagged`**: every leaf that is
+  not reclaimable is still in the tree output 0 commits to, at its
+  position, and a tree without `RECLAIM_KEY` accepts no reclaim at all.
 * **`detach_sound`** (`DETACH_h`): `out0 + out1 = S` across the two outputs,
   output 0 commits to the tree with the subtree emptied, output 1 is a
   well-formed tree output of depth `h` whose root hash is the subtree's
@@ -234,7 +270,7 @@ by `lake build`; the names are the Lean identifiers.
 Each transition above is proved sound in isolation. `Trace.lean` composes
 them along a whole history. A `Trans d` is a transition record in the
 tree's own vocabulary (`exit`, `join`, `update`, `claim`, `split`,
-`evictSubtree`, `rewrite`, `detach`); `Trans.apply` is the tree it
+`evictSubtree`, `rewrite`, `detach`, `merge`, `reclaim`); `Trans.apply` is the tree it
 produces and `Trans.Pre` what the script requires of the current tree;
 `Reachable π t xs t'` chains records. `Accepts π d r r'` is one accepted
 spend under any script relation and `Chain` a history of them.
@@ -247,7 +283,8 @@ spend under any script relation and `Chain` a history of them.
   leaves only through exits, evictions, update decreases and detached
   cohorts, enters only through joins, update increases and rewrites, and
   carves move nothing; payouts are bounded by what was removed in the
-  per-transition theorems.
+  per-transition theorems. Merges move nothing in or out; a reclaim
+  removes its leaf's amount, with no payout.
 * **`Reachable.all`**: a leaf predicate that holds initially, that the
   admitted leaves satisfy, that the carve leaf satisfies and that survives
   the source rewrite of a carve holds of every leaf of every reachable
@@ -255,7 +292,10 @@ spend under any script relation and `Chain` a history of them.
   record meets, so an instance can discharge them from the script's own
   checks.
 * **`Reachable.wf`** (5.2): well-formedness is preserved when admitted and
-  carve leaves are well formed and `SEQ_FINAL < 2^32`.
+  carve leaves are well formed, every merge level `X` is below `2^51`,
+  and `SEQ_FINAL < 2^32`. `Reachable.dust`, `Reachable.evictable` and
+  `Reachable.seqAbove` need no hypothesis about merges: the script's
+  rules give the floor, and a merge changes no field but `amount`.
 * **`Reachable.dust`** (7.5 rule 6, 0.11.0): if the initial tree and the
   operator-written leaves (joins, rewrites) are at or above `DUST_MIN`,
   every leaf of every reachable tree is, so every removal pays a standard
@@ -323,6 +363,53 @@ signs against the leaf it holds.
   leaf in the parent is redeemable, as the same message, against the
   child, and no longer against the parent. The child's `tree_id` is the
   parent's by definition of `TreeOutput.detachChild`.
+
+### The pending-leaf receive (`Receive.lean`)
+
+`design/pending-receive.md` and 9.6.3. A `MergeVoucher` is the four
+fields its message binds (`tree_id`, both bodies, `X`), and
+`MergeVoucher.Redeemable` what `CLAIM^m` checks apart from signatures.
+`Tree.levelAt p B` is the amount at `p` when the leaf there has body `B`,
+and `mergedIntoSum p B xs` what the merges of a trace move into `p` under
+`B`.
+
+* **`merge_body_preserved`**: a merge changes no body. Afterwards the
+  source position holds, if anything, the source's body with the draw
+  taken off, and the target position the target's body at `X`; a carve
+  voucher redeemable against the source before is redeemable against the
+  residual after, as the same message, whenever the residual covers it.
+  A merge voids no voucher.
+* **`merge_target_monotone`**: before an accepted merge the target's level
+  is below `X`, afterwards it is exactly `X`, and the merge moves the
+  difference. **`merge_stale_rejected`**: if the target already holds
+  `X` or more, no merge to level `X` is accepted, whatever the source.
+  Replaying a redeemed voucher, or an older and lower one after a newer,
+  moves nothing.
+* **`merge_no_overpay`**: along any trace, the merges into one target
+  position and body move at most `Xmax − level₀` plus what merges move
+  *out* of that target, `Xmax` being the largest level signed for it and
+  `level₀` its starting amount, provided no record other than a merge
+  lowers the target's level (`hmono`, see *Where the model is weaker
+  than the spec*); and every merge into or out of the target moves value
+  between two leaves that exit to the target's exit key. So with no
+  merge out of the target, replays and stale vouchers together pay it at
+  most what the largest voucher signed, and any excess is value the
+  target's own key passed between its own leaves.
+* **`merge_cycle_overpays`**: the case the bound allows for, as a
+  concrete accepted trace. Two leaves of one pair, both owned by and
+  exiting to one key, merge into each other in turn; replaying the first
+  voucher after the second moves value into its target again, 12 in all
+  where the largest level allows 5, and the excess is exactly the 7
+  merged out of it. With 7.5.4 rule 2 requiring equal exit keys, a merge
+  in both directions forces the two leaves' owner and exit keys to be
+  one key, so a cycle across keys is impossible
+  (`merge_no_overpay`'s second conjunct).
+* **`Reachable.exit_value`**: let `heldFor π K` be the amounts of the
+  leaves that are not reclaimable and exit to `K`. Along any trace of
+  merges and reclaims it never decreases. A reclaim removes only a
+  reclaimable leaf, a merge moves value between two leaves with the same
+  exit key, and a merge out of a reclaimable leaf only adds. No leaf's
+  value that is not reclaimable reaches another key through the receive.
 
 ### Binding (`Binding.lean`)
 
@@ -504,6 +591,43 @@ need a hypothesis the script does not check.
 * **Two tree outputs in one transaction (7.1 rule 1).** The model has one
   tree output per spend; `Detach` states the second output as a root and
   an amount. Merging and the rule-1 argument are not modelled.
+* **Replay of merge vouchers (7.5.4, informative).** Once the target
+  holds `X` the voucher moves nothing (`merge_stale_rejected`), and over
+  a trace `merge_no_overpay` bounds what merges move into a target. Its
+  hypothesis `hmono` says that no record other than a merge lowers the
+  target's amount while keeping its body: 7.5.4 asks the operator to
+  advance the target's `seq` in any decrease it co-signs (an `UPDATE` or
+  `REWRITE_h`), and the scripts do not check it. `hmono` also excludes a
+  carve or exit that takes body `B` off the position followed by a
+  record that brings it back at a lower amount (the `seq`
+  monotonicity item above). Merges out of the target are no longer a
+  hypothesis: they are counted in the bound, and the model proves they
+  move value only between leaves of the target's exit key.
+* **Fixed by the rule change: the merge target's exit key (7.5.4 rule
+  2) and the transfer sibling's (7.9 rule 8).** The first version of the
+  rules required the target to be *owned* by the source's exit key but
+  not to *exit* to it. The model found two consequences: value could
+  leave a key's exits through a merge into a leaf owned by that key that
+  exits elsewhere, and two leaves each owned by the other's exit key
+  could merge back and forth, so a replayed voucher moved value across
+  keys again. Both rules now also require equal exit keys
+  (`MergeOk.exit_eq`, `Tree.Transfer`), after which
+  `Reachable.exit_value` holds with no leak term and the only cycles
+  left are within one key (`merge_cycle_overpays`).
+* **The merge level's range.** `X` is an 8-byte field and the script
+  does not bound it below `2^51`; `Reachable.wf` takes `X < 2^51` for
+  every merge as a hypothesis, like the upper amount bound elsewhere.
+* **Lock times (7.9 rule 8, 7.11).** The deadline checks are stated
+  against a lock-time parameter of the transaction (`Rewrite`,
+  `Reclaim`, `Trans.reclaim`). That it is a block height or time that
+  only grows along the chain, and that `nSequence` enables it, is not
+  modelled.
+* **Rule 8 in traces.** The trace layer's rewrite record carries no
+  authorisation (its `Pre` is `True`), so `Reachable.exit_value` covers
+  merges and reclaims only. Rule 8 is stated per transaction:
+  `rewrite_unsigned_change` (a leaf that is not reclaimable changes
+  without its owner only by an amount increase), `rewrite_transfer_sound`
+  and `rewrite_reclaimable_change`.
 * **The dust floor on exits (0.11.0).** `Reachable.dust` shows every leaf
   is at or above `DUST_MIN`; that an exit output of that amount is
   standard is a policy fact outside the model.
@@ -546,9 +670,10 @@ formal/
   LayerTree/Leaf.lean      Leaf, Leaf.WF, Node, leafNode
   LayerTree/Tree.lean      Tree, Pos, root, total, paths, fold, the tree theorems
   LayerTree/Transitions.lean  Step, Steps, EXIT/JOIN/UPDATE/CLAIM, the terminal branch, sparse positions
-  LayerTree/Cohort.lean    EVICT_SUBTREE_h, REWRITE_h, DETACH_h on published subtrees
+  LayerTree/Cohort.lean    EVICT_SUBTREE_h, REWRITE_h, DETACH_h, CLAIM^m, RECLAIM_1
   LayerTree/Trace.lean     transition records, reachability, the chain bridge, trace invariants
   LayerTree/Voucher.lean   vouchers, non-replay, the self-voucher, detach and tree_id
+  LayerTree/Receive.lean   merge vouchers, merge replay bounds, the exit-key value invariant
   LayerTree/Binding.lean   TREE_SPK binding (FULL, and CCV via CCVTweak)
   LayerTree/Encoding.lean  le64, enc64 minimality, serialisation injectivity, SEQ_FINAL, PADZ
   LayerTree/Axioms.lean    #print axioms audit for the headline theorems

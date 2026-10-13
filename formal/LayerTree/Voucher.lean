@@ -236,14 +236,6 @@ theorem claimedSource_full (src : Leaf) : claimedSource src src.amount = none :=
 
 namespace Tree
 
-theorem setSub_setSub {d h : Nat} (t : Tree d) (p : Pos d h) (s s' : Tree h) :
-    (t.setSub p s).setSub p s' = t.setSub p s' := by
-  induction p with
-  | nil => simp [setSub]
-  | cons b p ih =>
-    cases t with
-    | bin l r => cases b <;> simp [setSub, ih]
-
 theorem setSub_getSub {d h : Nat} (t : Tree d) (p : Pos d h) : t.setSub p (t.getSub p) = t := by
   induction p with
   | nil => simp [setSub, getSub]

@@ -458,6 +458,69 @@ theorem setSub_append {d h k : Nat} (t : Tree d) (c : Pos d h) (q : Pos h k) (s 
     cases t with
     | bin l r => cases b <;> simp [getSub, setSub, ih]
 
+/-- Replacing the same subtree twice keeps the second replacement. -/
+theorem setSub_setSub {d h : Nat} (t : Tree d) (p : Pos d h) (s s' : Tree h) :
+    (t.setSub p s).setSub p s' = t.setSub p s' := by
+  induction p with
+  | nil => simp [setSub]
+  | cons b p ih =>
+    cases t with
+    | bin l r => cases b <;> simp [setSub, ih]
+
+end Tree
+
+/-!
+## Sibling pairs
+
+The merge claim of 7.5.4 and the transfer of 7.9 rule 8 act on an
+aligned *pair*: the two leaf positions below one node at height 1,
+positions `2i` and `2i + 1`. In the model a pair is a `c : Pos d 1` and
+its two members are `c.pairAt false` (even, left) and `c.pairAt true`
+(odd, right). `Tree.pair b s o` is the height-1 subtree with `s` on side
+`b` and `o` on the other.
+-/
+
+/-- The member of the pair at `c` on side `b` (`false` the even, left
+position; `true` the odd, right one). -/
+def Pos.pairAt {d : Nat} (c : Pos d 1) (b : Bool) : Pos d 0 := c.append (.cons b .nil)
+
+/-- The direction bits of `c.append q` are `c`'s followed by `q`'s. -/
+theorem Pos.dirs_append : {d h k : Nat} → (c : Pos d h) → (q : Pos h k) →
+    (c.append q).dirs = c.dirs ++ q.dirs
+  | _, _, _, .nil, _ => rfl
+  | _, _, _, .cons _ c, q => by simp [Pos.append, Pos.dirs, Pos.dirs_append c q]
+
+/-- The two members of a pair are different positions. -/
+theorem Pos.pairAt_ne {d : Nat} (c : Pos d 1) (b : Bool) : c.pairAt b ≠ c.pairAt (!b) := by
+  intro h
+  have := congrArg Pos.dirs h
+  simp only [Pos.pairAt, Pos.dirs_append, Pos.dirs] at this
+  cases b <;> simp at this
+
+namespace Tree
+
+/-- The height-1 subtree holding `s` on side `b` and `o` on the other. -/
+def pair (b : Bool) (s o : Option Leaf) : Tree 1 :=
+  if b then bin (tip o) (tip s) else bin (tip s) (tip o)
+
+/-- Replacing the pair at `c` is setting its two members one after the
+other. -/
+theorem setSub_pair {d : Nat} (t : Tree d) (c : Pos d 1) (b : Bool) (s o : Option Leaf) :
+    t.setSub c (pair b s o) = (t.set (c.pairAt b) s).set (c.pairAt (!b)) o := by
+  unfold set Pos.pairAt
+  rw [setSub_append, setSub_append, getSub_setSub, setSub_setSub]
+  congr 1
+  generalize t.getSub c = u
+  cases u with
+  | bin l r => cases b <;> simp [setSub, pair]
+
+/-- The members of the pair `pair b s o`. -/
+theorem get_pair {d : Nat} (t : Tree d) (c : Pos d 1) (b : Bool) (s o : Option Leaf)
+    (h : t.getSub c = pair b s o) : t.get (c.pairAt b) = s ∧ t.get (c.pairAt (!b)) = o := by
+  unfold Pos.pairAt
+  rw [get_append, get_append, h]
+  cases b <;> simp [pair, get, getSub]
+
 end Tree
 
 /-!

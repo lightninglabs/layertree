@@ -71,6 +71,12 @@ inductive Trans (d : Nat) : Type
   | rewrite {h : Nat} (p : Pos d h) (new : Tree h)
   /-- `DETACH_h` of the subtree at `p`; this is the parent's side, output 0 (7.10). -/
   | detach {h : Nat} (p : Pos d h)
+  /-- `CLAIM^m` or `CLAIM^hm` at the pair `c`, source `src` on side `b`,
+  raising the target `tgt` on the other side to `X` (7.5.4). -/
+  | merge (c : Pos d 1) (b : Bool) (src tgt : Leaf) (X : Nat)
+  /-- `RECLAIM_1` of the reclaimable leaf `l` at `p`, in a transaction with
+  lock time `lockTime` (7.11). -/
+  | reclaim (p : Pos d 0) (l : Leaf) (lockTime : Nat)
 
 /-- The carve rules of 7.5 (2, 5 and 6) between a source and a claim
 leaf: the amount fits, the source `seq` can advance, the claim leaf keeps
@@ -97,6 +103,14 @@ structure CarvePre (π : Params) {d : Nat} (t : Tree d) (p₁ p₂ : Pos d 0) (s
   ok : CarveOk π src claim
   claim_empty : (t.set p₁ (claimedSource src claim.amount)).get p₂ = none
 
+/-- What a merge needs of the tree: the source at its side of the pair,
+the target at the other, and the rules of 7.5.4 (`merge_sound`). -/
+structure MergePre (π : Params) {d : Nat} (t : Tree d) (c : Pos d 1) (b : Bool) (src tgt : Leaf)
+    (X : Nat) : Prop where
+  src_at : t.get (c.pairAt b) = some src
+  tgt_at : t.get (c.pairAt (!b)) = some tgt
+  ok : MergeOk π src tgt X
+
 namespace Trans
 
 /-- The tree a record produces. Every transition's result is a function
@@ -111,6 +125,8 @@ def apply : {d : Nat} → Trans d → Tree d → Tree d
   | _, .evictSubtree p, t => t.setSub p (Tree.empty _)
   | _, .rewrite p new, t => t.setSub p new
   | _, .detach p, t => t.setSub p (Tree.empty _)
+  | _, .merge c b src tgt X, t => mergeTree t c b src tgt X
+  | _, .reclaim p _ _, t => t.set p none
 
 /-- The conditions the script enforces on the current tree. Signatures and
 lock times are not among them (they are opaque in the model); these are
@@ -126,6 +142,9 @@ def Pre (π : Params) : {d : Nat} → Trans d → Tree d → Prop
   | _, .evictSubtree _, _ => True
   | _, .rewrite _ _, _ => True
   | _, .detach _, _ => True
+  | _, .merge c b src tgt X, t => MergePre π t c b src tgt X
+  | _, .reclaim p l lockTime, t =>
+    t.get p = some l ∧ π.Reclaimable l ∧ l.evictAfter ≤ lockTime
 
 /-- The leaf amounts a record takes out of the tree. -/
 def removed : {d : Nat} → Trans d → Tree d → Nat
@@ -137,6 +156,8 @@ def removed : {d : Nat} → Trans d → Tree d → Nat
   | _, .evictSubtree p, t => (t.getSub p).total
   | _, .rewrite p _, t => (t.getSub p).total
   | _, .detach p, t => (t.getSub p).total
+  | _, .merge _ _ _ _ _, _ => 0
+  | _, .reclaim _ l _, _ => l.amount
 
 /-- The leaf amounts a record brings into the tree. -/
 def added : {d : Nat} → Trans d → Tree d → Nat
@@ -148,6 +169,8 @@ def added : {d : Nat} → Trans d → Tree d → Nat
   | _, .evictSubtree _, _ => 0
   | _, .rewrite _ new, _ => new.total
   | _, .detach _, _ => 0
+  | _, .merge _ _ _ _ _, _ => 0
+  | _, .reclaim _ _ _, _ => 0
 
 /-- `P` holds of every leaf a record admits on the operator's or owner's
 authority: the grafted subtree of a join, the new leaf of an update, the
@@ -163,6 +186,14 @@ def Admits (P : Leaf → Prop) : {d : Nat} → Trans d → Prop
 def CarveLeaf (P : Leaf → Prop) : {d : Nat} → Trans d → Prop
   | _, .claim _ _ _ c => P c
   | _, .split _ _ _ c => P c
+  | _, _ => True
+
+/-- `P` holds of the two leaves a merge writes: the target at its new
+amount and the source's residual, if any. Both keep their bodies, so
+every predicate on the fields other than `amount` passes by itself. -/
+def MergeLeaves (P : Leaf → Prop) : {d : Nat} → Trans d → Prop
+  | _, .merge _ _ src tgt X =>
+    P { tgt with amount := X } ∧ ∀ l, mergedSource src (X - tgt.amount) = some l → P l
   | _, _ => True
 
 end Trans
@@ -307,6 +338,25 @@ theorem apply_total {π : Params} {d : Nat} (x : Trans d) (t : Tree d)
     have he := Tree.total_empty k
     simp only [apply, removed, added] at *
     omega
+  | merge c b src tgt X =>
+    have hpre : MergePre π t c b src tgt X := hpre
+    have hne := Pos.pairAt_ne c b
+    have h₁ := Tree.total_set t (c.pairAt b) (mergedSource src (X - tgt.amount))
+    have h₁' := Tree.total_getSub_of_get t _ (some src) hpre.src_at
+    have h₂ := Tree.total_set (t.set (c.pairAt b) (mergedSource src (X - tgt.amount)))
+      (c.pairAt (!b)) (some { tgt with amount := X })
+    have hg : (t.set (c.pairAt b) (mergedSource src (X - tgt.amount))).get (c.pairAt (!b)) =
+        some tgt := by rw [Tree.get_set_ne _ _ _ _ hne]; exact hpre.tgt_at
+    have h₂' := Tree.total_getSub_of_get _ _ _ hg
+    have hc := mergedSource_total src (X - tgt.amount) hpre.ok.draw_le
+    have hr := hpre.ok.raise
+    simp only [apply, mergeTree, removed, added, Tree.total] at *
+    omega
+  | reclaim p l lockTime =>
+    have h := Tree.total_set t p none
+    have h' := Tree.total_getSub_of_get t p (some l) hpre.1
+    simp only [apply, removed, added, Tree.total] at *
+    omega
 
 end Trans
 
@@ -338,16 +388,32 @@ theorem Reachable.ledger {π : Params} {d : Nat} {t t' : Tree d} {xs : List (Tra
 /-! ## Leaf predicates along a trace -/
 
 /-- **One step preserves a leaf predicate.** If `P` holds of every leaf
-of `t`, of every leaf the record admits, of its carve leaf, and survives
-the source rewrite of a carve (amount reduced, `seq` advanced), then `P`
-holds of every leaf of the tree the record produces. -/
+of `t`, of every leaf the record admits, of its carve leaf, of the two
+leaves a merge writes, and survives the source rewrite of a carve
+(amount reduced, `seq` advanced), then `P` holds of every leaf of the
+tree the record produces. -/
 theorem Trans.apply_all (P : Leaf → Prop) {π : Params} {d : Nat} (x : Trans d) (t : Tree d)
     (hpre : x.Pre π t) (ht : t.All P) (hadm : x.Admits P) (hcarve : x.CarveLeaf P)
+    (hmerge : x.MergeLeaves P)
     (hsrc : ∀ src c : Leaf, CarveOk π src c → P src →
       ∀ l, claimedSource src c.amount = some l → P l) :
     (x.apply t).All P := by
   intro q l hq
   cases x with
+  | merge c b src tgt X =>
+    obtain ⟨htgt, hres⟩ := hmerge
+    simp only [Trans.apply, mergeTree] at hq
+    by_cases hqt : q = c.pairAt (!b)
+    · subst hqt; rw [Tree.get_set] at hq; rw [← Option.some.inj hq]; exact htgt
+    · rw [Tree.get_set_ne _ _ q _ (Ne.symm hqt)] at hq
+      by_cases hqs : q = c.pairAt b
+      · subst hqs; rw [Tree.get_set] at hq; exact hres l hq
+      · rw [Tree.get_set_ne t _ q _ (Ne.symm hqs)] at hq; exact ht q l hq
+  | reclaim p l' _ =>
+    simp only [Trans.apply] at hq
+    by_cases hqp : q = p
+    · subst hqp; rw [Tree.get_set] at hq; cases hq
+    · rw [Tree.get_set_ne t p q none (Ne.symm hqp)] at hq; exact ht q l hq
   | exit p l' =>
     simp only [Trans.apply] at hq
     by_cases hqp : q = p
@@ -406,6 +472,7 @@ theorem Reachable.all (P : Leaf → Prop) {π : Params} {d : Nat} {t t' : Tree d
     {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All P)
     (hadm : ∀ x ∈ xs, ∀ u : Tree d, x.Pre π u → u.All P → x.Admits P)
     (hcarve : ∀ x ∈ xs, ∀ u : Tree d, x.Pre π u → u.All P → x.CarveLeaf P)
+    (hmerge : ∀ x ∈ xs, ∀ u : Tree d, x.Pre π u → u.All P → x.MergeLeaves P)
     (hsrc : ∀ src c : Leaf, CarveOk π src c → P src →
       ∀ l, claimedSource src c.amount = some l → P l) :
     t'.All P := by
@@ -413,8 +480,25 @@ theorem Reachable.all (P : Leaf → Prop) {π : Params} {d : Nat} {t t' : Tree d
   | nil => exact ht
   | cons hpre _ ih =>
     exact ih (Trans.apply_all P _ _ hpre ht (hadm _ (by simp) _ hpre ht)
-        (hcarve _ (by simp) _ hpre ht) hsrc)
+        (hcarve _ (by simp) _ hpre ht) (hmerge _ (by simp) _ hpre ht) hsrc)
       (fun x hx => hadm x (by simp [hx])) (fun x hx => hcarve x (by simp [hx]))
+      (fun x hx => hmerge x (by simp [hx]))
+
+/-- A predicate that ignores `amount` passes through a merge by itself:
+the target and the residual keep the bodies of leaves already in the
+tree. -/
+theorem Trans.mergeLeaves_of_body (P : Leaf → Prop) {π : Params} {d : Nat} (x : Trans d)
+    (u : Tree d) (hpre : x.Pre π u) (hu : u.All P)
+    (hP : ∀ (l : Leaf) (a : Nat), P l → P { l with amount := a }) : x.MergeLeaves P := by
+  cases x with
+  | merge c b src tgt X =>
+    have hpre : MergePre π u c b src tgt X := hpre
+    refine ⟨hP _ _ (hu _ _ hpre.tgt_at), fun l hl => ?_⟩
+    unfold mergedSource at hl
+    split at hl
+    · cases hl
+    · rw [← Option.some.inj hl]; exact hP _ _ (hu _ _ hpre.src_at)
+  | _ => trivial
 
 /-- **Well-formedness is preserved** (5.2) when every admitted leaf and
 every carve leaf is well formed and the tier's `SEQ_FINAL` is below
@@ -423,10 +507,35 @@ amount falls but stays positive (a drained source is `E_0`, not a leaf),
 and `seq + 1` fits because `seq < SEQ_FINAL`. -/
 theorem Reachable.wf {π : Params} (hsf : π.seqFinal < 2 ^ 32) {d : Nat} {t t' : Tree d}
     {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All Leaf.WF)
-    (hadm : ∀ x ∈ xs, x.Admits Leaf.WF) (hcarve : ∀ x ∈ xs, x.CarveLeaf Leaf.WF) :
+    (hadm : ∀ x ∈ xs, x.Admits Leaf.WF) (hcarve : ∀ x ∈ xs, x.CarveLeaf Leaf.WF)
+    (hX : ∀ x ∈ xs, ∀ (c : Pos d 1) (b : Bool) (src tgt : Leaf) (X : Nat),
+      x = .merge c b src tgt X → X < 2 ^ 51) :
     t'.All Leaf.WF := by
   refine Reachable.all Leaf.WF h ht (fun x hx _ _ _ => hadm x hx)
-    (fun x hx _ _ _ => hcarve x hx) ?_
+    (fun x hx _ _ _ => hcarve x hx) ?_ ?_
+  · intro x hx u hpre hu
+    cases x with
+    | merge c b src tgt X =>
+      have hpre : MergePre π u c b src tgt X := hpre
+      have hs := hu _ _ hpre.src_at
+      have hg := hu _ _ hpre.tgt_at
+      have hXlt := hX _ hx c b src tgt X rfl
+      have hr := hpre.ok.raise
+      have hdl := hpre.ok.draw_le
+      refine ⟨{ amount_pos := by simp; omega, amount_lt := by simpa using hXlt,
+                exitKey_lt := hg.exitKey_lt, ownerKey_lt := hg.ownerKey_lt,
+                evictorKey_lt := hg.evictorKey_lt, evictAfter_lt := hg.evictAfter_lt,
+                nonce_lt := hg.nonce_lt, seq_lt := hg.seq_lt }, fun l hl => ?_⟩
+      unfold mergedSource at hl
+      split at hl
+      · cases hl
+      · rw [← Option.some.inj hl]
+        exact { amount_pos := by simp; omega,
+                amount_lt := by simp; have := hs.amount_lt; omega,
+                exitKey_lt := hs.exitKey_lt, ownerKey_lt := hs.ownerKey_lt,
+                evictorKey_lt := hs.evictorKey_lt, evictAfter_lt := hs.evictAfter_lt,
+                nonce_lt := hs.nonce_lt, seq_lt := hs.seq_lt }
+    | _ => trivial
   intro src c hok hwf l hl
   have hv := hok.amount_le
   have hseq := hok.seq_lt
@@ -451,7 +560,7 @@ theorem Reachable.dust {π : Params} {d : Nat} {t t' : Tree d} {xs : List (Trans
     (hadm : ∀ x ∈ xs, ∀ (k : Nat) (p : Pos d k) (u : Tree k),
       (x = .join p u ∨ x = .rewrite p u) → u.All (fun l => π.dustMin ≤ l.amount)) :
     t'.All (fun l => π.dustMin ≤ l.amount) := by
-  refine Reachable.all (fun l => π.dustMin ≤ l.amount) h ht ?_ ?_ ?_
+  refine Reachable.all (fun l => π.dustMin ≤ l.amount) h ht ?_ ?_ ?_ ?_
   · intro x hx u hpre _
     cases x with
     | join p u' => exact hadm _ hx _ p u' (Or.inl rfl)
@@ -462,6 +571,22 @@ theorem Reachable.dust {π : Params} {d : Nat} {t t' : Tree d} {xs : List (Trans
     cases x with
     | claim p₁ p₂ src c => exact hpre.ok.claim_dust
     | split p₁ p₂ src c => exact hpre.ok.claim_dust
+    | _ => trivial
+  · intro x _ u hpre hu
+    cases x with
+    | merge c b src tgt X =>
+      have hpre : MergePre π u c b src tgt X := hpre
+      have hg := hu _ _ hpre.tgt_at
+      have hr := hpre.ok.raise
+      refine ⟨by simp only at hg ⊢; omega, fun l hl => ?_⟩
+      unfold mergedSource at hl
+      split at hl
+      · cases hl
+      · rw [← Option.some.inj hl]
+        simp only
+        rcases hpre.ok.residual_dust with heq | hge
+        · exact absurd heq.symm ‹_›
+        · exact hge
     | _ => trivial
   · intro src c hok _ l hl
     unfold claimedSource at hl
@@ -491,7 +616,8 @@ theorem Reachable.evictable (K T : Nat) {π : Params} {d : Nat} {t t' : Tree d}
     {xs : List (Trans d)} (h : Reachable π t xs t') (ht : t.All (Leaf.EvictableBy K T))
     (hadm : ∀ x ∈ xs, x.Admits (Leaf.EvictableBy K T)) :
     t'.All (Leaf.EvictableBy K T) := by
-  refine Reachable.all (Leaf.EvictableBy K T) h ht (fun x hx _ _ _ => hadm x hx) ?_ ?_
+  refine Reachable.all (Leaf.EvictableBy K T) h ht (fun x hx _ _ _ => hadm x hx) ?_
+    (fun x _ u hpre hu => Trans.mergeLeaves_of_body _ x u hpre hu (fun _ _ hl => hl)) ?_
   · intro x _ u hpre hu
     cases x with
     | claim p₁ p₂ src c =>
@@ -520,7 +646,8 @@ theorem Reachable.seqAbove (k n s : Nat) {π : Params} {d : Nat} {t t' : Tree d}
     (hcarve : ∀ x ∈ xs, x.CarveLeaf (Leaf.SeqAbove k n s)) :
     t'.All (Leaf.SeqAbove k n s) := by
   refine Reachable.all (Leaf.SeqAbove k n s) h ht (fun x hx _ _ _ => hadm x hx)
-    (fun x hx _ _ _ => hcarve x hx) ?_
+    (fun x hx _ _ _ => hcarve x hx)
+    (fun x _ u hpre hu => Trans.mergeLeaves_of_body _ x u hpre hu (fun _ _ hl => hl)) ?_
   intro src c _ hs l hl
   unfold claimedSource at hl
   split at hl
@@ -558,13 +685,19 @@ inductive Accepts (π : Params) (d : Nat) : Node H → Node H → Prop
       {u : Tree h} {out0 : Nat} {payouts : List Payout} {terminal : Bool}
       (he : EvictSubtree auth d h r path u r' out0 payouts terminal)
       (hwf : path.length + h = d) : Accepts π d r r'
-  | rewrite {h : Nat} {auth : Pos h 0 → Prop} {r r' : Node H} {path : List (Bool × Node H)}
-      {old new : Tree h} {out0 : Nat} {payouts : List Payout}
-      (hr : Rewrite h π auth r path old new r' out0 payouts) (hwf : path.length + h = d) :
-      Accepts π d r r'
+  | rewrite {h : Nat} {auth : Pos h 0 → Prop} {lockTime : Nat} {r r' : Node H}
+      {path : List (Bool × Node H)} {old new : Tree h} {out0 : Nat} {payouts : List Payout}
+      (hr : Rewrite h π auth lockTime r path old new r' out0 payouts)
+      (hwf : path.length + h = d) : Accepts π d r r'
   | detach {auth : Prop} {h : Nat} {r r' sub : Node H} {path : List (Bool × Node H)}
       {out0 : Nat} {r₁ : H} {out1 : Nat} (hd : Detach auth h r path sub r' out0 r₁ out1)
       (hwf : path.length + h = d) : Accepts π d r r'
+  | merge {auth : Prop} {r r' : Node H} {path : List (Bool × Node H)} {b : Bool} {src tgt : Leaf}
+      {X out0 : Nat} (hm : Merge auth π r path b src tgt X r' out0)
+      (hwf : path.length + 1 = d) : Accepts π d r r'
+  | reclaim {auth : Prop} {lockTime : Nat} {r r' : Node H} {path : List (Bool × Node H)}
+      {l : Leaf} {out0 : Nat} (hc : Reclaim auth π lockTime r path l r' out0)
+      (hwf : path.length = d) : Accepts π d r r'
 
 /-- A sequence of exit blocks from the root of `t` is a trace of `exit`
 records. -/
@@ -612,6 +745,12 @@ theorem Accepts.sound {π : Params} {d : Nat} (t : Tree d) {r' : Node H}
   | detach hd hwf =>
     obtain ⟨p, _, hr', _⟩ := detach_sound t _ _ _ _ _ _ hwf hd
     exact ⟨[.detach p], _, hr', Reachable.cons trivial (Reachable.nil _)⟩
+  | merge hm hwf =>
+    obtain ⟨_, _, _, _, _, c, hs, ht, hr', _⟩ := merge_sound t _ _ _ _ _ _ _ hwf hm
+    exact ⟨[.merge c _ _ _ _], _, hr', Reachable.cons ⟨hs, ht, hm.ok⟩ (Reachable.nil _)⟩
+  | reclaim hc hwf =>
+    obtain ⟨p, hget, hrc, hdl, hr', _⟩ := reclaim_sound t _ _ _ _ hwf hc
+    exact ⟨[.reclaim p _ _], _, hr', Reachable.cons ⟨hget, hrc, hdl⟩ (Reachable.nil _)⟩
 
 /-- A history of the tree output: zero or more accepted spends. -/
 inductive Chain (π : Params) (d : Nat) : Node H → Node H → Prop

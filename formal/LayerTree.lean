@@ -5,5 +5,6 @@ import LayerTree.Transitions
 import LayerTree.Cohort
 import LayerTree.Trace
 import LayerTree.Voucher
+import LayerTree.Receive
 import LayerTree.Encoding
 import LayerTree.Binding
