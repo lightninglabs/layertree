@@ -12,7 +12,10 @@ and taptree root are what a validating node hands a CCV script for its -1
 operands; the other tiers' scripts never read them. It prints the Go map
 entries for txn/pins_test.go's pythonSighash and exits non-zero if any
 witness fails or any digest disagrees with the one Go computed, so the
-pins are always the simulator's own digests.
+pins are always the simulator's own digests. A case the dump marks
+"expect": "fail" is a negative, a spend Go edited after signing in a way
+the signature hash does not cover, and counts as a failure if the script
+accepts it.
 
     python3 tools/replay_txn_dump.py dump.json
 """
@@ -45,11 +48,18 @@ def main(path):
         if digest != c["sighash"]:
             status = f"sighash differs from Go's {c['sighash']}"
             failures += 1
+        # A case marked "expect": "fail" is a negative: a signed spend Go
+        # edited after its checks, which the script must reject.
+        negative = c.get("expect") == "fail"
         try:
             Interp(ctx, mode=mode).run(bytes.fromhex(c["script"]), [bytes.fromhex(x) for x in c["stack"]])
+            if negative:
+                status = "script accepted a spend it must reject"
+                failures += 1
         except ScriptError as e:
-            status = f"script failed: {e}"
-            failures += 1
+            if not negative:
+                status = f"script failed: {e}"
+                failures += 1
         tier = c.get("tier", c["name"].split("/")[0])
         per_tier[tier] = per_tier.get(tier, 0) + 1
         print(f'\t"{c["name"]}": "{digest}",  # {status}' if status != "ok"
