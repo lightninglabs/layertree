@@ -584,7 +584,7 @@ def merge_script(depth, tree_id, hashlock=False, reclaim_key=None, dust_min=lt.D
     target's new amount as le64. The voucher is a signature by
     src.owner_key over H_voucher_m(tree_id || body(src) || body(tgt) ||
     X [|| SHA256(preimage)]), checked with OP_CHECKSIGFROMSTACK. The
-    script requires tgt.owner_key == src.exit_key, neither leaf at
+    script requires tgt.owner_key == tgt.exit_key == src.exit_key, neither leaf at
     SEQ_FINAL, tgt not reclaimable (when the tree has a RECLAIM_KEY),
     tgt.amount < X, and a source residual of zero (the position becomes
     E_0) or at least DUST_MIN. The source's seq does not advance and the
@@ -608,9 +608,10 @@ def merge_script(depth, tree_id, hashlock=False, reclaim_key=None, dust_min=lt.D
     s += tagged(VOUCHER_HM_PREFIX if hashlock else VOUCHER_M_PREFIX) + [      # S T X v msg
           4, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR",
           "OP_CHECKSIGFROMSTACK", "OP_VERIFY",                       # S T X
-          # the target belongs to the source's exit key, and neither leaf is final
-          "OP_OVER", OFF_OWNER_KEY, 32, "OP_SUBSTR",
-          3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_EQUALVERIFY",
+          # the target is owned by and exits to the source's exit key (one
+          # compare of tgt[8:72] = exit_key||owner_key), and neither leaf is final
+          "OP_OVER", OFF_EXIT_KEY, 64, "OP_SUBSTR",
+          3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_DUP", "OP_CAT", "OP_EQUALVERIFY",
           "OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_VERIFY",
           2, "OP_PICK", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL", "OP_NOT", "OP_VERIFY"]
     if reclaim_key is not None:
@@ -951,104 +952,92 @@ def _reclaim_r1():
             "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"]
 
 
-def _transfer_shape(reclaim_key):
-    """[old new] -> [old new flag]: R3's left half. flag is true when both
-    elements are leaves, old is reclaimable, new equals old in every field
-    but amount, and new.amount < old.amount (a decrease the right sibling
-    must absorb exactly)."""
-    return ["OP_OVER", "OP_SIZE", "OP_NIP", LEAF_LEN, "OP_NUMEQUAL",
-            "OP_OVER", "OP_SIZE", "OP_NIP", LEAF_LEN, "OP_NUMEQUAL", "OP_BOOLAND",
-            "OP_IF",
-            "OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key, "OP_EQUAL",       # old new isR
-            "OP_OVER", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
-            3, "OP_PICK", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
-            "OP_EQUAL", "OP_BOOLAND",                                                    # ... and same_rest
-            2, "OP_PICK", 8, "OP_LEFT", 2, "OP_PICK", 8, "OP_LEFT",
-            "OP_LESSTHANOREQUAL", "OP_NOT", "OP_BOOLAND",                                # ... and old.amt > new.amt
-            "OP_ELSE", "OP_0", "OP_ENDIF"]
+def _transfer_check(d):
+    """[old new delta] -> [old new]: R3's cross-check, run by the left
+    step of a pair on its right sibling's elements, which are the next two
+    witness elements (old_R at depth d+7, new_R below it; the transfer
+    branch consumes no signature). old_R is owned by old.exit_key and not
+    reclaimable, and new_R is old_R with its amount raised by exactly
+    delta = old.amount - new.amount; old_R also exits to old.exit_key, so
+    a transfer cannot move value to a leaf that exits elsewhere, nor run
+    both ways between two leaves of different keys (spec 7.5.4 rule 2,
+    Lean merge_cycle_overpays). The right step then admits the raise
+    as 7.9 rule 3's amount-only increase. Sizes are not checked here: the
+    ELEM_NODE of either step rejects an element that is neither a leaf nor
+    empty."""
+    w = d + 7
+    return [w, "OP_PICK", OFF_EXIT_KEY, 64, "OP_SUBSTR",
+            3, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_DUP", "OP_CAT",
+            "OP_EQUALVERIFY",                                                        # old_R.exit == old_R.owner == old.exit_key
+            w, "OP_PICK", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", w, "OP_PICK",
+            "OP_EQUAL", "OP_NOT", "OP_VERIFY",                                       # old_R not reclaimable
+            w, "OP_PICK"] + LEAF_BODY + [w + 2, "OP_PICK"] + LEAF_BODY + [
+            "OP_EQUALVERIFY",                                                        # body(new_R) == body(old_R)
+            w + 1, "OP_PICK", 8, "OP_LEFT", w + 1, "OP_PICK", 8, "OP_LEFT", "OP_SUB",
+            "OP_NUMEQUALVERIFY"]                                                     # new_R.amt - old_R.amt == delta
 
 
-def _transfer_record(reclaim_key):
-    """[old new] | .. idx -> [old new] | .. idx delta key: the left step of
-    a pair leaves R3's transfer on the altstack for its right sibling,
-    (old.amount - new.amount, old.exit_key) for a transfer and (0, 0)
-    otherwise."""
-    return _transfer_shape(reclaim_key) + [
-        "OP_IF",
-        "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT", "OP_SUB",                     # old new delta
-        2, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR",                                    # old new delta key
-        "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK",
-        "OP_ELSE", "OP_0", "OP_TOALTSTACK", "OP_0", "OP_TOALTSTACK", "OP_ENDIF"]
+def _reclaim_rules(d, side):
+    """[old new] -> [old new] for a changed position whose old element is
+    a reclaimable leaf (7.9 rule 8); RECLAIM_KEY sits at depth d+5 and the
+    next witness element at d+6. A new leaf with the old body and a higher
+    amount is rule 3's increase (unless old.seq is SEQ_FINAL); on the left
+    of a pair (side "L") a new leaf with the old body and a lower amount is
+    an R3 transfer, checked against the right sibling by _transfer_check;
+    every other change, a decrease on the right included, is an R1 reclaim.
+    An empty new element has no body, so it falls to R1 too."""
+    s = ["OP_2DUP"] + LEAF_BODY + ["OP_SWAP"] + LEAF_BODY + ["OP_EQUAL",
+         "OP_IF",                                                       # same body
+         "OP_OVER", 8, "OP_LEFT", "OP_OVER", 8, "OP_LEFT"]              # old new oa na
+    final = ["OP_OVER", 4, "OP_RIGHT", SEQ_FINAL_BYTES, "OP_EQUAL"]     # old new old.seq==FINAL
+    if side == "L":
+        s += ["OP_2DUP", "OP_LESSTHANOREQUAL",
+              "OP_IF", "OP_2DROP"] + final + [                          # increase: R1 only if final
+              "OP_ELSE", "OP_SUB"] + _transfer_check(d) + ["OP_0",      # decrease: R3 transfer
+              "OP_ENDIF"]
+    else:
+        s += ["OP_LESSTHANOREQUAL",
+              "OP_IF"] + final + ["OP_ELSE", "OP_1", "OP_ENDIF"]        # a decrease on the right: R1
+    return s + ["OP_ELSE", "OP_1", "OP_ENDIF",                          # body changed or emptied: R1
+                "OP_IF"] + _reclaim_r1() + ["OP_ENDIF"]
 
 
-def _transfer_absorb(reclaim_key):
-    """[old new] | .. idx delta key -> [old new] | .. idx: the right step
-    of a pair takes its left sibling's transfer record. A non-zero delta
-    requires the right old leaf to be owned by the left leaf's exit key and
-    not reclaimable, and the new leaf to equal it but for an amount raised
-    by exactly delta. The raise itself then passes as 7.9 rule 3's
-    amount-only increase."""
-    return ["OP_FROMALTSTACK", "OP_FROMALTSTACK",                                       # old new key delta
-            "OP_DUP", "OP_0NOTEQUAL", "OP_IF",
-            3, "OP_PICK", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
-            OFF_OWNER_KEY, 32, "OP_SUBSTR", 2, "OP_PICK", "OP_EQUALVERIFY",            # old.owner == key
-            3, "OP_PICK", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key,
-            "OP_EQUAL", "OP_NOT", "OP_VERIFY",                                          # old not reclaimable
-            2, "OP_PICK", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
-            OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
-            4, "OP_PICK", OFF_EXIT_KEY, LEAF_LEN - OFF_EXIT_KEY, "OP_SUBSTR",
-            "OP_EQUALVERIFY",                                                           # same_rest
-            2, "OP_PICK", 8, "OP_LEFT", 4, "OP_PICK", 8, "OP_LEFT", "OP_SUB",
-            "OP_OVER", "OP_NUMEQUALVERIFY",                                             # new.amt - old.amt == delta
-            "OP_ENDIF", "OP_2DROP"]
-
-
-def _rewrite_step(d, exit_consent, pay=None, reclaim_key=None, side=None):
+def _rewrite_step(d, exit_consent, pay=None, reclaim=False, side=None):
     """[Z L T ...] with old, new and any signatures below Z  ->  [Z L T ... oh os nh ns]
     | .. m r idx  ->  | .. m r idx'.  `d` is the number of machine elements
     above T; Z (E_0's hash) and L (the TAG_LEAF prefix) sit directly below T,
     so the next witness element is at depth d+3. `pay` is the exit payout
     check, _rewrite_pay's by default; the CCV tier passes its own.
 
-    With reclaim_key (the R1/R3 variant, design/pending-receive.md) a
-    changed position whose old leaf is reclaimable takes no owner
-    signature: an amount-only increase passes as rule 3, a left position
-    (side "L") whose leaf only falls in amount is an R3 transfer its right
-    sibling must absorb, and any other change is an R1 reclaim, which
-    needs the leaf's deadline to have passed and pays nothing when the
-    position is emptied. Left steps leave a transfer record on the
-    altstack and right steps (side "R") consume it."""
+    reclaim=True is the reclaim form of 7.9 rule 8 (design/pending-receive.md).
+    The machine then keeps RECLAIM_KEY directly below Z (rewrite_machine
+    hoists it), so the witness starts one element deeper, at d+4. A changed
+    position whose old leaf is reclaimable takes no owner signature and
+    follows _reclaim_rules; `side` ("L" or "R") is the position's place in
+    its pair, and only a left step can make an R3 transfer."""
     if pay is None:
         pay = _rewrite_pay()
+    o = 1 if reclaim else 0
     old_rules = (["OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +   # new is a leaf: rewrite
                  _rewrite_exempt() +
-                 ["OP_NOTIF"] + _owner_auth(d + 5, exit_consent) + ["OP_ENDIF",
-                  "OP_ELSE"] + _owner_auth(d + 5, exit_consent) + pay + [   # new is empty: an exit, paid to old.exit_key
+                 ["OP_NOTIF"] + _owner_auth(d + 5 + o, exit_consent) + ["OP_ENDIF",
+                  "OP_ELSE"] + _owner_auth(d + 5 + o, exit_consent) + pay + [   # new is empty: an exit, paid to old.exit_key
                   "OP_ENDIF"])
-    if reclaim_key is None:
+    if not reclaim:
         leaf_rules = old_rules
     else:
-        r1 = _reclaim_r1()
-        decrease = (_transfer_shape(reclaim_key) + ["OP_NOTIF"] + r1 + ["OP_ENDIF"]
-                    if side == "L" else r1)
-        leaf_rules = (["OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", reclaim_key, "OP_EQUAL",
-                       "OP_IF",                                           # old is reclaimable
-                       "OP_DUP", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +
-                      _rewrite_exempt() + ["OP_NOTIF"] + decrease + ["OP_ENDIF",
-                       "OP_ELSE"] + r1 + ["OP_ENDIF",                     # emptied: reclaimed, no payout
-                       "OP_ELSE"] + old_rules + ["OP_ENDIF"])
-    s = [d + 3, "OP_ROLL", d + 4, "OP_ROLL",            # T ... old new
+        assert side in ("L", "R")
+        leaf_rules = (["OP_OVER", OFF_EVICTOR_KEY, 32, "OP_SUBSTR", d + 6, "OP_PICK", "OP_EQUAL",
+                       "OP_IF"] + _reclaim_rules(d, side) +                # old is reclaimable
+                      ["OP_ELSE"] + old_rules + ["OP_ENDIF"])
+    s = [d + 3 + o, "OP_ROLL", d + 4 + o, "OP_ROLL",    # T ... old new
          "OP_SIZE", "OP_1", "OP_EQUAL",                  # old new (new is the one-byte marker?)
          "OP_IF", "OP_DROP", "OP_DUP", "OP_ENDIF"]       # old new   (marker: new := old)
-    if reclaim_key is not None and side == "R":
-        s += _transfer_absorb(reclaim_key)
     s += (["OP_2DUP", "OP_EQUAL", "OP_NOTIF",            # changed?
            "OP_OVER", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF"] +   # old is a leaf?
           leaf_rules +
           ["OP_ENDIF",                                   # (old empty: a join, operator only)
            "OP_ENDIF"])                                  # (unchanged)
-    if reclaim_key is not None and side == "L":
-        s += _transfer_record(reclaim_key)
     return (s + ["OP_SWAP"] + _elem_node(d + 4, d + 3) +   # new oh os
             ["OP_ROT"] + _elem_node(d + 5, d + 4))       # oh os nh ns
 
@@ -1064,6 +1053,36 @@ def _hash_step2(d):
             _hash_step(d - 2))                                      # poh pos pnh pns
 
 
+def rewrite_machine(height, exit_consent=False, pay=None, reclaim_key=None):
+    """The REWRITE_h machine between the operator's signature and the
+    path levels: [... blocks] | .. m r -> [T oh os nh ns] | .. m r. It
+    hoists the constants Z, L and T (and, in the reclaim form, RECLAIM_KEY
+    below Z), runs POSTORDER2(height) and drops the constants again. The
+    CCV tier runs the same machine with its own `pay`."""
+    assert reclaim_key is None or height >= 1   # R3 pairs positions 2i and 2i+1
+    rk = [] if reclaim_key is None else [reclaim_key]
+    s = ["OP_1", "OP_TOALTSTACK"] + rk + [                    #            | m r 1
+         lt.EMPTY_LEAF_HASH, LEAF_PREFIX, NODE_PREFIX]        # [rk] Z L T (hoisted constants)
+    d = [0]
+    pos = [0]
+    def gen(h):
+        if h == 0:
+            side = "L" if pos[0] % 2 == 0 else "R"
+            s.extend(_rewrite_step(d[0], exit_consent, pay, reclaim=bool(rk), side=side))
+            pos[0] += 1
+            d[0] += 4
+        else:
+            gen(h - 1); gen(h - 1)
+            s.extend(_hash_step2(d[0]))
+            d[0] -= 4
+    gen(height)                                              # [rk] Z L T oh os nh ns   | m r idx
+    s += ["OP_FROMALTSTACK", "OP_DROP",                      # drop idx
+          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]  # [rk] T oh os nh ns  (drop Z, L)
+    if rk:
+        s += [5, "OP_ROLL", "OP_DROP"]                       # T oh os nh ns       (drop RECLAIM_KEY)
+    return s
+
+
 def rewrite_script(depth, height, operator_key, exit_consent=False, reclaim_key=None):
     """REWRITE_h (spec 7.9): rewrite every position of an aligned subtree.
 
@@ -1072,26 +1091,10 @@ def rewrite_script(depth, height, operator_key, exit_consent=False, reclaim_key=
     116-byte leaf or empty, and new_i may be the one-byte marker REWRITE_SAME
     for "the old element"; sig_i only where 7.9 rule 3 requires it, xsig_i
     only under ^x and only where sig_i is present).
+    With reclaim_key this is the reclaim form of 7.9 rule 8 (h >= 1).
     """
-    assert reclaim_key is None or height >= 1   # R3 pairs positions 2i and 2i+1
     s = prologue() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks | m r
-    s += ["OP_1", "OP_TOALTSTACK",                            #            | m r 1
-          lt.EMPTY_LEAF_HASH, LEAF_PREFIX, NODE_PREFIX]       # Z L T      (hoisted constants)
-    d = [0]
-    pos = [0]
-    def gen(h):
-        if h == 0:
-            side = "L" if pos[0] % 2 == 0 else "R"
-            s.extend(_rewrite_step(d[0], exit_consent, reclaim_key=reclaim_key, side=side))
-            pos[0] += 1
-            d[0] += 4
-        else:
-            gen(h - 1); gen(h - 1)
-            s.extend(_hash_step2(d[0]))
-            d[0] -= 4
-    gen(height)                                              # Z L T oh os nh ns   | m r idx
-    s += ["OP_FROMALTSTACK", "OP_DROP",                      # drop idx
-          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]  # T oh os nh ns       (drop Z, L)
+    s += rewrite_machine(height, exit_consent, reclaim_key=reclaim_key)
     s += levels("D", depth, height)
     return s + check_old_root_from_alt("D") + final_output(depth)
 

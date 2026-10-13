@@ -174,6 +174,13 @@ func BuildEvictSubtree(st *TreeState, height int, index uint64,
 // one-byte marker in place of the new element. Any increase of the tree's
 // total must come from opts.Inputs; any decrease is the transaction's to
 // spend. If the rewrite empties the tree, opts.Terminal is output 0.
+//
+// In a tree that names RECLAIM_KEY the rewrite is the reclaim form of rule
+// 8 (REWRITE_R_h, REWRITE_XR_h, h >= 1), and a reclaimable old leaf follows
+// reclaimRewriteStep: an amount-only decrease at an even offset is an R3
+// transfer its odd sibling must absorb exactly, and any other change but
+// an amount-only increase is an R1 reclaim, which pays nothing and needs
+// opts.LockTime at the leaf's evict_after.
 func BuildRewrite(st *TreeState, height int, index uint64,
 	after map[uint64]*tree.Leaf, exitConsent bool, opts *TxOpts) (*Spend,
 	*tree.Tree, error) {
@@ -182,12 +189,34 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 	if err != nil {
 		return nil, nil, err
 	}
+	// A tree that names RECLAIM_KEY carries every rewrite in its reclaim
+	// form (spec 7.9 rule 8), REWRITE_R_h and REWRITE_XR_h, for h >= 1.
+	reclaim := r.reclaimKey != nil
 	name := fmt.Sprintf("REWRITE_%d", height)
-	if exitConsent {
+	switch {
+	case reclaim && exitConsent:
+		name = fmt.Sprintf("REWRITE_XR_%d", height)
+	case reclaim:
+		name = fmt.Sprintf("REWRITE_R_%d", height)
+	case exitConsent:
 		name = fmt.Sprintf("REWRITE_X_%d", height)
 	}
 	if err := st.checkSubtree(r, name, height, index, st.Tree.Depth); err != nil {
 		return nil, nil, err
+	}
+	if reclaim {
+		if err := r.pendingLayout(name); err != nil {
+			return nil, nil, err
+		}
+		if height < 1 {
+			return nil, nil, errors.New("txn: the reclaim form of " +
+				"REWRITE_h pairs positions, so h is at least 1 " +
+				"(spec 7.9 rule 8)")
+		}
+	}
+	var lockTime uint32
+	if opts != nil {
+		lockTime = opts.LockTime
 	}
 	// Rule 7: a taptree with UPDATE^x or CLAIM^x carries REWRITE_h^x, not
 	// REWRITE_h, so that neither consent can be bypassed by the cohort form.
@@ -227,7 +256,11 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 		} else {
 			delete(next.Leaves, pos)
 		}
-		if old != nil && new == nil {
+		step, err := r.reclaimRewriteStep(cur, base, off, after, lockTime)
+		if err != nil {
+			return nil, nil, err
+		}
+		if step.payout {
 			payouts = append(payouts, Payout{
 				ExitKey: old.ExitKey, Amount: int64(old.Amount),
 			})
@@ -236,7 +269,7 @@ func BuildRewrite(st *TreeState, height int, index uint64,
 		// The block is [xsig] [sig] new old, bottom to top.
 		var block [][]byte
 		var ps []slot
-		if rewriteNeedsOwner(old, new, r.tier.SeqFinal()) {
+		if step.owner {
 			if exitConsent {
 				block = append(block, sigPlaceholder())
 				ps = append(ps, slot{pos, old.ExitKey, "exit"})

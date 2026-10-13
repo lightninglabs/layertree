@@ -17,6 +17,8 @@ import layertree_min as N  # noqa: E402
 from script_sim import TxContext, assemble, pubkey_x  # noqa: E402
 
 OP_KEY = pubkey_x(lt.sha256(b"operator"))
+# RECLAIM_KEY (6.2) of the pending-leaf receive entries below.
+RECLAIM_KEY = pubkey_x(lt.sha256(b"operator-reclaim"))
 # Every tier's vouchers bind the tree's tree_id (spec 6.2, 7.5), a constant
 # of the CLAIM scripts; the vector fixes the RECOMMENDED derivation over a
 # placeholder creation outpoint and every CLAIM below is built over it.
@@ -97,7 +99,8 @@ add("CCV0", "D", 4, "REWRITE_X_2", CV._rewrite_script_ccv0(4, 2, OP_KEY, exit_co
 # above and excluded from taptree_full_d4 below.
 VARIANTS = ("UPDATE_X", "CLAIM_H", "SPLIT", "CLAIM_X", "CLAIM_HX",
             "REWRITE_2", "REWRITE_X_2", "DETACH_2", "EXIT_1_EXACT", "DETACH_2_HOST",
-            "EXIT_1_TOWER", "EXIT_2_TOWER")
+            "EXIT_1_TOWER", "EXIT_2_TOWER",
+            "CLAIM_M", "CLAIM_HM", "RECLAIM_1", "REWRITE_R_2", "REWRITE_XR_2")
 add("FULL", "D", 4, "UPDATE_X", F.update_script(4, OP_KEY, "D", exit_consent=True), "c2")
 add("FULL", "S", 8, "UPDATE_X", F.update_script(8, OP_KEY, "S", exit_consent=True), "c2")
 add("MID", "D", 4, "UPDATE_X", M.update_script(4, OP_KEY, False, exit_consent=True), "c0")
@@ -125,6 +128,15 @@ add("FULL", "D", 4, "REWRITE_2", F.rewrite_script(4, 2, OP_KEY), "c2")
 add("FULL", "D", 4, "REWRITE_X_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c2")
 add("MID", "D", 4, "REWRITE_2", M.rewrite_script(4, 2, OP_KEY), "c0")
 add("MID", "D", 4, "REWRITE_X_2", M.rewrite_script(4, 2, OP_KEY, exit_consent=True), "c0")
+# The pending-leaf receive in FULL (spec 0.14.0): CLAIM^m and CLAIM^hm
+# (7.5.4), RECLAIM_1 (7.11) and the reclaim form of REWRITE_h and
+# REWRITE_h^x (7.9 rule 8), all in a tree that names RECLAIM_KEY.
+add("FULL", "D", 4, "CLAIM_M", F.merge_script(4, TREE_ID, reclaim_key=RECLAIM_KEY), "c2")
+add("FULL", "D", 4, "CLAIM_HM", F.merge_script(4, TREE_ID, hashlock=True, reclaim_key=RECLAIM_KEY), "c2")
+add("FULL", "D", 4, "RECLAIM_1", F.reclaim_script(4, RECLAIM_KEY, "D"), "c2")
+add("FULL", "S", 8, "RECLAIM_1", F.reclaim_script(8, RECLAIM_KEY, "S"), "c2")
+add("FULL", "D", 4, "REWRITE_R_2", F.rewrite_script(4, 2, OP_KEY, reclaim_key=RECLAIM_KEY), "c2")
+add("FULL", "D", 4, "REWRITE_XR_2", F.rewrite_script(4, 2, OP_KEY, exit_consent=True, reclaim_key=RECLAIM_KEY), "c2")
 add("FULL", "D", 4, "DETACH_2", F.detach_script(4, 2, OP_KEY, F.detached_taptree_root(2, OP_KEY, TREE_ID)), "c2")
 # EXIT_1^= (7.2 rule 6) and the DETACH_2 of a channel-hosting parent (exact
 # payouts, CLAIM^h, DETACH_2): its m_h is that option set compiled at depth

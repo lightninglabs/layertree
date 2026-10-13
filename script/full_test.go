@@ -1,6 +1,7 @@
 package script
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	ts "github.com/btcsuite/btcd/txscript"
 
 	"github.com/roasbeef/layertree/tree"
@@ -72,6 +75,17 @@ func goldenTreeID(t *testing.T, g *goldenFile) [32]byte {
 	return id
 }
 
+// goldenReclaimKey is the RECLAIM_KEY (spec 6.2) of the golden
+// pending-leaf receive entries: the x-only key of the secret
+// sha256("operator-reclaim"), as tools/gen_golden.py derives it.
+func goldenReclaimKey() [32]byte {
+	sk := sha256.Sum256([]byte("operator-reclaim"))
+	priv, _ := btcec.PrivKeyFromBytes(sk[:])
+	var k [32]byte
+	copy(k[:], schnorr.SerializePubKey(priv.PubKey()))
+	return k
+}
+
 // fullScriptFor builds the FULL-tier script named by a golden key's profile,
 // depth and name, e.g. ("D", 4, "JOINK_2").
 func fullScriptFor(profile string, depth int, name string,
@@ -94,6 +108,21 @@ func fullScriptFor(profile string, depth int, name string,
 		return FullClaimHXScript(depth, treeID, sparse, tree.DustMin), nil
 	case name == "SPLIT":
 		return FullSplitScript(depth, sparse, tree.DustMin), nil
+	case name == "CLAIM_M" || name == "CLAIM_HM":
+		rk := goldenReclaimKey()
+		return FullMergeScript(depth, treeID, name == "CLAIM_HM", &rk, tree.DustMin), nil
+	case name == "RECLAIM_1":
+		return FullReclaimScript(depth, goldenReclaimKey(), sparse), nil
+	case strings.HasPrefix(name, "REWRITE_XR_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_XR_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullRewriteReclaimScript(depth, n, key, goldenReclaimKey(), true), nil
+	case strings.HasPrefix(name, "REWRITE_R_"):
+		if _, err := fmt.Sscanf(name, "REWRITE_R_%d", &n); err != nil {
+			return nil, err
+		}
+		return FullRewriteReclaimScript(depth, n, key, goldenReclaimKey(), false), nil
 	case name == "DETACH_2_HOST":
 		// A channel-hosting parent (exact payouts, CLAIM^h, DETACH_2):
 		// its DETACH_2 embeds that option set compiled at depth 2.
@@ -612,5 +641,48 @@ func TestFullAllScripts(t *testing.T) {
 		if got := hex.EncodeToString(MustAssemble(toks, ModeC2)); got != want.Hex {
 			t.Errorf("FULL/S/D8/%s differs from golden", name)
 		}
+	}
+}
+
+// TestFullPendingOptions checks the pending-leaf receive options (spec 6.2,
+// 7.5.4, 7.9 rule 8, 7.11): the order Scripts emits them in, which is
+// tools/layertree_scripts.py TreeOptions.at_depth's, and each script
+// against its golden vector where one exists.
+func TestFullPendingOptions(t *testing.T) {
+	g, key := loadGolden(t)
+	treeID := goldenTreeID(t, g)
+	rk := goldenReclaimKey()
+
+	o := FullTreeOptions{
+		OperatorKey: key, TreeID: treeID, ExitKs: []int{1},
+		JoinHeights: []int{0}, JoinKs: []int{2}, Exact: true, UpdateX: true,
+		ClaimX: true, RewriteHeights: []int{0, 1, 2}, RewriteX: true,
+		ReclaimKey: &rk, ClaimM: true, ClaimHM: true,
+	}
+	var names []string
+	for _, s := range o.Scripts(4) {
+		names = append(names, s.Name)
+		switch s.Name {
+		case "RECLAIM_1", "CLAIM_M", "CLAIM_HM", "REWRITE_R_2", "REWRITE_XR_2":
+			fullCheckScript(t, g, "FULL/D/D4/"+s.Name, s.Tokens)
+		}
+	}
+	want := "EXIT_1 JOIN_0 JOINK_2 UPDATE_X CLAIM_X RECLAIM_1 CLAIM_M CLAIM_HM " +
+		"REWRITE_R_1 REWRITE_XR_1 REWRITE_R_2 REWRITE_XR_2"
+	if got := strings.Join(names, " "); got != want {
+		t.Fatalf("pending option set is %q, want %q", got, want)
+	}
+
+	// A sparse tree keeps RECLAIM_1 and drops the dense-only merges.
+	o.Sparse = true
+	names = names[:0]
+	for _, s := range o.Scripts(8) {
+		names = append(names, s.Name)
+		if s.Name == "RECLAIM_1" {
+			fullCheckScript(t, g, "FULL/S/D8/RECLAIM_1", s.Tokens)
+		}
+	}
+	if got := strings.Join(names, " "); got != "EXIT_1 JOIN_0 JOINK_2 UPDATE_X CLAIM_X RECLAIM_1" {
+		t.Fatalf("sparse pending option set is %q", got)
 	}
 }
