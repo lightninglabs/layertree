@@ -3,8 +3,8 @@
 *An informative page on `JOIN_h`, the transition that adds members to a
 tree, and on who has to trust whom when it runs. Costs follow the model
 of `design/cost-comparison.md`: the measured sizes in
-`spec/scripts/sizes.md` plus the 946-weight-unit skeleton of
-`spec/fee-analysis.md`. Section numbers refer to `spec/layertree.md`.*
+`spec/scripts/sizes.md` plus the skeleton of `spec/fee-analysis.md` (774 weight units for a
+transition with no payout, such as a join). Section numbers refer to `spec/layertree.md`.*
 
 ## What a graft is
 
@@ -19,8 +19,8 @@ signature, `r` and `m`. Nothing below height `h` appears on-chain.
 
 The script walks only the `D - h` levels above the slot, at about 32
 vbytes a level, so a bigger cohort is a cheaper transaction. At `D = 16`
-a single leaf (`JOIN_0`) costs 980 vbytes, four (`JOIN_2`) cost 915, 256
-(`JOIN_8`) cost 722, and 1,024 (`JOIN_10`) cost 657. The script for
+a single leaf (`JOIN_0`) costs 937 vbytes, four (`JOIN_2`) cost 872, 256
+(`JOIN_8`) cost 679, and 1,024 (`JOIN_10`) cost 614. The script for
 `JOIN_h` depends only on `D - h`, so `JOIN_8` at `D = 16` has the same
 script as the measured `JOIN_0` at `D = 8`, and the witness differs by at
 most a byte of direction bits per level. Each height is its own tapleaf,
@@ -38,8 +38,8 @@ costs about 557 vbytes (11). `JOINK_K` is the batching form of the
 sparse profile, which cannot graft. A sparse leaf's position is a hash of its owner key and
 nonce, so a cohort's leaves land at unrelated positions and never fill an
 aligned subtree together. The sparse profile therefore has `JOIN_0` only,
-at 1,644 vbytes for one leaf at `D = 32`, and `JOINK_2` brings that to
-1,432 per leaf (`design/tree-comparison.md`).
+at 1,601 vbytes for one leaf at `D = 32`, and `JOINK_2` brings that to
+1,411 per leaf (`design/tree-comparison.md`).
 
 ## What the covenant checks, and what it does not
 
@@ -158,24 +158,24 @@ own part of the cohort freezes only its own money.
 
 | Graft at `D = 16` unless noted | Members | Transaction vbytes | Per member, operator-funded | Per member, member-funded |
 |---|---|---|---|---|
-| `JOIN_0` | 1 | 980 | 980 | about 1,040 |
-| `JOIN_2` | 4 | 915 | 229 | about 290 |
-| `JOIN_4` | 16 | 851 | 53 | about 110 |
-| `JOIN_6` | 64 | 786 | 12.3 | about 70 |
-| `JOIN_8` | 256 | 722 | 2.8 | about 61 |
-| `JOIN_10` | 1,024 | 657 | 0.64 | about 59 |
-| Sparse `JOIN_0`, `D = 32` | 1 | 1,644 | 1,644 | about 1,700 |
-| Sparse `JOINK_2`, `D = 32` | 2 | 2,864 | 1,432 | about 1,490 |
+| `JOIN_0` | 1 | 937 | 937 | about 995 |
+| `JOIN_2` | 4 | 872 | 218 | about 280 |
+| `JOIN_4` | 16 | 808 | 51 | about 110 |
+| `JOIN_6` | 64 | 743 | 11.6 | about 70 |
+| `JOIN_8` | 256 | 679 | 2.7 | about 61 |
+| `JOIN_10` | 1,024 | 614 | 0.60 | about 59 |
+| Sparse `JOIN_0`, `D = 32` | 1 | 1,601 | 1,601 | about 1,660 |
+| Sparse `JOINK_2`, `D = 32` | 2 | 2,821 | 1,411 | about 1,470 |
 | One P2TR output in an on-chain batch | | | 43 | |
 | Channel open in its own transaction | | | 154 | |
 
 The `JOIN_0` and `JOIN_2` rows at `D = 16` are measured. The others use
 the measured row with the same number of levels: `JOIN_4` is `JOIN_0` at
 `D = 12`, `JOIN_6` is `JOIN_2` at `D = 12`, `JOIN_8` is `JOIN_0` at
-`D = 8`, and `JOIN_10` is `JOIN_2` at `D = 8`. The skeleton of 946 weight
-units already contains one fee input, a change output and one 43-vbyte
-payout, so the operator's funding input is inside the transaction figure,
-and a join, which has no payout, is overstated by that output. The
+`D = 8`, and `JOIN_10` is `JOIN_2` at `D = 8`. The skeleton of 774 weight
+units (spec 11, a transition with no payout) already contains one fee
+input and a change output, so the operator's funding input is inside the
+transaction figure. The
 member-funded column adds 58 vbytes per member and leaves change out.
 
 An operator-funded cohort of 256 costs each member under three vbytes,
@@ -242,7 +242,7 @@ operator must retire the voucher by advancing `seq`. When one bond leaf
 backs many vouchers, one `UPDATE` of that leaf retires them all and the
 operator reissues the ones not yet settled. When each recipient has a
 dedicated credit leaf, as `design/receive.md` recommends, retiring is one
-`UPDATE` per leaf, 1,073 vbytes each at `D = 16`, unless the leaves sit in
+`UPDATE` per leaf, 1,030 vbytes each at `D = 16`, unless the leaves sit in
 one subtree and a rewrite advances them together. Until the voucher is
 retired, the operator carries the double-payment risk, not the recipient.
 
@@ -293,9 +293,9 @@ The graft transaction has two inputs and two outputs.
 | Output 0 | `TREE_SPK(r', m)` for `S + 25,600,000` | 43 vbytes |
 | Output 1 | the operator's change | 43 vbytes |
 
-Under the fee model the transaction is 722 vbytes; built exactly as in the
+Under the fee model the transaction is 679 vbytes; built exactly as in the
 table, with a P2TR funding input and P2TR change and no payout, it is
-about 680. At 10 sat/vB that is about 7,000 satoshis, under 30 per member.
+about 680. At 10 sat/vB that is about 6,800 satoshis, under 27 per member.
 
 The operator sends each member their leaf, the 8 siblings inside the
 subtree, the 8 siblings above it, and the transaction id. Once the

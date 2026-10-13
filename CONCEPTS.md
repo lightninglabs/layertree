@@ -173,8 +173,8 @@ Hashing the interior once instead of once per leaf means the per-leaf cost
 
 The same asymmetry works on the way in. A graft walks only the levels
 above the slot it fills, so a bigger cohort is a cheaper transaction: at
-depth 16, one member costs 980 vB, 256 members 722 vB, and 1,024 members
-657 vB. The covenant does not look inside the grafted subtree, which is why
+depth 16, one member costs 937 vB, 256 members 679 vB, and 1,024 members
+614 vB. The covenant does not look inside the grafted subtree, which is why
 the whole cohort is one price. Each cohort height is its own script. The
 reference taptree carries only the single-member and four-member grafts,
 and a deployment that wants larger cohorts compiles those heights in when
@@ -339,7 +339,7 @@ before and after, sign only the positions they change, and exit, join,
 rotate keys or settle balances among themselves in one transaction. Sixty
 four owners who all leave pay 162 vB each, four more than the operator's
 sweep, a cohort that rewrites every balance pays about 148 vB per leaf
-against 1,073 for one `UPDATE` each, and a leaf the rewrite leaves alone
+against 1,030 for one `UPDATE` each, and a leaf the rewrite leaves alone
 costs about 92, published once with a one-byte marker. `DETACH_h` (7.10) moves a
 cohort into its own tree output for about 780 vB (621 under CCV), after
 which each exit pays the shorter path and the cohort has its own mempool
@@ -352,7 +352,7 @@ buy their balances off-chain. When each member funds their own leaf,
 every member adds an input of about 58 vB and most of the saving is gone.
 
 **Moving value is free.** It happens off-chain, in channel leaves or by
-voucher. Rewriting a leaf on-chain costs 1,073 vB, so the design only
+voucher. Rewriting a leaf on-chain costs 1,030 vB, so the design only
 works if payments do not do that.
 
 The fair comparison is lifetime bytes per member, entry plus exit, and it

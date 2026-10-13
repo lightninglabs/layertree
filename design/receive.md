@@ -122,7 +122,7 @@ leaves for the recipients whose credit has accumulated, at about one
 vbyte per recipient, and the recipients' vouchers are replaced by leaves
 they can exit from alone. The graft itself does not retire the vouchers:
 each credit leaf's `seq` must still advance, which today is one `UPDATE`
-per credit leaf (1,073 vbytes at `D = 16`), or about 133 vbytes per
+per credit leaf (1,030 vbytes at `D = 16`), or about 133 vbytes per
 recipient (149 under `^x`) when the cohort rewrite `REWRITE_h` of spec
 7.9 advances a whole subtree of credit leaves in one transaction. Until a
 voucher is retired the operator, not the recipient, carries the risk of
@@ -138,8 +138,8 @@ what makes the off-chain settlement safe to accept.
 | Minimum receivable amount | the VTXO floor; below it, a ledger credit | none on what can be received; `DUST_MIN` (spec 6.2, 7.5 rule 6, 330 sat recommended) on what can be redeemed, so sub-floor amounts accumulate in the voucher until they reach it |
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
 | Funding the receive capacity | none on-chain: the swap server funds the VTXO or books a ledger credit | the operator tops up each credit leaf as credit accrues, by amount-only `REWRITE_h^x`, about 122 vbytes per position batched per cohort; capacity funded ahead of the vouchers is the recipient's on every unilateral path |
-| Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,073 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
-| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,678 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
+| Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,030 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
+| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,636 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
 
@@ -159,7 +159,7 @@ there.
 
 The entry row deserves its own paragraph, because it is where the design
 is cheapest. A dense graft (`JOIN_h`) admits a whole cohort for the cost
-of the levels above its subtree, about 657 vbytes for 1,024 slots at
+of the levels above its subtree, about 614 vbytes for 1,024 slots at
 `D = 16`, and the covenant requires only that the slot was empty and the
 new sum is funded. When the operator funds the graft from one of its own
 inputs, the whole cohort costs that one input, which the fee model already
@@ -183,16 +183,16 @@ trust model, the funding modes and their costs.
 
 ## Making redemption cheaper
 
-The roughly 1,678 vbytes is the FULL tier at `D = 16` with no help, and
+The roughly 1,636 vbytes is the FULL tier at `D = 16` with no help, and
 it is large for a structural reason: a `CLAIM^x` proves two positions,
 the source leaf and the claim slot, so it carries two full paths of
 sixteen unrolled levels each, two leaves, the voucher signature and the
 exit-key signature. A hash-locked `CLAIM^h` carries the preimage in place
-of the exit-key signature and measures 1,670 vbytes.
+of the exit-key signature and measures 1,628 vbytes.
 
 The CCV tier reduces it a little: with `r` and `m` gone from the
-witness it carries `CLAIM^h` at 3,495 bytes of script and 1,658 of
-witness at `D = 16`, 1,557 vbytes against the FULL tier's 1,670.
+witness it carries `CLAIM^h` at 3,498 bytes of script and 1,658 of
+witness at `D = 16`, 1,515 vbytes against the FULL tier's 1,628.
 
 The largest saving needs no new opcode. A credit leaf dedicated to one
 recipient can have its sibling slot reserved for that recipient's claim

@@ -182,7 +182,7 @@ about 151. A position that does not change publishes its leaf once, with
 the one-byte marker of spec 7.9 in place of the second copy: 118 bytes
 of witness, about 92 vbytes. Over a whole transaction a 64-leaf cohort
 that rewrites every balance pays about 148 vbytes per leaf, against
-1,073 for an `UPDATE` each [the estimate was 120], and one that leaves
+1,030 for an `UPDATE` each [the estimate was 120], and one that leaves
 together pays 162 per leaf, four more than the operator's sweep. The
 changed position is more expensive than estimated because it is
 published twice, as old and new element, and because its `REWRITE_STEP`

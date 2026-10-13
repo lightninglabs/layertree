@@ -131,8 +131,8 @@ a cheaper transaction, and the covenant does not verify the subtree's contents.
 
 ![Entry cost per member against cohort size](figures/join-amortisation.svg)
 
-At `D = 16` a four-member graft costs 915 vbytes, a 256-member graft 722,
-and a 1,024-member graft 657. Per member that is under 1 vbyte at a
+At `D = 16` a four-member graft costs 872 vbytes, a 256-member graft 679,
+and a 1,024-member graft 614. Per member that is under 1 vbyte at a
 thousand members, against 43 vbytes for one output in an on-chain batch
 and 154 for a channel open in its own transaction. The value grafted in
 has to come from somewhere. The fee model's skeleton already counts one
@@ -147,13 +147,13 @@ Two caveats bound the graft. Members must verify their own path inside the
 subtree before funding, because a grafted node with no real tree behind
 it freezes its value (spec 9.2, and the Lean model's grounding hypothesis).
 And the sparse profile cannot graft at all. A sparse join is one leaf for
-1,644 vbytes, because its position is a hash of the owner's key and the
+1,601 vbytes, because its position is a hash of the owner's key and the
 script walks all 32 levels.
 
 ## Moving value: on-chain transitions are the wrong path
 
-An on-chain `UPDATE` at `D = 16` costs 1,073 vbytes and a voucher
-redemption with `CLAIM` costs 1,661, against 111 for a bare spend. If
+An on-chain `UPDATE` at `D = 16` costs 1,030 vbytes and a voucher
+redemption with `CLAIM` costs 1,618, against 111 for a bare spend. If
 members moved value by rewriting leaves on-chain, the shared UTXO would
 cost ten times more per move than separate UTXOs. That comparison is the
 one a sceptic makes, and on its own terms it is right.
@@ -164,7 +164,7 @@ only membership changes and the exercise of exit rights.
 | 1,000 members each move value 1,000 times | On-chain bytes |
 |---|---|
 | Bare UTXOs, one spend per move | 111 MvB |
-| LayerTree, one on-chain `UPDATE` per move | 1,073 MvB |
+| LayerTree, one on-chain `UPDATE` per move | 1,030 MvB |
 | Lightning channels: 1,000 opens, moves off-chain, 1,000 cooperative closes | about 300 kvB |
 | Ark: 1,000 boardings in rounds, moves off-chain, periodic round transactions | about 90 kvB plus one round transaction per refresh |
 | LayerTree: one 1,024-slot graft, moves off-chain in channel leaves or vouchers | about 1 kvB |
@@ -186,8 +186,8 @@ old leaves and new leaves, fold each once, and authorise with one
 signature per leaf or one aggregate signature. Its per-leaf cost would be
 close to the sweep's, roughly 100 vbytes, which is parity with a bare spend
 in one transaction instead of many. It is built as `REWRITE_h` (spec
-7.9): about 144 vbytes per changed leaf when all 64 positions of a
-height-6 subtree rotate keys, against 1,073 for an `UPDATE` each. The
+7.9): about 148 vbytes per changed leaf when all 64 positions of a
+height-6 subtree rotate keys, against 1,030 for an `UPDATE` each. The
 spec left the aggregate-key version out because MuSig2 nonce
 coordination reintroduces the interactive rounds the design otherwise
 avoids; the per-leaf-signature version has no such obstacle.
@@ -202,7 +202,7 @@ with `CLAIM` or, more often, never redeems because the operator settles
 it off-chain; a sender who knows the recipient can use `SPLIT` (PR #10);
 and channel leaves move value as HTLC forwards with no transition at all.
 
-An `UPDATE` at `D = 16` is 1,073 vbytes because it carries one path, two
+An `UPDATE` at `D = 16` is 1,030 vbytes because it carries one path, two
 116-byte leaves, two signatures, and the same unrolled script as an exit.
 Four things reduce it, in increasing order of change.
 
@@ -255,7 +255,7 @@ The non-taproot anchor commitment of BOLT 3 is 1,124 weight units,
 member who leaves alone pays 1,020 vbytes for the first exit from a dense
 `D = 16` tree (665 for each further exit in an `EXIT_K`), about twice a
 channel's 530-vbyte force close and about 1.5 times its 684-vbyte
-lifetime; a voucher redemption with `CLAIM` is 1,661. A channel leaf
+lifetime; a voucher redemption with `CLAIM` is 1,618. A channel leaf
 inside the tree (Appendix C) costs its `EXIT_1` plus an update, a
 settlement and their two anchor children, about 1,681 vbytes in all and
 about 146 blocks, against 684 for a channel with its own funding output.
@@ -270,7 +270,7 @@ member leaves.
 | vbytes per member, enters in a batch | Never exits alone | Exits in a batch | Exits alone |
 |---|---|---|---|
 | LayerTree dense `D = 16` | 3 | 161 | 1,023 |
-| LayerTree sparse `D = 32` | 1,644 | 3,108 | 3,281 |
+| LayerTree sparse `D = 32` | 1,601 | 3,065 | 3,238 |
 | Lightning channel | 197 | 197 | 573 |
 | Ark round tree `D = 16` | 86 | 86 | 2,554 |
 | Bare on-chain UTXO | 154 | 154 | 154 |
@@ -341,7 +341,7 @@ witness saving of about 580 bytes does not cover the script cost of about
 | Levels | 16 | 32 |
 | `EXIT_1` script and witness | 2,101 and 902 | 5,147 and 326 |
 | `EXIT_1` vbytes | 1,020 | 1,637 |
-| Single join | 980 | 1,644 |
+| Single join | 937 | 1,601 |
 | Cohort graft | yes, `JOIN_h` | no |
 | Cohort sweep | yes, `EVICT_SUBTREE_h` | no |
 | Slot allocation | operator | none, derived from the key |
@@ -372,9 +372,9 @@ and radix 2 is optimal.
 - A solo exit is 1,020 vbytes against 111 for a bare spend and 530 for a
   Lightning force close with its anchor child and sweep. The proof is the
   price of the shared output.
-- An on-chain per-leaf update is 1,073 vbytes. Moves must be off-chain or
+- An on-chain per-leaf update is 1,030 vbytes. Moves must be off-chain or
   batched; the batched rewrite `REWRITE_h` brings a cohort's update to
-  about 144 vbytes per changed leaf.
+  about 148 vbytes per changed leaf.
 - The sparse profile costs about 1.8 times the dense one (1.7 to 2.8 over `D = 32` to `64`) and cannot graft
   or sweep.
 - Uncoordinated exits serialise through one output at about 25
