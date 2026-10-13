@@ -7,19 +7,19 @@
 \begin{tikzpicture}[
   font=\scriptsize,
   box/.style={draw, rounded corners=1pt, align=center, inner sep=2.5pt},
-  pred/.style={box, minimum width=34mm, minimum height=9mm, fill=black!6},
+  pred/.style={box, minimum width=34mm, minimum height=8mm, fill=black!6},
   arr/.style={-{Latex[length=1.6mm]}, thin},
   lab/.style={font=\tiny\itshape, text=black!70}
 ]
-\node[box, minimum width=23mm, minimum height=14mm] (in) at (0,0.7) {input 0\\ tree output\\ $(\TreeSpk(r,m),\ S)$};
-\node[box, dashed, minimum width=23mm] (fund) at (0,3.2) {other inputs:\\ funding, fees};
-\node[pred] (A) at (4.5,3.2) {$\Phi_{\tr{JOIN}}$, $\Phi_{\tr{UPDATE}}$, $\Phi_{\tr{CLAIM}}$\\ value stays in the tree};
-\node[pred] (D) at (4.5,1.8) {$\Phi_{\tr{RECLAIM}}$\\ a leaf is freed, unpaid};
+\node[box, minimum width=23mm, minimum height=12mm] (in) at (0,0.8) {input 0\\ tree output\\ $(\TreeSpk(r,m),\ S)$};
+\node[box, dashed, minimum width=23mm] (fund) at (0,2.6) {other inputs:\\ funding, fees};
+\node[pred] (A) at (4.5,2.6) {$\Phi_{\tr{JOIN}}$, $\Phi_{\tr{UPDATE}}$, $\Phi_{\tr{CLAIM}}$\\ value stays in the tree};
+\node[pred] (D) at (4.5,1.4) {$\Phi_{\tr{RECLAIM}}$\\ a leaf is freed, unpaid};
 \node[pred] (B) at (4.5,0.2) {$\Phi_{\tr{EXIT}}$, $\Phi_{\tr{EVICT\_SUBTREE}}$, $\Phi_{\tr{REWRITE}}$\\ leaves are paid out};
-\node[pred] (C) at (4.5,-1.4) {$\Phi_{\tr{DETACH}}$\\ a subtree gets its own output};
-\node[box, minimum width=27mm, minimum height=40mm] (o0) at (9.3,1.65) {output 0\\ tree output\\ $(\TreeSpk(r',m),\ S')$\\[2pt] a tree again, or\\ free if $r' = \Emp_D$};
-\node[box, minimum width=27mm] (pay) at (9.3,-1.0) {outputs $1,\dots,K$\\ $\Ptr{\ell.\xk}$, $\ell.\amt$};
-\node[box, minimum width=27mm] (o1) at (9.3,-2.5) {output 1 (\tr{DETACH})\\ $(\TreeSpk(R_h,m_h),\ \mathsf{sum}_h)$};
+\node[pred] (C) at (4.5,-1.0) {$\Phi_{\tr{DETACH}}$\\ a subtree gets its own output};
+\node[box, minimum width=27mm, minimum height=33mm] (o0) at (9.3,1.3) {output 0\\ tree output\\ $(\TreeSpk(r',m),\ S')$\\[2pt] a tree again, or\\ free if $r' = \Emp_D$};
+\node[box, minimum width=27mm] (pay) at (9.3,-0.75) {outputs $1,\dots,K$\\ $\Ptr{\ell.\xk}$, $\ell.\amt$};
+\node[box, minimum width=27mm] (o1) at (9.3,-1.95) {output 1 (\tr{DETACH})\\ $(\TreeSpk(R_h,m_h),\ \mathsf{sum}_h)$};
 \draw[arr, dashed] (fund) -- node[above, lab] {increases} (A.west |- fund.east);
 \foreach \p in {A,D,B,C}{\draw[arr] (in.east) -- (\p.west);}
 \foreach \p in {A,D,B}{\draw[arr] (\p.east) -- (\p.east -| o0.west);}

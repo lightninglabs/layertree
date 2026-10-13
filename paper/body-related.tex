@@ -22,12 +22,4 @@ balance against a committed root. Proofs of
 liabilities~\cite{gpol,brokensolvency} use Merkle-sum trees, whose
 per-child sums block the inflation a total-only node admits.\iffullversion{} None of these states its guarantees as a
 functionality; we build on the ledger model of~\cite{bmtz17} and the
-channel functionalities of~\cite{genchannels,gscn}.\fi{} \emph{Components.}
-The Merkle-sum sparse Merkle tree is Taproot Assets'~\cite{mssmt},
-truncated and verified in script; the data-tweaked key follows
-BIP-443~\cite{bip443}; the generator-key signature is
-Poelstra's~\cite{catschnorr}\iffullversion, and its ECDSA analogue has been used on
-Bitcoin Cash as \texttt{OP\_PUSH\_TX}. Liquid's tapscript~\cite{elements} has \op{CAT}, CSFS, per-field
-introspection and 64-bit arithmetic, so MID is close to expressible
-there; Simplicity~\cite{simplicity} would express the predicates
-directly\fi.
+channel functionalities of~\cite{genchannels,gscn}.\fi{} \iffullversion\emph{Components.} The Merkle-sum sparse Merkle tree is Taproot Assets'~\cite{mssmt}, truncated and verified in script; the data-tweaked key follows BIP-443~\cite{bip443}; the generator-key signature is Poelstra's~\cite{catschnorr}, and its ECDSA analogue has been used on Bitcoin Cash as \texttt{OP\_PUSH\_TX}. Liquid's tapscript~\cite{elements} has \op{CAT}, CSFS, per-field introspection and 64-bit arithmetic, so MID is close to expressible there; Simplicity~\cite{simplicity} would express the predicates directly.\fi

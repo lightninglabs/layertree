@@ -8,33 +8,17 @@ and every script path needs a proof against the committed root plus the
 affected owner's signature, the evictor's after the lease (paying the
 leaf in full), or the operator's for operations that only add value or
 move a cohort intact.
-Table~\ref{tab:trust} lists each party's powers.
+Table~\ref{tab:trust} (Appendix~\ref{app:ops}) lists each party's powers: the operator can refuse to co-sign, graft, evict after a lease (paying in full) and detach a cohort, but cannot move or reduce another leaf, delay an exit beyond [C] or freeze value it did not graft; an owner can always exit, and anyone can redeem a valid voucher or relay a transition.
 
-\begin{table}[tbp]
-\centering
-\caption{Who can do what (spec 10.1). ``Carve'' is \tr{SPLIT} or a redeemed voucher.}
-\label{tab:trust}
-\setlength{\tabcolsep}{3pt}\scriptsize
-\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\begin{tabular}{@{}L{1.3cm}L{5.0cm}L{5.0cm}@{}}
-\toprule
-party & can & cannot \\
-\midrule
-Operator & refuse to co-sign; graft leaves, including ones it funds; evict a leaf after its lease, paying it in full, with everything carved from it; issue vouchers on its own leaves; detach a cohort; fill a cohort's empty positions, stalling partial-balance vouchers & move or reduce another leaf; delay an exit beyond [C]; freeze value it did not graft and fund; change the taptree, or unilaterally a lease or a detached cohort's rules, keys or balances, other than raising an amount \\
-Owner & exit at any time; co-sign updates; issue vouchers against its leaf; carve its leaf, into any empty position (blocking a graft there; a later lease than the cohort's delays its sweep) & change another leaf; withdraw more than its amount; carve a leaf with another evictor or a later lease than its own \\
-Anyone & redeem a valid voucher; relay transitions; exit a leaf whose \tr{EXIT}$^{t}$ authorisation it holds & trigger an owner's exit without one; create leaves; alter amounts \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-\paragraph{What a member does.} A member stores its leaf and path and
-follows every spend of the tree output; each witness carries the path it
-used, so the member updates its own path from the chain alone and needs
-nothing else to exit. It verifies its path before funding a join
-(\S\ref{sec:parties}) and the source before accepting a voucher
-(\S\ref{sec:holder-risk}), keeps a confirmed fee coin for every
-unilateral path but FULL's fee-from-payout exit (Appendix~\ref{app:impl}), and must be online to exit
-unless a tower holds its \tr{EXIT}$^{t}$ authorisation (\S\ref{sec:leaving}).
+
+\paragraph{What a member does.} A member follows every spend of the tree
+output and updates its own path from the witness alone (spec~9.7),
+verifies its path before funding a join (Algorithm~\ref{alg:accept}) and
+the source before accepting a voucher (\S\ref{sec:holder-risk}), keeps a
+confirmed fee coin for every unilateral path but FULL's fee-from-payout
+exit (Appendix~\ref{app:impl}), and must be online to exit unless a tower
+holds its $\tr{EXIT}^{t}$ authorisation (Algorithm~\ref{alg:exit}).
 
 \paragraph{Liveness.}\label{sec:liveness} Every operation spends and
 recreates one output, so an honest exit can be overtaken by conflicting

@@ -97,6 +97,7 @@ r' \gets \fold((\bar h, \bar s), \pi) \\
 \pcind \text{and } \fold(\nd{\ell_U}, \text{its path in } r') = (r', S')\text{;}\ \text{only then pay}
 }
 \end{algorithm}%
+\iffullversion
 Lines 2 to 6 are checks (a) to (d) of spec~9.2, and they are the checks the
 covenant does not make: $\Phi_{\tr{JOIN}}$ sees a hash and a sum and
 cannot tell a cohort from random bytes. Line~2 shows that input~0 is the
@@ -117,6 +118,18 @@ the check of lines 10 and 11 on the \emph{confirmed} transaction before payment;
 paying earlier trusts the operator to graft. The alternative that the
 covenant enforces is a hash-locked voucher against a leaf the operator
 already holds (spec~9.2, Algorithm~\ref{alg:swap}).
+\else
+Lines 2 to 6 are checks (a) to (d) of spec~9.2, which $\Phi_{\tr{JOIN}}$
+cannot make since it sees only a hash and a sum: the output is unspent
+(2), the slot was empty (3), $U$'s leaf folds to the grafted node along a
+subtree path of exactly $h$ levels (4), and output~0 commits to the root
+containing it (5, 6). Lines 7 and 8 add the agreed fields and the rule
+against re-joining a lineage with an owner key, nonce and $\sq$ held
+before, which would revive every exit authorisation published for that
+leaf. A member that funds an input is protected by construction (line~9);
+one that pays off-chain has nothing to sign, so lines 10 and 11 must hold
+on the \emph{confirmed} graft before it pays.
+\fi
 }
 
 % ------------------------------------------------------------------
@@ -135,6 +148,7 @@ already holds (spec~9.2, Algorithm~\ref{alg:swap}).
 \pcind\pcind\pcind \kw{if}\ \ell \text{ is gone:}\ \kw{stop};\ \kw{else}\ \kw{continue loop}
 }
 \end{algorithm}%
+\iffullversion
 Lines 2 to 4 are $\Phi_{\tr{EXIT}}$ for $K = 1$: the leaf is removed along its own
 path (check~2), output~1 pays the exit key (check~3) and output~0
 recreates the tree output (check~7); line~4 is the payout rule, in
@@ -159,6 +173,18 @@ operator first, who can fold it into its next transition (spec~9.3). An
 owner who stays in the tree after an exit built on a published
 authorisation was outbid must change the leaf to void it (spec~7.2
 rule~7).
+\else
+Lines 2 to 4 build $\Phi_{\tr{EXIT}}$ for $K = 1$, and line~5 signs all
+outputs, so that a relayer cannot divert the shortfall or the fee slack.
+The signature commits to the tree outpoint, which every transition
+changes, so a plain exit needs the owner online to rebuild it; under
+$\tr{EXIT}^{t}$ the owner signs $\tau$ once and a tower runs the algorithm
+with its own fee input (spec~7.2 rule~7, 9.3). Lines 6 to 8 reflect that a
+conflicting spend that confirms first forces a rebuild against the new
+root (spec~10.5), within $\Dl$ under~[C]; \fn{Follow} updates the path
+from that spend's witness alone (spec~9.7). The spec fixes no fee-bumping
+policy and advises asking the operator for a cooperative exit first.
+\fi
 }
 
 % ------------------------------------------------------------------
@@ -408,6 +434,7 @@ R\text{:}\ \text{release } \rho \text{ (one preimage at a time per pair); hand }
 O\text{:}\ \kw{on}\ \text{learning } \rho\text{:}\ \text{settle the inbound HTLC; nothing reaches the chain}
 }
 \end{algorithm}%
+\iffullversion
 This is the construction of spec~9.6.3. The recipient holds a
 \emph{receive pair}: a pending leaf $P$ at an even position, owned by the
 operator, whose exit key is the recipient's, whose evictor is
@@ -436,6 +463,21 @@ only $R$ holds and publishing it on-chain hands it to $O$; after it $R$
 can redeem alone. The spec fixes none of the invoice's expiry
 arithmetic beyond rule~4 (design/pending-receive.md derives a minimum
 final delta in terms of the window length).
+\else
+The recipient holds a \emph{receive pair}: a pending leaf $P$ (owned by
+the operator, exit key the recipient's, evictor $\mathsf{RECLAIM\_KEY}$,
+deadline $T$) and its sibling, the landing leaf $L$, which the recipient
+owns (spec~9.6.3). Line~2 keeps the HTLC alive past a preimage published
+late; lines 3 and 4 leave headroom, since a voucher that drains $P$
+exactly is blocked by an amount-only top-up that leaves a sub-dust
+residual. Lines 5 and 6 sign a hash-locked merge voucher that raises $L$ to
+the absolute level $X$ and lowers $P$ without advancing its $\sq$, so it
+voids nothing and an older, lower voucher is a no-op. Lines 7 to 9 verify
+against the \emph{confirmed} tree before anything is released, and line~10
+releases one preimage at a time per pair. Before line~10 the operator has
+signed nothing it can lose, since $V$ needs a preimage that only $R$
+holds; after it $R$ can redeem alone.
+\fi
 }
 
 % ------------------------------------------------------------------
@@ -452,6 +494,7 @@ final delta in terms of the window length).
 \kw{after}\ T\text{:}\ \text{run } \fn{Reclaim} \text{ on every } P \text{ of the window}
 }
 \end{algorithm}%
+\iffullversion
 Line~1 is the operator's duty under rule~3 of spec~9.6.3: before
 $T - \Dl$ it should raise $L$ to the level the recipient has settled in
 the window, so that the recipient's vouchers move only what is still in
@@ -470,6 +513,19 @@ would leave the operator paying for a payment it never received. The
 spec leaves open the length of a window, how many pairs a recipient
 holds for payments across a deadline, and how the operator learns which
 vouchers are outstanding.
+\else
+Lines 1 to 4 are rule~3 of spec~9.6.3: before $T - \Dl$ the operator
+raises $L$ to the settled level, by a voucher it signs itself or by the
+transfer of the reclaim form of $\Phi_{\tr{REWRITE}}$, which needs the
+operator's signature alone since it moves value only from $P$ into the
+sibling that the same key owns and exits to; one transaction settles a
+cohort of recipients. The recipient does not rely on it: if $L$ is short
+at $T - \Dl$, the recipient or a tower holding the latest voucher and the
+preimage must redeem, the one liveness duty of the construction. Lines 5
+and 6 are rule~4: until the reclaim of $P$ confirms, the recipient can
+still redeem and publish the preimage, so an inbound HTLC with an
+outstanding voucher stays open.
+\fi
 }
 
 % ------------------------------------------------------------------

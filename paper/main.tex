@@ -8,19 +8,26 @@
 %  - main.pdf, the short submission (\fullversionfalse), for developers and
 %    enthusiasts: within the 15 LNCS body pages of FC. It explains how the
 %    system works (the tree and its output), every
-%    operation in the order a member meets it (short-operations.tex), the
-%    voucher system (short-vouchers.tex), the trust model and the duties
-%    of each party (short-trust.tex), the opcode tiers, channel leaves,
-%    costs and prior work, and says in one short section what is proved.
-%    It carries no ideal functionality, simulator, Lean listings or proof
-%    appendices; its appendices hold the assumption and size tables
-%    (appendix-short.tex), the cost comparison against bare UTXOs,
+%    operation in the order a member meets it (short-operations.tex), with
+%    the composition figure, the predicate boxes of EXIT, JOIN, CLAIM and
+%    REWRITE (predicates.tex) and the Exit and AcceptLeaf algorithms
+%    (algorithms.tex), the voucher system with the Receive and
+%    SettleWindow algorithms (short-vouchers.tex), the trust model and the
+%    duties of each party (short-trust.tex), the opcode tiers, channel
+%    leaves, costs and prior work, and says in one short section what is
+%    proved. It carries no ideal functionality, simulator, Lean listings or
+%    proof appendices; its appendices hold the assumption and size tables
+%    (appendix-short.tex), the per-operation detail and the trust table
+%    (appendix-ops.tex), the cumulative vouchers, credit leaf and swap
+%    rules (appendix-vouchers.tex), the cost comparison against bare UTXOs,
 %    Lightning, Ark and transaction trees (appendix-compare.tex), and the
 %    implementer's notes: tree creation, per-party state and reorgs, the
-%    receive sequence, fee reserves, mempool and leases (appendix-impl.tex).
+%    receive sequence, fee reserves, mempool, leases and the channel
+%    deadline budget (appendix-impl.tex).
 %  - main-full.pdf, the full version (\fullversiontrue), for academics and
 %    agents: functionality first (the ideal functionality, the abstract
-%    protocol and its covenant predicates, the tiers, the UC theorem with
+%    protocol with every predicate as a box and every honest party as an
+%    algorithm (predicates.tex, algorithms.tex), the tiers, the UC theorem with
 %    inline Lean signatures, the UC proof and the channel scripts as
 %    sections, channels as composition), then the evaluation and five
 %    further sections in full-*.tex (cost comparison, profiles and radix,
@@ -139,6 +146,9 @@
 \usepackage{float}
 \floatstyle{ruled}\newfloat{algorithm}{htbp}{loa}\floatname{algorithm}{Algorithm}
 \floatstyle{plain}
+\renewcommand{\topfraction}{0.9}\renewcommand{\bottomfraction}{0.9}
+\renewcommand{\textfraction}{0.07}\renewcommand{\floatpagefraction}{0.85}
+\setcounter{topnumber}{3}\setcounter{bottomnumber}{3}\setcounter{totalnumber}{6}
 \newcommand{\amt}{\mathsf{amt}}
 \newcommand{\xk}{\mathsf{xk}}
 \newcommand{\ok}{\mathsf{ok}}
@@ -163,8 +173,9 @@
 % A predicate box: a framed figure without a caption, headed by its name.
 \newsavebox{\pbbox}
 \newenvironment{predbox}[1]{\begin{figure}[tbp]\centering\begin{lrbox}{\pbbox}%
-  \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}\footnotesize
+  \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}\iffullversion\footnotesize\else\scriptsize\fi
   \raggedright\noindent\textbf{#1}\par\smallskip}{\end{minipage}\end{lrbox}\fbox{\usebox{\pbbox}}\end{figure}}
+\input{predicates}
 \input{algorithms}
 
 \begin{document}
@@ -304,14 +315,13 @@ measured scripts with their modelled transaction costs: a $1{,}020\vB$ exit at d
 exit in the same transaction, 158 to $203\vB$ per swept leaf.
 \else
 This paper explains the design for those who would build on it: the
-tree (\S\ref{sec:howitworks}), every operation in the order a member
-meets it (\S\ref{sec:ops}), vouchers, which pay a member or receive from
-Lightning with no one's participation at redemption
-(\S\ref{sec:vouchers}), who can do what (\S\ref{sec:trust}), and, in
-Appendix~\ref{app:impl}, what an implementer stores and pays for. The
-operations compile to four tiers of proposed opcodes
-(\S\ref{sec:scripts}); we propose none, but three tiers assume opcodes
-in a tapleaf version their proposals do not define.\ifanon\else{} The elliptic-curve
+tree (\S\ref{sec:howitworks}), every operation as a predicate with the
+member's side of it as an algorithm (\S\ref{sec:ops}), vouchers and
+receiving from Lightning (\S\ref{sec:vouchers}), and who can do what
+(\S\ref{sec:trust}); Appendix~\ref{app:impl} gives what an implementer
+stores and pays for. The operations compile to four tiers of proposed
+opcodes (\S\ref{sec:scripts}); we propose none, and three tiers assume
+opcodes in a tapleaf version their proposals do not define.\ifanon\else{} The elliptic-curve
 draft~\cite{ecops} is by the author.\fi{} The ideal functionality, its
 UC proof and the Lean development are in the full version
 (\S\ref{sec:proved}).
@@ -533,7 +543,15 @@ key consents to a redemption), \tr{REWRITE}$_h$ (a subtree's published
 leaves replaced at once, each emptied leaf paid exactly to its exit key)
 and \tr{DETACH}$_h$ (a subtree moved to an output of its own).
 
-\input{predicates}
+\predNotation
+\predExit
+\predJoin
+\predUpdate
+\predClaim
+\predEvict
+\predRewrite
+\predDetach
+\predReclaim
 
 \subsection{Honest Parties}\label{sec:parties}
 
@@ -862,7 +880,7 @@ ratchet~\cite{eltoo,lnsymmetry}, zero-fee version-3
 transactions~\cite{bip431} and an ephemeral anchor~\cite{ephemeralanchor}. This needs FULL, MID or CCV.
 \fi
 
-\input{body-channel-budget}
+\iffullversion\input{body-channel-budget}\fi
 
 \iffullversion
 \paragraph{Composition conditions.} Let $\Fchan$ be a channel
@@ -954,6 +972,8 @@ model~\cite{plang}.
 \input{appendix-listings}
 \else
 \input{appendix-short}
+\input{appendix-ops}
+\input{appendix-vouchers}
 \input{appendix-compare}
 \input{appendix-impl}
 \fi

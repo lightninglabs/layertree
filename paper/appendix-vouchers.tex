@@ -1,0 +1,48 @@
+% Short version only: the voucher details that the body summarises. Text
+% moved from the vouchers section to make room for the predicate boxes
+% and algorithms; the full version carries the same material in its
+% receive section and in Appendix~\ref{app:claim}.
+\section{Vouchers in Detail}\label{app:vouchers}
+
+\subsection{Cumulative Vouchers}\label{app:cumulative}
+
+Every voucher against a source draws on the same leaf, and the first
+redemption voids the rest. An issuer that pays one recipient repeatedly
+therefore signs a \emph{cumulative} voucher for the running total against
+the same claim leaf, and re-signs it for a larger amount at each payment:
+2, then 5, then 9, one signature per payment. The recipient keeps only
+the latest and, if the issuer stops cooperating, redeems that one alone;
+a smaller one is never worth more to it, so no contest window.
+
+Settled credit is retired by advancing $\mathsf{seq}$. Once the issuer
+pays the recipient another way, it advances the source's $\mathsf{seq}$, which voids every outstanding
+voucher against it: one \tr{UPDATE} per source leaf ($1{,}030\vB$), or
+one \tr{REWRITE}$_h$ for a cohort of them (about $148\vB$ per leaf at
+$h = 6$). Until then the issuer tracks every voucher it has signed as a
+liability. Plain \tr{CLAIM} leaves a hole: anyone holding an old voucher
+can redeem it, and the issuer holds them all, so redeeming the voucher
+for 2 voids the one for 9. The credit leaf below closes it.
+
+\subsection{The Dedicated Credit Leaf}\label{app:creditleaf}
+
+\input{body-credit}
+
+\subsection{Hash-Locked Vouchers and Swaps}\label{app:hashlock}
+
+\tr{CLAIM}$^{h}$ adds a payment hash to the signed message, under its
+own tag so that the lock cannot be stripped, and requires the 32-byte
+preimage: the script hashes it into the message, so a wrong preimage
+fails as a bad signature. Paired with an HTLC or invoice on the same hash,
+it is an ordered exchange, not an atomic swap: the issuer can void the
+voucher until the redemption confirms, and script cannot give a voucher
+a deadline. Five rules (spec~9.6.2) order it.
+(1) The party the HTLC pays draws the preimage. (2) The voucher resolves
+second; no HTLC waits on a preimage that only a redemption would reveal.
+(3) The issuer leaves the source's $\mathsf{seq}$ alone from the moment
+an HTLC on the hash is offered to it until the voucher is redeemed or
+the HTLC fails. (4) No script enforces rule~3, so the holder redeems as
+soon as it learns the preimage and bears the issuer risk until that
+confirms. (5) The holder first checks that the source's lease outlasts
+the HTLC's expiry plus $\lat(q)$. Usually the HTLC settles off-chain, so
+such a swap costs at most one \tr{CLAIM}$^{h}$; it is also how a newcomer
+buys a leaf over Lightning.

@@ -246,10 +246,10 @@ gossip network; the leaf is reached through its counterparty, normally
 the operator. Its tower holds $(\mathsf{update}_n, \mathsf{settle}_n)$,
 their signatures and a funded fee coin, and, in a tree with the tower
 exit, the leaf's \tr{EXIT}$^{t}$ authorisation, which lets it start a
-close as well as finish one (spec C.9.3). The deadline budget, with the
-counterparty's stale updates in $\beta_{\mathrm{chan}}$, is in
-\S\ref{sec:channels}. A splice is one \tr{UPDATE}$^{x}$ ($1{,}048\vB$)
+close as well as finish one (spec C.9.3). A splice is one \tr{UPDATE}$^{x}$ ($1{,}048\vB$)
 that replaces the leaf's amount and exit key, with no new funding output
 and no period in which two versions of the channel are live (spec
 C.5.2); it voids the tower's authorisation, so the owner hands over a
 fresh one with the first state of the new epoch.
+
+\input{body-channel-budget}

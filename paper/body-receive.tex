@@ -27,23 +27,21 @@ HTLC then fails, retiring the voucher means advancing the credit leaf's
 $\mathsf{seq}$, which needs the recipient's exit key, so the voucher
 stays redeemable for a payment that never arrived. \else
 \paragraph{The flow.} A user receives a Lightning payment into a credit
-leaf that the operator owns and that names the user's key as exit key
-(any tier but MIN). The operator draws the preimage, so
-the payer's receipt proves that the operator was paid; the HTLC reaches
-the operator, which settles it \emph{first} and only then signs the user
-a cumulative voucher for the new running total. Nothing reaches the
-chain per payment and the user need not be online, but a voucher draws only what the credit leaf holds,
-which the operator pre-funds, recovering any excess only with the user's
-consent, or tops up at about $122\vB$ a leaf in a cohort rewrite
-(Appendix~\ref{app:impl-receive}). A hash-locked voucher issued before
-the HTLC settled would break rule~(1) of \S\ref{sec:hashlock} and, if
-the HTLC failed, could never be retired, since advancing the credit
-leaf's $\mathsf{seq}$ needs the recipient's exit key. \fi
+leaf that the operator owns and that names the user's key as exit key (any
+tier but MIN). The operator draws the preimage and settles the payer's HTLC
+\emph{first}, only then signing the user a cumulative voucher for the new
+running total. Nothing reaches the chain per payment and the user need not
+be online, but a voucher draws only what the credit leaf holds, which the
+operator pre-funds or tops up at about $122\vB$ a leaf in a cohort rewrite
+(Appendix~\ref{app:impl-receive}). A hash-locked voucher issued before the
+HTLC settled would break the first swap rule and, if the HTLC failed, could
+never be retired, since advancing the credit leaf's $\mathsf{seq}$ needs the
+recipient's exit key. \fi
 Settling first leaves
 the recipient exposed for one payment, the one the operator has settled
 and not yet vouched for. A plain voucher cannot close that gap, being a
 cheque and not escrow, but a \emph{pending-leaf receive} can
-(\iffullversion\S\ref{sec:pending}\else Appendix~\ref{app:impl-receive}\fi):
+(\iffullversion\S\ref{sec:pending}\else below, and Appendix~\ref{app:impl-receive}\fi):
 the voucher is hash-locked and raises a leaf the recipient owns, and the
 operator can take back what the recipient never claimed.
 
@@ -66,14 +64,12 @@ $2{,}656\vB$, or 26{,}560\,sat at 10\,sat/vB, below which the fallback
 costs more than it recovers (Appendix~\ref{app:eval}).
 \else
 \paragraph{Settlement.} Normally the voucher is never redeemed: the
-operator pays the recipient a leaf in its next cohort graft (under
-$3\vB$ a member) and retires the voucher by one \tr{UPDATE}$^{x}$ that
-the recipient co-signs ($1{,}048\vB$) or a cohort \tr{REWRITE}$_h^{x}$
-(about $164\vB$ a leaf, signature included). If the operator stops
-cooperating, the
-recipient redeems its latest voucher alone with one \tr{CLAIM}$^{x}$
-($1{,}636\vB$, no timelock) and leaves by the exact exit, paying both
-fees from a confirmed coin of its own: $2{,}656\vB$, or 26{,}560\,sat at
-10\,sat/vB, below which the fallback costs more than it recovers
-(Appendix~\ref{app:impl-fees}).
+operator pays the recipient a leaf in its next cohort graft (under $3\vB$ a
+member) and retires the voucher by one \tr{UPDATE}$^{x}$ that the recipient
+co-signs ($1{,}048\vB$) or a cohort \tr{REWRITE}$_h^{x}$ (about $164\vB$ a
+leaf). If the operator stops cooperating, the recipient redeems its latest
+voucher with one \tr{CLAIM}$^{x}$ ($1{,}636\vB$, no timelock) and leaves by
+the exact exit, paying both fees from a confirmed coin: $2{,}656\vB$, or
+26,560\,sat at 10\,sat/vB, below which the fallback costs more than it
+recovers (Appendix~\ref{app:impl-fees}).
 \fi

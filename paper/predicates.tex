@@ -1,11 +1,11 @@
 % The transition predicates as boxes, in the style of the compliance
 % predicates of Compact Shielded CSV: witness, constants, numbered checks,
-% each followed by a gloss and the spec rule it implements. Input from
-% main.tex: inside the section on the abstract protocol in the full
-% version, inside "Operations" in the short one. The full version has a
-% box per transition; the short one has EXIT, JOIN, CLAIM and REWRITE.
+% each followed by a gloss and the spec rule it implements. Each box is a
+% macro; main.tex calls all of them in the full version, and the short
+% version calls EXIT, JOIN, CLAIM and REWRITE where its sections need them.
 % Source of truth: spec/layertree.md 6 and 7 (rule numbers in brackets).
 
+\newcommand{\predNotation}{%
 \paragraph{Notation for the predicates.} A leaf $\ell$ has fields
 $\ell.\amt$, $\ell.\xk$ (exit key), $\ell.\ok$ (owner key), $\ell.\ek$
 (evictor key), $\ell.\ea$ (\textsf{evict\_after}), $\ell.\sq$ and a
@@ -13,17 +13,18 @@ nonce; $\hat\ell$ is $\ell$ without its amount, $\nd{\ell} =
 (\Hleaf(\ell), \ell.\amt)$ and $\nd{\bot} = \Emp_0$. The spending
 transaction has inputs $\vin_i$, outputs $\vout_i = (v_i, \spk_i)$ and
 lock time $\lock$; $\Ptr{k}$ is the output script paying $k$.
-$\Sig{k}{\sigma}$ states that $\sigma$ is a BIP-340 signature by $k$ over
-the spending transaction, with a hash type that commits to all outputs, and
+$\Sig{k}{\sigma}$ states that $\sigma$ is a signature by $k$ over the
+transaction, with a hash type that commits to all outputs, and
 $\Csfs{k}{\sigma}{M}$ that it is a signature by $k$ over the message
-$M$, which a script checks with \op{CHECKSIGFROMSTACK}. Every predicate
-takes the current root $r$, the taptree root $m$ and its witness, and
-shares its first and last check: input~0 is the tree output for $(r, S)$
-under $m$, and output~0 is the tree output for the root the transition
+$M$, checked with \op{CHECKSIGFROMSTACK}. Every box starts by checking
+that input~0 is the tree output for $(r, S)$ under $m$ and ends by
+checking that output~0 is the tree output for the root the transition
 produces, unless that root is $\Emp_D$ and the last leaf has left
-(spec~7.1, 7.8). \emph{Constants} are fixed in the script by the tree's
-option set (spec~6.2) and are never witness elements.
+(spec~7.1, 7.8). \emph{Constants} come from the tree's option set
+(spec~6.2) and are never witness elements.
+}
 
+\newcommand{\predExit}{%
 \begin{predbox}{$\Phi_{\tr{EXIT}}$ \textendash\ spends the tree output $(r,S)$ under $m$, removes $K$ leaves and pays them out}
 \pbpart{Witness} for $i \in [K]$: a path $\pi_i$ of $D$ levels, a leaf
 $\ell_i$, a signature $\sigma_i$ and a flag $e_i \in \{0,1\}$ (1 for an
@@ -32,16 +33,18 @@ eviction); and $r$, $m$.
 (tower, implies $=$), with $\mathsf{tree\_id}$ under $t$.
 \pbpart{Verification} write $(r_0, S_0) = (r, S)$.
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3; 6.4}
-\item for $i \in [K]$: $\fold(\nd{\ell_i}, \pi_i) = (r_{i-1}, S_{i-1})$ and $(r_i, S_i) = \fold(\Emp_0, \pi_i)$\gl{each leaf is in the root the previous step produced, and the position becomes empty; a repeated position fails, since it is $\Emp_0$ after the first removal}\sr{7.2 r1; 7.6}
-\item $\vout_i = (v_i, \Ptr{\ell_i.\xk})$\gl{output $i$ pays the leaf's exit key}\sr{7.2 r2}
-\item if $e_i = 0$: $\Sig{\ell_i.\ok}{\sigma_i}$, and under $t$ instead $\Csfs{\ell_i.\ok}{\sigma_i}{H_{\mathsf{exit}}(\mathsf{tree\_id} \,\|\, \hat\ell_i)}$\gl{the owner authorises; the tower form signs the leaf without its amount and names no transaction}\sr{7.2 r3, r7}
-\item if $e_i = 0$: $v_i \le \ell_i.\amt$, and $v_i = \ell_i.\amt$ under $=$ and $t$\gl{the shortfall of a plain exit is the fee the owner consented to by signing all outputs}\sr{7.2 r3, r6}
-\item if $e_i = 1$: $\Sig{\ell_i.\ek}{\sigma_i}$, $\lock \ge \ell_i.\ea$ with input~0 enabling lock time, and $v_i = \ell_i.\amt$\gl{the evictor removes a leaf only after its lease and pays it in full}\sr{7.2 r4}
-\item $\vout_0 = (S_K, \TreeSpk(r_K, m))$ unless $r_K = \Emp_D$\gl{output~0 recreates the tree output with the leaves' amounts removed}\sr{7.1 r2, r5; 7.8}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3; 6.4}
+\item for $i \in [K]$: $\fold(\nd{\ell_i}, \pi_i) = (r_{i-1}, S_{i-1})$ and $(r_i, S_i) = \fold(\Emp_0, \pi_i)$\gl{each leaf is in the previous step's root and becomes empty}\sr{7.2 r1; 7.6}
+\item $\vout_i = (v_i, \Ptr{\ell_i.\xk})$\gl{payout $i$ goes to the exit key}\sr{7.2 r2}
+\item if $e_i = 0$: $\Sig{\ell_i.\ok}{\sigma_i}$, and under $t$ instead $\Csfs{\ell_i.\ok}{\sigma_i}{H_{\mathsf{exit}}(\mathsf{tree\_id} \,\|\, \hat\ell_i)}$\gl{the owner authorises; the tower form names no transaction}\sr{7.2 r3, r7}
+\item if $e_i = 0$: $v_i \le \ell_i.\amt$, and $v_i = \ell_i.\amt$ under $=$ and $t$\gl{a plain exit's shortfall is the fee the owner signed for}\sr{7.2 r3, r6}
+\item if $e_i = 1$: $\Sig{\ell_i.\ek}{\sigma_i}$, $\lock \ge \ell_i.\ea$ with input~0 enabling lock time, and $v_i = \ell_i.\amt$\gl{eviction only after the lease, paid in full}\sr{7.2 r4}
+\item $\vout_0 = (S_K, \TreeSpk(r_K, m))$ unless $r_K = \Emp_D$\gl{output~0 recreates the tree output}\sr{7.1 r2, r5; 7.8}
 \end{checks}
 \end{predbox}
+}
 
+\newcommand{\predJoin}{%
 \begin{predbox}{$\Phi_{\tr{JOIN}}$ \textendash\ grafts $K$ nodes of height $h$ into empty slots, on the operator's signature}
 \pbpart{Witness} for $i \in [K]$: a path $\pi_i$ of $D - h$ levels and a
 new node $n_i = (\bar h_i, \bar s_i)$ (a new leaf $\ell_i$ and a path of $D$ levels in the
@@ -49,106 +52,113 @@ sparse profile, where $h = 0$ and the position is $\Hpos(\ell_i.\ok \,\|\, \ell_
 \pbpart{Constants} $D$; $h$ ($K = 1$ for $\tr{JOIN}_h$; $h = 0$ and $K \ge 1$ for \tr{JOINK}$_K$); $\mathsf{OPERATOR\_KEY}$.
 \pbpart{Verification} write $(r_0, S_0) = (r, S)$.
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
 \item for $i \in [K]$: $\fold(\Emp_h, \pi_i) = (r_{i-1}, S_{i-1})$ and $(r_i, S_i) = \fold(n_i, \pi_i)$\gl{the slot was empty and now holds $n_i$}\sr{7.3 r1}
 \item $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma}$\gl{only the operator grafts}\sr{7.3 r2}
-\item $\vout_0 = (S + \sum_i \bar s_i, \TreeSpk(r_K, m))$\gl{the grafted sums are funded by other inputs, or the transaction is invalid}\sr{7.3 r3}
+\item $\vout_0 = (S + \sum_i \bar s_i, \TreeSpk(r_K, m))$\gl{the grafted sums come from other inputs}\sr{7.3 r3}
 \end{checks}
 There is no check on the contents of $n_i$ (spec~7.3 rule~4): a joiner verifies its own path before funding (Algorithm~\ref{alg:accept}).
 \end{predbox}
+}
 
-\iffullversion
+\newcommand{\predUpdate}{%
 \begin{predbox}{$\Phi_{\tr{UPDATE}}$ \textendash\ replaces one leaf by another at the same position, with the owner and the operator}
 \pbpart{Witness} a path $\pi$ of $D$ levels; leaves $\ell$, $\ell'$; signatures $\sigma_o$, $\sigma_p$ (and $\sigma_x$ under $x$); $r$, $m$.
 \pbpart{Constants} $D$; $\mathsf{OPERATOR\_KEY}$; the flag $x$ (exit-key consent, $\tr{UPDATE}^{x}$).
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
-\item $\fold(\nd{\ell}, \pi) = (r, S)$ and $(r', S') = \fold(\nd{\ell'}, \pi)$\gl{the old leaf is in the tree; the new one takes its place}\sr{7.4 r1}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
+\item $\fold(\nd{\ell}, \pi) = (r, S)$ and $(r', S') = \fold(\nd{\ell'}, \pi)$\gl{the new leaf takes the old one's place}\sr{7.4 r1}
 \item $\Sig{\ell.\ok}{\sigma_o}$ and $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma_p}$\gl{the owner and the operator both consent}\sr{7.4 r2}
-\item under $x$: $\Sig{\ell.\xk}{\sigma_x}$\gl{a leaf whose exit key is shared cannot be spliced down without its counterparty}\sr{7.4 r5}
-\item $\vout_0 = (S - \ell.\amt + \ell'.\amt, \TreeSpk(r', m))$\gl{a decrease is free for the transaction to spend; an increase is funded by other inputs}\sr{7.4 r3}
-\item sparse profile: $\Hpos(\ell'.\ok \,\|\, \ell'.\nc) = \Hpos(\ell.\ok \,\|\, \ell.\nc)$\gl{the leaf stays at its derived position, so $\ell.\ok$ and $\ell.\nc$ are fixed}\sr{7.4 r4}
+\item under $x$: $\Sig{\ell.\xk}{\sigma_x}$\gl{a shared exit key cannot be spliced down without consent}\sr{7.4 r5}
+\item $\vout_0 = (S - \ell.\amt + \ell'.\amt, \TreeSpk(r', m))$\gl{a decrease is free to spend; an increase is funded elsewhere}\sr{7.4 r3}
+\item sparse profile: $\Hpos(\ell'.\ok \,\|\, \ell'.\nc) = \Hpos(\ell.\ok \,\|\, \ell.\nc)$\gl{the leaf stays at its derived position}\sr{7.4 r4}
 \end{checks}
 \end{predbox}
-\fi
+}
 
+\newcommand{\predClaim}{%
 \begin{predbox}{$\Phi_{\tr{CLAIM}}$ \textendash\ carves a new leaf out of a source leaf, by voucher or by the owner's signature}
 \pbpart{Witness} paths $\pi_c$ (claim) and $\pi_s$ (source) of $D$ levels; leaves $\ell_s$, $\ell_c$; an authorisation $\nu$ (the voucher signature, or under $\mathsf{split}$ the owner's transaction signature); a preimage $\rho$ under $h$; $\xi$ under $x$; $r$, $m$. The merge form has instead one path $\pi_p$ of $D - 1$ levels, the pair $(\ell_s, \ell_t)$ with the side $b$ of $\ell_s$, a level $X$, $\nu$ (and $\rho$ under $hm$).
 \pbpart{Constants} $D$; $\mathsf{tree\_id}$; $\mathsf{DUST\_MIN}$; $\mathsf{SEQ\_FINAL}$; $\mathsf{RECLAIM\_KEY}$ if named. The forms $h$ (hash lock), $x$ (exit-key consent), \textsf{split} and \textsf{merge} (the merge form below) are chosen at creation and are visible in the taptree root $m$.
 \pbpart{Verification, carve forms}
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
-\item authorisation, by form: $\Csfs{\ell_s.\ok}{\nu}{H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \ell_c)}$; under $h$, $|\rho| = 32$ and the message is $H^{h}_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \ell_c \,\|\, \mathsf{SHA256}(\rho))$; under $\mathsf{split}$, $\Sig{\ell_s.\ok}{\nu}$\gl{a voucher binds the tree, the source without its amount, and the claim leaf; a wrong preimage changes the message and fails as a bad signature; \tr{SPLIT} needs no stack signature}\sr{7.5 r1; 7.5.1; 7.5.2}
-\item under $x$: $\Sig{\ell_s.\xk}{\xi}$\gl{the voucher is still required; the exit key must also consent}\sr{7.5.3 r7}
-\item $\ell_s' = \ell_s$ with $\amt = \ell_s.\amt - \ell_c.\amt \ge 0$ and $\sq = \ell_s.\sq + 1$, where $\ell_s.\sq \ne \mathsf{SEQ\_FINAL}$; $\fold(\nd{\ell_s}, \pi_s) = (r, S)$ and $(r_1, S_1) = \fold(\nd{\ell_s'}, \pi_s)$, with $\Emp_0$ in place of $\nd{\ell_s'}$ if the amount is 0\gl{step 1 spends the source's balance and advances its $\sq$, which retires the voucher; a final leaf cannot be carved}\sr{7.5 r2}
-\item $\fold(\Emp_0, \pi_c) = (r_1, S_1)$ and $(r', S') = \fold(\nd{\ell_c}, \pi_c)$\gl{step 2 places the claim leaf in a position that is empty after step 1, which may be the drained source position}\sr{7.5 r3}
-\item $S' = S$ and $\vout_0 = (S, \TreeSpk(r', m))$\gl{a carve conserves the total and has no payout}\sr{7.5 r4}
-\item $\ell_c.\ek = \ell_s.\ek$ and $\ell_c.\ea \le \ell_s.\ea$\gl{nothing carved from a leaf is harder to evict than the leaf}\sr{7.5 r5}
-\item $\ell_c.\amt \ge \mathsf{DUST\_MIN}$ and $\ell_s'.\amt \in \{0\} \cup [\mathsf{DUST\_MIN}, \infty)$\gl{no sub-dust leaf that a standard transaction could not remove}\sr{7.5 r6}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
+\item authorisation, by form: $\Csfs{\ell_s.\ok}{\nu}{H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \ell_c)}$; under $h$, $|\rho| = 32$ and the message is $H^{h}_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \ell_c \,\|\, \mathsf{SHA256}(\rho))$; under $\mathsf{split}$, $\Sig{\ell_s.\ok}{\nu}$\gl{the voucher binds the tree, the source body and the claim leaf; a wrong preimage fails as a bad signature}\sr{7.5 r1; 7.5.1; 7.5.2}
+\item under $x$: $\Sig{\ell_s.\xk}{\xi}$\gl{the exit key must also consent}\sr{7.5.3 r7}
+\item $\ell_s' = \ell_s$ with $\amt = \ell_s.\amt - \ell_c.\amt \ge 0$ and $\sq = \ell_s.\sq + 1$, where $\ell_s.\sq \ne \mathsf{SEQ\_FINAL}$; $\fold(\nd{\ell_s}, \pi_s) = (r, S)$ and $(r_1, S_1) = \fold(\nd{\ell_s'}, \pi_s)$, with $\Emp_0$ in place of $\nd{\ell_s'}$ if the amount is 0\gl{step 1: the source pays; its $\sq$ advances, which retires the voucher}\sr{7.5 r2}
+\item $\fold(\Emp_0, \pi_c) = (r_1, S_1)$ and $(r', S') = \fold(\nd{\ell_c}, \pi_c)$\gl{step 2: the claim leaf fills a position empty after step 1}\sr{7.5 r3}
+\item $S' = S$ and $\vout_0 = (S, \TreeSpk(r', m))$\gl{a carve conserves the total; no payout}\sr{7.5 r4}
+\item $\ell_c.\ek = \ell_s.\ek$ and $\ell_c.\ea \le \ell_s.\ea$\gl{nothing carved is harder to evict than its source}\sr{7.5 r5}
+\item $\ell_c.\amt \ge \mathsf{DUST\_MIN}$ and $\ell_s'.\amt \in \{0\} \cup [\mathsf{DUST\_MIN}, \infty)$\gl{no sub-dust leaves}\sr{7.5 r6}
 \end{checks}
 \pbpart{Verification, merge forms $\tr{CLAIM}^{m}$, $\tr{CLAIM}^{hm}$} check~1 of the carve form, and
 \begin{checks}
 \setcounter{chk}{7}
-\item $\Csfs{\ell_s.\ok}{\nu}{H^{m}_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \hat\ell_t \,\|\, \lesf(X))}$, with $\mathsf{SHA256}(\rho)$ appended and $|\rho| = 32$ under $hm$\gl{the voucher names an absolute level $X$ for the target, which is the source's sibling}\sr{7.5.4 r1}
-\item $\ell_t.\ok = \ell_t.\xk = \ell_s.\xk$; neither $\sq$ is $\mathsf{SEQ\_FINAL}$; $\ell_t.\ek \ne \mathsf{RECLAIM\_KEY}$\gl{value moves only into a leaf that the source's exit key owns and exits to, and that is not itself reclaimable}\sr{7.5.4 r2}
-\item $d = X - \ell_t.\amt \ge 1$ and $\ell_s.\amt - d \in \{0\} \cup [\mathsf{DUST\_MIN}, \infty)$\gl{replay moves nothing once the target holds $X$; the residual stays above the floor}\sr{7.5.4 r3}
+\item $\Csfs{\ell_s.\ok}{\nu}{H^{m}_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_s \,\|\, \hat\ell_t \,\|\, \lesf(X))}$, with $\mathsf{SHA256}(\rho)$ appended and $|\rho| = 32$ under $hm$\gl{the voucher names an absolute level $X$ for the source's sibling}\sr{7.5.4 r1}
+\item $\ell_t.\ok = \ell_t.\xk = \ell_s.\xk$; neither $\sq$ is $\mathsf{SEQ\_FINAL}$; $\ell_t.\ek \ne \mathsf{RECLAIM\_KEY}$\gl{value moves only into a leaf the source's exit key owns and exits to}\sr{7.5.4 r2}
+\item $d = X - \ell_t.\amt \ge 1$ and $\ell_s.\amt - d \in \{0\} \cup [\mathsf{DUST\_MIN}, \infty)$\gl{replay moves nothing; the residual stays above the floor}\sr{7.5.4 r3}
 \item the pair of $\ell_s, \ell_t$ folds to $(r, S)$ along $\pi_p$; the pair with $\ell_t.\amt = X$ and $\ell_s.\amt - d$, every other field of both (the source's $\sq$ included) unchanged, folds to $(r', S)$; $\vout_0 = (S, \TreeSpk(r', m))$\gl{a merge changes no body, so it voids no voucher against its source}\sr{7.5.4 r4, r5}
 \end{checks}
 \end{predbox}
+}
 
-\iffullversion
+\newcommand{\predEvict}{%
 \begin{predbox}{$\Phi_{\tr{EVICT\_SUBTREE}}$ \textendash\ the operator sweeps every remaining leaf of one aligned subtree of height $h$}
 \pbpart{Witness} a path $\pi$ of $D - h$ levels; the $2^h$ elements $o_1, \dots, o_{2^h}$ in position order, each a leaf or $\bot$; a signature $\sigma$; $r$, $m$.
 \pbpart{Constants} $D$; $h$; $\mathsf{OPERATOR\_KEY}$.
 \pbpart{Verification} let $R$ be the root recomputed from the elements ($\bot$ contributes $\Emp_0$), and $v_j$, $k_j$ the payout and its output index for the $j$-th leaf, numbering from output~1.
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
 \item $\fold(R, \pi) = (r, S)$, $(r', S') = \fold(\Emp_h, \pi)$\gl{the published subtree is in the tree, with each internal node hashed once; it becomes empty}\sr{7.7 r3, r4}
 \item $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma}$\gl{the operator authorises}\sr{7.7 r1}
 \item for every leaf $o_j$: $o_j.\ek = \mathsf{OPERATOR\_KEY}$, $\lock \ge o_j.\ea$ and $\vout_{k_j} = (o_j.\amt, \Ptr{o_j.\xk})$\gl{every swept leaf is expired, names the operator as evictor, and is paid in full to its exit key; one leaf with another evictor blocks the sweep}\sr{7.7 r2}
 \item $\vout_0 = (S - \sum_j o_j.\amt, \TreeSpk(r', m))$ unless $r' = \Emp_D$\gl{output~0 recreates the tree output without the cohort}\sr{7.7 r4; 7.8}
 \end{checks}
 \end{predbox}
-\fi
+}
 
+\newcommand{\predRewrite}{%
 \begin{predbox}{$\Phi_{\tr{REWRITE}}$ \textendash\ replaces the contents of one aligned subtree of height $h$, with every changing owner and the operator}
 \pbpart{Witness} a path $\pi$ of $D - h$ levels; for each position $j \in [2^h]$ an old element $o_j$ (a leaf or $\bot$) and a new element $n_j$ (a leaf, $\bot$, or the marker $\circ$ for ``unchanged'', read as $o_j$); a signature $\sigma_j$ (and $\xi_j$ under $x$) for each position that check~5 names; $\sigma_p$; $r$, $m$.
 \pbpart{Constants} $D$; $h$; $\mathsf{OPERATOR\_KEY}$; $\mathsf{SEQ\_FINAL}$; $\mathsf{RECLAIM\_KEY}$ if named. The flags $x$ (exit-key consent, $\tr{REWRITE}^{x}$, which a tree with $\tr{UPDATE}^{x}$ or $\tr{CLAIM}^{x}$ must use) and \textsf{reclaim} (the tree names $\mathsf{RECLAIM\_KEY}$ and $h \ge 1$).
 \pbpart{Verification} let $\mathrm{inc}_j$ hold if $n_j = o_j$ in every field but $\amt$, with $n_j.\amt \ge o_j.\amt$ and $o_j.\sq \ne \mathsf{SEQ\_FINAL}$.
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
-\item $\fold(R_{\mathrm{old}}, \pi) = (r, S)$, with $R_{\mathrm{old}}$ the root of the old elements\gl{every old leaf of the subtree is published and proven at once}\sr{7.9 r1}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
+\item $\fold(R_{\mathrm{old}}, \pi) = (r, S)$, with $R_{\mathrm{old}}$ the root of the old elements\gl{the published old subtree is in the tree}\sr{7.9 r1}
 \item $(r', S') = \fold(R_{\mathrm{new}}, \pi)$, with $R_{\mathrm{new}}$ the root of the new elements\gl{the same path gives the new root}\sr{7.9 r2}
-\item $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma_p}$\gl{the operator signs once for the whole transaction}\sr{7.9 r4}
-\item for each $j$ with $n_j \ne o_j$ and $o_j$ a leaf, and not $\mathrm{inc}_j$: $\Sig{o_j.\ok}{\sigma_j}$, and under $x$ also $\Sig{o_j.\xk}{\xi_j}$\gl{every owner whose leaf changes consents; a leaf that only gains amount needs nobody, except a $\mathsf{SEQ\_FINAL}$ channel leaf, whose capacity its states fix}\sr{7.9 r3, r7}
-\item for each $j$ with $o_j$ a leaf and $n_j = \bot$, in position order, the next unused output from output~1 is $(o_j.\amt, \Ptr{o_j.\xk})$\gl{an emptied leaf is paid exactly its amount, so the operator cannot remove a leaf without paying it}\sr{7.9 r5}
-\item $\vout_0 = (S - \sum_j o_j.\amt + \sum_j n_j.\amt, \TreeSpk(r', m))$ unless $r' = \Emp_D$\gl{a decrease is free for the transaction; an increase is funded by other inputs}\sr{7.9 r6; 7.8}
-\item reclaim form: for $o_j$ with $o_j.\ek = \mathsf{RECLAIM\_KEY}$, checks~5 and~6 are replaced as follows. \emph{Transfer:} $j = 2i$ even, $n_j = o_j$ but for a lower $\amt$, and $o_{j+1}$ is a leaf with $o_{j+1}.\ek \ne \mathsf{RECLAIM\_KEY}$ and $o_{j+1}.\ok = o_{j+1}.\xk = o_j.\xk$, with $n_{j+1} = o_{j+1}$ but for an $\amt$ raised by exactly the decrease; no signature and no payout. \emph{Reclaim:} any other change but an amount-only increase, with $\lock \ge o_j.\ea$; no signature and no payout, and the position may be emptied or replaced\gl{the operator moves a pending leaf's value into the recipient's own landing leaf, or takes the leaf back after its deadline; nothing else about a reclaimable leaf changes without its owner}\sr{7.9 r8}
+\item $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma_p}$\gl{the operator signs once}\sr{7.9 r4}
+\item for each $j$ with $n_j \ne o_j$ and $o_j$ a leaf, and not $\mathrm{inc}_j$: $\Sig{o_j.\ok}{\sigma_j}$, and under $x$ also $\Sig{o_j.\xk}{\xi_j}$\gl{every changing owner consents; a pure top-up needs nobody, unless the leaf is $\mathsf{SEQ\_FINAL}$}\sr{7.9 r3, r7}
+\item for each $j$ with $o_j$ a leaf and $n_j = \bot$, in position order, the next unused output from output~1 is $(o_j.\amt, \Ptr{o_j.\xk})$\gl{an emptied leaf is paid exactly its amount}\sr{7.9 r5}
+\item $\vout_0 = (S - \sum_j o_j.\amt + \sum_j n_j.\amt, \TreeSpk(r', m))$ unless $r' = \Emp_D$\gl{a decrease is free to spend; an increase is funded elsewhere}\sr{7.9 r6; 7.8}
+\item reclaim form: for $o_j$ with $o_j.\ek = \mathsf{RECLAIM\_KEY}$, checks~5 and~6 are replaced as follows. \emph{Transfer:} $j = 2i$ even, $n_j = o_j$ but for a lower $\amt$, and $o_{j+1}$ is a leaf with $o_{j+1}.\ek \ne \mathsf{RECLAIM\_KEY}$ and $o_{j+1}.\ok = o_{j+1}.\xk = o_j.\xk$, with $n_{j+1} = o_{j+1}$ but for an $\amt$ raised by exactly the decrease; no signature and no payout. \emph{Reclaim:} any other change but an amount-only increase, with $\lock \ge o_j.\ea$; no signature and no payout, and the position may be emptied or replaced\gl{value moves from a pending leaf into the recipient's landing leaf, or the leaf is taken back after its deadline}\sr{7.9 r8}
 \end{checks}
 \end{predbox}
+}
 
-\iffullversion
+\newcommand{\predDetach}{%
 \begin{predbox}{$\Phi_{\tr{DETACH}}$ \textendash\ moves one aligned subtree of height $h$ into a tree output of its own}
 \pbpart{Witness} a path $\pi$ of $D - h$ levels; the subtree's hash $R_h$ and sum $\mathsf{sum}_h$; a signature $\sigma$; $r$, $m$.
 \pbpart{Constants} $D$; $h$; $\mathsf{OPERATOR\_KEY}$; $m_h$, the taptree root of the tree of depth $h$ compiled from the parent's option set (spec~7.10 rule~3).
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
 \item $\fold((R_h, \mathsf{sum}_h), \pi) = (r, S)$ and $(r', S') = \fold(\Emp_h, \pi)$\gl{the subtree is in the tree, and leaves it}\sr{7.10 r1, r2}
 \item $\Sig{\mathsf{OPERATOR\_KEY}}{\sigma}$\gl{the operator decides; it spends nobody's balance}\sr{7.10 r4}
 \item $\vout_1 = (\mathsf{sum}_h, \TreeSpk(R_h, m_h))$ ($\TreeSpk_{\mathrm{CCV}}$ in the CCV tier)\gl{the cohort keeps its rules, its $\mathsf{tree\_id}$ and every leaf byte for byte, at depth $h$}\sr{7.10 r3}
 \item $\vout_0 = (S - \mathsf{sum}_h, \TreeSpk(r', m))$ unless $r' = \Emp_D$\gl{the rest of the tree is recreated; value is conserved across the two outputs}\sr{7.10 r2; 7.8}
 \end{checks}
 \end{predbox}
+}
 
+\newcommand{\predReclaim}{%
 \begin{predbox}{$\Phi_{\tr{RECLAIM}}$ \textendash\ removes a reclaimable leaf after its deadline and pays nothing for it}
 \pbpart{Witness} a path $\pi$ of $D$ levels; a leaf $\ell$; a signature $\sigma$; $r$, $m$.
 \pbpart{Constants} $D$; $\mathsf{RECLAIM\_KEY}$ (present in the tree exactly when the tree has this script).
 \begin{checks}
-\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output for $(r,S)$ under $m$}\sr{7.1 r1, r3}
+\item $\vin_0 = (\TreeSpk(r,m),\ S)$\gl{the spent output is the tree output}\sr{7.1 r1, r3}
 \item $\ell.\ek = \mathsf{RECLAIM\_KEY}$\gl{the leaf is reclaimable}\sr{7.11 r1}
 \item $\lock \ge \ell.\ea$ with input~0 enabling lock time\gl{the deadline has passed}\sr{7.11 r2}
 \item $\Sig{\mathsf{RECLAIM\_KEY}}{\sigma}$\gl{the operator's reclaim key signs}\sr{7.11 r3}
 \item $\fold(\nd{\ell}, \pi) = (r, S)$, $(r', S') = \fold(\Emp_0, \pi)$ and $\vout_0 = (S - \ell.\amt, \TreeSpk(r', m))$, with no output constrained for the leaf's value\gl{the value becomes free for the transaction}\sr{7.11 r4}
 \end{checks}
 \end{predbox}
-\fi
+}

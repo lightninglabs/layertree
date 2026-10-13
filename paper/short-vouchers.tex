@@ -1,8 +1,12 @@
 % Short version only: the voucher system. Sources: spec/layertree.md 7.5
 % (CLAIM, rule 5 carve rule, rule 6 DUST_MIN, the replay paragraph),
-% 7.5.1 to 7.5.3, 9.6 to 9.6.2 and 10.3 (0.11.0); design/receive.md.
-% Sizes at D = 16 from spec/scripts/sizes.md on the model of the
-% evaluation section, which prices a carve without a payout output.
+% 7.5.1 to 7.5.4, 9.6 to 9.6.3 and 10.3 (0.11.0); design/receive.md and
+% design/pending-receive.md. Sizes at D = 16 from spec/scripts/sizes.md on
+% the model of the evaluation section, which prices a carve without a
+% payout output. The CLAIM predicate is a box in the operations section;
+% the Receive and SettleWindow algorithms state the pending-leaf receive.
+% The cumulative vouchers, the credit leaf and the swap rules are in
+% appendix-vouchers.tex.
 \section{Vouchers}\label{sec:vouchers}
 
 A voucher lets a member, or the operator receiving from Lightning, pay
@@ -13,8 +17,7 @@ sender and server collude, a voucher by its issuer alone, or by the
 source's evictor after the lease, until its redemption confirms. In
 exchange a redeemed voucher is a leaf its holder exits alone, whose
 eviction pays it on-chain where an expired Ark round forfeits to the
-operator, and the credit leaf (\S\ref{sec:creditleaf}) removes the
-issuer's voiding for payments from the operator.
+operator.
 
 \subsection{The Voucher and \tr{CLAIM}}\label{sec:voucher-def}
 
@@ -24,127 +27,63 @@ $H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat\ell_{\mathrm{src}} \,\|\, \e
 where $\hat\ell_{\mathrm{src}}$ is the source leaf without its amount
 (spec 0.13.0), $\ell_{\mathrm{claim}}$ is the full leaf being paid (an
 amount and the recipient's keys), and $\mathsf{tree\_id}$ is a 32-byte
-constant fixed when the tree is created (Appendix~\ref{app:impl}). Anyone who holds the voucher can redeem
-it with \tr{CLAIM}, which checks the signature with
-\op{CHECKSIGFROMSTACK} and needs no other. Like \tr{SPLIT}, it is two
-steps (Figure~\ref{fig:claim}). The first proves $\ell_{\mathrm{src}}$
-against the committed root and rewrites it with its amount reduced by
-the claim's and its $\mathsf{seq}$ raised by one, or empties the
-position if the voucher draws the whole balance. The second proves a
-position empty under the intermediate root and places
-$\ell_{\mathrm{claim}}$ there. The total is unchanged.
-
-Two rules bind every carve, by voucher or by \tr{SPLIT}. The claim leaf
-keeps the source's evictor key and a lease no later than the source's,
-so moving a balance cannot escape eviction, nor plant a leaf in a cohort
-that the operator could never sweep. And neither the claim leaf nor a
-non-zero residual may be below $\mathsf{DUST\_MIN}$, by default 330\,sat,
-the P2TR dust threshold: a smaller leaf could leave only through a
-payout that default policy does not relay, so a one-satoshi carve could
-block its cohort's sweeps and grafts for the life of the tree.
-
-\begin{figure}[tbp]
-\centering
-\begin{tikzpicture}[
-  every node/.style={font=\scriptsize},
-  lf/.style={draw, rounded corners=1pt, minimum width=13mm, minimum height=6.5mm, align=center, inner sep=1pt},
-  em/.style={lf, dashed, text=black!50},
-  ch/.style={lf, thick, fill=black!8},
-  arr/.style={-{Latex[length=1.6mm]}, thin}
-]
-\node[lf] (a0) {$A$: 8, $\mathsf{seq}$ 0};
-\node[lf, right=1.5mm of a0] (b0) {$B$: 3};
-\node[lf, right=1.5mm of b0] (c0) {$C$: 6};
-\node[em, right=1.5mm of c0] (e0) {empty};
-\node[left=2mm of a0, align=right] {before,\\ total 17};
-\node[ch, below=8mm of a0] (a1) {$A'$: 5, $\mathsf{seq}$ 1};
-\node[lf, right=1.5mm of a1] (b1) {$B$: 3};
-\node[lf, right=1.5mm of b1] (c1) {$C$: 6};
-\node[ch, right=1.5mm of c1] (e1) {$V$: 3};
-\node[left=2mm of a1, align=right] {after,\\ total 17};
-\draw[arr] (a0) -- node[right] {step 1} (a1);
-\draw[arr] (e0) -- node[right] {step 2} (e1);
-\node[draw, right=4mm of e0, yshift=-7mm, align=left, inner sep=3pt]
-  {voucher, off-chain:\\ $A$'s owner signs\\ $H_{\mathsf{voucher}}(\mathsf{tree\_id} \,\|\, \hat A \,\|\, V)$};
-\end{tikzpicture}
-\caption{Redeeming a voucher for 3 from $A$ to $V$. \tr{CLAIM} shrinks the source and advances its $\mathsf{seq}$, then fills an empty position with the claim leaf, with no signature but the voucher's. $\hat A$ is $A$ without its amount; the tree now holds $A'$, whose $\mathsf{seq}$ differs, so the signed message never matches again.}
-\label{fig:claim}
-\end{figure}
-
-\paragraph{Single use.} Replay is impossible because redemption
-advances the source's $\mathsf{seq}$, which the voucher binds. The
-amount is not bound, so an amount-only top-up of the source
-(\S\ref{sec:ops}) voids nothing, and the covenant's sum check still
-stops a voucher drawing more than the source holds. Two rules that no
-script enforces carry the rest: a leaf's $\mathsf{seq}$ only ever
-advances (an \tr{UPDATE} winding it back would revive old vouchers), and
-no two leaves share an owner key and nonce, since a voucher binds its
-source by content, not position; in the dense profile an issuer checks
-that no duplicate of its source leaf exists before signing, since one
-voucher would redeem against both (spec 10.3). Binding $\mathsf{tree\_id}$ rather than the
+constant fixed when the tree is created (Appendix~\ref{app:impl}). Anyone
+who holds the voucher can redeem it with \tr{CLAIM} ($\Phi_{\tr{CLAIM}}$,
+check~2), which checks the signature with \op{CHECKSIGFROMSTACK} and needs
+no other. Replay is impossible because redemption advances the source's
+$\mathsf{seq}$, which the voucher binds; the amount is not bound, so an
+amount-only top-up voids nothing, and the sum check stops a voucher
+drawing more than the source holds. Two rules that no script enforces
+carry the rest: a leaf's $\mathsf{seq}$ only ever advances (an
+\tr{UPDATE} winding it back would revive old vouchers), and no two leaves
+share an owner key and nonce, since a voucher binds its source by content,
+not position (spec 10.3). Binding $\mathsf{tree\_id}$ rather than the
 taptree root $m$ keeps a voucher out of other trees built with the same
-parameters, and since a detached cohort inherits $\mathsf{tree\_id}$,
-vouchers survive a \tr{DETACH}$_h$.
+parameters, and a detached cohort inherits it, so vouchers survive a
+\tr{DETACH}$_h$.
 
-\subsection{Cumulative Vouchers}\label{sec:cumulative}
+\subsection{Cumulative Vouchers and Their Risks}\label{sec:cumulative}
 
-Every voucher against a source draws on the same leaf, and the first
-redemption voids the rest. An issuer that pays one recipient repeatedly
-therefore signs a \emph{cumulative} voucher for the running total against
-the same claim leaf, and re-signs it for a larger amount at each payment:
-2, then 5, then 9, one signature per payment. The recipient keeps only
-the latest and, if the issuer stops cooperating, redeems that one alone;
-a smaller one is never worth more to it, so no contest window.
-
-Settled credit is retired by advancing $\mathsf{seq}$. Once the issuer
-pays the recipient another way, it advances the source's $\mathsf{seq}$, which voids every outstanding
-voucher against it: one \tr{UPDATE} per source leaf ($1{,}030\vB$), or
-one \tr{REWRITE}$_h$ for a cohort of them (about $148\vB$ per leaf at
-$h = 6$). Until then the issuer tracks every voucher it has signed as a
-liability. Plain \tr{CLAIM} leaves a hole: anyone holding an old voucher
-can redeem it, and the issuer holds them all, so redeeming the voucher
-for 2 voids the one for 9. The credit leaf below closes it.
-
-\subsection{What the Holder Trusts}\label{sec:holder-risk}
-
-The covenant prevents over-\emph{redemption}: the first redeemer is
-paid by consensus. It cannot prevent over-\emph{issuance}, or voiding:
-the issuer can advance $\mathsf{seq}$ first, by \tr{CLAIM}, \tr{SPLIT}
-or \tr{UPDATE}. So the holder of an ordinary voucher extends credit to
-the issuer until it redeems or is paid. Eviction voids vouchers too:
-once the source's lease passes, its evictor can pay the whole balance to
-the source's exit key, normally the issuer's. A holder therefore treats
-a voucher whose source lease can pass before a redemption would confirm
-(within $\lat(q)$, \S\ref{sec:liveness}) as unsecured. A partial-balance
-voucher also needs an empty position for its claim leaf, which the
-operator controls, so a holder prefers a full-balance voucher.
-
-\paragraph{The dedicated credit leaf.}\label{sec:creditleaf}
-\input{body-credit}
-
-\subsection{Hash-Locked Vouchers and Swaps}\label{sec:hashlock}
-
-\tr{CLAIM}$^{h}$ adds a payment hash to the signed message, under its
-own tag so that the lock cannot be stripped, and requires the 32-byte
-preimage: the script hashes it into the message, so a wrong preimage
-fails as a bad signature. Paired with an HTLC or invoice on the same hash, it
-is an ordered exchange, not an atomic swap: the issuer can void the
-voucher until the redemption confirms, and script cannot give a voucher
-a deadline. Five rules (spec~9.6.2) order it.
-(1) The party the HTLC pays draws the preimage. (2) The voucher resolves
-second; no HTLC waits on a preimage that only a redemption would reveal.
-(3) The issuer leaves the source's $\mathsf{seq}$ alone from the moment
-an HTLC on the hash is offered to it until the voucher is redeemed or
-the HTLC fails. (4) No script enforces rule~3, so the holder redeems as
-soon as it learns the preimage and bears the issuer risk until that
-confirms. (5) The holder first checks that the source's lease outlasts
-the HTLC's expiry plus $\lat(q)$. Usually the HTLC settles off-chain, so
-such a swap costs at most one \tr{CLAIM}$^{h}$; it is also how a newcomer
-buys a leaf over Lightning.
+Every voucher against a source draws on the same leaf and the first
+redemption voids the rest, so an issuer that pays one recipient repeatedly
+signs a \emph{cumulative} voucher for the running total and re-signs it for
+more at each payment; the recipient keeps the latest and redeems it alone
+if the issuer stops cooperating, with no contest window
+(Appendix~\ref{app:cumulative}).\label{sec:holder-risk} The covenant
+prevents over-\emph{redemption} but not over-issuance or voiding: the
+issuer can advance $\mathsf{seq}$ first, and once the source's lease
+passes its evictor can pay the whole balance to the source's exit key. A
+holder therefore treats a voucher whose lease can pass before a redemption
+would confirm (within $\lat(q)$, \S\ref{sec:liveness}) as unsecured, and
+prefers a full-balance voucher, since a partial one needs an empty
+position that the operator controls.\label{sec:creditleaf} A dedicated
+\emph{credit leaf}, owned by the issuer with the recipient's key as exit
+key, in a tree with \tr{CLAIM}$^{x}$, \tr{UPDATE}$^{x}$ and the exact
+exit, removes the voiding: every change that could void a voucher needs
+the exit key (Appendix~\ref{app:creditleaf}).\label{sec:hashlock} A
+hash-locked voucher \tr{CLAIM}$^{h}$ paired with an HTLC on the same hash
+is an \emph{ordered} exchange, not an atomic swap, under five rules
+(spec~9.6.2, Appendix~\ref{app:hashlock}); it is how a newcomer buys a leaf
+over Lightning.
 
 \subsection{Receiving over Lightning}\label{sec:receive-short}
 
 \input{body-receive}
+
+\paragraph{The pending-leaf receive.} A tree that names a reclaim
+key and carries the merge voucher $\tr{CLAIM}^{hm}$ (the merge forms of
+$\Phi_{\tr{CLAIM}}$) and the reclaim form of $\Phi_{\tr{REWRITE}}$ (FULL,
+MID and CCV) closes the gap. Each recipient holds a pending leaf $P$ and,
+beside it, a landing leaf $L$ of its own. For each payment the operator
+signs a hash-locked voucher that raises $L$ and lowers $P$, which only the
+recipient's preimage releases (Algorithm~\ref{alg:receive}); once per
+window the operator moves the settled total into $L$ and then takes back
+what was never claimed (Algorithm~\ref{alg:settle}). The voucher can only
+move value from $P$ into a leaf the recipient alone can exit, so it needs
+no signature beyond the issuer's and a tower can redeem it.
+
+\algReceive
+\algSettle
 
 \paragraph{Costs.} Issuing a voucher costs nothing on-chain. A
 redemption proves two positions: $1{,}618\vB$ for \tr{CLAIM},

@@ -1,0 +1,195 @@
+% Short version only: the per-operation detail that the body summarises
+% (who authorises, what is proved, what is paid, at what cost). Text moved
+% from the operations section to make room for the predicate boxes and
+% algorithms. Rules from spec/layertree.md 7.1 to 7.10 and 9.2 to 9.5;
+% costs at D = 16 dense, FULL tier, on the transaction model of the
+% evaluation section (spec 11, spec/scripts/sizes.md).
+\section{Operations in Detail}\label{app:ops}
+
+The operations of \S\ref{sec:ops} in the order a member meets them. Every
+operation is one spend of the tree output through one tapleaf; costs are
+whole transactions at $D = 16$ in FULL.
+
+\subsection{Joining}
+
+\paragraph{\tr{JOIN}$_h$: grafting a cohort.} The operator inserts a
+subtree of up to $2^h$ new leaves, built off-chain, into an empty aligned
+slot of height $h$; $h = 0$ adds one leaf. \emph{Authorised by} the
+operator key alone; no existing member signs or is affected.
+\emph{Proves} that the slot held the empty node $\Emp_h$, and adds the new
+subtree's root and sum. \emph{On chain} the tree output grows by the
+subtree's sum, which other inputs must supply. The covenant sees a hash
+and a sum, not the leaves, and walks only the $D - h$ levels above the
+slot, so a larger cohort is a smaller transaction: $937\vB$ for one
+leaf, $872\vB$ for four ($218$ each), and an estimated $679\vB$ for 256
+($2.7$ each). A taptree carries one \tr{JOIN}$_h$
+leaf per height it supports.
+
+Because the covenant cannot look inside the graft, each joiner checks
+it. A member funding its own leaf verifies, before signing its input over
+all outputs, that the slot folds as empty to the current root, that its
+leaf folds to the grafted node with every sum recomputed, and that
+output~0 commits to the new root; its input can then only be spent into
+a root containing its leaf. A self-funded cohort is thus a signing
+round, like an Ark round or a coinjoin, and each member adds its funding
+input ($58\vB$). In an operator-funded graft the member pays off-chain,
+after checking its path against the confirmed root, or through a
+hash-locked voucher (\S\ref{sec:hashlock}).
+
+\paragraph{\tr{JOINK}$_K$: batched single joins.} $K$ single-leaf joins
+under one operator signature, the batching primitive of the sparse
+profile, which cannot graft; $1{,}494\vB$ for two.
+
+\subsection{Moving Value}
+
+Most payments never touch the tree. Members with channel leaves pay over
+Lightning through the operator (\S\ref{sec:channels}), and vouchers
+(\S\ref{sec:vouchers}) move value with a signature that is redeemed
+only if the issuer stops cooperating. The tree changes when a balance's
+terms change or a carve is redeemed.
+
+\paragraph{\tr{UPDATE} and \tr{UPDATE}$^{x}$: changing a leaf.} Replaces
+one leaf with another at the same position: a splice in or out, a lease
+renewal, a key rotation or a transfer of ownership. \emph{Authorised by}
+the leaf's owner and the operator together; \tr{UPDATE}$^{x}$, a variant
+chosen at creation, adds the leaf's exit key as a third signer.
+\emph{Proves} the old leaf against the root and writes the new one.
+\emph{On chain} the tree output changes by the difference: an increase is
+funded by other inputs, a decrease is free for the transaction to spend,
+and both signers see where it goes. $1{,}030\vB$, or $1{,}048\vB$ with
+the third signature. \tr{UPDATE}$^{x}$ exists for leaves whose exit key
+is shared with or owned by someone else (a channel's counterparty, a
+credit leaf's recipient, \S\ref{sec:creditleaf}): without it the owner
+and the operator could splice such a leaf down together.
+
+\paragraph{\tr{SPLIT}: paying a member directly.} Carves a new leaf out
+of the payer's leaf. \emph{Authorised by} the payer's owner key, signing
+this transaction. \emph{Proves} two positions in sequence: the source
+leaf, rewritten with its amount reduced by the payment and its
+$\mathsf{seq}$ raised by one (or emptied if drained), then an empty
+position under the intermediate root, which receives the new leaf.
+\emph{On chain} the total is unchanged and no payout is made. The new
+leaf keeps the source's evictor key and a lease no later than the
+source's, and neither it nor a non-zero residual may be below
+$\mathsf{DUST\_MIN}$ (both rules are shared with \tr{CLAIM},
+\S\ref{sec:voucher-def}). $1{,}586\vB$. \tr{SPLIT} suits a payer that broadcasts and pays the fee itself, leaves
+no outstanding promise, and is the one member-to-member transfer MIN
+supports. Its deferred counterpart, a voucher redeemed by
+\tr{CLAIM}, is the subject of \S\ref{sec:vouchers}.
+
+\subsection{Settling a Cohort}
+
+\paragraph{\tr{REWRITE}$_h$: everything at once.} Replaces the contents
+of one aligned subtree of height $h$ in a single spend: any position may
+go from a leaf to empty (an exit, paid out), from empty to a leaf (a
+join, funded) or from one leaf to another (a payment, renewal, resize or
+key rotation). \emph{Authorised by} the operator and by the owner of
+every leaf that changes; a leaf that only gains amount needs no
+signature unless its \textsf{seq} is \textsf{SEQ\_FINAL} (a channel leaf,
+\S\ref{sec:channels}, whose capacity its signed states fix), so a payment
+within a cohort needs only the payer's, and a leaf nobody signs for passes
+through unchanged. \emph{Proves} the old
+subtree, every leaf of it published, against the root, and computes the
+new one. \emph{On chain} each emptied leaf is paid exactly its amount at
+its exit key. At $h = 6$ a mass exit
+costs $162\vB$ per leaf, about what a sweep costs the operator, and
+rewriting every balance $148\vB$ per leaf against $1{,}030\vB$ for an
+\tr{UPDATE} each; a position whose leaf does not change is published
+once, behind a one-byte marker, for about $92\vB$. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
+($16\vB$ per signed position) and replaces \tr{REWRITE}$_h$ wherever
+\tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. It exists in every
+tier but MIN; under \texttt{0xC0} the stack limit holds a full cohort
+only to $h = 5$.
+
+\subsection{Leaving}
+
+\paragraph{\tr{EXIT}$_K$: unilateral exit.} Removes one leaf, or $K$
+leaves in one transaction, and pays each out
+(Figure~\ref{fig:compose}). \emph{Authorised by} the leaf's owner key alone;
+no operator, no other member, no timelock. \emph{Proves} the leaf and its
+path against the root and folds the empty node up the same path for the
+new root. \emph{On chain} the tree output shrinks by the leaf's amount
+and output~1 pays its exit key. In FULL the payout may be less than the
+balance, the difference paying the fee, which saves the fee input
+($99\vB$); the exact-payout variant \tr{EXIT}$_K^{=}$, chosen at
+creation and visible in the tree's taptree root, requires the full
+amount and is what MID, MIN, CCV and channel leaves use. $1{,}020\vB$ for
+one exit, and $665\vB$ more for a second in the same transaction
+(\tr{EXIT}$_2$ is $1{,}684\vB$). The owner's signature commits to the
+tree outpoint, which every operation changes, so a plain exit cannot be
+pre-signed: the owner must be online to rebuild it after a competing
+spend. The tower variant \tr{EXIT}$_K^{t}$ (FULL, MID and CCV, exact
+payout) replaces that signature by one over the leaf without its
+amount and the tree's identifier, checked from the stack with
+\op{CHECKSIGFROMSTACK}; whoever holds it builds the exit with its own fee
+input and rebuilds it after a competing spend, so an owner signs once in
+advance and a tower does the rest. The authorisation is a bearer right
+until a field other than the amount changes (a top-up leaves it valid),
+so an owner who stays voids it by changing the leaf. Rejoining any tree
+of the lineage with an owner key, nonce and $\mathsf{seq}$ held before
+would revive every authorisation published for that leaf, so a wallet
+draws a fresh nonce at every join (spec 9.2). $110$ bytes of script over
+the exact exit. Owners first ask for a cooperative exit, which the
+operator can batch, and a held authorisation makes that one message.
+
+\subsection{Being Evicted}
+
+\paragraph{Eviction by \tr{EXIT}.} A lease is how the operator recovers
+its capital and slots from a member who has gone away, and eviction is
+the only way it can remove a leaf without the owner. The exit script,
+with a flag, removes a leaf whose lease has passed. \emph{Authorised by} the leaf's evictor
+key, with a lock time at or after the lease height. \emph{On chain} the
+payout is exactly the leaf's amount, to the leaf's own exit key, so an
+eviction returns the member's money rather than taking it. Same cost as
+an exit; the evictor pays the fee.
+
+\paragraph{\tr{EVICT\_SUBTREE}$_h$: the cohort sweep.} Evicts every
+remaining leaf of one aligned subtree in one spend. \emph{Authorised by}
+the operator key, which must be every swept leaf's evictor, with a lock
+time past every lease. \emph{Proves} the subtree from all its leaves
+(empty positions contribute $\Emp_0$), each internal node hashed once,
+against the root. \emph{On chain} one exact payout per leaf, and the
+subtree becomes empty. $203\vB$ per leaf for 13 leaves at $h = 4$ and
+$158\vB$ per leaf for 51 at $h = 6$, against $1{,}020\vB$ each alone.
+One leaf with a later lease holds up its cohort's sweep until that lease
+passes, and one with another evictor blocks it, so operators admit only
+leaves that name the operator as evictor into a cohort, align leases per
+cohort, and renew a member by moving it to a cohort with the new lease
+(an \tr{UPDATE} and a \tr{SPLIT} of the whole balance, $2{,}616\vB$),
+or renews a whole cohort in place by one \tr{REWRITE}$_6$ that every
+renewing member signs ($148\vB$ each; a member who does not sign keeps
+the old lease).
+
+\subsection{Scaling Out}
+
+\paragraph{\tr{DETACH}$_h$: a cohort's own output.} Moves one aligned
+subtree into a tree output of its own. \emph{Authorised by} the operator
+key. \emph{Proves} the subtree's root and sum against the parent root.
+\emph{On chain} output~0 is the parent minus the cohort and output~1 the
+cohort, under its own root and the parent's rules compiled at depth $h$;
+the detached tree inherits the parent's tree identifier, so vouchers and
+channel states against its leaves stay valid. No member needs new data:
+its proof in the detached tree is its old path cut to the lower $h$
+levels. $780\vB$ at $h = 8$, after which every exit from the cohort costs
+$762\vB$ instead of $1{,}020$; the detach pays for itself at the fourth
+exit. Its larger effect is throughput, since each output is spent
+independently (\S\ref{sec:liveness}).
+
+\subsection{Who Can Do What}
+
+\begin{table}[htbp]
+\centering
+\caption{Who can do what (spec 10.1). ``Carve'' is \tr{SPLIT} or a redeemed voucher.}
+\label{tab:trust}
+\setlength{\tabcolsep}{3pt}\scriptsize
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\begin{tabular}{@{}L{1.3cm}L{5.0cm}L{5.0cm}@{}}
+\toprule
+party & can & cannot \\
+\midrule
+Operator & refuse to co-sign; graft leaves, including ones it funds; evict a leaf after its lease, paying it in full, with everything carved from it; issue vouchers on its own leaves; detach a cohort; fill a cohort's empty positions, stalling partial-balance vouchers & move or reduce another leaf; delay an exit beyond [C]; freeze value it did not graft and fund; change the taptree, or unilaterally a lease or a detached cohort's rules, keys or balances, other than raising an amount \\
+Owner & exit at any time; co-sign updates; issue vouchers against its leaf; carve its leaf, into any empty position (blocking a graft there; a later lease than the cohort's delays its sweep) & change another leaf; withdraw more than its amount; carve a leaf with another evictor or a later lease than its own \\
+Anyone & redeem a valid voucher; relay transitions; exit a leaf whose \tr{EXIT}$^{t}$ authorisation it holds & trigger an owner's exit without one; create leaves; alter amounts \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -1,7 +1,7 @@
 % Short version only: the conditions a channel leaf puts on the tree
 % layer (spec 9.8, Appendix C), in place of the full version's
 % composition conditions and conjecture.
-\paragraph{Conditions.} A channel leaf has exact payouts, so the owner
+\paragraph{Deadlines and conditions.} A channel leaf's HTLC deadlines add the counterparty's stale updates to the exit's confirmation time: with $\mathsf{csv\_delay} = 144$ the invoice's minimum final delta is about 220 blocks, against lnd's default of 80~\cite{lnd}, and about 1{,}775 channel leaves may close in one window (Appendix~\ref{app:impl-chan}). A channel leaf has exact payouts, so the owner
 cannot underfund the channel; $\mathsf{seq} = \mathsf{SEQ\_FINAL}$, so no
 voucher or \tr{SPLIT} can carve the capacity the signed states commit
 to; and lease zero with the counterparty as evictor, so eviction is the

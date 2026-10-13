@@ -81,6 +81,7 @@ successor carries. FULL, MID and MIN predicates read input~0, so two such
 trees cannot be spent in one transaction; a CCV tree's input may sit at
 any index.
 
+\iffullversion
 \begin{figure}[tbp]
 \centering
 \begin{tikzpicture}[
@@ -119,3 +120,4 @@ any index.
 \caption{A depth-2 tree and the exit of $\ell_2$. The predicate checks $\fold((\Hleaf(\ell_2),a),\pi) = (r,S)$, computes $r' = \fold(\Emp_0,\pi)$, verifies a signature by $\ell_2.\mathsf{owner\_key}$, and constrains outputs 0 and 1. Everything else in the transaction is free.}
 \label{fig:exit}
 \end{figure}
+\fi
