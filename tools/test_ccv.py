@@ -15,7 +15,10 @@ to what CCV actually checks), plus CCV-specific negatives:
   share one output 0, and a payout output cannot be deducted twice;
 * the BIP-443 amount rules the tier relies on, pinned one by one against
   the opcode itself (test_a6_pins, spec 4.1 [A-6]);
-* the tree-creation variants UPDATE^x (both numerics) and SPLIT (0xC2).
+* the tree-creation variants UPDATE^x (both numerics) and SPLIT (0xC2);
+* the pending-leaf receive (CLAIM^m, CLAIM^hm, RECLAIM_1 and the reclaim
+  form of REWRITE_h) in both numerics, including the output-0 mode that
+  lets a reclaim free its value.
 
 Prints the check count and a size/cost table like the other suites.
 """
@@ -2569,6 +2572,582 @@ def test_exit_tower_ccv(depth, profile, numeric="c2"):
     return sizes
 
 
+# ------------------------------------------ pending-leaf receive (7.5.4, 7.9 rule 8, 7.11) --
+
+RECLAIM_SK = sk("operator-reclaim")
+
+
+
+class PendingWorldCCV:
+    """test_scripts.PendingWorld under CCV in either numerics: a dense tree
+    naming RECLAIM_KEY and carrying RECLAIM_1, CLAIM^m, CLAIM^hm, CLAIM^x,
+    UPDATE^x and the reclaim-form rewrite at heights 1 and 2 (REWRITE_R_h
+    and REWRITE_XR_h), compiled through CCVTreeOptions."""
+
+    def __init__(self, depth, numeric="c2", rewrite_heights=(1, 2)):
+        self.depth, self.numeric, self.c0 = depth, numeric, numeric == "c0"
+        self.mode, lv = ("c0", 0xc0) if self.c0 else ("c2", 0xc2)
+        self.w = WorldC0(depth, "D") if self.c0 else World(depth, "D")
+        self.rk = pubkey_x(RECLAIM_SK)
+        self.opts = C.CCVTreeOptions(self.w.op_pk, numeric, "D", TREE_ID, exit_ks=(1,), update_x=True,
+                                     claim_x=True, rewrite_heights=rewrite_heights, rewrite_x=True,
+                                     reclaim_key=self.rk, claim_m=True, claim_hm=True)
+        scripts = self.opts.at_depth(depth)
+        allowed = (C0_OPCODES if self.c0 else ALLOWED) | CSFS_OPS
+        for name, toks in scripts.items():
+            bad = {t for t in toks if isinstance(t, str)} - allowed
+            check(not bad, f"{numeric} {name}: opcodes outside the CCV set plus CSFS: {sorted(bad)}")
+        self.w.scripts = scripts
+        self.w.compiled = {k: assemble(v, mode=self.mode) for k, v in scripts.items()}
+        self.w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in self.w.compiled.values()])
+        self.rcpt = pubkey_x(sk("rcpt-exit"))
+        self.seq_final = M.SEQ_FINAL if self.c0 else ls.SEQ_FINAL
+
+    def pending(self, amount, deadline, label="P", seq=0):
+        """P: owned by the operator, paid to the recipient, reclaimable at `deadline`."""
+        return lt.Leaf(amount, self.rcpt, pubkey_x(sk("operator-owner")), self.rk, deadline,
+                       int.from_bytes(lt.sha256(label.encode())[:4], "little"), seq)
+
+    def landing(self, amount, label="L", lease=900_000, owner=None, evictor=None, seq=0):
+        """L: owned and exited by the recipient, evictable by the operator after a long lease."""
+        return lt.Leaf(amount, self.rcpt, owner or self.rcpt, evictor or self.w.op_pk, lease,
+                       int.from_bytes(lt.sha256(label.encode())[:4], "little"), seq)
+
+
+def _merge_case_ccv(pw, p_slot, l_slot, P, L, X, preimage=None, signer="operator-owner", flag=None,
+                    tree_id=TREE_ID, msg_target=None, msg_x=None, out0=None):
+    """A CLAIM^m (or CLAIM^hm with a preimage) redemption against the pair,
+    in the world's numerics: (witness, ctx, new tree). Under 0xC2 the
+    witness is FULL's minus r and m; under 0xC0 _merge_script_ccv0's."""
+    w = pw.w
+    w.tree.leaves = {p_slot: P, l_slot: L, 0: mk_leaf("alice", 50_000)}
+    root = w.tree.root()
+    t1 = w.clone()
+    try:
+        lt.apply_merge(t1, p_slot, l_slot, X)
+    except AssertionError:
+        # an invalid merge, for a negative: what the transaction would claim
+        d = X - L.amount
+        t1.leaves[l_slot] = L.with_amount_seq(max(X, 0), L.seq)
+        if P.amount - d > 0:
+            t1.leaves[p_slot] = P.with_amount_seq(P.amount - d, P.seq)
+        else:
+            t1.leaves.pop(p_slot, None)
+    r1 = t1.root()
+    ctx = w.ctx([(r1[1] if out0 is None else out0, w.spk(r1))], (600, P2WPKH))
+    ph = lt.sha256(preimage) if preimage is not None else None
+    msg = lt.voucher_m_msg(tree_id, P, msg_target or L, msg_x if msg_x is not None else X, ph)
+    vsig = schnorr_sign(msg, sk(signer))
+    f = flag if flag is not None else (b"\x01" if p_slot % 2 == 0 else b"")
+    lo = min(p_slot, l_slot)
+    path = w.tree.path(lo, height=1)
+    if pw.c0:
+        res = P.amount - (X - L.amount)
+        wit = (list(M.pad(r1[1])) + list(M.pad(root[1])) +
+               M.w_levels(path, w.tree.subtree(1, lo >> 1), t1.subtree(1, lo >> 1), False, 1) +
+               [f] + list(M.pad(max(res, 0))) + [M.scriptnum(X)] + list(M.pad(X)) +
+               M.w_leaf(P) + M.w_leaf(L) + [vsig])
+    else:
+        left, right = (P, L) if p_slot % 2 == 0 else (L, P)
+        wit = w.path_witness(path, 1) + [left.serialize(), right.serialize(), f, lt.le64(X), vsig]
+    if preimage is not None:
+        wit.append(preimage)
+    return wit, ctx, t1
+
+
+def test_merge_ccv(depth, numeric="c2", verbose=True):
+    """CLAIM^m and CLAIM^hm (7.5.4) under CCV, mirroring
+    test_scripts.test_merge: the target raised to an absolute X from either
+    side of the pair, a drained source, replay and ordering of targets, a
+    negative per rule (voucher, preimage, cross-form, ownership,
+    reclaimable or final target or source, X not above the target, an
+    over-draw, a sub-dust residual, the side flag, the encoding of X, a
+    message over another X, output 0 short), the exact-fit funding hole and
+    the DUST_MIN headroom that closes it, and the CCV binding of output 0."""
+    pw = PendingWorldCCV(depth, numeric)
+    w = pw.w
+    tag = f"{numeric} D={depth}"
+    pre = lt.sha256(b"receive-preimage")
+    P = pw.pending(20_000, 700_000)
+    L = pw.landing(10_000)
+    wit, ctx, t1 = _merge_case_ccv(pw, 2, 3, P, L, 13_000, pre)
+    it = None
+    try:
+        it = w.run("CLAIM_HM", wit, ctx)
+        check(t1.leaves[3].amount == 13_000 and t1.leaves[2].amount == 17_000 and t1.leaves[2].seq == P.seq,
+              f"{tag} CLAIM^hm: target raised to X, source lowered by the difference, source seq unchanged")
+    except ScriptError as e:
+        check(False, f"{tag} CLAIM^hm positive: {str(e)[:120]}")
+    hm_size, hm_wit = len(w.compiled["CLAIM_HM"]), sum(len(x) for x in wit)
+
+    def ok(fn, msg):
+        try:
+            fn()
+            check(True, msg)
+        except ScriptError as e:
+            check(False, f"{msg}: {str(e)[:120]}")
+
+    def case(*a, **k):
+        return _merge_case_ccv(pw, *a, **k)[:2]
+    ok(lambda: w.run("CLAIM_HM", *case(5, 4, P, L, 13_000, pre)), f"{tag} CLAIM^hm with the source on the right")
+    ok(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 12_500)), f"{tag} CLAIM^m raises the target with no preimage")
+    wit_d, ctx_d, t_d = _merge_case_ccv(pw, 2, 3, P, L, 30_000)
+    ok(lambda: w.run("CLAIM_M", wit_d, ctx_d), f"{tag} CLAIM^m draining the source")
+    check(2 not in t_d.leaves, f"{tag} CLAIM^m draining the source leaves E_0")
+    ok(lambda: w.run("CLAIM_M", *case(5, 4, P, L, 30_000)), f"{tag} CLAIM^m draining a right-hand source")
+
+    # replay and ordering: target levels are absolute
+    raised = L.with_amount_seq(13_000, L.seq)
+    lowered = P.with_amount_seq(17_000, P.seq)
+    expect_fail(lambda: w.run("CLAIM_HM", *case(2, 3, lowered, raised, 13_000, pre)),
+                f"{tag} CLAIM^hm replayed after the target reached X")
+    expect_fail(lambda: w.run("CLAIM_HM", *case(2, 3, lowered, raised, 11_000, pre)),
+                f"{tag} CLAIM^hm older, smaller target after a larger one")
+    ok(lambda: w.run("CLAIM_HM", *case(2, 3, P.with_amount_seq(19_000, 0), L.with_amount_seq(11_000, 0), 13_000, pre)),
+       f"{tag} CLAIM^hm newer target after an older one moves only the difference")
+
+    # negatives, one per rule
+    expect_fail(lambda: w.run("CLAIM_HM", wit[:-1] + [lt.sha256(b"x")], ctx), f"{tag} CLAIM^hm wrong preimage")
+    expect_fail(lambda: w.run("CLAIM_HM", wit[:-1] + [pre[:31]], ctx), f"{tag} CLAIM^hm preimage not 32 bytes")
+    expect_fail(lambda: w.run("CLAIM_HM", *case(2, 3, P, L, 13_000, pre, signer="rcpt-exit")),
+                f"{tag} CLAIM^hm voucher not by the source owner")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, tree_id=w.m)),
+                f"{tag} CLAIM^m voucher over m instead of tree_id")
+    plain, ctx_p = case(2, 3, P, L, 13_000)
+    expect_fail(lambda: w.run("CLAIM_HM", plain + [pre], ctx_p), f"{tag} CLAIM^hm with a plain merge voucher")
+    expect_fail(lambda: w.run("CLAIM_M", wit[:-1], ctx), f"{tag} CLAIM^m with a hash-locked merge voucher")
+    stranger = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, stranger, 13_000)),
+                f"{tag} CLAIM^m into a sibling the source's exit key does not own")
+    elsewhere = lt.Leaf(10_000, pubkey_x(sk("mallory-exit")), pw.rcpt, w.op_pk, 900_000, 77, 0)
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, elsewhere, 13_000)),
+                f"{tag} CLAIM^m into a sibling owned by the source's exit key but exiting elsewhere")
+    flagged = pw.landing(10_000, evictor=pw.rk)
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, flagged, 13_000)), f"{tag} CLAIM^m into a reclaimable target")
+    final_t = pw.landing(10_000, seq=pw.seq_final)
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, final_t, 13_000)), f"{tag} CLAIM^m into a SEQ_FINAL target")
+    final_s = pw.pending(20_000, 700_000, seq=pw.seq_final)
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, final_s, L, 13_000)), f"{tag} CLAIM^m from a SEQ_FINAL source")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 10_000)), f"{tag} CLAIM^m with X not above the target's amount")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 30_001)), f"{tag} CLAIM^m drawing more than the source holds")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 29_800)), f"{tag} CLAIM^m leaving a sub-dust residual")
+    ok(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 30_000 - lt.DUST_MIN)), f"{tag} CLAIM^m leaving exactly DUST_MIN")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, flag=b"")),
+                f"{tag} CLAIM^m with the source flag pointing at the target")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, flag=b"\x02")),
+                f"{tag} CLAIM^m with a source flag other than empty or 0x01")
+    wit_x, ctx_x = case(2, 3, P, L, 13_000)
+    if pw.c0:
+        # X_num sits under zX wX, the src block, the tgt block and vsig
+        at = len(wit_x) - 1 - 2 * M.LEAF_WITNESS - 3
+        assert wit_x[at] == M.scriptnum(13_000)
+        expect_fail(lambda: w.run("CLAIM_M", wit_x[:at] + [M.scriptnum(13_000 + 65_536)] + wit_x[at + 1:], ctx_x),
+                    f"{tag} CLAIM^m with X's number and its pad giving another le64(X)")
+        expect_fail(lambda: w.run("CLAIM_M", wit_x[:at] + [M.scriptnum(13_000), b"", bytes(4)] + wit_x[at + 3:], ctx_x),
+                    f"{tag} CLAIM^m with a malformed pad on X")
+    else:
+        at = len(wit_x) - 2
+        expect_fail(lambda: w.run("CLAIM_M", wit_x[:at] + [lt.le64(13_000)[:7]] + wit_x[at + 1:], ctx_x),
+                    f"{tag} CLAIM^m with a 7-byte X")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, msg_x=14_000)),
+                f"{tag} CLAIM^m with X other than the signed target")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, msg_target=L.with_amount_seq(L.amount, L.seq + 1))),
+                f"{tag} CLAIM^m voucher naming another target body")
+    r_o = _merge_case_ccv(pw, 2, 3, P, L, 13_000)[2].root()
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, out0=r_o[1] - 1)), f"{tag} CLAIM^m with output 0 short")
+    expect_fail(lambda: w.run("CLAIM_M", *case(2, 3, P, L, 13_000, out0=r_o[1] + 1)), f"{tag} CLAIM^m with output 0 above ns")
+    wit_t, ctx_t, t_t = _merge_case_ccv(pw, 2, 3, P, L, 13_000)
+    ctx_t.outputs[0] = (ctx_t.outputs[0][0], lt.tree_spk_ccv(t_t.root()[0], lt.sha256(b"wrong-taptree")))
+    expect_fail(lambda: w.run("CLAIM_M", wit_t, ctx_t), f"{tag} CLAIM^m with output 0 under a wrong taptree")
+
+    # the exact-fit funding hole and the DUST_MIN headroom
+    tight = pw.pending(3_000, 700_000)
+    ok(lambda: w.run("CLAIM_HM", *case(2, 3, tight, L, 13_000, pre)), f"{tag} CLAIM^hm draining an exactly funded pending leaf")
+    expect_fail(lambda: w.run("CLAIM_HM", *case(2, 3, tight.with_amount_seq(3_001, 0), L, 13_000, pre)),
+                f"{tag} CLAIM^hm blocked by a one-satoshi top-up of an exactly funded pending leaf")
+    roomy = pw.pending(3_000 + lt.DUST_MIN, 700_000)
+    for extra in (0, 1, 50_000):
+        ok(lambda: w.run("CLAIM_HM", *case(2, 3, roomy.with_amount_seq(roomy.amount + extra, 0), L, 13_000, pre)),
+           f"{tag} CLAIM^hm with DUST_MIN of headroom redeems after a top-up of {extra}")
+    if verbose:
+        print(f"    CLAIM^m {tag}: script {len(w.compiled['CLAIM_M'])} B; CLAIM^hm script {hm_size} B, "
+              f"witness {hm_wit} B ({len(wit)} elements), varops {it.cost if it else '-'}")
+    return hm_size, hm_wit
+
+
+def test_reclaim_ccv(depth, numeric="c2", verbose=True):
+    """RECLAIM_1 (7.11) under CCV, mirroring test_scripts.test_reclaim: the
+    reclaim after the deadline with the leaf's value going to another
+    output, and its negatives (before the deadline, the wrong key, output
+    0 short or above ns, a leaf whose evictor is not RECLAIM_KEY, the
+    landing leaf). The CCV amount rule: output 0 is checked in the DEDUCT
+    mode, so the reclaimed value is unassigned and free; the same body
+    with the assign mode of every other transition fails the spend, and a
+    second copy of the tree state cannot reuse output 0."""
+    pw = PendingWorldCCV(depth, numeric)
+    w, c0 = pw.w, pw.c0
+    tag = f"{numeric} D={depth}"
+    P = pw.pending(20_000, 700_000)
+    w.tree.leaves = {2: P, 3: pw.landing(10_000), 0: mk_leaf("alice", 50_000)}
+    base_leaves = dict(w.tree.leaves)
+
+    def spend(leaf=P, locktime=700_000, signer=RECLAIM_SK, out0=None, name="RECLAIM_1", ea=None,
+              outs_extra=((20_000, P2WPKH),), extra_in=(600, P2WPKH), run=True, spk0=None):
+        slot = next(k for k, v in w.tree.leaves.items() if v is leaf)
+        rt = w.tree.root()
+        t = w.clone(); del t.leaves[slot]
+        rn = t.root()
+        ctx = w.ctx([(rn[1] if out0 is None else out0, spk0 or w.spk(rn))] + list(outs_extra), extra_in,
+                    locktime=locktime)
+        sig = schnorr_sign(ctx.sighash(), signer)
+        p = w.tree.path(slot)
+        if c0:
+            e = leaf.evict_after if ea is None else ea
+            wit = (list(M.pad(rn[1])) + list(M.pad(rt[1])) + M.w_levels(p, leaf.node(), lt.EMPTY_NODE) +
+                   M.w_leaf(leaf) + [M.scriptnum(e), *M.pad(e), sig])
+        else:
+            wit = w.path_witness(p) + [leaf.serialize(), sig]
+        if not run:
+            return wit, ctx
+        return w.run(name, wit, ctx)
+
+    it = None
+    try:
+        it = spend()
+        check(True, f"{tag} RECLAIM_1 after the deadline, value free for the transaction")
+    except ScriptError as e:
+        check(False, f"{tag} RECLAIM_1 positive: {str(e)[:120]}")
+    wit, _ = spend(run=False)
+    size, wsize = len(w.compiled["RECLAIM_1"]), sum(len(x) for x in wit)
+    try:
+        spend(outs_extra=(), extra_in=(600, P2WPKH))
+        check(True, f"{tag} RECLAIM_1 with the reclaimed value left entirely to the fee")
+    except ScriptError as e:
+        check(False, f"{tag} RECLAIM_1 value to fee: {str(e)[:120]}")
+    expect_fail(lambda: spend(locktime=699_999), f"{tag} RECLAIM_1 before the deadline")
+    expect_fail(lambda: spend(signer=sk("operator")), f"{tag} RECLAIM_1 signed by OPERATOR_KEY, not RECLAIM_KEY")
+    t_n = w.clone(); del t_n.leaves[2]
+    rn = t_n.root()
+    expect_fail(lambda: spend(out0=rn[1] - 1), f"{tag} RECLAIM_1 with output 0 short")
+    expect_fail(lambda: spend(out0=rn[1] + 1, extra_in=(5_000, P2WPKH)), f"{tag} RECLAIM_1 with output 0 above ns")
+    expect_fail(lambda: spend(spk0=lt.tree_spk_ccv(rn[0], lt.sha256(b"wrong-taptree"))),
+                f"{tag} RECLAIM_1 with output 0 under a wrong taptree")
+    if c0:
+        expect_fail(lambda: spend(locktime=699_999, ea=699_999),
+                    f"{tag} RECLAIM_1 with an evict_after number other than the leaf's")
+    plain = mk_leaf("bob", 20_000, w.op_pk, 600_000)
+    w.tree.leaves[6] = plain
+    expect_fail(lambda: spend(leaf=plain, locktime=700_000), f"{tag} RECLAIM_1 of a leaf whose evictor is not RECLAIM_KEY")
+    w.tree.leaves = dict(base_leaves)
+    L = w.tree.leaves[3]
+    expect_fail(lambda: spend(leaf=L, locktime=900_000), f"{tag} RECLAIM_1 of the landing leaf")
+    # the amount rule: the same body with output 0 in the assign mode
+    # cannot free the leaf's value, since the floor is the whole input
+    toks = w.scripts["RECLAIM_1"]
+    if c0:
+        fin2 = C._final_ccv0(depth, mode=2)
+        assign = toks[:-len(fin2)] + C._final_ccv0(depth)
+    else:
+        fin2 = C.final_ccv(depth, mode=2)
+        assign = toks[:-len(fin2)] + C.final_ccv(depth)
+    check(toks[-len(fin2):] == fin2, f"{tag} RECLAIM_1 ends in the DEDUCT-mode output check")
+    w.compiled = dict(w.compiled); w.compiled["RECLAIM_ASSIGN"] = assemble(assign, mode=pw.mode)
+    expect_fail(lambda: spend(name="RECLAIM_ASSIGN"),
+                f"{tag} RECLAIM_1's body with an assign-mode output 0 cannot free the reclaimed value")
+    # two copies of the tree state in one transaction: the second DEDUCT of
+    # output 0 fails (spec 4.1 [A-6])
+    wit2, ctx2 = spend(run=False)
+    rt = w.tree.root()
+    ctx2.inputs = [ctx2.inputs[0], ctx2.inputs[0], ctx2.inputs[1]]
+    ctx2.sequences = [0xfffffffd] * 3
+    ctx2.prevouts = [ctx2.prevouts[0], (lt.sha256(b"copy"), 7), ctx2.prevouts[1]]
+    ctx2.ccv_reset()
+    sig2 = schnorr_sign(ctx2.sighash(), RECLAIM_SK)
+    wit2 = wit2[:-1] + [sig2]
+    try:
+        w.run("RECLAIM_1", wit2, ctx2)
+        check(True, f"{tag} RECLAIM_1: the first copy passes on its own")
+    except ScriptError as e:
+        check(False, f"{tag} RECLAIM_1 first copy: {str(e)[:100]}")
+
+    def second():
+        ctx2.input_index = 1
+        return w.run("RECLAIM_1", wit2[:-1] + [schnorr_sign(ctx2.sighash(), RECLAIM_SK)], ctx2)
+    expect_fail(second, f"{tag} RECLAIM_1: a second copy of the state cannot deduct output 0 again")
+    if verbose:
+        print(f"    RECLAIM_1 {tag}: script {size} B, witness {wsize} B ({len(wit)} elements), "
+              f"varops {it.cost if it else '-'}")
+    return size, wsize
+
+
+def test_reclaim_sparse_ccv(depth, numeric="c2"):
+    """RECLAIM_1 (7.11) in the sparse profile, which FULL's option set
+    also carries: the reclaim after the deadline, and before it."""
+    c0 = numeric == "c0"
+    w = WorldC0(depth, "S") if c0 else World(depth, "S")
+    rk = pubkey_x(RECLAIM_SK)
+    opts = C.CCVTreeOptions(w.op_pk, numeric, "S", TREE_ID, reclaim_key=rk)
+    mode, lv = ("c0", 0xc0) if c0 else ("c2", 0xc2)
+    w.compiled = {k: assemble(v, mode=mode) for k, v in opts.at_depth(depth).items()}
+    w.m = lt.taptree_root([lt.tapleaf_hash(c, lv) for c in w.compiled.values()])
+    tag = f"{numeric} S/{depth}"
+    P = lt.Leaf(20_000, pubkey_x(sk("rcpt-exit")), pubkey_x(sk("operator-owner")), rk, 700_000, 5, 0)
+    while c0 and not M.pos_ok(P, depth):
+        P.nonce += 1
+    alice = mk_leaf("alice", 50_000)
+    while c0 and not M.pos_ok(alice, depth):
+        alice.nonce += 1
+    s_p, s_a = w.slot(P), w.slot(alice)
+    w.tree.leaves = {s_p: P, s_a: alice}
+
+    def spend(locktime):
+        rt = w.tree.root()
+        t = w.clone(); del t.leaves[s_p]
+        rn = t.root()
+        ctx = w.ctx([(rn[1], w.spk(rn)), (20_000, P2WPKH)], (600, P2WPKH), locktime=locktime)
+        sig = schnorr_sign(ctx.sighash(), RECLAIM_SK)
+        p = w.tree.path(s_p)
+        if c0:
+            wit = (list(M.pad(rn[1])) + list(M.pad(rt[1])) + M.w_levels(p, P.node(), lt.EMPTY_NODE, True) +
+                   w.pos(P) + M.w_leaf(P) + [M.scriptnum(P.evict_after), *M.pad(P.evict_after), sig])
+        else:
+            wit = w.path_witness(p) + [P.serialize(), sig]
+        return w.run("RECLAIM_1", wit, ctx)
+    try:
+        spend(700_000)
+        check(True, f"{tag} RECLAIM_1 after the deadline")
+    except ScriptError as e:
+        check(False, f"{tag} RECLAIM_1 positive: {str(e)[:120]}")
+    expect_fail(lambda: spend(699_999), f"{tag} RECLAIM_1 before the deadline")
+
+
+def _r1_due(pw, i, o, nw):
+    """Whether position i (even = the left of a pair) of the reclaim-form
+    rewrite takes R1, so that its 0xC0 block carries ea_num ze we:
+    a changed reclaimable leaf that is neither rule 3's amount-only
+    increase nor, on the left, an R3 transfer."""
+    if o is None or o.evictor_key != pw.rk or (nw is not None and o.serialize() == nw.serialize()):
+        return False
+    same = nw is not None and nw.serialize()[8:] == o.serialize()[8:]
+    if same and nw.amount >= o.amount and o.seq != pw.seq_final:
+        return False
+    if i % 2 == 0 and same and nw.amount < o.amount:
+        return False
+    return True
+
+
+def _pending_rewrite_ccv(pw, name, base, height, old, new, locktime=0, sign=(), flag=None, tamper=None,
+                         extra_leaves=None, run=True, ea=None):
+    """Run REWRITE_R_h / REWRITE_XR_h over positions base..base+2^h-1 in
+    the world's numerics (test_scripts._pending_rewrite's scenario). flag is
+    the output-0 mode flag (DEDUCT, 0x01, when the rewrite frees value;
+    assign, empty, otherwise); `ea` overrides the evict_after number of
+    0xC0 R1 blocks."""
+    w = pw.w
+    n = 1 << height
+    leaves = {base + i: lf for i, lf in old.items() if lf}
+    leaves[0] = mk_leaf("alice", 50_000)
+    leaves.update(extra_leaves or {})
+    w.tree.leaves = leaves
+    root = w.tree.root()
+    t1 = w.clone()
+    for i in range(n):
+        if new[i]:
+            t1.leaves[base + i] = new[i]
+        else:
+            t1.leaves.pop(base + i, None)
+    r1 = t1.root()
+    freed = root[1] - r1[1]
+    outputs = [(r1[1], w.spk(r1)), (max(freed, 0) + 1_000, P2WPKH)]
+    ctx = w.ctx(outputs, (5_000 + max(-freed, 0), P2WPKH), locktime=locktime)
+    sig_op = schnorr_sign(ctx.sighash(), w.op_sk)
+    if flag is None:
+        flag = b"\x01" if freed > 0 else b""
+    extras = {}
+    for i in range(n):
+        if i in sign:
+            sg = [schnorr_sign(ctx.sighash(), sk("operator-owner"))]
+            if "X" in name:
+                sg.append(schnorr_sign(ctx.sighash(), sk("rcpt-exit")))
+            extras[i] = sg
+        elif pw.c0 and _r1_due(pw, i, old[i], new[i]):
+            e = old[i].evict_after if ea is None else ea
+            extras[i] = list(reversed([M.scriptnum(e), *M.pad(e)]))   # w_rewrite reverses a block's extras
+    if pw.c0:
+        body = M.w_rewrite(w.tree, pw.depth, height, base >> height, new, extras)
+    else:
+        path = w.tree.path(base, height=height)
+        body = w.path_witness(path, height) + _rewrite_blocks_c2(old, new, extras, n)
+    wit = [flag] + body + [sig_op]
+    if tamper:
+        wit = tamper(wit)
+    if not run:
+        return wit, ctx
+    return w.run(name, wit, ctx)
+
+
+def test_pending_rewrite_ccv(depth, numeric="c2", verbose=True):
+    """The reclaim form of REWRITE_h (7.9 rule 8) under CCV, mirroring
+    test_scripts.test_pending_rewrite: an R3 settlement with the operator's
+    signature alone and its negatives, an R1 reclaim and roll after the
+    deadline and before it, a top-up of the pending leaf, every way of
+    reaching a leaf that is not reclaimable, and a two-pair rewrite. The
+    CCV-specific cases are the output-0 mode flag: a reclaim under the
+    assign mode and a funded roll under DEDUCT both fail, as does a flag
+    other than empty or 0x01; under 0xC0 an R1 block with another
+    evict_after number fails, and so does a marker on the right of a
+    recorded transfer."""
+    pw = PendingWorldCCV(depth, numeric)
+    tag = f"{numeric} D={depth}"
+    T = 700_000
+    P, L = pw.pending(20_000, T), pw.landing(10_000)
+
+    def ok(fn, msg):
+        try:
+            fn()
+            check(True, msg)
+        except ScriptError as e:
+            check(False, f"{msg}: {str(e)[:120]}")
+
+    def run(*a, **k):
+        return _pending_rewrite_ccv(pw, *a, **k)
+    for name in ("REWRITE_R_1", "REWRITE_XR_1"):
+        t = f"{tag} {name}"
+        settle = {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0)}
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle), f"{t} R3 transfer P -> L, operator only, before the deadline")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, settle, flag=b"\x01"), f"{t} R3 transfer under the DEDUCT flag")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(16_999, 0)}),
+                    f"{t} R3 with the landing leaf raised by less than the transfer")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: L}),
+                    f"{t} R3 with the landing leaf unchanged")
+        other = pw.landing(10_000, owner=pubkey_x(sk("operator-owner")))
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: other}, {0: P.with_amount_seq(13_000, 0), 1: other.with_amount_seq(17_000, 0)}),
+                    f"{t} R3 into a sibling the pending leaf's exit key does not own")
+        away = lt.Leaf(10_000, pubkey_x(sk("mallory-exit")), pw.rcpt, pw.w.op_pk, 900_000, 77, 0)
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: away},
+                                {0: P.with_amount_seq(13_000, 0), 1: away.with_amount_seq(17_000, 0)}),
+                    f"{t} R3 into a sibling owned by the pending leaf's exit key but exiting elsewhere")
+        flagged = pw.landing(10_000, evictor=pw.rk)
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: flagged}, {0: P.with_amount_seq(13_000, 0), 1: flagged.with_amount_seq(17_000, 0)}),
+                    f"{t} R3 into a reclaimable sibling")
+        expect_fail(lambda: run(name, 4, 1, {0: L, 1: P}, {0: L.with_amount_seq(17_000, 0), 1: P.with_amount_seq(13_000, 0)}),
+                    f"{t} R3 with the pending leaf on the right")
+        rekeyed = lt.Leaf(17_000, L.exit_key, L.owner_key, L.evictor_key, L.evict_after + 1, L.nonce, L.seq)
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(13_000, 0), 1: rekeyed}),
+                    f"{t} R3 with the landing leaf changed beyond its amount")
+        # R1: reclaim after the deadline, emptied with no payout, or rolled
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T), f"{t} R1 reclaim after the deadline, no payout")
+        P2 = pw.pending(25_000, T + 1_008, label="P2")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T), f"{t} R1 roll: the expired pending leaf replaced by the next window's")
+        P3 = pw.pending(15_000, T + 1_008, label="P3")
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P3, 1: L}, locktime=T), f"{t} R1 roll to a smaller pending leaf, the difference freed")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T - 1), f"{t} R1 reclaim before the deadline")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T - 1), f"{t} R1 roll before the deadline")
+        # the CCV output-0 mode: a reclaim needs DEDUCT, a funded roll assign
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T, flag=b""),
+                    f"{t} R1 reclaim with output 0 in the assign mode")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P2, 1: L}, locktime=T, flag=b"\x01"),
+                    f"{t} R1 roll that adds value with output 0 in the DEDUCT mode")
+        expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T, flag=b"\x02"),
+                    f"{t} R1 reclaim with a mode flag other than empty or 0x01")
+        if pw.c0:
+            expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, {0: None, 1: L}, locktime=T - 1, ea=T - 1),
+                        f"{t} R1 with an evict_after number other than the leaf's")
+        # an amount-only top-up of the pending leaf is still rule 3's
+        ok(lambda: run(name, 2, 1, {0: P, 1: L}, {0: P.with_amount_seq(25_000, 0), 1: L}), f"{t} top-up of the pending leaf, operator only")
+        # nothing reaches a leaf that is not reclaimable
+        A = mk_leaf("c0", 20_000, pw.w.op_pk, 600_000)
+        B = mk_leaf("c1", 10_000, pw.w.op_pk, 600_000)
+        expect_fail(lambda: run(name, 2, 1, {0: A, 1: B}, {0: None, 1: B}, locktime=T),
+                    f"{t} emptying an ordinary leaf with no signature")
+        expect_fail(lambda: run(name, 2, 1, {0: L, 1: P}, {0: None, 1: P}, locktime=900_000),
+                    f"{t} reclaiming the landing leaf")
+        expect_fail(lambda: run(name, 2, 1, {0: A, 1: B}, {0: A.with_amount_seq(13_000, 0), 1: B.with_amount_seq(17_000, 0)}),
+                    f"{t} R3 from an ordinary leaf")
+        if pw.c0:
+            # a recorded transfer cannot meet the right position's marker
+            def marker_right(wit):
+                b = list(wit)
+                slot = M.w_rewrite_slot(L.with_amount_seq(17_000, 0))
+                at = next(j for j in range(len(b)) if b[j:j + len(slot)] == slot)
+                return b[:at] + [M.REWRITE_SAME] + b[at + len(slot):]
+            expect_fail(lambda: run(name, 2, 1, {0: P, 1: L}, settle, tamper=marker_right),
+                        f"{t} R3 transfer with the landing leaf presented as unchanged")
+    # two pairs in one rewrite: one settles, the other reclaims and rolls
+    P_b, L_b = pw.pending(9_000, T, label="Pb"), pw.landing(4_000, label="Lb")
+    it = None
+    try:
+        it = run("REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                 {0: P.with_amount_seq(13_000, 0), 1: L.with_amount_seq(17_000, 0),
+                  2: pw.pending(9_000, T + 1_008, label="Pb2"), 3: L_b}, locktime=T)
+        check(True, f"{tag} REWRITE_XR_2: a settlement and a roll in one rewrite, operator only")
+    except ScriptError as e:
+        check(False, f"{tag} REWRITE_XR_2 positive: {str(e)[:120]}")
+    expect_fail(lambda: run("REWRITE_XR_2", 4, 2, {0: P, 1: L, 2: P_b, 3: L_b},
+                            {0: P.with_amount_seq(13_000, 0), 1: L,
+                             2: P_b, 3: L_b.with_amount_seq(11_000, 0)}),
+                f"{tag} REWRITE_XR_2: a transfer absorbed by the other pair's landing leaf")
+    s1 = len(pw.w.compiled["REWRITE_XR_1"])
+    s2 = len(pw.w.compiled["REWRITE_XR_2"])
+    if verbose:
+        print(f"    REWRITE_XR_h {tag}: h=1 {s1} B, h=2 {s2} B, varops {it.cost if it else '-'}")
+    return s1, s2
+
+
+def _settlement_cohort(pw, height, reclaim=False):
+    """A full cohort for the reclaim-form rewrite at height h: 2^(h-1)
+    pairs (P_i, L_i), each settling 7,000 sat from P_i into L_i (R3), or
+    with reclaim, each P_i reclaimed (R1, emptied) and L_i unchanged."""
+    n = 1 << height
+    old, new = {}, {}
+    for j in range(n // 2):
+        P = pw.pending(20_000, 700_000, label=f"P{j}")
+        L = pw.landing(10_000, label=f"L{j}")
+        old[2 * j], old[2 * j + 1] = P, L
+        if reclaim:
+            new[2 * j], new[2 * j + 1] = None, L
+        else:
+            new[2 * j], new[2 * j + 1] = P.with_amount_seq(13_000, 0), L.with_amount_seq(17_000, 0)
+    return old, new
+
+
+def test_pending_rewrite_cohort_ccv(depth, height, numeric="c2", reclaim=False, verbose=True):
+    """REWRITE_XR_h over a full cohort of pairs at height h (D = depth):
+    every pair settles by R3, or with reclaim every pending leaf is
+    reclaimed by R1. Returns (script bytes, witness bytes, elements), or
+    under 0xC0 checks that a witness over the 1,000-element stack limit
+    is rejected by that limit and returns None for the witness."""
+    pw = PendingWorldCCV(depth, numeric, rewrite_heights=(height,))
+    w = pw.w
+    name = f"REWRITE_XR_{height}"
+    tag = f"{numeric} D={depth} {name} ({'reclaim' if reclaim else 'settle'})"
+    old, new = _settlement_cohort(pw, height, reclaim)
+    base = 1 << height
+    wit, ctx = _pending_rewrite_ccv(pw, name, base, height, old, new, locktime=700_000, run=False)
+    size = len(w.compiled[name])
+    if pw.c0 and len(wit) + 6 > 1000:
+        try:
+            w.run(name, wit, ctx)
+            check(False, f"{tag} with {len(wit)} witness elements ran past the 1,000-element stack limit")
+        except ScriptError as e:
+            check("stack size limit" in str(e), f"{tag} with {len(wit)} witness elements is rejected by the stack size limit: {str(e)[:60]}")
+        if verbose:
+            print(f"    {tag}: script {size} B, witness of {len(wit)} elements over the stack limit")
+        return size, None, len(wit)
+    it = None
+    try:
+        it = w.run(name, wit, ctx)
+        check(True, f"{tag}: {1 << height} positions")
+    except ScriptError as e:
+        check(False, f"{tag} positive: {str(e)[:120]}")
+    wsize = sum(len(x) for x in wit)
+    if verbose:
+        n = 1 << height
+        print(f"    {tag}: script {size} B, witness {wsize} B ({len(wit)} elements); "
+              f"per position {size / n:.0f} + {wsize / n:.0f} B, varops {it.cost if it else '-'}")
+    return size, wsize, len(wit)
+
+
 def main():
     global FAILS, CHECKS
     print("CCV tier (BIP-443 OP_CHECKCONTRACTVERIFY)")
@@ -2651,6 +3230,23 @@ def main():
         test_voucher_topup_ccv(16, numeric)
         test_credit_topup_ccv(16, numeric)
         print(f"  D (REWRITE, {numeric}): {CHECKS - before} checks")
+    # The pending-leaf receive (6.2, 7.5.4, 7.9 rule 8, 7.11) in both
+    # numerics: CLAIM^m / CLAIM^hm, RECLAIM_1 (both profiles), the reclaim
+    # form of the rewrite at h = 1, 2, and full cohorts of pairs at D = 16
+    # (under 0xC0 h = 5 is the largest that fits the stack limit).
+    print("  pending-leaf receive (sizes at D = 16):")
+    for numeric in ("c2", "c0"):
+        before = CHECKS
+        for depth in (4, 16):
+            test_merge_ccv(depth, numeric, verbose=depth == 16)
+            test_reclaim_ccv(depth, numeric, verbose=depth == 16)
+            test_pending_rewrite_ccv(depth, numeric, verbose=depth == 16)
+        test_reclaim_sparse_ccv(31 if numeric == "c0" else 8, numeric)
+        heights = (2, 4, 6) if numeric == "c2" else (2, 4, 5, 6)
+        for h in heights:
+            for reclaim in (False, True):
+                test_pending_rewrite_cohort_ccv(16, h, numeric, reclaim)
+        print(f"  D ({numeric}) CLAIM^m, CLAIM^hm, RECLAIM_1, REWRITE_R_h, REWRITE_XR_h: {CHECKS - before} checks")
     before = CHECKS
     test_audit_negatives_ccv(8)
     print(f"  D/8 audit negatives (c2, c0): {CHECKS - before} checks")

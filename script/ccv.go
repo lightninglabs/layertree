@@ -90,6 +90,13 @@ func ccvCheckOld(sparse bool) []Token {
 // no output-0 check). The equality keeps rule 5 exactly; the assign
 // floor lets a JOIN fund output 0 from its other inputs.
 func ccvFinal(depth int) []Token {
+	return ccvFinalMode(depth, ccvModeAssignOut)
+}
+
+// ccvFinalMode is ccvFinal with the output-0 call's CCV mode a parameter:
+// assign for every transition but RECLAIM_1, which passes DEDUCT
+// (tools/layertree_ccv.py final_ccv's mode).
+func ccvFinalMode(depth int, mode int64) []Token {
 	eD := tree.EmptyNode(depth).Hash
 	return []Token{
 		Op(ts.OP_ROT), Op(ts.OP_DROP), // nh ns
@@ -97,7 +104,7 @@ func ccvFinal(depth int) []Token {
 		Op(ts.OP_IF), Op(ts.OP_2DROP), Op(ts.OP_1),
 		Op(ts.OP_ELSE),
 		Op(ts.OP_TOALTSTACK), // nh        | ns
-		Op(ts.OP_0), Data(ccvEmpty), Data(ccvMinus1), Num(ccvModeAssignOut),
+		Op(ts.OP_0), Data(ccvEmpty), Data(ccvMinus1), Num(mode),
 		Op(OP_CHECKCONTRACTVERIFY), // ()   assign out0
 		Op(ts.OP_FROMALTSTACK),     // ns
 		// OP_TX SelOutSingle pushes [amount, spk] with the spk on top;
@@ -468,6 +475,12 @@ func ccv0CheckOld(sparse bool) []Token {
 // replaced by the CCV assign call and the amount compared as bytes
 // (tools/layertree_ccv.py _final_ccv0). Entry [zf wf T nh ns].
 func ccv0Final(depth int) []Token {
+	return ccv0FinalMode(depth, ccvModeAssignOut)
+}
+
+// ccv0FinalMode is ccv0Final with the output-0 call's CCV mode a
+// parameter, as ccvFinalMode.
+func ccv0FinalMode(depth int, mode int64) []Token {
 	s := []Token{
 		Op(ts.OP_ROT), Op(ts.OP_DROP),
 		Op(ts.OP_OVER), Data(midEmptyNodeHash(depth)), Op(ts.OP_EQUAL),
@@ -478,7 +491,7 @@ func ccv0Final(depth int) []Token {
 	s = append(s, midLe64()...) // nh le64(ns)
 	return append(s,
 		Op(ts.OP_TOALTSTACK), // nh | le64(ns)
-		Op(ts.OP_0), Data(ccvEmpty), Data(ccvMinus1), Num(ccvModeAssignOut),
+		Op(ts.OP_0), Data(ccvEmpty), Data(ccvMinus1), Num(mode),
 		Op(OP_CHECKCONTRACTVERIFY),
 		Op(ts.OP_FROMALTSTACK),
 		Op(ts.OP_0), Num(SelOutSingle), Op(OP_TX), Op(ts.OP_DROP),
@@ -833,6 +846,362 @@ func CCV0RewriteScript(depth, height int, operatorKey [32]byte,
 	return append(s, ccv0Final(depth)...)
 }
 
+// ------------------------- pending-leaf receive (6.2, 7.5.4, 7.9 rule 8, 7.11) --
+// CLAIM^m and CLAIM^hm, RECLAIM_1 and the reclaim form of REWRITE_h under
+// CCV in both numerics (tools/layertree_ccv.py). Under 0xC2 the bodies are
+// FULL's (FullMergeScript, FullReclaimScript, fullRewriteMachine) between
+// CCV's two bindings; under 0xC0 they are the CCV tier's own. RECLAIM_1
+// checks output 0 in the DEDUCT mode, so the reclaimed value is unassigned
+// and free for the transaction, and the reclaim-form rewrite takes a
+// witness flag at the bottom that selects assign or DEDUCT; the OP_TX
+// equality pins out0 == ns in every case.
+
+var (
+	ccvVoucherMPrefix  = fullTagPrefix(tree.TagVoucherM)
+	ccvVoucherHMPrefix = fullTagPrefix(tree.TagVoucherHM)
+)
+
+// tk builds a token list from opcodes (the untyped txscript constants,
+// which arrive as int), tokens (numbers as Num), token lists and pushes
+// ([]byte), in the order given, so the long bodies below read as the
+// Python token lists they port.
+func tk(items ...interface{}) []Token {
+	out := make([]Token, 0, len(items))
+	for _, it := range items {
+		switch v := it.(type) {
+		case int:
+			out = append(out, Op(byte(v)))
+		case []byte:
+			out = append(out, Data(v))
+		case Token:
+			out = append(out, v)
+		case []Token:
+			out = append(out, v...)
+		default:
+			panic("tk: unsupported item")
+		}
+	}
+	return out
+}
+
+// ccvFullBody is a FULL script's transition body: toks without
+// fullPrologue in front and FINAL's root check and output construction
+// behind (tools/layertree_ccv.py _full_body). The body never touches r or
+// m, which sit on the altstack below everything it parks.
+func ccvFullBody(toks []Token, depth int, sparse bool) []Token {
+	pre := fullPrologue()
+	post := fullCat(fullCheckOldRootFromAlt(sparse), fullFinalOutput(depth))
+	if len(toks) < len(pre)+len(post) {
+		panic("ccvFullBody: script too short")
+	}
+	return toks[len(pre) : len(toks)-len(post)]
+}
+
+// CCVMergeScript is CLAIM^m (spec 7.5.4), or CLAIM^hm with hashlock, under
+// CCV (0xC2): FULL's body between CHECK_INPUT and the assign-mode output
+// check. rk is RECLAIM_KEY or nil (tools/layertree_ccv.py merge_script_ccv).
+//
+// witness (bottom..top) = [dir sc]*(D-1) left right src_is_left X vsig [preimage].
+func CCVMergeScript(depth int, treeID [32]byte, hashlock bool, rk *[32]byte,
+	dustMin uint64) []Token {
+
+	body := ccvFullBody(FullMergeScript(depth, treeID, hashlock, rk, dustMin), depth, false)
+	return fullCat(body, ccvCheckOld(false), ccvFinal(depth))
+}
+
+// CCVReclaimScript is RECLAIM_1 (spec 7.11) under CCV (0xC2): FULL's body
+// (evictor RECLAIM_KEY, the lock time at least evict_after, a transaction
+// signature by RECLAIM_KEY, E_0 in the leaf's place) with output 0 in the
+// DEDUCT mode (tools/layertree_ccv.py reclaim_script_ccv).
+//
+// witness (bottom..top) = [path] leaf sig.
+func CCVReclaimScript(depth int, rk [32]byte, sparse bool) []Token {
+	body := ccvFullBody(FullReclaimScript(depth, rk, sparse), depth, sparse)
+	return fullCat(body, ccvCheckOld(sparse), ccvFinalMode(depth, ccvModeDeductOut))
+}
+
+// ccvFinalSel is [flag T nh ns] -> [1]: ccvFinal with the output-0 mode
+// chosen by a witness flag, assign (empty) or DEDUCT (0x01); MINIMALIF
+// keeps the flag to those two (tools/layertree_ccv.py _final_ccv_sel).
+func ccvFinalSel(depth int) []Token {
+	eD := tree.EmptyNode(depth).Hash
+	return tk(ts.OP_ROT, ts.OP_DROP,
+		ts.OP_OVER, eD[:], ts.OP_EQUAL,
+		ts.OP_IF, ts.OP_2DROP, ts.OP_DROP, ts.OP_1,
+		ts.OP_ELSE,
+		ts.OP_TOALTSTACK,
+		ts.OP_SWAP, ts.OP_IF, Num(int64(2)), ts.OP_ELSE, ts.OP_0, ts.OP_ENDIF,
+		ts.OP_0, ccvEmpty, ccvMinus1, Num(int64(3)), ts.OP_ROLL,
+		OP_CHECKCONTRACTVERIFY,
+		ts.OP_FROMALTSTACK,
+		ts.OP_0, Num(int64(SelOutSingle)), OP_TX, ts.OP_DROP, ts.OP_NUMEQUALVERIFY,
+		ts.OP_1, ts.OP_ENDIF)
+}
+
+// CCVRewriteRScript is the reclaim form of REWRITE_h (spec 7.9 rule 8),
+// REWRITE_R_h or REWRITE_XR_h with exitConsent, under CCV (0xC2): FULL's
+// machine with RECLAIM_KEY hoisted and ccvRewritePay as the exit payout
+// (tools/layertree_ccv.py rewrite_script_ccv with reclaim_key). witness
+// (bottom..top) = flag [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op.
+func CCVRewriteRScript(depth, height int, operatorKey, rk [32]byte,
+	exitConsent bool) []Token {
+
+	return fullCat(
+		[]Token{Data(operatorKey[:]), Op(ts.OP_CHECKSIGVERIFY)},
+		fullRewriteMachine(height, exitConsent, ccvRewritePay(), &rk),
+		fullLevels(false, depth, height), ccvCheckOld(false), ccvFinalSel(depth))
+}
+
+// ---------------------------------------------------- the same under 0xC0 --
+
+// ccv0FinalSel is [flag zf wf T nh ns] -> [1], ccv0Final with the
+// output-0 mode chosen by the witness flag (_final_ccv0_sel).
+func ccv0FinalSel(depth int) []Token {
+	return tk(ts.OP_ROT, ts.OP_DROP,
+		ts.OP_OVER, midEmptyNodeHash(depth), ts.OP_EQUAL,
+		ts.OP_IF, ts.OP_2DROP, ts.OP_2DROP, ts.OP_DROP, ts.OP_1,
+		ts.OP_ELSE, midRoll(3, 2), midLe64(),
+		ts.OP_TOALTSTACK,
+		ts.OP_SWAP, ts.OP_IF, Num(int64(2)), ts.OP_ELSE, ts.OP_0, ts.OP_ENDIF,
+		ts.OP_0, ccvEmpty, ccvMinus1, Num(int64(3)), ts.OP_ROLL, OP_CHECKCONTRACTVERIFY,
+		ts.OP_FROMALTSTACK,
+		ts.OP_0, Num(int64(SelOutSingle)), OP_TX, ts.OP_DROP, ts.OP_EQUALVERIFY,
+		ts.OP_1, ts.OP_ENDIF)
+}
+
+// CCV0ReclaimScript is RECLAIM_1 (spec 7.11) under the CCV tier's 0xC0
+// numerics: MID's eviction branch without the payout, the evictor fixed to
+// RECLAIM_KEY and serving as the signature key, output 0 in the DEDUCT
+// mode (tools/layertree_ccv.py _reclaim_script_ccv0). witness
+// (bottom..top) = zf wf zi wi [levels] [sparse: ok nonce plo phi]
+// leaf(10) ea_num ze we sig.
+func CCV0ReclaimScript(depth int, rk [32]byte, sparse bool) []Token {
+	s := tk(Num(int64(10)), ts.OP_PICK, ts.OP_DUP, rk[:], ts.OP_EQUALVERIFY, ts.OP_CHECKSIGVERIFY,
+		Num(int64(2)), ts.OP_PICK, ts.OP_CHECKLOCKTIMEVERIFY, ts.OP_DROP, midPadz(),
+		Num(int64(6)), ts.OP_PICK, ts.OP_EQUALVERIFY,
+		midLeafJoin(), midTagged(midLeafPrefix), ts.OP_FROMALTSTACK)
+	if sparse {
+		s = append(s, midRoll(5, 4)...)
+		s = append(s, midSparseSetup()...)
+	}
+	s = append(s, tk(midNodePrefix, ts.OP_ROT, ts.OP_ROT, midEmptyLeafHash, ts.OP_0)...)
+	return fullCat(s, midLevels(sparse, depth, 0), ccv0CheckOld(sparse),
+		ccv0FinalMode(depth, ccvModeDeductOut))
+}
+
+// ccv0ConvLeaf: [L .. amt8 rest] -> [L .. sc], L picked k deep once the
+// joined leaf is on top (_conv_leaf).
+func ccv0ConvLeaf(k int) []Token {
+	return tk(ts.OP_2DUP, OP_CAT, Num(int64(k)), ts.OP_PICK, ts.OP_SWAP, OP_CAT, ts.OP_SHA256,
+		ts.OP_NIP, ts.OP_SWAP, []byte{0x01}, OP_CAT, OP_CAT)
+}
+
+func repeatOp(op byte, n int) []Token {
+	return midRepeat([]Token{Op(op)}, n)
+}
+
+// CCV0MergeScript is CLAIM^m (spec 7.5.4), or CLAIM^hm with hashlock,
+// under the CCV tier's 0xC0 numerics (tools/layertree_ccv.py
+// _merge_script_ccv0). witness (bottom..top) = zf wf zi wi [levels
+// 1..D-1] src_is_left zR wR X_num zX wX src(10) tgt(10) vsig [preimage].
+func CCV0MergeScript(depth int, treeID [32]byte, hashlock bool, rk *[32]byte,
+	dustMin uint64) []Token {
+
+	var s []Token
+	if hashlock {
+		s = tk(ts.OP_SIZE, Num(int64(32)), ts.OP_EQUALVERIFY, ts.OP_SHA256,
+			ts.OP_SWAP, ts.OP_TOALTSTACK, ts.OP_TOALTSTACK)
+	} else {
+		s = tk(ts.OP_TOALTSTACK)
+	}
+	if rk != nil {
+		s = append(s, tk(Num(int64(6)), ts.OP_PICK, rk[:], ts.OP_EQUAL, ts.OP_NOT, ts.OP_VERIFY)...)
+	}
+	s = append(s, tk(midLeafJoinOld(), ts.OP_SWAP, ts.OP_NOT, ts.OP_VERIFY,
+		repeatOp(ts.OP_TOALTSTACK, 5),
+		midLeafJoinOld(), ts.OP_SWAP, ts.OP_NOT, ts.OP_VERIFY,
+		repeatOp(ts.OP_FROMALTSTACK, 5),
+		ts.OP_SWAP, Num(int64(7)), ts.OP_PICK, ts.OP_EQUALVERIFY,
+		ts.OP_SWAP, Num(int64(6)), ts.OP_PICK, ts.OP_EQUALVERIFY,
+		Num(int64(5)), ts.OP_ROLL, ts.OP_DROP,
+		midRoll(9, 3), Num(int64(2)), ts.OP_PICK, ts.OP_TOALTSTACK, midLe64(),
+		Num(int64(6)), ts.OP_PICK, Num(int64(3)), ts.OP_PICK, OP_CAT, ts.OP_OVER, OP_CAT,
+		treeID[:], ts.OP_SWAP, OP_CAT,
+		ts.OP_FROMALTSTACK, ts.OP_SWAP)...)
+	prefix := ccvVoucherMPrefix
+	if hashlock {
+		s = append(s, tk(ts.OP_FROMALTSTACK, OP_CAT)...)
+		prefix = ccvVoucherHMPrefix
+	}
+	s = append(s, tk(midTagged(prefix),
+		ts.OP_FROMALTSTACK, ts.OP_SWAP,
+		Num(int64(8)), ts.OP_PICK, OP_CHECKSIGFROMSTACK, ts.OP_VERIFY,
+		Num(int64(2)), ts.OP_PICK, ts.OP_SUB,
+		ts.OP_1, ts.OP_OVER, ts.OP_LESSTHANOREQUAL, ts.OP_VERIFY,
+		Num(int64(5)), ts.OP_PICK, ts.OP_SWAP, ts.OP_SUB,
+		Num(int64(6)), ts.OP_ROLL, ts.OP_DROP,
+		Num(int64(2)), ts.OP_ROLL, Num(int64(5)), ts.OP_ROLL, ts.OP_ADD, ts.OP_TOALTSTACK,
+		ts.OP_DUP, ts.OP_TOALTSTACK, midRoll(7, 2), midLe64(),
+		midLeafPrefix, ts.OP_SWAP, Num(int64(5)), ts.OP_PICK, ccv0ConvLeaf(3),
+		ts.OP_FROMALTSTACK, ts.OP_DUP, ts.OP_NOT,
+		ts.OP_IF, ts.OP_2DROP, midEvictE0Sc,
+		ts.OP_ELSE, dustNum(dustMin), ts.OP_GREATERTHANOREQUAL, ts.OP_VERIFY, ts.OP_ENDIF,
+		ts.OP_TOALTSTACK,
+		ts.OP_SWAP, Num(int64(2)), ts.OP_PICK, ccv0ConvLeaf(3),
+		ts.OP_TOALTSTACK, ts.OP_ROT, ts.OP_ROT, ccv0ConvLeaf(3),
+		ts.OP_2SWAP, ccv0ConvLeaf(4),
+		ts.OP_ROT, ts.OP_DROP,
+		ts.OP_ROT, ts.OP_DUP, ts.OP_TOALTSTACK,
+		ts.OP_IF, ts.OP_SWAP, ts.OP_ENDIF, OP_CAT,
+		midNodePrefix, ts.OP_TUCK, ts.OP_SWAP, OP_CAT, ts.OP_SHA256,
+		ts.OP_FROMALTSTACK, ts.OP_FROMALTSTACK, ts.OP_FROMALTSTACK,
+		ts.OP_ROT, ts.OP_IF, ts.OP_SWAP, ts.OP_ENDIF, OP_CAT,
+		Num(int64(2)), ts.OP_PICK, ts.OP_SWAP, OP_CAT, ts.OP_SHA256,
+		ts.OP_FROMALTSTACK, ts.OP_SWAP, ts.OP_OVER)...)
+	return fullCat(s, midLevels(false, depth, 1), ccv0CheckOld(false), ccv0Final(depth))
+}
+
+// ccv0AbsorbPop: | .. delta key Z L idx -> [.. key delta] | .. Z L idx.
+func ccv0AbsorbPop() []Token {
+	return tk(repeatOp(ts.OP_FROMALTSTACK, 5), ts.OP_2SWAP, ts.OP_TOALTSTACK,
+		ts.OP_TOALTSTACK, ts.OP_ROT, ts.OP_TOALTSTACK)
+}
+
+// ccv0R1: R1 on the reclaim layout, ea_num ze we 13 deep (_r1_ccv0).
+func ccv0R1() []Token {
+	return tk(midRoll(13, 3), Num(int64(2)), ts.OP_PICK, ts.OP_CHECKLOCKTIMEVERIFY, ts.OP_DROP,
+		midPadz(), ts.OP_OVER, ts.OP_EQUALVERIFY)
+}
+
+// ccv0MidRules are MID's 7.9 rules 3 and 5 on [C_new(3) C_old(6)] (_mid_rules).
+func ccv0MidRules(exitConsent bool, pay []Token) []Token {
+	auth := midRewriteOwnerAuth(exitConsent)
+	return tk(Num(int64(4)), ts.OP_PICK, Num(int64(8)), ts.OP_PICK, ts.OP_EQUAL,
+		Num(int64(6)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_EQUAL,
+		ts.OP_BOOLAND, ts.OP_NOTIF,
+		Num(int64(4)), ts.OP_PICK, ts.OP_SIZE, ts.OP_NIP, ts.OP_0NOTEQUAL, ts.OP_IF,
+		Num(int64(7)), ts.OP_PICK, ts.OP_SIZE, ts.OP_NIP, ts.OP_0NOTEQUAL, ts.OP_IF,
+		Num(int64(4)), ts.OP_PICK, Num(int64(8)), ts.OP_PICK, ts.OP_EQUAL,
+		ts.OP_OVER, Num(int64(8)), ts.OP_PICK, ts.OP_LESSTHANOREQUAL, ts.OP_BOOLAND,
+		Num(int64(2)), ts.OP_PICK, ts.OP_NOT, ts.OP_BOOLAND,
+		ts.OP_NOTIF, auth, ts.OP_ENDIF,
+		ts.OP_ELSE, auth, pay,
+		ts.OP_ENDIF, ts.OP_ENDIF, ts.OP_ENDIF)
+}
+
+// ccv0RewriteStepR is one position of the 0xC0 reclaim-form pre-pass
+// (_rewrite_step_r_ccv0); left is the even position of a pair.
+func ccv0RewriteStepR(exitConsent bool, rk [32]byte, left bool) []Token {
+	pay := ccv0RewritePay()
+	s := tk(repeatOp(ts.OP_TOALTSTACK, 3),
+		ts.OP_IF, Num(int64(5)), ts.OP_PICK, ts.OP_TOALTSTACK, Num(int64(6)), ts.OP_PICK, rk[:], ts.OP_EQUAL,
+		ts.OP_TOALTSTACK,
+		midLeafJoinOld(), ts.OP_FROMALTSTACK, ts.OP_FROMALTSTACK,
+		ts.OP_ELSE, repeatOp(ts.OP_0, 8), ts.OP_ENDIF,
+		Num(int64(8)), ts.OP_PICK, midRewriteSame, ts.OP_EQUAL, ts.OP_IF,
+		Num(int64(8)), ts.OP_ROLL, ts.OP_DROP, ts.OP_2DROP)
+	if !left {
+		s = append(s, tk(ccv0AbsorbPop(), ts.OP_NOT, ts.OP_VERIFY, ts.OP_DROP)...)
+	}
+	s = append(s, tk(ts.OP_TOALTSTACK, ts.OP_2DROP, ts.OP_DROP, ts.OP_FROMALTSTACK,
+		repeatOp(ts.OP_FROMALTSTACK, 3),
+		midRoll(5, 2), midRewriteConv(),
+		midRoll(4, 1), ts.OP_2DUP, repeatOp(ts.OP_TOALTSTACK, 4))...)
+	if left {
+		s = append(s, tk(ts.OP_0, ts.OP_TOALTSTACK, ts.OP_0, ts.OP_TOALTSTACK)...)
+	}
+	s = append(s, tk(ts.OP_ELSE, repeatOp(ts.OP_TOALTSTACK, 8),
+		ts.OP_IF, midLeafJoinNew(), ts.OP_ELSE, repeatOp(ts.OP_0, 3), ts.OP_ENDIF,
+		repeatOp(ts.OP_FROMALTSTACK, 8))...)
+	if !left {
+		s = append(s, tk(ccv0AbsorbPop(),
+			ts.OP_DUP, ts.OP_0NOTEQUAL, ts.OP_IF,
+			Num(int64(6)), ts.OP_PICK, Num(int64(2)), ts.OP_PICK, ts.OP_EQUALVERIFY,
+			Num(int64(7)), ts.OP_PICK, Num(int64(2)), ts.OP_PICK, ts.OP_EQUALVERIFY,
+			Num(int64(3)), ts.OP_PICK, ts.OP_NOT, ts.OP_VERIFY,
+			Num(int64(8)), ts.OP_PICK, Num(int64(12)), ts.OP_PICK, ts.OP_EQUALVERIFY,
+			Num(int64(10)), ts.OP_PICK, Num(int64(5)), ts.OP_PICK, ts.OP_SUB, ts.OP_OVER, ts.OP_NUMEQUALVERIFY,
+			ts.OP_ENDIF, ts.OP_2DROP)...)
+	}
+	r1 := ccv0R1()
+	srDec := tk(Num(int64(6)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_EQUAL,
+		Num(int64(3)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_LESSTHANOREQUAL, ts.OP_NOT, ts.OP_BOOLAND)
+	decrease := r1
+	if left {
+		decrease = tk(srDec, ts.OP_NOTIF, r1, ts.OP_ENDIF)
+	}
+	reclaimable := tk(Num(int64(6)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_EQUAL,
+		Num(int64(8)), ts.OP_PICK, Num(int64(12)), ts.OP_PICK, ts.OP_EQUAL,
+		ts.OP_BOOLAND, ts.OP_NOTIF,
+		Num(int64(9)), ts.OP_PICK, ts.OP_SIZE, ts.OP_NIP, ts.OP_0NOTEQUAL, ts.OP_IF,
+		Num(int64(6)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_EQUAL,
+		Num(int64(3)), ts.OP_PICK, Num(int64(10)), ts.OP_PICK, ts.OP_LESSTHANOREQUAL, ts.OP_BOOLAND,
+		Num(int64(4)), ts.OP_PICK, ts.OP_NOT, ts.OP_BOOLAND,
+		ts.OP_NOTIF, decrease, ts.OP_ENDIF,
+		ts.OP_ELSE, r1, ts.OP_ENDIF,
+		ts.OP_ENDIF)
+	if left {
+		reclaimable = tk(reclaimable, srDec, ts.OP_IF,
+			Num(int64(2)), ts.OP_PICK, Num(int64(9)), ts.OP_PICK, ts.OP_SUB,
+			Num(int64(6)), ts.OP_PICK, ts.OP_SWAP,
+			ts.OP_ELSE, ts.OP_0, ts.OP_0, ts.OP_ENDIF,
+			ts.OP_TOALTSTACK, ts.OP_TOALTSTACK)
+	}
+	s = append(s, tk(ts.OP_OVER, ts.OP_IF, reclaimable, ts.OP_2DROP,
+		ts.OP_ELSE, ts.OP_2DROP, ccv0MidRules(exitConsent, pay))...)
+	if left {
+		s = append(s, tk(ts.OP_0, ts.OP_0, ts.OP_TOALTSTACK, ts.OP_TOALTSTACK)...)
+	}
+	s = append(s, Op(ts.OP_ENDIF))
+	e := int64(0)
+	if left {
+		e = 2
+	}
+	s = append(s, tk(ts.OP_TOALTSTACK, ts.OP_2DROP, ts.OP_DROP, ts.OP_FROMALTSTACK)...)
+	if left {
+		s = append(s, tk(ts.OP_FROMALTSTACK, ts.OP_FROMALTSTACK)...)
+	}
+	s = append(s, tk(repeatOp(ts.OP_FROMALTSTACK, 3),
+		midRoll(8+e, 2), midRewriteConv(),
+		midRoll(7+e, 1), ts.OP_TOALTSTACK, ts.OP_TOALTSTACK,
+		midRoll(5+e, 2), midRewriteConv(),
+		midRoll(4+e, 1), ts.OP_TOALTSTACK, ts.OP_TOALTSTACK)...)
+	if left {
+		s = append(s, tk(Num(int64(4)), ts.OP_ROLL, Num(int64(4)), ts.OP_ROLL, ts.OP_TOALTSTACK, ts.OP_TOALTSTACK)...)
+	}
+	return append(s, Op(ts.OP_ENDIF))
+}
+
+// CCV0RewriteRScript is the reclaim form of REWRITE_h (spec 7.9 rule 8)
+// under the CCV tier's 0xC0 numerics (_rewrite_script_r_ccv0). witness
+// (bottom..top) = flag zf wf zi wi [levels h..D-1] [pad pairs]
+// block_{2^h-1} .. block_0 sig_op, an R1 block carrying ea_num ze we
+// below its slots.
+func CCV0RewriteRScript(depth, height int, operatorKey, rk [32]byte,
+	exitConsent bool) []Token {
+
+	s := tk(operatorKey[:], ts.OP_CHECKSIGVERIFY, ts.OP_1, midLeafPrefix, midEvictE0Sc)
+	for i := 0; i < 1<<height; i++ {
+		s = append(s, ccv0RewriteStepR(exitConsent, rk, i%2 == 0)...)
+	}
+	s = append(s, tk(ts.OP_2DROP, ts.OP_DROP, midNodePrefix)...)
+	var t int64
+	var gen func(k int, root bool)
+	gen = func(k int, root bool) {
+		if k == 0 {
+			s = append(s, repeatOp(ts.OP_FROMALTSTACK, 4)...)
+			t += 4
+			return
+		}
+		gen(k-1, false)
+		gen(k-1, false)
+		s = append(s, midRewriteHashStep2(t, root)...)
+		t -= 4
+	}
+	gen(height, true)
+	return fullCat(s, midLevels(false, depth, height), ccv0CheckOld(false), ccv0FinalSel(depth))
+}
+
 // CCVTreeOptions are a CCV tree's creation parameters other than its depth
 // (spec 6.2, 4.6): the numerics (C0 for the MID encoding), the profile,
 // the operator key, tree_id, DUST_MIN, the JOIN heights, EXIT_K sizes, JOINK
@@ -867,6 +1236,14 @@ type CCVTreeOptions struct {
 	// DustMin is the tree's DUST_MIN (spec 6.2), carried as a constant by
 	// the carve scripts (7.5 rule 6). Zero means tree.DustMin.
 	DustMin uint64
+
+	// ReclaimKey is RECLAIM_KEY (spec 6.2) or nil. It adds RECLAIM_1 and
+	// compiles every REWRITE_h in its reclaim form (REWRITE_R_h,
+	// REWRITE_XR_h, 7.9 rule 8); ClaimM and ClaimHM add the merge claims
+	// (7.5.4, dense profile).
+	ReclaimKey *[32]byte
+	ClaimM     bool
+	ClaimHM    bool
 }
 
 // DustFloor is the DUST_MIN the tree's carve scripts enforce: DustMin, or
@@ -969,9 +1346,47 @@ func (o CCVTreeOptions) Scripts(depth int) []FullNamedScript {
 			add("SPLIT", CCVSplitScript(depth, o.Sparse, o.DustMin))
 		}
 	}
+	if o.ReclaimKey != nil {
+		if o.C0 {
+			add("RECLAIM_1", CCV0ReclaimScript(depth, *o.ReclaimKey, o.Sparse))
+		} else {
+			add("RECLAIM_1", CCVReclaimScript(depth, *o.ReclaimKey, o.Sparse))
+		}
+	}
 	if !o.Sparse {
+		for _, c := range []struct {
+			name string
+			hl   bool
+			on   bool
+		}{{"CLAIM_M", false, o.ClaimM}, {"CLAIM_HM", true, o.ClaimHM}} {
+			if !c.on {
+				continue
+			}
+			if o.C0 {
+				add(c.name, CCV0MergeScript(depth, o.TreeID, c.hl, o.ReclaimKey, o.DustMin))
+			} else {
+				add(c.name, CCVMergeScript(depth, o.TreeID, c.hl, o.ReclaimKey, o.DustMin))
+			}
+		}
 		for _, h := range o.RewriteHeights {
 			if h > depth {
+				continue
+			}
+			if rk := o.ReclaimKey; rk != nil {
+				for _, x := range []bool{false, true} {
+					if x && !o.RewriteX {
+						continue
+					}
+					name := itoa("REWRITE_R_", h)
+					if x {
+						name = itoa("REWRITE_XR_", h)
+					}
+					if o.C0 {
+						add(name, CCV0RewriteRScript(depth, h, o.OperatorKey, *rk, x))
+					} else {
+						add(name, CCVRewriteRScript(depth, h, o.OperatorKey, *rk, x))
+					}
+				}
 				continue
 			}
 			if o.C0 {

@@ -2,7 +2,9 @@ package script
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -92,6 +94,10 @@ func TestCCVScriptsMatchGolden(t *testing.T) {
 		}
 		if strings.HasSuffix(k, "_TOWER") {
 			// EXIT_K^t is parametrised by tree_id too; TestCCVExitTower.
+			continue
+		}
+		if ccvPendingKey(k) {
+			// Parametrised by RECLAIM_KEY; TestCCVPendingReceive.
 			continue
 		}
 		k, want := k, want
@@ -330,7 +336,7 @@ func TestCCV0ScriptsMatchGolden(t *testing.T) {
 	treeID := midGoldenTreeID(t)
 	var checked int
 	for k := range g.Scripts {
-		if !strings.HasPrefix(k, "CCV0/") {
+		if !strings.HasPrefix(k, "CCV0/") || ccvPendingKey(k) {
 			continue
 		}
 		profile, depth, name, err := parseGoldenKey(k)
@@ -444,4 +450,86 @@ func ccvCheckC2(t *testing.T, g *midGolden, key string, toks []Token) {
 		t.Fatalf("%s: script mismatch (got %d bytes, want %d)", key,
 			len(got), len(want.Hex)/2)
 	}
+}
+
+// TestCCVPendingReceive checks CLAIM^m, CLAIM^hm, RECLAIM_1 and the reclaim
+// form of REWRITE_2 and REWRITE_2^x under CCV in both numerics (spec
+// 7.5.4, 7.11, 7.9 rule 8) against the golden vectors, over the golden
+// RECLAIM_KEY, and that CCVTreeOptions compiles them in the generator's
+// order with FULL's names.
+func TestCCVPendingReceive(t *testing.T) {
+	g, key := midLoadGolden(t)
+	treeID := midGoldenTreeID(t)
+	rk := ccvGoldenReclaimKey(t)
+	ccvCheckC2(t, g, "CCV/D/D4/CLAIM_M", CCVMergeScript(4, treeID, false, &rk, 0))
+	ccvCheckC2(t, g, "CCV/D/D4/CLAIM_HM", CCVMergeScript(4, treeID, true, &rk, 0))
+	ccvCheckC2(t, g, "CCV/D/D4/RECLAIM_1", CCVReclaimScript(4, rk, false))
+	ccvCheckC2(t, g, "CCV/S/D8/RECLAIM_1", CCVReclaimScript(8, rk, true))
+	ccvCheckC2(t, g, "CCV/D/D4/REWRITE_R_2", CCVRewriteRScript(4, 2, key, rk, false))
+	ccvCheckC2(t, g, "CCV/D/D4/REWRITE_XR_2", CCVRewriteRScript(4, 2, key, rk, true))
+	midCheckScript(t, g, "CCV0/D/D4/CLAIM_M", CCV0MergeScript(4, treeID, false, &rk, 0))
+	midCheckScript(t, g, "CCV0/D/D4/CLAIM_HM", CCV0MergeScript(4, treeID, true, &rk, 0))
+	midCheckScript(t, g, "CCV0/D/D4/RECLAIM_1", CCV0ReclaimScript(4, rk, false))
+	midCheckScript(t, g, "CCV0/S/D8/RECLAIM_1", CCV0ReclaimScript(8, rk, true))
+	midCheckScript(t, g, "CCV0/D/D4/REWRITE_R_2", CCV0RewriteRScript(4, 2, key, rk, false))
+	midCheckScript(t, g, "CCV0/D/D4/REWRITE_XR_2", CCV0RewriteRScript(4, 2, key, rk, true))
+	for _, c0 := range []bool{false, true} {
+		opts := CCVReferenceOptions(key, c0)
+		opts.TreeID, opts.ReclaimKey, opts.ClaimM, opts.ClaimHM = treeID, &rk, true, true
+		opts.RewriteHeights, opts.RewriteX = []int{2}, true
+		var names []string
+		for _, s := range opts.Scripts(4) {
+			names = append(names, s.Name)
+		}
+		want := "EXIT_1 JOIN_0 JOINK_2 UPDATE EVICT_SUBTREE_1 EVICT_SUBTREE_2 RECLAIM_1 " +
+			"CLAIM_M CLAIM_HM REWRITE_R_2 REWRITE_XR_2"
+		if got := joinNames(names); got != want {
+			t.Errorf("c0=%v: Scripts(4) = %q, want %q", c0, got, want)
+		}
+		name := "CCV/D/D4/"
+		if c0 {
+			name = "CCV0/D/D4/"
+		}
+		for _, s := range opts.Scripts(4)[6:] {
+			if c0 {
+				midCheckScript(t, g, name+s.Name, s.Tokens)
+			} else {
+				ccvCheckC2(t, g, name+s.Name, s.Tokens)
+			}
+		}
+	}
+}
+
+// ccvGoldenReclaimKey is the golden vectors' RECLAIM_KEY.
+func ccvGoldenReclaimKey(t *testing.T) [32]byte {
+	t.Helper()
+	raw, err := os.ReadFile("../spec/golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		ReclaimKey string `json:"reclaim_key"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	b, err := hex.DecodeString(v.ReclaimKey)
+	if err != nil || len(b) != 32 {
+		t.Fatalf("bad reclaim_key %q", v.ReclaimKey)
+	}
+	var k [32]byte
+	copy(k[:], b)
+	return k
+}
+
+// ccvPendingKey reports whether a golden key names one of the pending-leaf
+// receive scripts, which take RECLAIM_KEY and are checked in
+// TestCCVPendingReceive.
+func ccvPendingKey(k string) bool {
+	for _, n := range []string{"/CLAIM_M", "/CLAIM_HM", "/RECLAIM_1", "/REWRITE_R_", "/REWRITE_XR_"} {
+		if strings.Contains(k, n) {
+			return true
+		}
+	}
+	return false
 }

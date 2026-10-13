@@ -136,9 +136,12 @@ def check_old_ccv(profile):
     return s
 
 
-def final_ccv(depth):
+def final_ccv(depth, mode=0):
     """[T nh ns] -> [1]. Output 0 is the tree output for `nh` (DEDUCT) with
     amount == ns, unless nh == E_D (terminal exit: no output-0 check).
+
+    mode is the CCV mode of the output-0 call: 0 (assign) for every
+    transition but RECLAIM_1, which passes 2 (DEDUCT; see reclaim_script_ccv).
 
     Entry after ROT/DROP: [nh ns]. Park ns; the stack is then exactly the
     five CCV operands bottom..top: data = nh, index = 0, pk = empty (NUMS),
@@ -159,7 +162,7 @@ def final_ccv(depth):
             "OP_IF", "OP_2DROP", "OP_1",
             "OP_ELSE",
             "OP_TOALTSTACK",                # nh             | ns
-            "OP_0", b"", MINUS1, 0,         # nh 0 "" -1 0   (the five operands)
+            "OP_0", b"", MINUS1, mode,      # nh 0 "" -1 0   (the five operands)
             CCV,                            # ()             assign out0
             "OP_FROMALTSTACK",              # ns
             # OP_TX SEL_OUT_SINGLE pushes [amount, spk]; the spk (on top)
@@ -416,9 +419,10 @@ def _check_old_ccv0(sparse):
     return M.check_old(sparse)[:-2] + ccv_check_input()
 
 
-def _final_ccv0(depth):
+def _final_ccv0(depth, mode=0):
     """MID's final with output 0's spk check replaced by the CCV assign
     call and the amount compared as bytes (le64(ns) vs the OP_TX amount).
+    mode is the output-0 call's CCV mode, as in final_ccv.
 
     Entry [zf wf T nh ns] (zf wf: the final pads, as in MID). Terminal
     exits drop the pads; the assign-mode floor plus the byte equality
@@ -431,7 +435,7 @@ def _final_ccv0(depth):
              "OP_ELSE"] + M.roll(3, 2) + M.le64() +    # nh le64(ns)
             ["OP_TOALTSTACK",                          # nh            | le64(ns)
              # CCV: data = nh, index 0, pk empty, taptree -1, mode assign.
-             "OP_0", b"", MINUS1, 0, CCV,
+             "OP_0", b"", MINUS1, mode, CCV,
              "OP_FROMALTSTACK",                        # le64(ns)
              "OP_0", SEL_OUT_SINGLE, "OP_TX", "OP_DROP", "OP_EQUALVERIFY",
              "OP_1", "OP_ENDIF"])
@@ -659,7 +663,7 @@ def _rewrite_pay_ccv():
             2, "OP_PICK", 8, "OP_LEFT", "OP_NUMEQUALVERIFY"]            # old new   (exact payout)
 
 
-def rewrite_script_ccv(depth, height, operator_key, exit_consent=False):
+def rewrite_script_ccv(depth, height, operator_key, exit_consent=False, reclaim_key=None):
     """REWRITE_h (7.9), or REWRITE_h^x with exit_consent, under CCV (0xC2).
 
     witness (bottom..top) = [dir sc]*(D-h) block_{2^h-1} ... block_0 sig_op,
@@ -667,27 +671,18 @@ def rewrite_script_ccv(depth, height, operator_key, exit_consent=False):
     minus r and m. The machine is FULL's POSTORDER2(h) with the exit payout
     of REWRITE_STEP as _rewrite_pay_ccv; the hoisted constants Z, L, T and
     the machine depth d are FULL's, so every roll depth is the same.
+
+    With reclaim_key this is the reclaim form of 7.9 rule 8 (REWRITE_R_h,
+    REWRITE_XR_h): FULL's REWRITE_STEP with R1 and R3, and one more
+    witness element at the very bottom, the output-0 mode flag of
+    _final_ccv_sel, so that a reclaim's value can leave the tree.
     """
     assert 1 <= height <= depth
     s = prologue_ccv() + [operator_key, "OP_CHECKSIGVERIFY"]     # ...blocks
-    s += ["OP_1", "OP_TOALTSTACK",                                #            | idx
-          lt.EMPTY_LEAF_HASH, F.LEAF_PREFIX, F.NODE_PREFIX]       # Z L T      (hoisted constants)
-    d = [0]
-    pay = _rewrite_pay_ccv()
-
-    def gen(h):
-        if h == 0:
-            s.extend(F._rewrite_step(d[0], exit_consent, pay))
-            d[0] += 4
-        else:
-            gen(h - 1); gen(h - 1)
-            s.extend(F._hash_step2(d[0]))
-            d[0] -= 4
-    gen(height)                                                  # Z L T oh os nh ns   | idx
-    s += ["OP_FROMALTSTACK", "OP_DROP",                          # drop idx
-          6, "OP_ROLL", "OP_DROP", 5, "OP_ROLL", "OP_DROP"]      # T oh os nh ns       (drop Z, L)
+    s += F.rewrite_machine(height, exit_consent, _rewrite_pay_ccv(), reclaim_key)   # T oh os nh ns
     s += F.levels("D", depth, height)
-    return s + check_old_ccv("D") + final_ccv(depth)
+    s += check_old_ccv("D")
+    return s + (final_ccv(depth) if reclaim_key is None else _final_ccv_sel(depth))
 
 
 def _rewrite_pay_ccv0():
@@ -725,6 +720,385 @@ def _rewrite_script_ccv0(depth, height, operator_key, exit_consent=False):
     return s + _check_old_ccv0(False) + _final_ccv0(depth)
 
 
+# --------------------------------- pending-leaf receive (6.2, 7.5.4, 7.11) --
+# The three rules of design/pending-receive.md under CCV: the merge claims
+# CLAIM^m and CLAIM^hm (7.5.4), RECLAIM_1 (7.11) and the reclaim form of
+# REWRITE_h (7.9 rule 8). A tree that carries them names RECLAIM_KEY at
+# creation (6.2); a leaf whose evictor_key is RECLAIM_KEY is reclaimable.
+#
+# Amounts. A merge moves value between two leaves of the tree, so output 0
+# keeps the input's amount and the assign mode of final_ccv applies as in
+# every other transition. A reclaim removes value from the tree and pays
+# nobody (7.11 rule 4: "no output is constrained for the leaf's value"),
+# which the assign mode cannot express: it makes output 0 receive at least
+# the input's residual, all of S, while out0 == S - leaf.amount. RECLAIM_1
+# therefore checks output 0 in the DEDUCT mode: output 0 carries the new
+# state, its amount (pinned to ns by the OP_TX equality) is deducted from
+# the residual, and what is left, the reclaimed value, is unassigned and so
+# free for the transaction, as in FULL. A transition that removes value
+# never needs the assign mode's funding from other inputs, and the BIP-443
+# rules that keep two tree inputs from sharing one output 0 hold in DEDUCT
+# as they do in assign: a second DEDUCT of output 0 and any mix of DEDUCT
+# and assign on it fail (spec 4.1 [A-6]). The reclaim form of the rewrite
+# may add or remove value (a roll may raise the pending leaf, a reclaim
+# empties it), so its output-0 mode is a witness choice, assign or DEDUCT
+# (_final_ccv_sel); the amount equality out0 == ns holds in both, and the
+# step rules decide which decreases there are.
+
+def _full_body(toks, depth, profile="D"):
+    """The transition body of a FULL script: `toks` without F.prologue() in
+    front and FINAL's root check and output construction behind. The CCV
+    tier's 0xC2 forms of CLAIM^m and RECLAIM_1 are FULL's bodies, token for
+    token, between CCV's two bindings; the body never touches r or m, which
+    sit on the altstack below everything it parks."""
+    pre = F.prologue()
+    post = F.check_old_root_from_alt(profile) + F.final_output(depth)
+    assert toks[:len(pre)] == pre and toks[-len(post):] == post
+    return toks[len(pre):-len(post)]
+
+
+def merge_script_ccv(depth, tid, hashlock=False, reclaim_key=None, dust_min=lt.DUST_MIN):
+    """CLAIM^m (7.5.4), or CLAIM^hm with hashlock, under CCV (0xC2).
+
+    witness (bottom..top) = [dir sc]*(D-1) left right src_is_left X vsig
+    [preimage]: FULL's minus r and m. The body (voucher, sibling and
+    ownership rules, the absolute target and the residual floor) is
+    F.merge_script's; the binding is CHECK_INPUT and the assign-mode output
+    check, since a merge conserves the input's amount."""
+    body = _full_body(F.merge_script(depth, tid, hashlock, reclaim_key, dust_min), depth)
+    return body + check_old_ccv("D") + final_ccv(depth)
+
+
+def reclaim_script_ccv(depth, reclaim_key, profile="D"):
+    """RECLAIM_1 (7.11) under CCV (0xC2). witness (bottom..top) = [path]
+    leaf sig. F.reclaim_script's body (evictor RECLAIM_KEY, lock time at
+    least evict_after, a transaction signature by RECLAIM_KEY, E_0 in the
+    leaf's place) with CHECK_INPUT and output 0 in the DEDUCT mode, which
+    leaves the leaf's value unassigned and free for the transaction."""
+    body = _full_body(F.reclaim_script(depth, reclaim_key, profile), depth, profile)
+    return body + check_old_ccv(profile) + final_ccv(depth, mode=2)
+
+
+def _final_ccv_sel(depth):
+    """[flag T nh ns] -> [1]: final_ccv with the output-0 mode chosen by a
+    witness flag at the bottom of the stack, assign (flag empty) or DEDUCT
+    (flag 0x01). MINIMALIF holds the flag to those two values, so no other
+    CCV mode can be reached. The amount equality out0 == ns holds in both:
+    assign admits a value-adding rewrite funded by other inputs, DEDUCT a
+    rewrite whose decreases (a reclaim, an owner-signed decrease) leave
+    value unassigned, free for the transaction as in FULL (7.9 rule 6)."""
+    e_d = lt.empty_node(depth)[0]
+    return ["OP_ROT", "OP_DROP",                    # flag nh ns
+            "OP_OVER", e_d, "OP_EQUAL",
+            "OP_IF", "OP_2DROP", "OP_DROP", "OP_1",
+            "OP_ELSE",
+            "OP_TOALTSTACK",                        # flag nh         | ns
+            "OP_SWAP", "OP_IF", 2, "OP_ELSE", "OP_0", "OP_ENDIF",   # nh mode
+            "OP_0", b"", MINUS1, 3, "OP_ROLL",      # nh 0 "" -1 mode
+            CCV,
+            "OP_FROMALTSTACK",
+            "OP_0", SEL_OUT_SINGLE, "OP_TX", "OP_DROP", "OP_NUMEQUALVERIFY",
+            "OP_1", "OP_ENDIF"]
+
+
+# ------------------------------------- pending-leaf receive under 0xC0 --
+
+def _final_ccv0_sel(depth):
+    """[flag zf wf T nh ns] -> [1]: _final_ccv0 with the output-0 mode
+    chosen by the witness flag below the final pads, as _final_ccv_sel."""
+    e_d = lt.empty_node(depth)[0]
+    return (["OP_ROT", "OP_DROP",
+             "OP_OVER", e_d, "OP_EQUAL",
+             "OP_IF", "OP_2DROP", "OP_2DROP", "OP_DROP", "OP_1",
+             "OP_ELSE"] + M.roll(3, 2) + M.le64() +    # flag nh le64(ns)
+            ["OP_TOALTSTACK",                          # flag nh        | le64(ns)
+             "OP_SWAP", "OP_IF", 2, "OP_ELSE", "OP_0", "OP_ENDIF",   # nh mode
+             "OP_0", b"", MINUS1, 3, "OP_ROLL", CCV,
+             "OP_FROMALTSTACK",
+             "OP_0", SEL_OUT_SINGLE, "OP_TX", "OP_DROP", "OP_EQUALVERIFY",
+             "OP_1", "OP_ENDIF"])
+
+
+def _reclaim_script_ccv0(depth, reclaim_key, sparse=False):
+    """RECLAIM_1 (7.11) under the CCV tier's 0xC0 numerics: MID's eviction
+    branch of the exit block with the payout removed and the evictor fixed
+    to RECLAIM_KEY.
+
+    witness (bottom..top) = zf wf zi wi [levels] [sparse: ok nonce plo phi]
+    leaf(10) ea_num ze we sig. ea_num is the leaf's evict_after as a
+    minimal number with its PADZ pad, checked against the field. The
+    evictor field is compared with RECLAIM_KEY and then serves as the key
+    of the transaction signature, so the constant is pushed once. Output 0
+    is checked in the DEDUCT mode, as under 0xC2 (reclaim_script_ccv)."""
+    assert len(reclaim_key) == 32
+    s = [10, "OP_PICK", "OP_DUP", reclaim_key, "OP_EQUALVERIFY",     # leaf(10) ea_num ze we sig evk
+         "OP_CHECKSIGVERIFY",                                         # leaf(10) ea_num ze we
+         2, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"] + M.padz() + [   # leaf(10) le32(ea_num)
+         6, "OP_PICK", "OP_EQUALVERIFY"]                              # le32(ea_num) == ea field
+    s += M.leaf_join() + M.tagged(F.LEAF_PREFIX) + ["OP_FROMALTSTACK"]   # oh os
+    if sparse:
+        s += M.roll(5, 4) + M.sparse_setup()
+    s += [F.NODE_PREFIX, "OP_ROT", "OP_ROT", lt.EMPTY_LEAF_HASH, "OP_0"]
+    s += M.levels(sparse, depth)
+    return s + _check_old_ccv0(sparse) + _final_ccv0(depth, mode=2)
+
+
+def _conv_leaf(k):
+    """[L .. amt8 rest] -> [L .. sc]: a leaf's 41-byte node
+    H_leaf(amt8||rest) || amt8 || 01, with the TAG_LEAF prefix L picked at
+    depth k once the joined leaf is on top (k = 3 when L sits directly
+    below amt8). M._rewrite_conv's leaf branch with the depth a parameter."""
+    return ["OP_2DUP", "OP_CAT", k, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",
+            "OP_NIP", "OP_SWAP", b"\x01", "OP_CAT", "OP_CAT"]
+
+
+def _merge_script_ccv0(depth, tid, hashlock=False, reclaim_key=None, dust_min=lt.DUST_MIN):
+    """CLAIM^m (7.5.4), or CLAIM^hm with hashlock, under the CCV tier's 0xC0
+    numerics.
+
+    witness (bottom..top) = zf wf zi wi [levels 1..D-1] src_is_left zR wR
+    X_num zX wX src(10) tgt(10) vsig [preimage]. The two leaves arrive as
+    MID blocks in role order, source below target, and src_is_left (empty
+    or 0x01) places them in the pair; X arrives as a minimal number with its
+    PADZ pad, and zR wR pad the source's residual. Both leaves are reduced
+    by M._leaf_join_old, which keeps the body (rest, the leaf without its
+    amount), the exit and owner keys, the SEQ_FINAL flag and the amount as
+    a number, so the rules of 7.5.4 need no OP_SUBSTR:
+
+    1. the voucher over tree_id || body(src) || body(tgt) || le64(X)
+       [|| SHA256(preimage)] verifies under src.owner_key;
+    2. tgt.owner_key == src.exit_key == tgt.exit_key, neither seq is SEQ_FINAL, and with
+       RECLAIM_KEY the target's evictor is not it;
+    3. d = X - tgt.amount >= 1 and the residual src.amount - d is 0 (the
+       source becomes E_0) or at least DUST_MIN;
+    4. the new leaves are le64(X) || body(tgt) and le64(residual) ||
+       body(src): the source's seq does not advance;
+    5. both pair nodes carry src.amount + tgt.amount, so the fold conserves
+       S and output 0 is checked in the assign mode.
+
+    X needs no NONNEG: d >= 1 over a non-negative target amount makes it
+    positive, and MINIMALDATA makes its encoding the one PADZ pads."""
+    assert len(tid) == 32 and depth >= 1
+    E0_SC = M.E0_SC
+    if hashlock:
+        s = ["OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256",
+             "OP_SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK"]              # .. src(10) tgt(10)  | vsig ph
+    else:
+        s = ["OP_TOALTSTACK"]                                          # .. src(10) tgt(10)  | vsig
+    if reclaim_key is not None:
+        s += [6, "OP_PICK", reclaim_key, "OP_EQUAL", "OP_NOT", "OP_VERIFY"]   # tgt not reclaimable
+    s += M._leaf_join_old() + ["OP_SWAP", "OP_NOT", "OP_VERIFY"]      # amt8T restT ekT okT amtT  (tgt.seq != SEQ_FINAL)
+    s += ["OP_TOALTSTACK"] * 5                                         # .. src(10)          | .. amtT okT ekT restT amt8T
+    s += M._leaf_join_old() + ["OP_SWAP", "OP_NOT", "OP_VERIFY"]      # amt8S restS ekS okS amtS  (src.seq != SEQ_FINAL)
+    s += ["OP_FROMALTSTACK"] * 5                                       # .. amt8S restS ekS okS amtS amt8T restT ekT okT amtT
+    s += ["OP_SWAP", 7, "OP_PICK", "OP_EQUALVERIFY",                   # tgt.owner_key == src.exit_key
+          "OP_SWAP", 6, "OP_PICK", "OP_EQUALVERIFY",                   # tgt.exit_key == src.exit_key
+          5, "OP_ROLL", "OP_DROP"]                                     # f zR wR Xn zX wX amt8S restS okS amtS amt8T restT amtT
+    s += M.roll(9, 3) + [2, "OP_PICK", "OP_TOALTSTACK"] + M.le64()    # f zR wR amt8S restS okS amtS amt8T restT amtT X8   | .. Xn
+    # the voucher message: tree_id || body(src) || body(tgt) || le64(X) [|| ph]
+    s += [6, "OP_PICK", 3, "OP_PICK", "OP_CAT", "OP_OVER", "OP_CAT",  # .. X8 (bS||bT||X8)
+          tid, "OP_SWAP", "OP_CAT",
+          "OP_FROMALTSTACK", "OP_SWAP"]                                # .. X8 Xn m        | vsig [ph]
+    if hashlock:
+        s += ["OP_FROMALTSTACK", "OP_CAT"]
+    s += M.tagged(F.VOUCHER_HM_PREFIX if hashlock else F.VOUCHER_M_PREFIX) + [
+          "OP_FROMALTSTACK", "OP_SWAP",                                # .. X8 Xn vsig msg
+          8, "OP_PICK", "OP_CHECKSIGFROMSTACK", "OP_VERIFY"]           # f zR wR amt8S restS okS amtS amt8T restT amtT X8 Xn
+    s += [2, "OP_PICK", "OP_SUB",                                      # .. X8 d         (d = X - tgt.amount)
+          "OP_1", "OP_OVER", "OP_LESSTHANOREQUAL", "OP_VERIFY",        # d >= 1
+          5, "OP_PICK", "OP_SWAP", "OP_SUB",                           # .. X8 res       (res = src.amount - d)
+          6, "OP_ROLL", "OP_DROP",                                     # f zR wR amt8S restS amtS amt8T restT amtT X8 res
+          2, "OP_ROLL", 5, "OP_ROLL", "OP_ADD", "OP_TOALTSTACK",       # f zR wR amt8S restS amt8T restT X8 res   | pos
+          "OP_DUP", "OP_TOALTSTACK"] + M.roll(7, 2) + M.le64() + [     # f amt8S restS amt8T restT X8 R8          | pos res
+          F.LEAF_PREFIX, "OP_SWAP", 5, "OP_PICK"] + _conv_leaf(3) + [  # f amt8S restS amt8T restT X8 L scS'
+          # 7.5.4 rule 3: a drained source becomes E_0, any other residual is at least DUST_MIN
+          "OP_FROMALTSTACK", "OP_DUP", "OP_NOT",
+          "OP_IF", "OP_2DROP", E0_SC,
+          "OP_ELSE", dust_min, "OP_GREATERTHANOREQUAL", "OP_VERIFY", "OP_ENDIF",
+          "OP_TOALTSTACK",                                             # f amt8S restS amt8T restT X8 L   | pos scS'
+          "OP_SWAP", 2, "OP_PICK"] + _conv_leaf(3) + [                 # f amt8S restS amt8T restT L scT'
+          "OP_TOALTSTACK", "OP_ROT", "OP_ROT"] + _conv_leaf(3) + [     # f amt8S restS L scT     | pos scS' scT'
+          "OP_2SWAP"] + _conv_leaf(4) + [                              # f L scT scS
+          "OP_ROT", "OP_DROP",                                         # f scT scS
+          "OP_ROT", "OP_DUP", "OP_TOALTSTACK",                         # scT scS f    | pos scS' scT' f
+          "OP_IF", "OP_SWAP", "OP_ENDIF", "OP_CAT",                    # pre_o  (source on the left when f)
+          F.NODE_PREFIX, "OP_TUCK", "OP_SWAP", "OP_CAT", "OP_SHA256",  # T poh
+          "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK",     # T poh f scT' scS'
+          "OP_ROT", "OP_IF", "OP_SWAP", "OP_ENDIF", "OP_CAT",          # T poh pre_n
+          2, "OP_PICK", "OP_SWAP", "OP_CAT", "OP_SHA256",              # T poh pnh
+          "OP_FROMALTSTACK", "OP_SWAP", "OP_OVER"]                     # T poh pos pnh pos
+    s += M.levels(False, depth, 1)
+    return s + _check_old_ccv0(False) + _final_ccv0(depth)
+
+
+# The reclaim form of REWRITE_h under 0xC0 (7.9 rule 8). The pre-pass step
+# is MID's with two more elements kept from the old slot: isR (the old
+# leaf's evictor is RECLAIM_KEY) and its evict_after field ea, picked from
+# the leaf's elements before M._leaf_join_old joins them. A reclaimable old
+# leaf takes the R1/R3 rules on that layout; any other takes MID's rules
+# with ea and isR dropped first, so MID's depths, signature consumption and
+# the CCV payout apply unchanged. R1's lock-time check needs evict_after as
+# a number: the witness supplies it, with its PADZ pad, only for a position
+# that takes R1, as signatures are supplied only where they are due
+# (block_i = [ea_num ze we] [xsig] [sig] new old, bottom..top). The R3
+# transfer record (delta, key) of a pair's left step travels on the
+# altstack above the left step's parks; the right step digs it out from
+# under Z L idx (_absorb_pop) and consumes it.
+
+def _absorb_pop():
+    """| .. delta key Z L idx -> [.. key delta] | .. Z L idx."""
+    return ["OP_FROMALTSTACK"] * 5 + ["OP_2SWAP", "OP_TOALTSTACK", "OP_TOALTSTACK",
+                                      "OP_ROT", "OP_TOALTSTACK"]
+
+
+def _r1_ccv0():
+    """R1 on the reclaim layout (ea isR amt_o fin ok ek rest_o amt8_o, then
+    the new slot's three, then the next witness element at depth 11): the
+    witness supplies ea_num ze we (bottom..top, so ea_num is 13 deep), and
+    the lock time must reach ea_num,
+    which must be the old leaf's evict_after."""
+    return (M.roll(13, 3) + [2, "OP_PICK", "OP_CHECKLOCKTIMEVERIFY", "OP_DROP"] +
+            M.padz() + ["OP_OVER", "OP_EQUALVERIFY"])
+
+
+def _mid_rules(exit_consent, pay):
+    """MID's 7.9 rules 3 and 5 on [C_new(3) C_old(6)], as in M._rewrite_step."""
+    auth = M._rewrite_owner_auth(exit_consent)
+    return ([4, "OP_PICK", 8, "OP_PICK", "OP_EQUAL",
+             6, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",
+             "OP_BOOLAND", "OP_NOTIF",
+             4, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",
+             7, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",
+             4, "OP_PICK", 8, "OP_PICK", "OP_EQUAL",
+             "OP_OVER", 8, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",
+             2, "OP_PICK", "OP_NOT", "OP_BOOLAND",
+             "OP_NOTIF"] + auth + ["OP_ENDIF",
+             "OP_ELSE"] + auth + pay + [
+             "OP_ENDIF",
+             "OP_ENDIF",
+             "OP_ENDIF"])
+
+
+def _rewrite_step_r_ccv0(exit_consent, reclaim_key, side):
+    """One position of the reclaim-form pre-pass, side "L" (even position)
+    or "R" (odd):
+    [.. block new_slot old_slot idx L Z] | .. [delta key] -> [.. idx' L Z]
+    | .. ns nsc os osc [delta key].
+
+    Layout of the decision on a changed position, from the top: ea 0, isR 1,
+    amt_o 2, fin 3, ok 4, ek 5, rest_o 6, amt8_o 7, amt_n 8, rest_n 9,
+    amt8_n 10, and the next witness element 11. A reclaimable old leaf:
+    an amount-only increase passes as rule 3; on the left, a decrease with
+    the body unchanged is an R3 transfer the right step must absorb; any
+    other change is R1 (no signature, no payout, the lock time at least
+    evict_after). The right step's absorb requires, for a non-zero delta,
+    its old leaf owned by and exiting to the left leaf's exit key and not
+    reclaimable, and
+    its new leaf the old one raised by exactly delta."""
+    rk = reclaim_key
+    pay = _rewrite_pay_ccv0()
+    s = ["OP_TOALTSTACK"] * 3                                          # .. new_slot old_slot   | .. Z L idx
+    s += ["OP_IF",
+          5, "OP_PICK", "OP_TOALTSTACK", 6, "OP_PICK", rk, "OP_EQUAL", "OP_TOALTSTACK"]   # | .. ea isR
+    s += M._leaf_join_old() + ["OP_FROMALTSTACK", "OP_FROMALTSTACK",   # .. new_slot C_old(6) isR ea
+          "OP_ELSE"] + ["OP_0"] * 8 + ["OP_ENDIF"]
+    # -- the marker: new = old --
+    s += [8, "OP_PICK", M.REWRITE_SAME, "OP_EQUAL", "OP_IF",
+          8, "OP_ROLL", "OP_DROP", "OP_2DROP"]                         # .. C_old(6)
+    if side == "R":
+        s += _absorb_pop() + ["OP_NOT", "OP_VERIFY", "OP_DROP"]        # a recorded transfer needs a raise
+    s += ["OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK",   # .. amt8 rest amt
+          "OP_FROMALTSTACK", "OP_FROMALTSTACK", "OP_FROMALTSTACK"]     # .. amt8 rest amt idx L Z
+    s += M.roll(5, 2) + M._rewrite_conv()                              # .. amt idx L Z sc
+    s += M.roll(4) + ["OP_2DUP"] + ["OP_TOALTSTACK"] * 4               # .. idx L Z              | .. ns nsc os osc
+    if side == "L":
+        s += ["OP_0", "OP_TOALTSTACK", "OP_0", "OP_TOALTSTACK"]        # | .. (0 0)
+    s += ["OP_ELSE"]                                                   # -- a leaf or empty --
+    s += ["OP_TOALTSTACK"] * 8
+    s += ["OP_IF"] + M._leaf_join_new() + ["OP_ELSE"] + ["OP_0"] * 3 + ["OP_ENDIF"]
+    s += ["OP_FROMALTSTACK"] * 8                                       # .. C_new(3) C_old(6) isR ea
+    if side == "R":
+        s += _absorb_pop() + [                                         # .. C_new C_old isR ea key delta
+            "OP_DUP", "OP_0NOTEQUAL", "OP_IF",
+            6, "OP_PICK", 2, "OP_PICK", "OP_EQUALVERIFY",              # old.owner_key == key
+            7, "OP_PICK", 2, "OP_PICK", "OP_EQUALVERIFY",              # old.exit_key == key
+            3, "OP_PICK", "OP_NOT", "OP_VERIFY",                       # old not reclaimable
+            8, "OP_PICK", 12, "OP_PICK", "OP_EQUALVERIFY",             # same rest
+            10, "OP_PICK", 5, "OP_PICK", "OP_SUB", "OP_OVER", "OP_NUMEQUALVERIFY",   # amt_n - amt_o == delta
+            "OP_ENDIF", "OP_2DROP"]
+    r1 = _r1_ccv0()
+    sr_dec = [6, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",                 # same_rest
+              3, "OP_PICK", 10, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_NOT", "OP_BOOLAND"]  # .. and amt_o > amt_n
+    if side == "L":
+        decrease = sr_dec + ["OP_NOTIF"] + r1 + ["OP_ENDIF"]
+    else:
+        decrease = r1
+    reclaimable = ([6, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",
+                    8, "OP_PICK", 12, "OP_PICK", "OP_EQUAL",
+                    "OP_BOOLAND", "OP_NOTIF",                          # -- changed --
+                    9, "OP_PICK", "OP_SIZE", "OP_NIP", "OP_0NOTEQUAL", "OP_IF",   # -- new is a leaf --
+                    6, "OP_PICK", 10, "OP_PICK", "OP_EQUAL",
+                    3, "OP_PICK", 10, "OP_PICK", "OP_LESSTHANOREQUAL", "OP_BOOLAND",
+                    4, "OP_PICK", "OP_NOT", "OP_BOOLAND",              # rule 3's amount-only increase
+                    "OP_NOTIF"] + decrease + ["OP_ENDIF",
+                    "OP_ELSE"] + r1 + ["OP_ENDIF",                    # -- emptied: reclaimed, no payout --
+                    "OP_ENDIF"])
+    if side == "L":
+        reclaimable += sr_dec + ["OP_IF",                              # the R3 record
+                                 2, "OP_PICK", 9, "OP_PICK", "OP_SUB",  # delta = amt_o - amt_n
+                                 6, "OP_PICK", "OP_SWAP",               # key delta
+                                 "OP_ELSE", "OP_0", "OP_0", "OP_ENDIF",
+                                 "OP_TOALTSTACK", "OP_TOALTSTACK"]      # | .. Z L idx delta key
+    s += ["OP_OVER", "OP_IF"] + reclaimable + ["OP_2DROP",             # .. C_new(3) C_old(6)
+          "OP_ELSE", "OP_2DROP"] + _mid_rules(exit_consent, pay)
+    if side == "L":
+        s += ["OP_0", "OP_0", "OP_TOALTSTACK", "OP_TOALTSTACK"]
+    s += ["OP_ENDIF"]
+    e = 2 if side == "L" else 0
+    s += ["OP_TOALTSTACK", "OP_2DROP", "OP_DROP", "OP_FROMALTSTACK"]   # .. amt8_n rest_n amt_n amt8_o rest_o amt_o
+    if side == "L":
+        s += ["OP_FROMALTSTACK", "OP_FROMALTSTACK"]                    # .. key delta
+    s += ["OP_FROMALTSTACK"] * 3                                       # .. idx L Z
+    s += M.roll(8 + e, 2) + M._rewrite_conv()                          # .. Z nsc
+    s += M.roll(7 + e) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]            # | .. ns nsc
+    s += M.roll(5 + e, 2) + M._rewrite_conv()
+    s += M.roll(4 + e) + ["OP_TOALTSTACK", "OP_TOALTSTACK"]            # | .. ns nsc os osc
+    if side == "L":
+        s += [4, "OP_ROLL", 4, "OP_ROLL", "OP_TOALTSTACK", "OP_TOALTSTACK"]   # | .. delta key
+    return s + ["OP_ENDIF"]
+
+
+def _rewrite_script_r_ccv0(depth, height, operator_key, reclaim_key, exit_consent=False):
+    """The reclaim form of REWRITE_h (7.9 rule 8), REWRITE_R_h or, with
+    exit_consent, REWRITE_XR_h, under the CCV tier's 0xC0 numerics.
+
+    witness (bottom..top) = flag zf wf zi wi [levels h..D-1] [pad pairs]
+    block_{2^h-1} .. block_0 sig_op: _rewrite_script_ccv0's with the
+    output-0 mode flag of _final_ccv0_sel at the bottom and, in a block
+    that takes R1, the old leaf's evict_after as ea_num ze we below the
+    slots (ea_num ze we, bottom..top). The pre-pass runs _rewrite_step_r_ccv0 over the pairs and the
+    hash pass is MID's."""
+    assert 1 <= height <= depth and len(reclaim_key) == 32
+    s = [operator_key, "OP_CHECKSIGVERIFY", "OP_1", F.LEAF_PREFIX, M.E0_SC]   # .. blocks idx L Z
+    for i in range(1 << height):
+        s += _rewrite_step_r_ccv0(exit_consent, reclaim_key, "L" if i % 2 == 0 else "R")
+    s += ["OP_2DROP", "OP_DROP", F.NODE_PREFIX]                        # T
+    t = [0]
+
+    def gen(k, root):
+        if k == 0:
+            s.extend(["OP_FROMALTSTACK"] * 4)
+            t[0] += 4
+            return
+        gen(k - 1, False)
+        gen(k - 1, False)
+        s.extend(M._rewrite_hash_step2(t[0], root))
+        t[0] -= 4
+    gen(height, True)                                                  # T oh os nh ns
+    s += M.levels(False, depth, height)
+    return s + _check_old_ccv0(False) + _final_ccv0_sel(depth)
+
+
 class CCVTreeOptions:
     """A CCV tree's creation parameters other than its depth (spec 6.2,
     4.6), as F.TreeOptions is for FULL: the numerics ("c2" or "c0"), the
@@ -743,7 +1117,8 @@ class CCVTreeOptions:
     def __init__(self, operator_key, numeric="c2", profile="D", tree_id=None, join_heights=(0,),
                  exit_ks=(1,), join_ks=(2,), evict_heights=(1, 2), tower=False, update_x=False, claim=False,
                  claim_h=False, split=False, detach_heights=(), dust_min=lt.DUST_MIN, claim_x=False,
-                 claim_hx=False, rewrite_heights=(), rewrite_x=False):
+                 claim_hx=False, rewrite_heights=(), rewrite_x=False, reclaim_key=None, claim_m=False,
+                 claim_hm=False):
         assert numeric in ("c2", "c0")
         assert not tower or tree_id is not None
         self.operator_key, self.numeric, self.profile, self.tree_id = operator_key, numeric, profile, tree_id
@@ -753,6 +1128,11 @@ class CCVTreeOptions:
         self.claim_x, self.claim_hx = claim_x, claim_hx
         self.rewrite_heights, self.rewrite_x = tuple(rewrite_heights), rewrite_x
         self.detach_heights, self.dust_min = tuple(detach_heights), dust_min
+        # The pending-leaf receive (6.2, 7.5.4, 7.9 rule 8, 7.11), FULL's
+        # names: RECLAIM_KEY adds RECLAIM_1 and compiles every REWRITE_h in
+        # its reclaim form (REWRITE_R_h, REWRITE_XR_h); claim_m and
+        # claim_hm add the merge claims (dense profile).
+        self.reclaim_key, self.claim_m, self.claim_hm = reclaim_key, claim_m, claim_hm
 
     def at_depth(self, depth):
         """Ordered dict name -> token list: the set compiled for depth `depth`,
@@ -779,14 +1159,26 @@ class CCVTreeOptions:
         if self.split:
             out["SPLIT"] = (_split_script_ccv0(depth, sparse, self.dust_min) if c0
                             else split_script_ccv(depth, prof, self.dust_min))
+        rk = self.reclaim_key
+        if rk is not None:
+            out["RECLAIM_1"] = (_reclaim_script_ccv0(depth, rk, sparse) if c0
+                                else reclaim_script_ccv(depth, rk, prof))
         if prof == "D":
+            for name, hl, on in (("CLAIM_M", False, self.claim_m), ("CLAIM_HM", True, self.claim_hm)):
+                if on:
+                    out[name] = (_merge_script_ccv0(depth, self.tree_id, hl, rk, self.dust_min) if c0
+                                 else merge_script_ccv(depth, self.tree_id, hl, rk, self.dust_min))
+            r = "R" if rk is not None else ""
             for h in self.rewrite_heights:
                 if h <= depth:
-                    out[f"REWRITE_{h}"] = (_rewrite_script_ccv0(depth, h, op) if c0
-                                           else rewrite_script_ccv(depth, h, op))
-                    if self.rewrite_x:
-                        out[f"REWRITE_X_{h}"] = (_rewrite_script_ccv0(depth, h, op, exit_consent=True) if c0
-                                                 else rewrite_script_ccv(depth, h, op, exit_consent=True))
+                    for x in ((False, True) if self.rewrite_x else (False,)):
+                        name = f"REWRITE_{'X' if x else ''}{r}_{h}" if r else f"REWRITE_{'X_' if x else ''}{h}"
+                        if rk is None:
+                            out[name] = (_rewrite_script_ccv0(depth, h, op, exit_consent=x) if c0
+                                         else rewrite_script_ccv(depth, h, op, exit_consent=x))
+                        else:
+                            out[name] = (_rewrite_script_r_ccv0(depth, h, op, rk, exit_consent=x) if c0
+                                         else rewrite_script_ccv(depth, h, op, exit_consent=x, reclaim_key=rk))
             for h in self.detach_heights:
                 if h < depth:
                     m_h = self.taptree_root(h)

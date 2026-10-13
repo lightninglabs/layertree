@@ -178,6 +178,22 @@ add("MID", "D", 4, "REWRITE_R_2", M.rewrite_script(4, 2, OP_KEY, reclaim_key=MID
 add("MID", "D", 4, "REWRITE_XR_2", M.rewrite_script(4, 2, OP_KEY, exit_consent=True,
                                                     reclaim_key=MID_RECLAIM_KEY), "c0")
 # ---- end MID pending-leaf receive ----
+# The pending-leaf receive under CCV, both numerics (6.2, 7.5.4, 7.9 rule 8,
+# 7.11): CLAIM^m and CLAIM^hm over the tree_id above, RECLAIM_1 and the
+# reclaim form of REWRITE_2 and REWRITE_2^x, over RECLAIM_KEY; tree-creation
+# variants whose names VARIANTS already carries for FULL.
+for _tier, _mode, _merge, _reclaim, _rewrite in (
+        ("CCV", "c2", CV.merge_script_ccv, lambda d, s: CV.reclaim_script_ccv(d, RECLAIM_KEY, "S" if s else "D"),
+         lambda x: CV.rewrite_script_ccv(4, 2, OP_KEY, exit_consent=x, reclaim_key=RECLAIM_KEY)),
+        ("CCV0", "c0", CV._merge_script_ccv0, lambda d, s: CV._reclaim_script_ccv0(d, RECLAIM_KEY, s),
+         lambda x: CV._rewrite_script_r_ccv0(4, 2, OP_KEY, RECLAIM_KEY, exit_consent=x))):
+    add(_tier, "D", 4, "CLAIM_M", _merge(4, TREE_ID, False, RECLAIM_KEY), _mode)
+    add(_tier, "D", 4, "CLAIM_HM", _merge(4, TREE_ID, True, RECLAIM_KEY), _mode)
+    add(_tier, "D", 4, "RECLAIM_1", _reclaim(4, False), _mode)
+    add(_tier, "S", 8, "RECLAIM_1", _reclaim(8, True), _mode)
+    add(_tier, "D", 4, "REWRITE_R_2", _rewrite(False), _mode)
+    add(_tier, "D", 4, "REWRITE_XR_2", _rewrite(True), _mode)
+out["reclaim_key"] = RECLAIM_KEY.hex()
 
 # taptree root for the FULL/D/D4 script set, in insertion order
 scripts = [bytes.fromhex(v["hex"]) for k, v in out["scripts"].items()
