@@ -277,7 +277,7 @@
       \only<2>{The witness carries C's leaf and three siblings: D, the node over A and B, the node over the right half. Folding gives $8 \to 16 \to 21$: the committed root.}
       \only<3>{Fold again with $\varnothing$ in C's place, same siblings: $2 \to 10 \to 15$.}
       \only<4>{Output 0 recreates the tree with exactly 15; output 1 pays C's exit key 6.\\[0.5em]
-        \textbf{Depth 16: 1,020 vB (FULL), 908 (CCV).}\\[0.3em]
+        \textbf{Depth 16: 1,020 vB (FULL), 908 (CCV), about 520 (CCV + hypothetical Merkle-sum opcode, MSU).}\\[0.2em]\muted{\scriptsize MSU: full dense depth-16 tree; 541 at $2^{16}$ members, key-addressed.}\\[0.3em]
         \muted{Exact-payout trees (\tr{EXIT}$^=$) pay fees from a separate input, so nobody can shave a payout.}}
       \only<5>{\textbf{\tr{EXIT}$_K^t$}: the owner signs once, off-chain, over $H_{\mathrm{exit}}(\text{tree\_id}\,\|\,\text{body(leaf)})$.
         A tower builds and rebuilds the exit with the owner offline.
@@ -299,10 +299,10 @@
     \begin{column}{0.32\textwidth}
       \small
       \only<1>{Only the operator adds leaves. A single join proves that a slot holds the empty node, with the same kind of proof an exit uses.}
-      \only<2>{E's leaf folds up the same path. The output must grow by exactly 2, brought in by another input. \textbf{About 937 vB at depth 16.}}
+      \only<2>{E's leaf folds up the same path. The output must grow by exactly 2, brought in by another input. \textbf{Single \tr{JOIN}$_0$, depth 16: 937 vB (FULL).} Hypothetical Merkle-sum opcode (MSU): script 237 B and 225 B of witness, \muted{vB not stated in the note.}}
       \only<3>{For a cohort the operator builds a subtree off-chain and sends each joiner their leaf and path. \hl{Each joiner checks their own path before paying.}}
       \only<4>{The graft proves one empty node of height 2 and replaces it with the cohort's node. The covenant never looks inside.\\[0.4em]
-        \textbf{256 members: 679 vB. 1,024: 614 vB.} Under 1 vB per member, against 43 vB for an output in a batch.\\[0.3em]
+        \textbf{256 members: 679 vB. 1,024: 614 vB} (FULL, cohort \tr{JOIN}$_h$; \msuTBD{join-h}). Under 1 vB per member, against 43 vB for an output in a batch.\\[0.3em]
         \muted{A bad graft freezes value, it can't create or steal any: the sums still balance.}}
     \end{column}
   \end{columns}
@@ -320,7 +320,7 @@
     \begin{column}{0.32\textwidth}
       \small
       \only<1>{\tr{UPDATE} rewrites a leaf in place: resize, renew the lease, rotate keys. It needs the owner \emph{and} the operator.}
-      \only<2>{Here E renews its lease. One step, about 1,030 vB alone, which is why payments must not do this one at a time.}
+      \only<2>{Here E renews its lease. One step, about 1,030 vB alone (FULL; \msuTBD{update}), which is why payments must not do this one at a time.}
       \only<3>{An \hl{amount-only increase} needs no owner signature: nobody can use it to rotate a key or shorten a lease. The operator tops E up by 3 from its own funds.\\[0.4em]
         \muted{Except on a \code{SEQ\_FINAL} leaf: a channel leaf's amount is the capacity its signed states commit to, so changing it needs the owner.}}
     \end{column}
@@ -343,7 +343,7 @@
       \only<2>{An eviction is an exit signed by the evictor, in a transaction whose \code{nLockTime} is at least the lease.}
       \only<3>{The payout must equal Y's amount exactly. The operator can remove Y but cannot take a satoshi of it.}
       \only<4>{\tr{EVICT\_SUBTREE}$_h$ publishes the cohort's slots once, checks every lease, pays every leaf, and proves one path.\\[0.4em]
-        \textbf{13 leaves: 203 vB each. 51 leaves: 158 vB each.}\\[0.3em]
+        \textbf{13 leaves: 203 vB each. 51 leaves: 158 vB each} (FULL; \msuTBD{sweep}).\\[0.3em]
         \muted{Cheap eviction cuts both ways: it reclaims dead weight and it makes griefing cheap. Members who want a hard guarantee hold a long lease.}}
     \end{column}
   \end{columns}
@@ -426,7 +426,7 @@
       \only<1>{A, B and C were grafted together, so above their subtree they share one path.}
       \only<2>{In one rewrite: A leaves, B pays C 1, N joins. The witness has every slot twice, before and after. A and B sign because their leaves change. C's change is amount-only, so C needn't sign. The operator signs once.}
       \only<3>{The script rebuilds the old subtree, checks it against the root, rebuilds the new one and folds it up the same path. A is paid exactly 5; N's 4 comes from an input.\\[0.4em]
-        \textbf{64 positions: 151 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 165 per exit, 95 per leaf left alone} (a one-byte ``unchanged'' marker).}
+        \textbf{64 positions: 151 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 165 per exit, 95 per leaf left alone} (a one-byte ``unchanged'' marker). All FULL; \msuTBD{rewrite-mixed}.}
     \end{column}
   \end{columns}
 \end{frame}
@@ -449,7 +449,7 @@
       \begin{itemize}
         \item later exits pay $h$ levels, not $D$
         \item the cohort gets its own mempool chain
-        \item about 780 vB (621 under CCV)
+        \item about 780 vB (FULL), 621 under CCV; \msuTBD{detach}
       \end{itemize}
       It's the structural answer to contention: shard on demand.}
     \end{column}
@@ -557,15 +557,17 @@
     \textbf{R3} & In the reclaim-form rewrite, an even reclaimable leaf may decrease amount-only if its odd sibling rises by exactly the same, with only \code{sig\_op} & batch settlement with nobody online; any other change to a reclaimable leaf takes the R1 branch \\
     \bottomrule
   \end{tabular}
-  \vspace{0.8em}
+  \vspace{0.3em}
 
   \begin{columns}[T]
     \begin{column}{0.5\textwidth}
       \begin{tabular}{@{}lr@{}}
-        \multicolumn{2}{@{}l}{\textbf{Per pair, per window} (CCV + opcode)}\\ \midrule
+        \multicolumn{2}{@{}l}{\textbf{Per pair, per window} (MSU, hypothetical)}\\ \midrule
         no R3: \tr{CLAIM}$^m$ + \tr{RECLAIM}$_1$ & \nPairNoRthree\ vB \\
         R3 batch, 16 positions & \nPairWindowSixteen\ vB \\
-        R3 batch, 64 positions & \nPairWindow\ vB \\
+        R3 batch, 64 positions & \nPairWindow\ vB \\ \midrule
+        \tr{RECLAIM}$_1$ alone, $N{=}2^{16}$ & 490 vB \\
+        \tr{CLAIM}$^{hm}$ redeem, $N{=}2^{16}$ & 626 vB \\
       \end{tabular}
     \end{column}
     \begin{column}{0.46\textwidth}
@@ -759,7 +761,7 @@
       \footnotesize
       Owners exiting together each carry a full path, so a pair saves only the fixed overhead.\\[0.4em]
       A cohort shares one path above its subtree: the sweep (operator, after a lease) and the rewrite (owners, any time) hash the interior once.\\[0.4em]
-      \hl{Tapscript has no loops}: the per-position step is published in every batch. That script is most of a batch's cost, and the reason the next ideas focus on batches.
+      \hl{Tapscript has no loops}: the per-position step is published in every batch. That script is most of a batch's cost, and the reason the next ideas focus on batches.\\[0.3em]\msuTBD{batching-chart}
     \end{column}
   \end{columns}
 \end{frame}
@@ -779,7 +781,7 @@
   \end{tabular}
   \vspace{1em}
   \begin{itemize}
-    \item Entry is nearly free: a cohort graft of 1,024 members is 614 vB, \textbf{under 1 vB each}, when the operator funds it and members buy balances off-chain.
+    \item Entry is nearly free: a cohort graft of 1,024 members is 614 vB (FULL), \textbf{under 1 vB each}, when the operator funds it and members buy balances off-chain.
     \item A member who's swept at lease end, or sells their balance by voucher, pays almost nothing.
     \item A member who exits alone pays for the proof, and loses to a bare UTXO and roughly ties Lightning.
     \item The UTXO set: a tree of any size is \hl{one output}.
@@ -797,7 +799,7 @@
     1,048,576 & 41,944 & 610 & 173 & 274 & 556 \\
     \bottomrule
   \end{tabular}\\[0.3em]
-  {\scriptsize\muted{Blocks until every member has left, nobody cooperating; 1 MvB per block; 25 exits per tree per block; cohort exits remove 64 members per transaction at about 165 vB each.}}
+  {\scriptsize\muted{Blocks until every member has left, nobody cooperating; 1 MvB per block; 25 exits per tree per block; cohort exits remove 64 members per transaction at about 165 vB each (FULL).}}
   \vspace{0.8em}
   \begin{itemize}
     \item Every exit spends the same output, so one tree's exits queue: about 25 per block under the descendant limit, up to 64 under cluster mempool.
@@ -814,7 +816,7 @@
     \item \textbf{Against a bare output, on every solo exit.} 541 vB with the hypothetical opcode (1,020 in FULL) against 111. The proof is the price of sharing, and only batching gets it back.
     \item \textbf{Level with a Lightning force close in bytes only with the hypothetical opcode} (541 against 530 vB; FULL is about twice), but one transaction and one block against three and about a day.
     \item \textbf{A non-cooperative mass exit from one big tree.} Exits serialise through one output; transaction-tree branches unroll in parallel.
-    \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,030 vB. Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
+    \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,030 vB (FULL; \msuTBD{update}). Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
     \item \textbf{It needs opcodes that aren't active.} With today's proposals the cheapest exit is CCV's 908 vB; the 541 vB figures assume an opcode nobody has proposed.
     \item \textbf{Joining needs the operator.} No liveness guarantee for getting in, only for getting out.
   \end{itemize}
@@ -987,6 +989,95 @@
     \LTtree[path=5,fold=1,rootname={r'}]{A/5/n/, B/3/n/, C/6/n/, D/2/n/, E/4/n/, -/0/e/, G/7/n/, H/1/n/}
   \end{tikzpicture}
   \vfill
+\end{frame}
+
+% ======================================================================
+\appendix
+\section{Backup}
+
+\begin{frame}{Backup: one level of the fold, old and new together}
+  \scriptsize\let\code\codes
+  \begin{columns}[T]
+    \begin{column}{0.62\textwidth}
+      Before: \code{dir sc T oh os nh ns}. Names are without \code{OP\_}; the sequence is spec 8.2 \code{LEVEL} (88 B).
+      \setlength{\tabcolsep}{3pt}
+      \begin{tabular}{@{}p{4.3cm}p{3.9cm}@{}}
+        \toprule
+        opcodes & stack (altstack after $|$) \\ \midrule
+        \code{6 ROLL 6 ROLL} & \code{T oh os nh ns dir sc} \\
+        \code{SIZE 41 EQUALVERIFY DUP 32 8 SUBSTR DUP TOALTSTACK} & \code{\ldots\ dir sc ss8} $|$ \code{ss8} \\
+        \multicolumn{2}{@{}l}{\hl{new half}}\\
+        \code{3 ROLL TUCK ADD TOALTSTACK PAD8} & \code{T oh os nh dir sc ns9} $|$ \code{ss8 ns'} \\
+        \code{3 ROLL SWAP CAT} & \code{T oh os dir sc nc}, \code{nc = nh||enc64(ns)} \\
+        \code{OVER SWAP 3 PICK NOTIF SWAP ENDIF CAT} & \code{\ldots\ dir sc pre\_n}: \code{dir ? sc||nc : nc||sc} \\
+        \code{5 PICK SWAP CAT SHA256 TOALTSTACK} & \code{T oh os dir sc} $|$ \code{ss8 ns' nh'} \\
+        \code{FROMALTSTACK} $\times3$ & \code{T oh os dir sc nh' ns' ss8} \\
+        \multicolumn{2}{@{}l}{\hl{old half}, same siblings}\\
+        \code{5 ROLL TUCK ADD TOALTSTACK PAD8}, \code{5 ROLL SWAP CAT} & \code{T dir sc nh' ns' oc}, \code{oc = oh||enc64(os)} \\
+        \code{3 ROLL SWAP 4 ROLL NOTIF SWAP ENDIF CAT}, \code{3 PICK SWAP CAT SHA256}, \code{FROMALTSTACK 2SWAP} & \code{T oh' os' nh' ns'} \\
+        \bottomrule
+      \end{tabular}
+    \end{column}
+    \begin{column}{0.35\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.5,transform shape,b/.style={rectangle,rounded corners=2pt,draw=ltink,fill=ltsurface,font=\scriptsize,align=center,inner sep=3pt},>=Stealth]
+        \node[b,draw=ltstrong] (o) at (0,2.6) {old: \code{oh, os}};
+        \node[b,draw=ltleaf] (n) at (0,0) {new: \code{nh, ns}};
+        \node[b,draw=ltaccent,fill=ltaccentsoft] (s) at (2.5,1.3) {\code{sc}: sibling\\hash || \code{enc64}(sum)\\41 B, shared};
+        \node[b] (po) at (4.6,2.6) {\code{oh'}, \code{os+ss8}};
+        \node[b] (pn) at (4.6,0) {\code{nh'}, \code{ns+ss8}};
+        \draw[->] (o) -- (po); \draw[->] (n) -- (pn);
+        \draw[->,ltaccent] (s) -- (po); \draw[->,ltaccent] (s) -- (pn);
+      \end{tikzpicture}\\[0.4em]
+      \raggedright
+      \code{dir} (empty or \code{0x01}) says which side \code{sc} goes on, for both hashes.\\[0.3em]
+      \code{ss8} (low 8 bytes of the sibling's sum) is added to both sums, so the totals differ only by the leaf. Witness per level: \code{sc} 41 B plus \code{dir} 0 or 1 B.
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Backup: the post-order rewrite machine, $h = 2$}
+  \scriptsize\let\code\codes
+  \begin{columns}[T]
+    \begin{column}{0.46\textwidth}
+      \begin{tikzpicture}[scale=0.9,
+          p/.style={rectangle,rounded corners=2pt,draw=ltleaf,fill=ltsurface,minimum width=0.9cm,minimum height=0.55cm,font=\scriptsize\bfseries},
+          h/.style={circle,draw=ltnode,fill=ltsurface,minimum size=0.6cm,inner sep=0pt,font=\scriptsize\bfseries,text=ltnodesum},>=Stealth]
+        \foreach \i in {0,1,2,3} \node[p] (p\i) at (\i*1.15,0) {pos \i};
+        \node[h] (a) at (0.575,1.1) {a}; \node[h] (b) at (2.875,1.1) {b}; \node[h] (c) at (1.725,2.2) {c};
+        \draw (p0)--(a) (p1)--(a) (p2)--(b) (p3)--(b) (a)--(c) (b)--(c);
+        \node[font=\tiny,text=ltmuted,anchor=north] at (p0.south) {1st};
+        \node[font=\tiny,text=ltmuted,anchor=north] at (p1.south) {2nd};
+        \node[font=\tiny,text=ltmuted,anchor=north] at (p2.south) {4th};
+        \node[font=\tiny,text=ltmuted,anchor=north] at (p3.south) {5th};
+        \node[font=\tiny,text=ltaccent,right] at (a.east) {3rd};
+        \node[font=\tiny,text=ltaccent,left] at (b.west) {6th};
+        \node[font=\tiny,text=ltaccent,right] at (c.east) {7th};
+      \end{tikzpicture}\\[0.5em]
+      Each position yields four items \code{oh os nh ns}. A \code{HASH\_STEP2} runs as soon as two siblings are on top: the old pair first, then the new pair. The running sum of a hash waits on the altstack; the next output index \code{idx} sits there under the whole machine ($|$ \code{m r idx}).
+    \end{column}
+    \begin{column}{0.52\textwidth}
+      \code{REWRITE\_2}, spec 8.9 and \code{structured/REWRITE\_2\_D8.txt}; $d$ is the number of machine items above \code{T}.\\[0.3em]
+      \setlength{\tabcolsep}{3pt}
+      \begin{tabular}{@{}lll@{}}
+        \toprule
+        step & argument $d$ & $d$ after \\ \midrule
+        push \code{Z L T} & & 0 \\
+        \code{REWRITE\_STEP} & 0 & 4 \\
+        \code{REWRITE\_STEP} & 4 & 8 \\
+        \code{HASH\_STEP2} & 8 & 4 \\
+        \code{REWRITE\_STEP} & 4 & 8 \\
+        \code{REWRITE\_STEP} & 8 & 12 \\
+        \code{HASH\_STEP2} & 12 & 8 \\
+        \code{HASH\_STEP2} & 8 & 4 \\
+        \bottomrule
+      \end{tabular}\\[0.4em]
+      Only $d$-dependent: the roll of the next witness slot (\code{d+3}, \code{d+4}), the picks of \code{T}, \code{L}, \code{Z}. \code{HASH\_STEP2} moves its eight items with constants:\\[0.2em]
+      \code{2SWAP 7 ROLL 7 ROLL 2SWAP HASH\_STEP(d)}\\
+      \code{2SWAP 5 ROLL 5 ROLL 2SWAP HASH\_STEP(d-2)}\\[0.4em]
+      \code{d = 12} first appears at $h = 2$, so test a new shape there, not at $h = 1$. After the machine, \code{LEVEL} $\times (D-h)$ folds the one path above.
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \end{document}

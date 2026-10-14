@@ -62,6 +62,7 @@
 \AtBeginSection{\begin{frame}[plain]\sectionpage\end{frame}}
 
 \newcommand{\code}[1]{{\ttfamily\small #1}}
+\newcommand{\codes}[1]{{\ttfamily\scriptsize #1}}
 \newcommand{\tr}[1]{\textsf{\textbf{#1}}}
 \newcommand{\muted}[1]{{\color{ltmuted}#1}}
 \newcommand{\hl}[1]{{\color{ltaccent}\textbf{#1}}}
@@ -261,3 +262,6 @@
 \newcommand{\LTbadgeB}[3]{\node[lt/badge-#3,anchor=north] at ($(l-#1.south)+(0,-0.62)$) {#2};}
 % A badge on an interior node or the root.
 \newcommand{\LTnbadge}[3]{\node[lt/badge-#3,anchor=south] at ($(#1.north)+(0,0.05)$) {#2};}
+
+% Placeholder for an opcode (CCV + hypothetical Merkle-sum opcode) figure not yet measured.
+\newcommand{\msuTBD}[1]{{\color{ltmuted}opcode: not yet measured}}
