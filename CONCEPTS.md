@@ -415,7 +415,7 @@ recovered from a signature check.
 
 It costs 43% more than FULL and it does only the single-leaf exit and
 `SPLIT`, the owner-signed carve that pays another member, so it is an upper
-bound rather than a recommendation: the load-bearing operation
+bound rather than a recommendation: the one-transaction exit
 needs `OP_CAT` and one point-tweak opcode. No lower bound is claimed.
 
 **CCV** replaces the key arithmetic with `OP_CHECKCONTRACTVERIFY` (BIP-443)
