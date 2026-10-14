@@ -73,9 +73,7 @@ $16\vB$ to every spend.
 \paragraph{Exit cost.} A dense exit (Figure~\ref{fig:plot},
 Table~\ref{tab:sizes}) costs $762\vB$ at $D = 8$ and $1{,}149\vB$ at
 $D = 20$, about $32\vB$ per level. One tier step costs as much as 10 (MID, $+33\%$, or $+36\%$
-serialised) to 14 (MIN, $+44\%$, or $+47\%$) levels of depth. The sparse profile at $D = 32$ with $2^{16}$
-members costs about $1{,}780\vB$, 1.75 times the dense profile at
-$D = 16$; its witness grows with $\log_2 N$, not $D$.
+serialised) to 14 (MIN, $+44\%$, or $+47\%$) levels of depth.
 
 \paragraph{Comparison with transaction trees.} The dashed line of
 Figure~\ref{fig:plot} is a \emph{model}: an exiter publishes $D$
@@ -122,10 +120,27 @@ confirmations and the larger opcode set\iffullversion\else{}
 \end{figure}
 \fi
 
-\paragraph{A native opcode (hypothetical).} An opcode that
-verifies a Merkle-sum path and returns the root with one leaf replaced
-would make \tr{EXIT}$_1$ 252 bytes of script at every depth, with one 40-byte witness sibling per occupied level. Nobody has
-proposed it and nothing here depends on it\iffullversion; it is measured only in the simulator\fi. For
+\iffullversion
+\paragraph{A native opcode (hypothetical).} Tapscript has no loops, so
+the tiers pay for every level of a path in script, and that is the cost
+they change only by a constant. A hypothetical \op{MERKLESUMUPDATE} would
+take a proof, an old node and a new node and return the root of the old
+node's path and the root with the new node in its place. The proof is a
+depth, a position and a bitmap naming the levels that carry a sibling,
+then those 40-byte siblings; every other level uses the empty node
+$\Emp_k$. The opcode adds the sums, fails on overflow past $2^{64}$ or on
+a non-canonical proof, and costs $2\times$ the depth in hashes, charged as
+BIP-440 varops. It replaces the unrolled fold and its arithmetic, so with
+\op{CHECKCONTRACTVERIFY} binding the root and \op{TX} the payout, the
+covenant compares byte strings only: no numeric operands, no padding
+and no $2^{31}$ cap. Nobody has proposed it and nothing here depends on
+it; it runs only in the simulator, behind a flag, in no tier\iffullversion{} and in no golden
+script\fi.
+
+\tr{EXIT}$_1$ then has 252 bytes of script at every depth (2{,}101 in
+FULL and 1{,}716 in CCV at $D = 16$), and one 40-byte witness sibling per
+occupied level. Empty levels cost nothing, so a hashed-position tree
+(Appendix~\ref{app:sparse}) costs no more than a dense one. For
 $2^k$ members in a key-addressed depth-64 tree the exit is about
 $381 + 10k\vB$ (541 at $2^{16}$\iffullversion, 701 at $2^{32}$\fi), against $504 + 32.25k$
 for FULL (1{,}020\iffullversion; 1{,}536\fi) and $150k + 111$ for a transaction tree
@@ -133,14 +148,34 @@ for FULL (1{,}020\iffullversion; 1{,}536\fi) and $150k + 111$ for a transaction 
 \iffullversion Figure~\ref{fig:scale} plots this. The six-leaf
 $388\vB$ of Figure~\ref{fig:anatomy} and the $520\vB$ of a full depth-16
 tree are the simulator's smaller model; 541 is the key-addressed one.
-Batched settlement of pending receives (\S\ref{sec:pending}) costs
-$547\vB$ per pair at 64 positions on the same model. The price is that
-the opcode fixes this tree format in consensus, which is why the work
-composes proposed opcodes and proposes none (\S\ref{sec:discussion}).
-\else
-Settling pending receives costs $547\vB$ a pair at 64 positions.
 \fi
+The \tr{CLAIM}$^{hm}$ redemption of a pending leaf (\iffullversion\S\ref{sec:pending}\else the receive flow\fi) is
+$626\vB$ at $2^{16}$ members against $1{,}136\vB$ in FULL.
 
+It does little for batches. A rewrite or sweep is dominated by a
+per-position step of about 376 bytes of script at $h = 6$, which the
+opcode does not touch: settling pending receives costs $547\vB$ a pair
+at 64 positions\iffullversion{} (two transactions of $8{,}347$ and
+$9{,}155\vB$ at $2^{16}$ members, 24{,}065 bytes of script each against
+25{,}036 in FULL)\fi. A multi-leaf exit or a sweep would need several
+proofs in one call, or a way to build a subtree root, which the proof
+format above does not express. The price is that the opcode fixes in
+consensus this tree's node encoding, empty-node chain, parent hash and
+overflow rule, so a different tree or a format change would need a
+different opcode. That is why the work composes proposed opcodes and
+proposes none, and treats the opcode as a measurement of what the
+general approach pays, not as a tier (\S\ref{sec:discussion}).
+\else
+\paragraph{A native opcode (hypothetical).} An unproposed
+\op{MERKLESUMUPDATE} would fold a Merkle-sum path in one step, replacing
+the unrolled levels. \tr{EXIT}$_1$ is then 252 bytes of script at every
+depth, and the exit about $381 + 10k\vB$ for $2^k$ members (541 at
+$2^{16}$, against 1{,}020 for FULL and 2{,}511 for a transaction tree).
+Batches gain little, since the per-position step dominates: settling
+pending receives costs $547\vB$ a pair at 64 positions. It fixes this
+tree's encoding in consensus, so the work treats it as a measurement, not
+a tier (\S\ref{sec:discussion}, Appendix~\ref{app:native}).
+\fi
 
 \iffullversion
 \begin{figure}[tbp]
@@ -187,8 +222,7 @@ whole tree.
 \paragraph{Fees and budgets.} At $10\sat/\mathrm{vB}$ a $D=16$ exit
 costs $10{,}200\sat$, a 1\% fee on $1{,}020{,}000\sat$
 (Appendix~\ref{app:eval}). Varops usage is 5.6 to 7.7\% of the BIP-440
-budget in the dense profile and 3.6 to 4.7\% in the sparse ($D = 64$ to
-32), falling with depth because the budget scales with weight;
+budget in the dense profile, falling with depth because the budget scales with weight;
 \texttt{0xC0} tiers use one to three signature operations of the BIP-342
 sigop budget.
 \fi

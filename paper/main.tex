@@ -125,6 +125,8 @@
 \newcommand{\op}[1]{\texttt{OP\_#1}}
 \newcommand{\tr}[1]{\textsf{#1}}
 \newcommand{\vB}{\,\mathrm{vB}}
+% Sparse-profile exit at 2^16 members, an estimate until measured; set once here.
+\newcommand{\sparseExitBig}{$\approx 1{,}781$}
 \newcommand{\WU}{\,\mathrm{WU}}
 \newcommand{\sat}{\,\mathrm{sat}}
 \newcommand{\Emp}{\ensuremath{E}}
@@ -341,7 +343,7 @@ the operations, vouchers and trust model and only states what is proved.
 This full version is built around $\Ftree$: it carries the UC proof
 (\S\ref{app:uc}) and the channel-leaf scripts (\S\ref{app:channels}),
 the Lean statements inline, sections on costs against the alternatives
-(\S\ref{sec:cost}), profiles and radix (\S\ref{sec:profiles}), batch
+(\S\ref{sec:cost}), the node format and radix (\S\ref{sec:profiles}), batch
 shapes (\S\ref{sec:batching}), grafting (\S\ref{sec:graft}) and
 receiving over Lightning (\S\ref{sec:receive}), and the Lean
 development and script listings (Appendices~\ref{app:lean}
@@ -395,8 +397,8 @@ evictor key, normally the operator's, that may remove the leaf after a
 lease height). The operator holds no key over the funds, only an
 \emph{operator key} that authorises additions and co-signs cooperative
 changes. Figure~\ref{fig:func} gives $\Ftree$; its parameters are the
-depth $D$, the addressing \emph{profile} (dense: the operator assigns
-slots; sparse: a slot is a hash of the owner key and a nonce), the
+depth $D$, the addressing \emph{profile} (dense, used throughout: the operator
+assigns slots; Appendix~\ref{app:sparse} describes the sparse alternative), the
 operator key, the payout rule $\mathsf{exact}$ (whether an owner may leave
 part of its balance as fee), and the liveness bound $\lat$ below.
 $\Ftree$ is protocol-aware, as in Generalized
@@ -518,7 +520,7 @@ Interface (predicate) & Steps & Authorisation and outputs \\
 \iface{EVICT} (\tr{EXIT}, flag) & same & $\sigma_{\mathsf{ev}}$, lock time $\ge \mathsf{evict\_after}$; out$_1$ pays exactly $a$ \\
 $K\times$\iface{EXIT} (\tr{EXIT}$_K$) & $K$ leaf steps, chained & each step its own $\sigma$; out$_{1..K}$ \\
 \iface{JOIN} (\tr{JOIN}$_h$) & $\Emp_h \to (h_{\mathrm{new}}, s_{\mathrm{new}})$ & $\sigma_{\mathsf{op}}$; out$_0 = S + s_{\mathrm{new}}$, funded by other inputs \\
-$K\times$\iface{JOIN} (\tr{JOINK}$_K$) & $K$ steps $\Emp_0 \to$ leaf & one $\sigma_{\mathsf{op}}$; the sparse profile cannot graft \\
+$K\times$\iface{JOIN} (\tr{JOINK}$_K$) & $K$ steps $\Emp_0 \to$ leaf & one $\sigma_{\mathsf{op}}$ \\
 \iface{UPDATE} (\tr{UPDATE}) & $(\Hleaf(\ell), a) \to (\Hleaf(\ell'), a')$ & $\sigma_{\mathsf{own}}, \sigma_{\mathsf{op}}$, plus $\sigma_{\mathsf{exit}}$ in \tr{UPDATE}$^{x}$; out$_0 = S - a + a'$ \\
 \iface{CLAIM} (\tr{CLAIM}) & source $\to$ source$'$; $\Emp_0 \to \ell_c$ & voucher signature checked from the stack; $\ell_c$ keeps the evictor, lease no later; out$_0 = S$ \\
 \iface{CLAIM} (\tr{CLAIM}$^{h}$) & same & as above, over a message naming a payment hash, with the preimage in the witness \\

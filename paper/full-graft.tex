@@ -8,8 +8,7 @@ that the operator built off-chain from up to $2^h$ new leaves, and adds
 $s_h$ to the tree output. Nothing below height $h$ appears on-chain and
 the script walks only the $D - h$ levels above the slot, so a larger
 cohort is a smaller transaction (Table~\ref{tab:graft}). Each height is a
-tapleaf fixed at creation; the sparse profile batches only by
-\tr{JOINK}$_K$.
+tapleaf fixed at creation.
 
 \paragraph{What the covenant checks.} The predicate requires that the
 slot held $\Emp_h$, that output~0 carries $S + s_h$, and the operator's
@@ -53,8 +52,6 @@ graft & members & tx (vB) & per member & member-funded \\
 \tr{JOIN}$_4$ & 16 & 808 & 51 & $\approx 109$ \\
 \tr{JOIN}$_8$ & 256 & 679 & 2.7 & $\approx 61$ \\
 \tr{JOIN}$_{10}$ & 1{,}024 & 614 & 0.60 & $\approx 59$ \\
-sparse \tr{JOIN}$_0$, $D = 32$ & 1 & 1{,}601 & 1{,}601 & $\approx 1{,}659$ \\
-sparse \tr{JOINK}$_2$, $D = 32$ & 2 & 2{,}821 & 1{,}411 & $\approx 1{,}469$ \\
 \bottomrule
 \end{tabular}
 \end{table}

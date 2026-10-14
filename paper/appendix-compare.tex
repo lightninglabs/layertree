@@ -72,7 +72,7 @@ FULL, fee taken from the payout & 921 & \\
 FULL, $D = 8$ and $D = 20$ & 762 and 1{,}149 & \\
 FULL tower exit \tr{EXIT}$_1^{t}$ & 1{,}046 & \\
 FULL sparse $D = 32$, six-leaf tree & 1{,}637 & 1{,}648 \\
-FULL sparse $D = 32$, $2^{16}$ members (estimate) & $\approx 1{,}780$ & \\
+FULL sparse $D = 32$, $2^{16}$ members (estimate) & \sparseExitBig & \\
 MID & 1{,}355 & 1{,}398 \\
 MIN & 1{,}473 & 1{,}518 \\
 CCV, tapleaf \texttt{0xC2} & 908 & 918 \\
@@ -281,8 +281,9 @@ leaves (Figure~\ref{fig:cmp-lifetime}, Table~\ref{tab:lifetime}).
 \caption{Lifetime on-chain bytes per member, entry plus exit. The dense,
 Lightning, Ark and bare rows are those of Table~\ref{tab:lifetime}. The
 sparse bars price the join with a payout output and the exit on the
-six-leaf tree (1{,}644, 3{,}108 and 3{,}281); the table prices the join
-without one and the exit at $2^{16}$ members (1{,}601, 3{,}209 and
+six-leaf tree (1{,}644, 3{,}108 and 3{,}281); Table~\ref{tab:sparse} gives the
+sparse join and exit sizes, and the table above prices the join without a
+payout output and the exit at $2^{16}$ members (1{,}601, 3{,}209 and
 3{,}382).}
 \label{fig:cmp-lifetime}
 \end{figure}
@@ -364,35 +365,9 @@ CTV or CCV tree~\cite{bip119,matt} & operator builds the templates & varies & a 
 
 \input{table-compare}
 
-\subsection{Dense or Sparse}\label{app:cmp-profiles}
+\input{appendix-sparse}
 
-The sparse profile is a key-value store: a leaf's position is a hash of
-its owner key and nonce, so nobody allocates slots, the root does not
-depend on insertion order, and absence is an inclusion proof of an empty
-node. It is not the cheaper profile on-chain
-(Figure~\ref{fig:cmp-profiles}). A sparse proof elides empty siblings to
-one byte, so its witness is small, 326 bytes at $D = 32$ on the six-leaf
-tree against 902 for dense at $D = 16$. But the script dominates. Random
-positions need about twice the depth of allocated ones to keep collisions
-rare, and a sparse level is 135 bytes of script against 88, because it
-derives the direction bit from the position and computes the empty node.
-The exit is $1{,}637\vB$ on six leaves and about $1{,}780\vB$ at $2^{16}$
-members, 1.75 times dense, and the profile gives up grafts and sweeps. So
-the sparse profile buys properties, not bytes. Raising the radix does not
-help either: sibling bytes per exit grow from $41D$ at radix~2 to about
-$61.5D$ at radix~4, and a measured radix-4 level brings the dense exit
-to $1{,}042\vB$ and radix~8 to $1{,}257\vB$, against $1{,}020\vB$ at
-radix~2. With a native opcode the per-level cost would be the sibling
-alone, and radix~2 would be optimal outright.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\linewidth]{figures/exit-profiles.pdf}
-\caption{\tr{EXIT}$_1$ bytes by profile and depth, FULL tier: dense
-proofs are small scripts, sparse proofs small witnesses. Sparse rows are
-measured on the six-leaf tree.}
-\label{fig:cmp-profiles}
-\end{figure}
+\input{appendix-native}
 
 \subsection{Where LayerTree Loses}\label{app:cmp-loses}
 

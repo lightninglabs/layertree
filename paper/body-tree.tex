@@ -39,27 +39,12 @@ leaf's node to the root, and folding a \emph{different} node up the
 \emph{same} path yields the root with that position replaced
 \iffullversion(Theorem~\ref{thm:binding})\else(\S\ref{sec:proved})\fi.
 
-\paragraph{Profiles.}
-\iffullversion
-In the \emph{dense} profile positions are assigned by the operator and a
-path carries explicit direction bits; each level costs 88 bytes of script
-and 41 bytes of witness. In the \emph{sparse} profile a leaf's position is
-the low $D$ bits of $\Hpos(\mathsf{owner\_key} \,\|\, \mathsf{nonce})$,
-direction bits are derived in script from the position hash, and empty
-siblings are elided from the witness (the script substitutes $\Emp_k$),
-so witness data grows with $\log_2 N$ rather than with $D$. It is the
-Merkle-sum sparse Merkle tree of Taproot Assets~\cite{mssmt} truncated to
-$D = 32$ or $64$, at 1.7 to 2.8 times the dense per-exit cost with
-$2^{16}$ members (Table~\ref{tab:sizes}). Dense is the default, and the
-rest of the paper measures it unless it says otherwise.
-\else
-In the \emph{dense} profile the operator assigns positions and a path
-carries direction bits. In the \emph{sparse} profile a leaf's position
-is derived by hashing its owner key and nonce, as in the Merkle-sum
-sparse Merkle tree of Taproot Assets~\cite{mssmt}, truncated to
-$D = 32$ or $64$, at 1.7 to 2.8 times the dense exit cost. Dense is the
-default and is what we measure.
-\fi
+\paragraph{Profiles.} In the \emph{dense} profile, which the paper
+measures, the operator assigns positions and each level costs 88 bytes of
+script and 41 of witness. A \emph{sparse} profile, in which a leaf's
+position is a hash of its owner key and a nonce, needs no slot allocation
+but cannot graft and costs more on-chain (\sparseExitBig{} vB per exit at
+$2^{16}$ members against $1{,}020$); see Appendix~\ref{app:sparse}.
 
 \subsection{The Tree Output}\label{sec:output}
 

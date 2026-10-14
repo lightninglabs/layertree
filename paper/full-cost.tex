@@ -18,18 +18,18 @@ measured sizes for scripts or populations not measured directly.
 \begin{axis}[
   xbar stacked, bar width=8pt, width=0.82\linewidth, height=5.4cm,
   xmin=0, xmax=2700, xlabel={vB per transaction},
-  symbolic y coords={native,ccv,d8,full,mid,min,sparse},
+  symbolic y coords={native,ccv,d8,full,mid,min},
   ytick=data, y dir=reverse, enlarge y limits=0.09,
-  yticklabels={{native op., $N = 6$},{CCV, $D=16$},{FULL, $D=8$},{FULL, $D=16$},{MID, $D=16$},{MIN, $D=16$},{sparse, $D=32$, $N = 6$}},
+  yticklabels={{native op., $N = 6$},{CCV, $D=16$},{FULL, $D=8$},{FULL, $D=16$},{MID, $D=16$},{MIN, $D=16$}},
   legend style={at={(0.5,-0.3)}, anchor=north, legend columns=4, font=\scriptsize, draw=none, /tikz/every even column/.append style={column sep=4pt}},
   tick label style={font=\scriptsize}, label style={font=\scriptsize},
   extra x ticks={111,2511}, extra x tick labels={}, extra x tick style={grid=major, grid style={black!50, dashed}},
   clip=false
 ]
-\addplot[fill=white, draw=black] coordinates {(236.5,native) (236.5,ccv) (236.5,d8) (236.5,full) (236.5,mid) (236.5,min) (236.5,sparse)};
-\addplot[pattern=north east lines, draw=black] coordinates {(32.25,native) (32.25,ccv) (32.25,d8) (32.25,full) (32.25,mid) (32.25,min) (32.25,sparse)};
-\addplot[pattern=crosshatch dots, draw=black] coordinates {(56.25,native) (209.5,ccv) (143.5,d8) (225.5,full) (244.5,mid) (293.75,min) (81.5,sparse)};
-\addplot[fill=black!55, draw=black] coordinates {(63,native) (429,ccv) (349.25,d8) (525.25,full) (841.75,mid) (910,min) (1286.75,sparse)};
+\addplot[fill=white, draw=black] coordinates {(236.5,native) (236.5,ccv) (236.5,d8) (236.5,full) (236.5,mid) (236.5,min)};
+\addplot[pattern=north east lines, draw=black] coordinates {(32.25,native) (32.25,ccv) (32.25,d8) (32.25,full) (32.25,mid) (32.25,min) };
+\addplot[pattern=crosshatch dots, draw=black] coordinates {(56.25,native) (209.5,ccv) (143.5,d8) (225.5,full) (244.5,mid) (293.75,min)};
+\addplot[fill=black!55, draw=black] coordinates {(63,native) (429,ccv) (349.25,d8) (525.25,full) (841.75,mid) (910,min)};
 \legend{skeleton, control block, witness, script}
 \node[font=\scriptsize, anchor=west] at (axis cs:410,native) {388};
 \node[font=\scriptsize, anchor=west] at (axis cs:935,ccv) {908};
@@ -37,12 +37,11 @@ measured sizes for scripts or populations not measured directly.
 \node[font=\scriptsize, anchor=west] at (axis cs:1047,full) {1{,}020};
 \node[font=\scriptsize, anchor=west] at (axis cs:1382,mid) {1{,}355};
 \node[font=\scriptsize, anchor=west] at (axis cs:1500,min) {1{,}473};
-\node[font=\scriptsize, anchor=west] at (axis cs:1664,sparse) {1{,}637};
 \node[font=\scriptsize, anchor=south, align=center] at (axis cs:111,native) [yshift=6pt] {bare spend 111};
 \node[font=\scriptsize, anchor=south, align=center] at (axis cs:2511,native) [yshift=6pt] {tx-tree model 2{,}511};
 \end{axis}
 \end{tikzpicture}
-\caption{One unilateral exit by variant, dense unless noted. Skeleton ($236.5\vB$, white) and control block ($32.25\vB$, hatched) are common to every row, then witness (dotted) and script (grey); the script dominates because the levels are unrolled. Dashed: a bare P2TR spend and the radix-2 transaction-tree model at $D = 16$. The sparse and native-opcode rows are measured on a six-leaf tree; the native row is a hypothetical opcode in the simulator (\S\ref{sec:discussion}) with a bitmap-compressed proof.}
+\caption{One unilateral exit by variant, dense unless noted. Skeleton ($236.5\vB$, white) and control block ($32.25\vB$, hatched) are common to every row, then witness (dotted) and script (grey); the script dominates because the levels are unrolled. Dashed: a bare P2TR spend and the radix-2 transaction-tree model at $D = 16$. The native-opcode row is measured on a six-leaf tree; it is a hypothetical opcode in the simulator (\S\ref{sec:discussion}) with a bitmap-compressed proof.}
 \label{fig:anatomy}
 \end{figure}
 

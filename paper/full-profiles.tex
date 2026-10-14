@@ -1,11 +1,13 @@
-% Full version only: the two profiles and the radix. Source:
+% Full version only: the node format and the radix. The sparse profile is
+% in Appendix app:sparse (appendix-sparse.tex). Source:
 % design/tree-comparison.md, measured sizes from spec/scripts/sizes.md,
 % the radix-r levels from tools/experiments/radix4.py (spec 13.2).
-\section{Profiles and Radix}\label{sec:profiles}
+\section{Node Format and Radix}\label{sec:profiles}
 
-Both profiles are the same Merkle-sum tree. They differ in who decides
-where a leaf sits, and that choice sets the depth, the proof encoding,
-which predicates exist and the price of every exit.
+The tree is a Merkle-sum tree whose position assignment, in the dense
+profile, is the operator's. This section gives the node format and the
+choice of radix; the sparse alternative is in
+Appendix~\ref{app:sparse}.
 
 \paragraph{One node format.} A parent hashes each child's sum, not only
 their total, and this is a soundness property. A tree hashing $h_L \,\|\,
@@ -16,36 +18,13 @@ proofs claim 200. Here the two proofs hash the distinct preimages $(A,
 this is \lean{serializeNode\_inj} with \lean{hNode\_inj}, from which
 \lean{fold\_sound} gives that a verified leaf carries its true amount.
 
-\paragraph{What the profiles decide.} A sparse position is a function of
-the leaf, so a joiner computes it alone, a key and nonce cannot appear
-twice, the root depends only on the leaf set, and absence is an
-inclusion proof of $\Emp_0$. None of LayerTree's predicates needs these
-properties: an exit proves inclusion and a join proves its slot is
-$\Emp_h$, the same way in both profiles. The dense profile has aligned
-subtrees instead, on which \tr{JOIN}$_h$, \tr{EVICT\_SUBTREE}$_h$ and
-every shape of \S\ref{sec:batching} depend.
-
-\paragraph{Where the bytes go.} A sparse proof is the smaller witness and
-the larger script, and the script wins (Table~\ref{tab:sizes}: about
-$1{,}781\vB$ at $D = 32$ and $2^{16}$ members against $1{,}020\vB$ dense
-at $D = 16$). Both causes follow from hashing the position. Random positions collide, $N^2/2^{D+1}$
-expected collisions among $N$ members (about one half at $D = 32$ for $N
-= 2^{16}$, about 32{,}000 at $D = 16$), so the sparse tree needs about
-twice the depth, and every level is unrolled. And a sparse level is 135
-bytes against 88, because it derives the direction bit from the
-position, substitutes $\Emp_k$ for an elided sibling and computes
-$\Emp_{k+1}$ for the next level. The full-width tree of Taproot
-Assets~\cite{mssmt} ($D = 256$) costs $35{,}611$ bytes of script per
-exit, about 17 times the dense script and 9 times the dense transaction;
-MID caps sparse depth at 31.
-
-Dense is therefore the default (spec~5.4, \path{spec/layertree.md}):
-1.7 to 2.8 times cheaper per exit at $2^{16}$ members, cohort grafts at one price, sweeps at about $160\vB$ per leaf, and
-every batch shape, at the price of an operator who keeps the slot map.
-The sparse profile is kept, specified and tested, as the measured
-alternative and for deployments that are key-addressed registries; it
-still hosts channel leaves and vouchers and still exits in one
-transaction.
+\paragraph{Dense positions.} An exit proves inclusion and a join proves
+that its slot is $\Emp_h$, the same way in either profile. What the dense
+profile adds is aligned subtrees, on which \tr{JOIN}$_h$,
+\tr{EVICT\_SUBTREE}$_h$ and every shape of \S\ref{sec:batching} depend:
+cohort grafts at one price and sweeps at about $160\vB$ per leaf, at the
+price of an operator who keeps the slot map (spec~5.4,
+\path{spec/layertree.md}).
 
 \begin{table}[tbp]
 \centering
@@ -70,8 +49,6 @@ level. Table~\ref{tab:radix} measures it. Of the radix-4 level's 146 bytes about
 are hashing and sums shared with radix 2 and the rest sibling and
 direction handling, so the fixed part a higher radix amortises is about
 60 bytes while the sibling part is what it multiplies; radix 4 comes out
-about 2\% larger overall. In the sparse profile most siblings are empty and cost
-one witness byte, so a radix-4 level of about 180 bytes could replace two
-levels of 135, saving about $360\vB$ per exit (estimate; no sparse
-radix-$r$ level has been written). With a native Merkle-sum opcode a
-level costs only its sibling and radix 2 is optimal.
+about 2\% larger overall. With a native Merkle-sum opcode a
+level costs only its sibling and radix 2 is optimal. The sparse profile's
+radix is in Appendix~\ref{app:sparse}.

@@ -3,7 +3,7 @@
 
 \begin{table}[htbp]
 \centering
-\caption{Measured \tr{EXIT}$_1$ cost (FULL unless noted) on the model of \S\ref{sec:eval}. Witness weight is script, witness data and a 129-byte control block for the eight-leaf reference script set (each doubling of the set adds 8 vB); the transaction adds the $946\WU$ skeleton. The sparse witness is $244 + 41k$ bytes for $k$ non-empty siblings: $k = 2$ on the measured six-leaf tree (326 B), and $k \approx \log_2 N$, so the rows give the estimate at $N = 2^{16}$ ($k = 16$). Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$; sparse $D$ is address width.}
+\caption{Measured \tr{EXIT}$_1$ cost (FULL unless noted) on the model of \S\ref{sec:eval}. Witness weight is script, witness data and a 129-byte control block for the eight-leaf reference script set (each doubling of the set adds 8 vB); the transaction adds the $946\WU$ skeleton. Last column: unamortised radix-2 transaction tree of $2^D$ leaves, $150D + 111\vB$. The sparse profile is in Table~\ref{tab:sparse}.}
 \label{tab:sizes}
 \setlength{\tabcolsep}{3.5pt}\scriptsize
 \begin{tabular}{@{}lrrrrrr@{}}
@@ -14,8 +14,6 @@ dense & 8 & 1{,}397 & 574 & 2{,}100 & 762 & 1{,}311 \\
 dense & 12 & 1{,}749 & 738 & 2{,}616 & 891 & 1{,}911 \\
 dense & 16 & 2{,}101 & 902 & 3{,}132 & 1{,}020 & 2{,}511 \\
 dense & 20 & 2{,}453 & 1{,}066 & 3{,}648 & 1{,}149 & 3{,}111 \\
-sparse & 32 & 5{,}147 & $\approx 900$ & $\approx 6{,}176$ & $\approx 1{,}781$ & n/a \\
-sparse & 64 & 9{,}499 & $\approx 900$ & $\approx 10{,}528$ & $\approx 2{,}869$ & n/a \\
 \midrule
 MID dense & 16 & 3{,}367 & 978 & 4{,}474 & 1{,}355 & \\
 MIN dense & 16 & 3{,}640 & 1{,}175 & 4{,}944 & 1{,}473 & \\
