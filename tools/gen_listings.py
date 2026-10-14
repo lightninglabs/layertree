@@ -101,6 +101,11 @@ for d in (32, 64):
         if k.startswith("EXIT_1 (owner)") or k in ("JOIN_0", "JOINK_2"):
             rows.append(("S/bitmap", d, k, sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 ls.COMPRESSION["S"] = "empty"
+# The sparse exit for a member of a 2^16-member tree: 16 non-empty siblings on
+# the path instead of the six-leaf tree's two (the row's witness grows by 41
+# bytes per sibling, 326 + 14 * 41 = 900).
+it, sl, wl, _, _ = test_scripts.test_exit_sparse_large(32, 1 << 16, verbose=False)
+rows.append(("S/65536", 32, "EXIT_1 (owner)", sl, wl, 129, sl + wl + 129, it.cost, it.sigchecks))
 for d in (8, 16):
     script, wit, it = test_scripts.test_minimal(d, verbose=False)
     rows.append(("D/minimal", d, "EXIT_1 (owner)", len(script), sum(len(x) for x in wit), 129,
@@ -359,7 +364,7 @@ with open(os.path.join(OUT, "CCV_LEVEL.txt"), "w") as f:
 
 with open(os.path.join(OUT, "sizes.md"), "w") as f:
     f.write("Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);\n")
-    f.write("add 41 bytes per additional non-empty sibling (about log2 N in total).\n\n")
+    f.write("add 41 bytes per additional non-empty sibling (about log2 N in total); the S/65536 row is the measured exit of a member of a 2^16-leaf tree.\n\n")
     f.write("| profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |\n")
     f.write("|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:

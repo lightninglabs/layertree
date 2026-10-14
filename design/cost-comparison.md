@@ -52,7 +52,8 @@ occupied level and still has to be published.
 | FULL tier | 1,020 |
 | FULL tier, fee taken from the payout | 921 |
 | FULL tier, `D = 8` and `D = 20` | 762 and 1,149 |
-| FULL tier, sparse profile `D = 32` | 1,637 |
+| FULL tier, sparse profile `D = 32`, six leaves | 1,637 |
+| FULL tier, sparse profile `D = 32`, 65,536 members (measured, 16 occupied siblings) | 1,781 |
 | MID tier | 1,355 |
 | MIN tier | 1,473 |
 | CCV tier, tapleaf `0xC2` (PR #6) | 908 |
@@ -343,7 +344,8 @@ witness saving of about 580 bytes does not cover the script cost of about
 | Witness bytes per level | 41 | 1 (empty) or 41 (occupied) |
 | Levels | 16 | 32 |
 | `EXIT_1` script and witness | 2,101 and 902 | 5,147 and 326 |
-| `EXIT_1` vbytes | 1,020 | 1,637 |
+| `EXIT_1` vbytes (six leaves) | 1,020 | 1,637 |
+| `EXIT_1` vbytes (65,536 members) | 1,020 | 1,781 |
 | Single join | 937 | 1,601 |
 | Cohort graft | yes, `JOIN_h` | no |
 | Cohort sweep | yes, `EVICT_SUBTREE_h` | no |

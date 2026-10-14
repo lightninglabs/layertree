@@ -433,8 +433,9 @@ def main():
     reports.append(row_report("FULL dense EXIT_1, D=12", find_row(rows, "D", 12, "EXIT_1 (owner)")))
     reports.append(row_report("FULL dense EXIT_1, D=16", find_row(rows, "D", 16, "EXIT_1 (owner)")))
     reports.append(row_report("FULL dense EXIT_1, D=20", find_row(rows, "D", 20, "EXIT_1 (owner)")))
-    reports.append(row_report("FULL sparse EXIT_1, D=32", find_row(rows, "S", 32, "EXIT_1 (owner)")))
-    reports.append(row_report("FULL sparse EXIT_1, D=64", find_row(rows, "S", 64, "EXIT_1 (owner)")))
+    reports.append(row_report("FULL sparse EXIT_1, D=32 (six leaves)", find_row(rows, "S", 32, "EXIT_1 (owner)")))
+    reports.append(row_report("FULL sparse EXIT_1, D=32 (2^16 members)", find_row(rows, "S/65536", 32, "EXIT_1 (owner)")))
+    reports.append(row_report("FULL sparse EXIT_1, D=64 (six leaves)", find_row(rows, "S", 64, "EXIT_1 (owner)")))
     reports.append(row_report("MID dense EXIT_1, D=16", find_row(rows, "MID/D", 16, "EXIT_1 (owner)")))
     reports.append(row_report("MIN dense EXIT_1, D=16", find_row(rows, "MIN/D", 16, "EXIT_1 (owner)")))
 
@@ -452,7 +453,7 @@ def main():
     # break-even and minimum-leaf tables: use the headline dense rows plus
     # sparse D=32 plus the two EVICT_SUBTREE cases (per-leaf) plus the plain
     # P2TR floor.
-    be_reports = [reports[0], reports[2], reports[3], reports[4]]  # D=8,16,20 dense; D=32 sparse
+    be_reports = [reports[0], reports[2], reports[3], reports[4], reports[5]]  # D=8,16,20 dense; D=32 sparse, six leaves and 2^16 members
     out.append(section_breakeven(be_reports))
 
     endo_section, exo_rep, endo_rep = section_endogenous(rows)
