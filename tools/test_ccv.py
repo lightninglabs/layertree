@@ -986,7 +986,8 @@ def test_c0(depth, profile):
            w.pos(alice) + M.w_leaf(alice) + M.w_leaf(alice2) + [asig, osig])
     it = w.run("UPDATE", wit, ctx)
     costs["UPDATE (c0)"] = (it, len(w.compiled["UPDATE"]), sum(len(x) for x in wit))
-    expect_fail(lambda: w.run("UPDATE", wit[:-1] + [osig], ctx), "c0: update without owner")
+    expect_fail(lambda: run_fresh(w, "UPDATE", wit[:-2] + [osig, osig], ctx), "c0: update without owner")
+    run_fresh(w, "UPDATE", wit, ctx)      # the control: the same context accepts the real witness
 
     # UPDATE^x (exit-key consent, spec 7.4 rule 5), swapped into the
     # taptree as UPDATE_X for this step only.
