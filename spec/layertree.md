@@ -4,7 +4,7 @@
 Title:    LayerTree
 Layer:    Applications (requires consensus changes listed in section 4)
 Status:   Draft
-Version:  0.15.1
+Version:  0.15.2
 Author:   Olaoluwa Osuntokun
 Created:  2026-09-17
 License:  BSD-3-Clause
@@ -210,8 +210,12 @@ design does not.
    `OP_LEFT`, `OP_RIGHT`, `OP_AND`, `OP_DOWNSHIFT`; arbitrary-length unsigned
    integers; 4,000,000-byte stack elements; the modified success rule (a
    single non-zero element). `x n OP_RIGHT` pushes the last `n` bytes of
-   `x`, as in the Satoshi client and the simulator; the `SEQ_FINAL` check
-   of `REWRITE_STEP` (8.9) depends on that reading. All LayerTree scripts
+   `x`, as in the Satoshi client and the simulator. That includes the
+   edges: `n = 0` pushes the empty string, and `n >= size(x)` pushes `x`
+   unchanged rather than failing. The `R1` branch of the reclaim rules
+   and the `SEQ_FINAL` check of `REWRITE_STEP` (8.9) depend on the
+   out-of-range reading, and `OP_LEFT` is its mirror (`n >= size(x)`
+   pushes `x`, `n = 0` pushes the empty string). All LayerTree scripts
    are tapleaf version `0xC2`.
 4. **`OP_TX`** as in the draft BIP (`rustyrussell/bips`, branch
    `guilt/varops`, `bip-unknown-optx.mediawiki`, version 0.1.0), redefining
@@ -512,11 +516,12 @@ rewrite with every position occupied before and after and every owner
 signing), and `h = 6` fits only while `10(p_o + p_n − u) − 7a + s ≤ 523`,
 that is a mass exit of at most 47 leaves or a rewrite of at most 24 changed
 positions. A full 64-leaf cohort is rewritten as two `REWRITE_5` spends.
-Under the CCV tier's `0xC0` numerics (4.6) the witness is two elements
-shorter (no `r`, no `m`) and no prologue runs, so the bound at `h = 6` is
-`10(p_o + p_n − u) + s ≤ 525` (a mass exit of at most 47 leaves, or 25
-changed positions) and `h ≤ 5` fits at any occupancy (964 at the peak of
-the full 32-position rewrite); `h = 6` at any full occupancy is rejected
+Under the CCV tier's `0xC0` numerics (4.6) the witness is one element
+shorter than MID's (no `r`, no `m`, but the output-0 mode flag of 4.6
+below the pads) and no prologue runs, so the bound at `h = 6` is
+`10(p_o + p_n − u) − 7a + s ≤ 524` (a mass exit of at most 47 leaves, or
+24 changed positions) and `h ≤ 5` fits at any occupancy (965 at the peak
+of the full 32-position rewrite, 961 elements before the pre-pass); `h = 6` at any full occupancy is rejected
 by the limit, as the suite checks.
 
 The MID premium over FULL is about 60% of script for the dense profile and
@@ -708,9 +713,10 @@ the rewrite carry those elements where a signature would go, as
 `0xC0` rewrite keeps MID's bound: `h ≤ 4` at any occupancy, `h = 5` for
 cohorts of pending and landing pairs, `h = 6` over the 1,000-element
 limit. Amount-only slots (8.9) shorten the witness of a full-cohort
-settlement at `h = 5` from 930 to 706 elements, the transfer's two leaves
-of every pair being amount-only, and leave `h = 6` over the limit (1,753
-elements before, 1,305 after), so they do not move the bound.
+settlement at `h = 5` from 930 to 706 elements (CCV0: 929 to 705), the
+transfer's two leaves of every pair being amount-only, and leave `h = 6`
+over the limit (1,753 elements before, 1,305 after; CCV0: 1,752 and
+1,304), so they do not move the bound.
 
 Output 0's amount rule under several tree inputs *(informative)*. Every
 CCV call in the tier names the current input (index `-1`) or a fixed
@@ -1100,7 +1106,7 @@ Rules:
 4. If `is_evict` is true (eviction):
    * `sig` MUST be a valid signature over `tx` by `leaf.evictor_key`, with
      the same hash-type requirement;
-   * `tx.nLockTime` MUST be at least `leaf.evict_after` and input 0's
+   * `tx.nLockTime` MUST be at least `leaf.evict_after` and the tree input's
      `nSequence` MUST enable lock-time (`OP_CHECKLOCKTIMEVERIFY` semantics);
    * output 1's amount MUST equal `leaf.amount`.
 5. The recomputed total `S` equals input 0's amount, and output 0's amount
@@ -1648,7 +1654,7 @@ Rules:
    as in section 7.2).
 2. For every non-empty position, in position order: the leaf's
    `evictor_key` MUST equal `OPERATOR_KEY`; `tx.nLockTime` MUST be at least
-   its `evict_after`, and input 0's `nSequence` MUST enable lock time
+   its `evict_after`, and the tree input's `nSequence` MUST enable lock time
    (`OP_CHECKLOCKTIMEVERIFY` semantics, as in 7.2 rule 4 and 7.11 rule 2); and the next unused output, starting from output 1,
    MUST pay exactly `leaf.amount` to `P2TR(leaf.exit_key)`.
 3. The old node is the subtree root recomputed from the supplied leaves
@@ -1901,7 +1907,7 @@ Witness inputs: sibling path of the leaf position (`D` levels), `leaf`,
 Rules:
 
 1. `leaf.evictor_key` MUST equal `RECLAIM_KEY`.
-2. `tx.nLockTime` MUST be at least `leaf.evict_after`, and input 0's
+2. `tx.nLockTime` MUST be at least `leaf.evict_after`, and the tree input's
    `nSequence` MUST enable lock-time (`OP_CHECKLOCKTIMEVERIFY` semantics).
 3. `sig` MUST be a valid signature over `tx` by `RECLAIM_KEY`, with a
    hash type that commits to all outputs (7.2 rule 3).
@@ -2629,7 +2635,7 @@ An 8-byte new element is replaced by itself followed by the last 108 bytes
 of the old element (`LEAF_BODY`) in the same place, so the rules see two
 full leaves that differ in the amount field alone and `same_rest` holds by
 construction. Against an empty old element there is no body to append
-(`OP_RIGHT` fails or leaves the 8 bytes alone) and `ELEM_NODE`'s size
+(`OP_RIGHT` returns the whole 8 bytes, section 4.1 item 3) and `ELEM_NODE`'s size
 check rejects the result, which is what makes an amount-only element
 against `E_0` fail; as an old element
 the 8 bytes fail the same check, and a 7-byte or 9-byte new element is
@@ -3755,7 +3761,7 @@ a figure that appears in more than one place is the same figure:
 | dense, minimal inventory | 16 | 65,536 | 2,378 | 886 | 3,393 | 4,339 | 1,085 |
 | dense, `EVICT_SUBTREE_4` (13 leaves swept) | 16 | 65,536 | 5,281 | 2,129 | 7,539 | 10,549 | 2,638 (203 per leaf) |
 | dense, `EVICT_SUBTREE_6` (51 leaves swept) | 16 | 65,536 | 16,097 | 6,455 | 22,681 | 32,227 | 8,057 (158 per leaf) |
-| sparse | 32 | 2^32 | 5,147 | 244 + 41·k | ≈ 6,180 (N = 2^16) | ≈ 7,120 | ≈ 1,780 |
+| sparse | 32 | 2^32 | 5,147 | 244 + 41·k | 6,176 (N = 2^16, measured) | 7,122 | 1,781 |
 | sparse | 64 | 2^64 | 9,499 | 244 + 41·k | ≈ 10,530 (N = 2^16) | ≈ 11,470 | ≈ 2,870 |
 | sparse | 256 | 2^256 | 35,611 | 203 + 41·k | ≈ 36,600 (N = 2^16) | ≈ 37,550 | ≈ 9,390 |
 | dense, CCV tier | 16 | 65,536 | 1,716 | 838 | 2,683 | 3,629 | 908 |
@@ -3764,7 +3770,11 @@ a figure that appears in more than one place is the same figure:
 Sparse witness sizes are a formula in `k`, the number of non-empty
 siblings on the path, which is about `log2 N` for `N` members; the
 measured figures in `spec/scripts/sizes.md` (326, 285 and 262 bytes) are
-on a six-leaf tree with `k = 2`, and the totals here take `k = 16`.
+on a six-leaf tree with `k = 2`, and the totals here take `k = 16`. The
+`D = 32` row at `N = 2^16` is measured: `test_exit_sparse_large` in
+`tools/test_scripts.py` builds a sparse tree of 65,536 real leaves, whose
+member's path has `k = 16` and a 900-byte witness, and runs the exit in
+the simulator (the six-leaf exit is 1,637 vB at the same depth).
 
 The CCV-tier rows (section 4.6) replace the `TREE_SPK` recomputations
 with `OP_CHECKCONTRACTVERIFY` calls: about 390 script bytes and 64
@@ -3793,7 +3803,7 @@ the restored splice opcodes and the EC point opcodes: about 260 WU per
 exit.
 
 The sparse profile at `D = 32` costs about 1.8 times the dense profile at
-`D = 16` per exit (1,780 against 1,020 vB at `N = 2^16`; 1.7 to 2.8 times
+`D = 16` per exit (1,781 against 1,020 vB at `N = 2^16`; 1.7 to 2.8 times
 over `D = 32` to `64`), which is why dense is the default profile (5.4).
 What sparse buys is key-addressed positions: no slot allocation, a
 history-independent root, and structural uniqueness of leaves. The full
@@ -4425,7 +4435,7 @@ exits in a batch" as `EXIT_K` (section 13).
   fail, the same raise signed and an amount-only decrease beside an exit
   succeed; the reclaim form's R3 transfer encoded with two amount-only
   elements passes and its unbalanced, right-hand and ordinary-leaf variants
-  fail), 1,594 checks in total. Run: `python3 tools/test_scripts.py`; `--subtree` adds the
+  fail), 1,610 checks in total (including the `OP_LEFT` and `OP_RIGHT` edge cases and the exit of a member of a sparse tree of 65,536 real leaves). Run: `python3 tools/test_scripts.py`; `--subtree` adds the
   `h = 6` sweep and rewrite, `--rewrite` prints the size table of 11.
 * `tools/test_ccv.py` — executes every CCV-tier script in both profiles
   and both numerics: `0xC2` at dense `D = 4`/`16` and sparse `D = 8`/`32`,
