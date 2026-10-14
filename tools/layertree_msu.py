@@ -459,6 +459,122 @@ def rewrite_script_msu(depth, height, operator_key, exit_consent=True, reclaim_k
     return s + ccv_output0(depth, "stack") + ["OP_1"]
 
 
+# ---------------------------------------------------------------------------
+# The remaining single-fold transitions under CCV + MSU: UPDATE (7.4),
+# JOIN_h (7.3) and EVICT_SUBTREE_h (7.7). Each is FULL's rule set with the
+# fold and the binding replaced as above; REWRITE_h's plain form needs no
+# new script (rewrite_script_msu with exit_consent=False, reclaim_key=None).
+#
+# A position is the proof's own position bits in all three: no script here
+# derives a position from a leaf, so the sparse profile's position rules
+# (7.4 rule 4, the derived position of JOIN_0) are outside these figures.
+# ---------------------------------------------------------------------------
+def node40_of(node):
+    """A (hash, sum) pair as the opcode's 40-byte node."""
+    return node[0] + node[1].to_bytes(8, "little")
+
+
+def update_script_msu(depth, operator_key, exit_consent=False):
+    """UPDATE (7.4), or UPDATE^x with exit_consent, under CCV + MSU.
+
+    witness (bottom..top) = flag proof old new osig opsig [xsig]
+
+    The old and new node fold over ONE proof, so they sit at the same
+    position whatever the leaves say (the sparse rule 7.4 rule 4 holds by
+    construction); the folded root is bound to the input and the new root
+    to output 0. flag is the output-0 mode, as in rewrite_script_msu:
+    empty = assign (the new sum is at least the input's residual, an
+    increase being funded by other inputs), 0x01 = deduct (an owner-signed
+    decrease, which 7.4 rule 3 leaves free for the transaction). The tree
+    cannot drain (the new node is a leaf's), so there is no terminal branch
+    and the script does not depend on `depth`. Traced from
+    [flag proof old new osig opsig]:
+      OPSIG: <OPERATOR_KEY> CHECKSIGVERIFY        -> [.. old new osig]
+      2 PICK 40 32 SUBSTR CHECKSIGVERIFY          -> [.. old new]   (owner of OLD)
+      SIZE 116 EQUALVERIFY SWAP SIZE 116 EQUALVERIFY -> [proof new old]
+      LP SWAP leaf40_pick TOALT SWAP leaf40_pick NIP FROMALT SWAP
+                                                  -> [proof old40 new40]
+      MSU, ccv_input_on_old_root                  -> [flag] | new40
+      IF 2 ELSE 0 ENDIF, ccv_output0(stack mode)  -> []
+    """
+    s = []
+    if exit_consent:
+        s += [4, "OP_PICK", OFF_EXIT_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY"]   # exit key of OLD
+    s += [operator_key, "OP_CHECKSIGVERIFY",
+          2, "OP_PICK", OFF_OWNER_KEY, 32, "OP_SUBSTR", "OP_CHECKSIGVERIFY",
+          "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",
+          "OP_SWAP", "OP_SIZE", LEAF_LEN, "OP_EQUALVERIFY",              # proof new old
+          LEAF_PREFIX, "OP_SWAP"] + leaf40_pick() + ["OP_TOALTSTACK",    # proof new LP   | old40
+          "OP_SWAP"] + leaf40_pick() + ["OP_NIP",                        # proof new40
+          "OP_FROMALTSTACK", "OP_SWAP",                                  # proof old40 new40
+          MSU]
+    s += ccv_input_on_old_root()
+    s += ["OP_IF", 2, "OP_ELSE", "OP_0", "OP_ENDIF"]                     # mode
+    return s + ccv_output0(depth, "stack", terminal=False) + ["OP_1"]
+
+
+def join_h_script_msu(depth, height, operator_key):
+    """JOIN_h (7.3), the cohort graft, under CCV + MSU. witness (bottom..top)
+    = proof node40 sig.
+
+    The old node is the constant E_h and the new node the 40-byte node the
+    operator built off-chain (hash || le64 sum), taken from the witness
+    unexamined (7.3 rule 4): the opcode folds both from height h. The proof
+    is the opcode's, of depth D - h, and carries every empty sibling
+    E_{h+k} explicitly under the opcode as specified, or omits them under
+    the start-height field of design/native-opcodes.md. The script is the
+    same for every h but the 40-byte constant E_h. Output 0 is assigned
+    the new root and pinned to its sum; the value of the graft comes from
+    other inputs. Traced from [proof node40 sig]:
+      <OPERATOR_KEY> CHECKSIGVERIFY, SIZE 40 EQUALVERIFY -> [proof node40]
+      E_h40 SWAP, MSU                                    -> [old40 new40]
+    """
+    assert 0 <= height < depth
+    return ([operator_key, "OP_CHECKSIGVERIFY",
+             "OP_SIZE", 40, "OP_EQUALVERIFY",
+             node40_of(lt.empty_node(height)), "OP_SWAP",
+             MSU] + ccv_input_on_old_root()
+            + ccv_output0(depth, 0, terminal=False) + ["OP_1"])
+
+
+def evict_subtree_script_msu(depth, height, operator_key):
+    """EVICT_SUBTREE_h (7.7), the cohort sweep, under CCV + MSU. witness
+    (bottom..top) = proof leaf_{2^h-1} .. leaf_0 sig (each leaf 116 bytes
+    or empty).
+
+    The opcode folds a node it is GIVEN; it does not build one. The old
+    subtree root comes from FULL's post-order program, run in script over
+    the 2^h leaves published once (the CCV tier's leaf_step_ccv: lease,
+    evictor, exact DEDUCT payout per leaf), exactly as the rewrite does.
+    Only the fold above height h moves into the opcode, so this measures
+    what the opcode saves of a sweep and nothing more; a companion that
+    builds subtree roots (design/native-opcodes.md calls it
+    OP_MERKLESUMBUILD) is a second hypothetical opcode and is not
+    measured. The new node is the constant E_h. The sweep may drain the
+    tree, so output 0 keeps the terminal branch.
+      [proof T oh os] | idx   FROMALT DROP, LE64 CAT NIP -> [proof oh40]
+      E_h40, MSU                                          -> [old40 new40]
+    """
+    assert 1 <= height < depth
+    s = [operator_key, "OP_CHECKSIGVERIFY", "OP_1", "OP_TOALTSTACK", C.F.NODE_PREFIX]   # proof leaves | idx T
+    d = [0]
+
+    def gen(h):
+        if h == 0:
+            s.extend([d[0] + 1, "OP_ROLL"])
+            s.extend(C.leaf_step_ccv(operator_key))
+            d[0] += 2
+        else:
+            gen(h - 1)
+            gen(h - 1)
+            s.extend(C.F._hash_step(d[0]))
+            d[0] -= 2
+    gen(height)                                                           # proof T oh os | idx
+    s += ["OP_FROMALTSTACK", "OP_DROP"] + LE64 + ["OP_CAT", "OP_NIP",    # proof oh40
+          node40_of(lt.empty_node(height)), MSU]
+    return s + ccv_input_on_old_root() + ccv_output0(depth, 0) + ["OP_1"]
+
+
 # ------------------------------------------------------------ cost model --
 # The spec's fee model (section 11, spec/fee-analysis.md): a transaction's
 # weight is its script, witness and a 129-byte control block (1 WU each)

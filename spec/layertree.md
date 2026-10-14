@@ -4157,7 +4157,7 @@ exits in a batch" as `EXIT_K` (section 13).
     key-addressed tree at depth 64 with 65,536 members, in which the same
     exit is 541 vB (`381 + 10k`, `k` the occupied levels). `design/native-opcodes.md` specifies the
     hypothetical semantics and `tools/layertree_msu.py` measures them
-    behind the simulator's `hypothetical=True` flag (133 checks,
+    behind the simulator's `hypothetical=True` flag (222 checks,
     `tools/test_msu.py`). It is not a tier and never enters
     `all_scripts()` or the golden vectors: this document composes opcodes
     that have been proposed and proposes none.

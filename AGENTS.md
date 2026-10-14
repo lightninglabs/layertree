@@ -254,7 +254,7 @@ python3 tools/test_mid.py          # MID tier (1,391 checks)
 python3 tools/test_min.py          # MIN tier (57 checks)
 python3 tools/test_ccv.py          # CCV tier, both profiles and numerics (4,295 checks)
 python3 tools/test_chan.py         # Appendix C channel leaves, both tapleaf versions (220 checks)
-python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (133 checks)
+python3 tools/test_msu.py          # hypothetical OP_MERKLESUMUPDATE, measurement only (222 checks)
 python3 tools/gen_listings.py      # spec/scripts/ (flat listings, size table)
 python3 tools/gen_structured.py    # spec/scripts/structured/ (macro-collapsed listings)
 python3 tools/gen_golden.py        # spec/golden.json
