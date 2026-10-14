@@ -139,7 +139,7 @@ what makes the off-chain settlement safe to accept.
 | Entry for the user | boarding transaction, or a share of a round | share of a cohort graft, about 1 vbyte, plus the operator's funding |
 | Funding the receive capacity | none on-chain: the swap server funds the VTXO or books a ledger credit | the operator tops up each credit leaf as credit accrues, by amount-only `REWRITE_h^x`, about 122 vbytes per position batched per cohort; capacity funded ahead of the vouchers is the recipient's on every unilateral path |
 | Cooperative settlement | VTXO in the next round | operator grafts the recipient's leaf in the next cohort (about 1 vbyte) and retires the voucher by advancing the credit leaf's `seq`: one `UPDATE` per credit leaf, 1,030 vbytes, or about 133 per recipient with `REWRITE_h` (spec 7.9, `design/batching.md`) |
-| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,636 vbytes at `D = 16` today, about 1,130 with a sibling-pair claim (below), no timelock |
+| Unilateral settlement | unroll the round tree, about 2,511 vbytes at `D = 16`, then a timelock | one `CLAIM^x`, about 1,636 vbytes at `D = 16` today, about 1,136 with the sibling-pair merge claim `CLAIM^hm` (below), no timelock |
 | Expiry | the round; funds must be refreshed | none; the voucher stays redeemable until `seq` advances |
 | Liveness required of the user | refresh before expiry | none |
 
@@ -197,15 +197,17 @@ witness at `D = 16`, 1,515 vbytes against the FULL tier's 1,628.
 The largest saving needs no new opcode. A credit leaf dedicated to one
 recipient can have its sibling slot reserved for that recipient's claim
 leaf, so the source and the claim sit under one path and share fifteen
-of the sixteen levels. A `CLAIM` variant that folds the sibling pair
-under a single path (the "sibling pairs" shape of spec 13.4) costs about
-1,130 vbytes on the measured parts, a third less, and it suits the
+of the sixteen levels. A claim that folds the sibling pair
+under a single path (the "sibling pairs" shape of spec 13.4) costs 1,136
+vbytes measured, as the FULL `CLAIM^hm` of the pending-leaf receive
+(spec 7.5.4, `design/pending-receive.md`), 31% less, and it suits the
 credit leaf exactly because the operator chose the slot. Two further
 cuts stack on it: the `OP_MULTI OP_CAT` level and the `OP_INTERNALKEY`
 fast path of spec 13.3 and 13.8, perhaps 150 vbytes more; and a native
 Merkle-sum opcode, which would put the redemption near 500 vbytes.
-Neither is built; the sibling-pair `CLAIM` is the one this page
-recommends building first. (Binding the voucher to a tree identifier
+Neither is built. The sibling-pair claim is built for the pending pair
+(`CLAIM^m`, `CLAIM^hm`); a credit leaf's own `CLAIM^x` stays the two-path
+form. (Binding the voucher to a tree identifier
 compiled into the script instead of `m`, the third cut an earlier draft
 listed, is now the rule in every tier: spec 6.2 and 7.5.)
 

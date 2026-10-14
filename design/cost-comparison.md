@@ -96,9 +96,9 @@ carries the subtree's leaves, the exiting owners' signatures, and the
 siblings of the shared path above the subtree, so leaves in the same
 subtree share the levels above it. It is built as the exit-only case of
 the cohort rewrite `REWRITE_h` (spec 7.9), and measured at `D = 16`:
-four owners leaving a height-2 subtree pay about 364 vbytes per leaf,
-sixteen leaving a height-4 subtree about 200, and sixty four leaving a
-height-6 subtree about 162, within four vbytes of the operator's sweep.
+four owners leaving a height-2 subtree pay about 366 vbytes per leaf,
+sixteen leaving a height-4 subtree about 202, and sixty four leaving a
+height-6 subtree about 165, within seven vbytes of the operator's sweep.
 `design/batching.md` has the shape and two more.
 
 What a script fixes is the height and alignment of the subtree, not
@@ -189,7 +189,7 @@ old leaves and new leaves, fold each once, and authorise with one
 signature per leaf or one aggregate signature. Its per-leaf cost would be
 close to the sweep's, roughly 100 vbytes, which is parity with a bare spend
 in one transaction instead of many. It is built as `REWRITE_h` (spec
-7.9): about 148 vbytes per changed leaf when all 64 positions of a
+7.9): about 151 vbytes per changed leaf when all 64 positions of a
 height-6 subtree rotate keys, against 1,030 for an `UPDATE` each. The
 spec left the aggregate-key version out because MuSig2 nonce
 coordination reintroduces the interactive rounds the design otherwise
@@ -220,11 +220,11 @@ Four things reduce it, in increasing order of change.
 - The subtree rewrite of 13.5 publishes a subtree's old and new leaves and
   folds each once, so the per-leaf cost approaches the sweep's: the
   interior is paid once and each rewritten leaf adds its 116 bytes twice
-  and a signature, about 138 vbytes. Leaves in the subtree that do not
+  and a signature, about 140 vbytes. Leaves in the subtree that do not
   change need no signature; they are supplied once for the fold, with a
   one-byte marker in place of the second copy, or stand behind a sibling
-  hash. This is `REWRITE_h` (spec 7.9), measured at about 148 vbytes per
-  changed leaf and 92 per unchanged position at `h = 6`
+  hash. This is `REWRITE_h` (spec 7.9), measured at about 151 vbytes per
+  changed leaf and 95 per unchanged position at `h = 6`
   (`design/batching.md`).
 
 The subtree rewrite is also a batch of intra-tree payments: moving an
@@ -377,7 +377,7 @@ and radix 2 is optimal.
   price of the shared output.
 - An on-chain per-leaf update is 1,030 vbytes. Moves must be off-chain or
   batched; the batched rewrite `REWRITE_h` brings a cohort's update to
-  about 148 vbytes per changed leaf.
+  about 151 vbytes per changed leaf.
 - The sparse profile costs about 1.8 times the dense one (1.7 to 2.8 over `D = 32` to `64`) and cannot graft
   or sweep.
 - Uncoordinated exits serialise through one output at 25 transactions per

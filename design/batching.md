@@ -10,8 +10,8 @@ figures are the FULL tier's; `REWRITE_h` also exists in MID
 (`tools/test_mid.py`, about 1.7 times the script and bounded by the
 1,000-element stack limit at `h = 5` for a full cohort, spec 4.5) and in
 CCV, both numerics (`tools/test_ccv.py`: `REWRITE_4` on the mixed cohort
-5,303 / 4,035 B under `0xC2` against FULL's 5,624 / 4,099, and 10,212 /
-4,372 under `0xC0` against MID's 10,516 / 4,436, the exit payout being
+5,471 / 4,035 B under `0xC2` against FULL's 5,784 / 4,099, and 11,260 /
+4,372 under `0xC0` against MID's 11,556 / 4,436, the exit payout being
 one `CHECK_OUTPUT|DEDUCT` call and the `0xC0` form sharing MID's stack
 bound, spec 4.6), and
 `DETACH_h` in CCV, both numerics (`tools/test_ccv.py`, 973 / 433 B at
@@ -101,10 +101,11 @@ the taptree carries a few heights, not a script per subset. This shape
 was not built on its own: it is the exit-only case of `REWRITE_h` below
 (every position's new element is `E_0`), and the measured figures are
 that case's. At `D = 16`, with every position leaving, `REWRITE_2/4/6`
-cost about 364, 200 and 162 vbytes per leaf [the estimates from the
-sweep's sizes were 353, 222 and 177 at the sweep's occupancies]. Sixty
-four owners who coordinate therefore pay what the operator pays to sweep
-them (162 against 158), instead of 6.5 times.
+cost about 366, 202 and 165 vbytes per leaf [the estimates from the
+sweep's sizes were 353, 222 and 177 at the sweep's occupancies; before
+the amount-only element of spec 0.15.0 the figures were 364, 200 and
+162]. Sixty four owners who coordinate therefore pay about what the
+operator pays to sweep them (165 against 158), instead of 6.5 times.
 
 ![Per-leaf cost against cohort size](figures/cohort-cost.svg)
 
@@ -114,19 +115,19 @@ who leave one by one pay 1,020 vbytes for `EXIT_1`, and batching them in
 `EXIT_K` brings the average down to 842 at two exits and towards 665,
 the marginal cost of each further exit, but never below it, because each
 leaf still carries its whole path. The rewrite line starts below that
-floor: `REWRITE_2` is 364 vbytes per leaf at four leaves. Fitting the
+floor: `REWRITE_2` is 366 vbytes per leaf at four leaves. Fitting the
 three rewrite points as a fixed part plus a per-leaf part gives about
-810 vbytes fixed and 149 per leaf, so the rewrite line crosses the
+836 vbytes fixed and 152 per leaf, so the rewrite line crosses the
 `EXIT_K` marginal near two leaves and the single exit near one; every
 height the taptree carries is cheaper per leaf than any `EXIT_K`. At
 the same height the operator's sweep costs more per leaf than the
-rewrite (432 against 364 at `h = 2`, 203 against 200 at `h = 4`),
+rewrite (432 against 366 at `h = 2`, 203 against 202 at `h = 4`),
 because the measured sweeps leave every fifth position empty (1, 3 and
 13 of 4, 16 and 64) and still publish them, so a sweep of a given height
 removes fewer leaves. Plotted against leaves removed, the two lines cross near eight
 leaves at about 270 vbytes per leaf: below that the rewrite is cheaper,
 above it the sweep is a few vbytes cheaper per leaf for the same count,
-and at `h = 6` the two nearly meet (158 against 162). Neither reaches a bare spend's 111:
+and at `h = 6` the two nearly meet (158 against 165). Neither reaches a bare spend's 111:
 the leaf's bytes, its signature, its payout output and its share of the
 unrolled step stay.
 
@@ -174,16 +175,16 @@ unchanged members doing nothing. It is the on-chain settlement step of a
 cohort that otherwise transacts off-chain by voucher or channel leaf.
 
 Measured at `D = 16` (spec 11), a position of a 64-position rewrite
-costs 251 bytes of script and, when it changes, 234 bytes of witness for
-its two leaf copies, about 121 vbytes [the estimate was 57]; an owner
+costs 261 bytes of script and, when it changes, 234 bytes of witness for
+its two leaf copies, about 124 vbytes [the estimate was 57]; an owner
 signature adds 16 vbytes and an exit adds its 43-byte output and drops
-the new leaf, so a changed leaf costs about 138 vbytes and an exiting one
-about 151. A position that does not change publishes its leaf once, with
+the new leaf, so a changed leaf costs about 140 vbytes and an exiting one
+about 154. A position that does not change publishes its leaf once, with
 the one-byte marker of spec 7.9 in place of the second copy: 118 bytes
-of witness, about 92 vbytes. Over a whole transaction a 64-leaf cohort
-that rewrites every balance pays about 148 vbytes per leaf, against
+of witness, about 95 vbytes. Over a whole transaction a 64-leaf cohort
+that rewrites every balance pays about 151 vbytes per leaf, against
 1,030 for an `UPDATE` each [the estimate was 120], and one that leaves
-together pays 162 per leaf, four more than the operator's sweep. The
+together pays 165 per leaf, seven more than the operator's sweep. The
 changed position is more expensive than estimated because it is
 published twice, as old and new element, and because its `REWRITE_STEP`
 (the four-way branch, the amount-only test and two `ELEM_NODE`s) is
@@ -205,10 +206,16 @@ instead of two, and the owner's decision (2026-10-09) is to build
 `REWRITE_h` with the exit rule and not a separate `EXIT_SUBTREE_h`. It
 is built: spec 7.9 states the seven rules (the exit payout is exact, as
 in the sweep), 8.9 gives the script, and the measured sizes at `D = 16`
-are 2,775 / 5,512 / 17,148 bytes of script for `h = 2, 4, 6` with
-1,643 / 4,329 / 15,139 bytes of witness on the mixed cohort of the test
-suite (spec 0.11.0 added 11 bytes per position so that the amount-only
-exemption of 7.9 rule 3 stops at a `SEQ_FINAL` leaf). The `^x` form adds
+are 2,843 / 5,784 / 18,236 bytes of script for `h = 2, 4, 6` with
+1,528 / 4,099 / 14,104 bytes of witness on the mixed cohort of the test
+suite (it was 2,775 / 5,512 / 17,148 and 1,643 / 4,329 / 15,139 at spec
+0.11.0, which added 11 bytes per position so that the amount-only
+exemption of 7.9 rule 3 stops at a `SEQ_FINAL` leaf; spec 0.15.0 then
+added the 8-byte amount-only new element, 10 bytes of script per
+position under `0xC2` and 65 under `0xC0`, which saves 108 bytes of
+witness a position under `0xC2` and 116 under `0xC0`, so under `0xC0` it
+pays only for a cohort that is more than about 56% amount-only changes;
+see 8.9). The `^x` form adds
 16 vbytes to every signed position.
 
 The Lean argument is the same as for Shape 1: one `Step` with a published
@@ -313,8 +320,8 @@ detached node. Both are small.
 |---|---|---|---|
 | `EXIT_K` | each owner | 842 average at `K = 2` | measured |
 | `EVICT_SUBTREE_h` | operator | 158 at 51 leaves | measured |
-| `EXIT_SUBTREE_h` | each exiting owner | 162 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
-| `REWRITE_h` | each changed owner, operator | 148 per changed leaf at 64 leaves (update); 92 per unchanged position | measured; spec 7.9; FULL, MID and CCV (MID: 235 per changed leaf at 32 leaves, 248 per exiting leaf; CCV `0xC2`: FULL's figures to within a few vB, 148 and 162 at 64 leaves; CCV `0xC0`: 233 and 245 at 32 leaves) |
+| `EXIT_SUBTREE_h` | each exiting owner | 165 at 64 leaves, as `REWRITE_6` with every position exiting | folded into `REWRITE_h` (13.4) |
+| `REWRITE_h` | each changed owner, operator | 151 per changed leaf at 64 leaves (update); 95 per unchanged position | measured; spec 7.9; FULL, MID and CCV (MID: 252 per changed leaf at 32 leaves, 264 per exiting leaf; CCV `0xC2`: FULL's figures to within a few vB, 150 and 164 at 64 leaves; CCV `0xC0`: 249 and 262 at 32 leaves) |
 | `DETACH_h` then exits at depth `h` | operator, then each owner | 762 per exit after about 780 once | measured; spec 7.10; FULL, MID and CCV (CCV: 621 once, 973 / 433 B; MID: 946 once, 2,174 / 534 B) |
 
 What the two new shapes have in common is that they reuse the existing
@@ -337,7 +344,7 @@ call in CCV, so the CCV detach is 973 bytes against FULL's 1,548.
 
 What they do not change is the per-leaf floor. A leaf that leaves costs
 its bytes, its signature and its output, about 100 vbytes, in every
-shape, and a leaf that stays in a rewritten subtree costs about 92. The
+shape, and a leaf that stays in a rewritten subtree costs about 95. The
 remaining lever is the leaf itself: a leaf hash structured so that an
 exit reveals only the exit key and amount plus a hash of the other
 fields would cut the published bytes from 116 to about 72, which is

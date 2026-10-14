@@ -255,7 +255,7 @@ window and the round expiring; a factory does the same at the price of
 `N` signatures for every change. `REWRITE_h` settles a cohort's balances
 in one transaction with only the members whose leaves change signing,
 unchanged members asleep, and no expiry if the signatures never arrive.
-`design/batching.md` has the sizes: about 148 vB per changed leaf at
+`design/batching.md` has the sizes: about 151 vB per changed leaf at
 `h = 6`, against 1,030 vB for an `UPDATE` each.
 
 *Exit and expiry.* Every design in the table lets a member leave alone,

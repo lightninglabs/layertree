@@ -196,10 +196,9 @@ form makes replay harmless.
   position, whose supply the operator controls (9.6, 10.1). A merge
   lands on the sibling, and the two steps share every level above the
   pair: about 615 vbytes for a redemption under CCV and the Merkle-sum
-  opcode at 65,536 members (about 1,130 in the FULL tier at `D = 16`,
-  the sibling-pair estimate of `design/receive.md`), against about 1,680
-  for a FULL two-path
-  `CLAIM^x`.
+  opcode at 65,536 members (1,136 in the FULL tier at `D = 16` for a
+  `CLAIM^hm`, measured, `design/native-opcodes.md`), against 1,636 for a
+  FULL two-path `CLAIM^x`.
 
 The target binds `L`'s body, so a change to `L` other than its amount
 voids the vouchers against it. The recipient's own carve or exit of `L`

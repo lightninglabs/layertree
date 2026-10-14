@@ -247,13 +247,13 @@ Scripts are measured at `D = 8`; none depends on `D` except through the
 | `CLAIM^m` | 634 | 2,611 (D = 16) | 305 |
 | `RECLAIM_1` | 218 | 2,131 (D = 16) | 180: leaf, signature |
 | `EXIT_1` (landing leaf) | 252 | 2,101 (D = 16) | 180 |
-| `REWRITE_1^x`, reclaim form | 967 | | 464 per pair transferring, 349 per pair rolling, plus `sig_op` 64 |
-| `REWRITE_2^x` | 1,666 | | as above |
-| `REWRITE_4^x` | 5,910 | | as above |
-| `REWRITE_6^x` | 23,169 | 24,140 (D = 16) | as above |
+| `REWRITE_1^x`, reclaim form | 995 | | 248 per pair transferring (amount-only elements), 349 per pair rolling, plus `sig_op` 64 |
+| `REWRITE_2^x` | 1,722 | | as above |
+| `REWRITE_4^x` | 6,134 | | as above |
+| `REWRITE_6^x` | 24,065 | 25,036 (D = 16) | as above |
 
 The rewrite does not shrink much under MSU because the fold above `h` is
-a small part of it; the per-position step is the large term, about 362
+a small part of it; the per-position step is the large term, about 376
 bytes of script per position at `h = 6`, published in every rewrite. An
 earlier version of the step cost about 520; the FULL tier's optimisation
 (the transfer checked once from the pair's left step, `RECLAIM_KEY`
@@ -338,7 +338,7 @@ script set (`RECLAIM_1`, `CLAIM_M`, `CLAIM_HM`, `REWRITE_R_h`,
 ## Reproducing
 
 ```
-python3 tools/test_msu.py      # 126 checks: opcode units, quarantine, scripts, pending-leaf receive
+python3 tools/test_msu.py      # 133 checks: opcode units, quarantine, scripts, pending-leaf receive
 python3 tools/test_ccv.py      # the CCV tier (part 1), 798 checks
 ```
 
