@@ -6,7 +6,7 @@ cannot underfund the channel; $\mathsf{seq} = \mathsf{SEQ\_FINAL}$, so no
 voucher or \tr{SPLIT} can carve the capacity the signed states commit
 to; and lease zero with the counterparty as evictor, so eviction is the
 counterparty's force-close. The state machine and the budget run end to
-end on the simulator's chain model with two blocks of margin; a proof
+end in the simulator with two blocks of margin; a proof
 that channel leaves compose is open. A force-close costs
 $\approx 1{,}681\vB$ (its exit creates the funding output), against
 $684\vB$ for a simple taproot channel's open plus force close~\cite{taprootchans}.
