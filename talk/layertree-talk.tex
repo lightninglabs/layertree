@@ -41,6 +41,22 @@
 \end{frame}
 
 % ======================================================================
+\section{In five lines}
+
+\begin{frame}{LayerTree in five lines}
+  \begin{enumerate}
+    \item One output commits to a Merkle-sum tree of balances; the tree is data, not transactions.
+    \item Every transition proves an old node and folds a new one up the same path; the sums make theft structurally impossible.
+    \item Anyone leaves in \hl{one transaction} with their own signature: about 541 vB at 65,536 members, plus 10 vB per doubling.
+    \item Payments happen off-chain: channel leaves make it a one-UTXO Lightning hub, vouchers and pending pairs give zero-byte receives.
+    \item The cost is one queue for everyone, and opcodes that aren't active yet. Four tiers show exactly how few are needed.
+  \end{enumerate}
+  \vspace{1em}
+  \centering
+  {\small \texttt{layertree.lightning.wiki} \quad \texttt{spec/layertree.md} \quad \texttt{paper/main.pdf}}
+\end{frame}
+
+% ======================================================================
 \section{The problem}
 
 \begin{frame}{Scaling is about ownership, not payments}
@@ -957,22 +973,6 @@
       \end{itemize}
     \end{column}
   \end{columns}
-\end{frame}
-
-% ======================================================================
-\section{Summary}
-
-\begin{frame}{LayerTree in five lines}
-  \begin{enumerate}
-    \item One output commits to a Merkle-sum tree of balances; the tree is data, not transactions.
-    \item Every transition proves an old node and folds a new one up the same path; the sums make theft structurally impossible.
-    \item Anyone leaves in \hl{one transaction} with their own signature: about 541 vB at 65,536 members, plus 10 vB per doubling.
-    \item Payments happen off-chain: channel leaves make it a one-UTXO Lightning hub, vouchers and pending pairs give zero-byte receives.
-    \item The cost is one queue for everyone, and opcodes that aren't active yet. Four tiers show exactly how few are needed.
-  \end{enumerate}
-  \vspace{1em}
-  \centering
-  {\small \texttt{layertree.lightning.wiki} \quad \texttt{spec/layertree.md} \quad \texttt{paper/main.pdf}}
 \end{frame}
 
 \begin{frame}[plain]
