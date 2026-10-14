@@ -339,10 +339,10 @@ that accepted a lease. The owner-side equivalent is the cohort rewrite
 `REWRITE_h` (spec 7.9): members of one subtree publish the subtree twice,
 before and after, sign only the positions they change, and exit, join,
 rotate keys or settle balances among themselves in one transaction. Sixty
-four owners who all leave pay 162 vB each, four more than the operator's
-sweep, a cohort that rewrites every balance pays about 148 vB per leaf
+four owners who all leave pay 165 vB each, seven more than the operator's
+sweep, a cohort that rewrites every balance pays about 151 vB per leaf
 against 1,030 for one `UPDATE` each, and a leaf the rewrite leaves alone
-costs about 92, published once with a one-byte marker. `DETACH_h` (7.10) moves a
+costs about 95, published once with a one-byte marker. `DETACH_h` (7.10) moves a
 cohort into its own tree output for about 780 vB (621 under CCV), after
 which each exit pays the shorter path and the cohort has its own mempool
 chain.
@@ -446,7 +446,7 @@ vectors and agrees with the simulator on the signature hash.
 | Layer | How it is checked |
 |---|---|
 | State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 6,012 executable checks across four tiers (1,458 FULL, 1,209 MID, 57 MIN, 3,288 CCV), positive and negative, plus 220 for the channel leaves of Appendix C |
+| Compiled scripts | 7,337 executable checks across four tiers (1,594 FULL, 1,391 MID, 57 MIN, 4,295 CCV), positive and negative, plus 220 for the channel leaves of Appendix C |
 | Python against Go | 145 byte-exact golden scripts, shared signature-hash vector |
 | Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
 
