@@ -410,7 +410,7 @@
       \only<1>{A, B and C were grafted together, so above their subtree they share one path.}
       \only<2>{In one rewrite: A leaves, B pays C 1, N joins. The witness has every slot twice, before and after. A and B sign because their leaves change. C's change is amount-only, so C needn't sign. The operator signs once.}
       \only<3>{The script rebuilds the old subtree, checks it against the root, rebuilds the new one and folds it up the same path. A is paid exactly 5; N's 4 comes from an input.\\[0.4em]
-        \textbf{64 positions: 148 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 162 per exit, 92 per leaf left alone} (a one-byte ``unchanged'' marker).}
+        \textbf{64 positions: 151 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 165 per exit, 95 per leaf left alone} (a one-byte ``unchanged'' marker).}
     \end{column}
   \end{columns}
 \end{frame}
@@ -732,7 +732,7 @@
             xlabel={vB per leaf, FULL tier, depth 16},label style={font=\scriptsize},
             axis line style={ltstrong},tick style={ltstrong},bar width=9pt,
             nodes near coords,nodes near coords style={font=\tiny},enlarge y limits=0.08]
-          \addplot[fill=ltaccent!70,draw=ltaccent] coordinates {(92,unch) (148,rwup) (162,rwex) (158,sw51) (203,sw13) (842,ex2) (1030,up1) (1020,ex1)};
+          \addplot[fill=ltaccent!70,draw=ltaccent] coordinates {(95,unch) (151,rwup) (165,rwex) (158,sw51) (203,sw13) (842,ex2) (1030,up1) (1020,ex1)};
         \end{axis}
       \end{tikzpicture}
     \end{column}
@@ -775,10 +775,10 @@
     members & one tree & sharded ($2^{10}$) & sharded, cohort exits & tx tree & Lightning \\ \midrule
     1,024 & 41 & 41 & 11 & 1 & 1 \\
     65,536 & 2,622 & 41 & 11 & 18 & 35 \\
-    1,048,576 & 41,944 & 610 & 170 & 274 & 556 \\
+    1,048,576 & 41,944 & 610 & 173 & 274 & 556 \\
     \bottomrule
   \end{tabular}\\[0.3em]
-  {\scriptsize\muted{Blocks until every member has left, nobody cooperating; 1 MvB per block; 25 exits per tree per block; cohort exits remove 64 members per transaction at about 162 vB each.}}
+  {\scriptsize\muted{Blocks until every member has left, nobody cooperating; 1 MvB per block; 25 exits per tree per block; cohort exits remove 64 members per transaction at about 165 vB each.}}
   \vspace{0.8em}
   \begin{itemize}
     \item Every exit spends the same output, so one tree's exits queue: about 25 per block under the descendant limit, up to 64 under cluster mempool.
@@ -898,7 +898,7 @@
     \end{column}
     \begin{column}{0.48\textwidth}
       \small
-      Today a rewrite publishes every slot twice and verifies everything: about 148 vB per changed leaf.\\[0.4em]
+      Today a rewrite publishes every slot twice and verifies everything: about 151 vB per changed leaf.\\[0.4em]
       Optimistically, the operator publishes only the new root (and a commitment to the change set). For $k$ blocks:
       \begin{itemize}
         \item a member proves its leaf under $r$ and its slot under $r'$ differ, or asks for its new path;
