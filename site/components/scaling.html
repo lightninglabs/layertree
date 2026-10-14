@@ -59,7 +59,7 @@
     <code>OP_MERKLESUMUPDATE</code>. With it the script is 252 bytes at any depth
     and the proof carries one 40-byte sibling per occupied level, so the tree can
     be key-addressed at depth 64 and grow far past 2<sup>16</sup>. Every LayerTree figure on this page uses that model (541 vB at 65,536 members); the spec and the cost comparison quote about 520 vB for the simulator's dense depth-16 tree. The opcode is
-    specified and measured in the repository's simulator (126 checks); nobody has
+    specified and measured in the repository's simulator (133 checks); nobody has
     proposed it for Bitcoin yet. The FULL tier, built only from existing
     proposals, is drawn dashed for reference. The <a href="tiers.html">tiers
     page</a> has every tier.</p>
@@ -198,7 +198,7 @@
   65,536 members.</p>
   <div class="table-wrap">
     <table>
-      <caption>On-chain vB per member, entering in a batch. LayerTree's batch exit is the measured cohort sweep and exit of the FULL and CCV tiers, 158 to 162 vB a leaf; the Merkle-sum opcode is not yet measured for cohorts, so these rows are conservative.</caption>
+      <caption>On-chain vB per member, entering in a batch. LayerTree's batch exit is the measured cohort sweep and exit of the FULL and CCV tiers, 158 to 165 vB a leaf; the Merkle-sum opcode is not yet measured for cohorts, so these rows are conservative.</caption>
       <thead>
         <tr><th scope="col">Design</th><th scope="col" class="num">Never leaves alone</th><th scope="col" class="num">Leaves in a batch</th><th scope="col" class="num">Leaves alone</th></tr>
       </thead>
@@ -246,7 +246,7 @@
       <tbody>
         <tr><th scope="row">1,024</th><td class="num">41</td><td class="num">41</td><td class="num">1</td><td class="num">11</td><td class="num">1</td></tr>
         <tr><th scope="row">65,536</th><td class="num">2,622</td><td class="num">41</td><td class="num">11</td><td class="num">18</td><td class="num">35</td></tr>
-        <tr><th scope="row">1,048,576</th><td class="num">41,944</td><td class="num">610</td><td class="num">170</td><td class="num">274</td><td class="num">556</td></tr>
+        <tr><th scope="row">1,048,576</th><td class="num">41,944</td><td class="num">610</td><td class="num">173</td><td class="num">274</td><td class="num">556</td></tr>
       </tbody>
     </table>
   </div>
@@ -256,7 +256,7 @@
   <a href="batching.html"><code>DETACH_h</code></a> can split a cohort into its
   own output on demand. Sharded into trees of 1,024, the same members are out in
   41 blocks. If the members of those shards leave in cohorts of 64 per
-  transaction, at about 162 vB a leaf, they are out in 11 blocks, fewer than
+  transaction, at about 165 vB a leaf, they are out in 11 blocks, fewer than
   any other design in the table. At a million members every
   design is limited by block space, and the cheaper per-member exit wins.</p>
 

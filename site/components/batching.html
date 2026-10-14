@@ -165,17 +165,17 @@
       <thead><tr><th>Shape</th><th class="num">vB per leaf</th></tr></thead>
       <tbody>
         <tr><td>Two separate exits chained in one transaction</td><td class="num">842</td></tr>
-        <tr><td>Rewrite of 4 slots, every leaf leaves</td><td class="num">364</td></tr>
-        <tr><td>Rewrite of 16 slots, every leaf leaves</td><td class="num">200</td></tr>
-        <tr><td>Rewrite of 64 slots, every leaf leaves</td><td class="num">162</td></tr>
-        <tr><td>Rewrite of 64 slots, every key rotated</td><td class="num">148</td></tr>
+        <tr><td>Rewrite of 4 slots, every leaf leaves</td><td class="num">366</td></tr>
+        <tr><td>Rewrite of 16 slots, every leaf leaves</td><td class="num">202</td></tr>
+        <tr><td>Rewrite of 64 slots, every leaf leaves</td><td class="num">165</td></tr>
+        <tr><td>Rewrite of 64 slots, every key rotated</td><td class="num">151</td></tr>
         <tr><td>One <code>UPDATE</code> per leaf instead</td><td class="num">1,030</td></tr>
         <tr><td>Operator's sweep of 51 expired leaves, for comparison</td><td class="num">158</td></tr>
       </tbody>
     </table>
   </div>
-  <p>Sixty-four owners who leave together pay what the operator pays to sweep
-  them. A slot that does not change costs about 92 vB: its leaf is published
+  <p>Sixty-four owners who leave together pay about what the operator pays to
+  sweep them. A slot that does not change costs about 95 vB: its leaf is published
   once, with a one-byte marker in place of the second copy, so a rewrite with
   only a few changes beats separate <code>UPDATE</code>s from about two or
   three leaves up.</p>

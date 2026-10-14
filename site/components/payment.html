@@ -330,6 +330,11 @@
   closes. The merge voucher is also the first voucher a tower can redeem with no
   key of the recipient's, since it can pay nobody but the recipient's own
   leaf.</p>
+  <p>The window's on-chain cost is per active pair, not per payment. Settled
+  in a batch of 4, 16 or 64 positions, a pair costs about 966, 624 or 547 vB
+  per window under CCV with the hypothetical Merkle-sum opcode, the figures of
+  <code>design/pending-receive.md</code>; settled one pair at a time, with a
+  merge claim and a reclaim, it costs about 1,105 vB.</p>
 
   <div class="callout">
     <p>Rewriting a leaf on-chain with <code>UPDATE</code> also moves value, at
