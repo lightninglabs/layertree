@@ -4,18 +4,11 @@
 # into site/. The repository itself stays private; only this bundle is served.
 name: pages
 
+# Manual only until the site is meant to be public: a Pages site on this
+# plan is public as soon as it deploys. To deploy on every push, restore a
+# push trigger on main with paths site/**, spec/**, design/**, CONCEPTS.md,
+# formal/README.md and the two paper PDFs.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - "spec/**"
-      - "design/**"
-      - "CONCEPTS.md"
-      - "formal/README.md"
-      - "paper/main.pdf"
-      - "paper/main-full.pdf"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
