@@ -2058,7 +2058,7 @@ encoding fails `OP_NOTIF` under `MINIMALIF`.
 **`LEVEL_S(k)`** (sparse) — before: `sc T oh os nh ns | … pos E_k`; after:
 `T oh' os' nh' ns' | … pos E_{k+1}`. It replaces the first two `OP_ROLL`s
 of `LEVEL` with the following prologue and then continues from
-`OP_SIZE 40 OP_EQUALVERIFY`:
+`OP_SIZE 41 OP_EQUALVERIFY`:
 
 ```
 OP_5 OP_ROLL                             # T oh os nh ns sc
