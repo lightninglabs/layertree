@@ -1,6 +1,35 @@
 % Shared by both versions: the evaluation section body (implementation,
 % transaction model, exit cost, comparison, Figure 3, the batch table).
 
+\iffullversion\else
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.58\linewidth, height=\iffullversion 4.2cm\else 3.0cm\fi,
+  xlabel={depth $D$ ($\log_2$ positions)}, ylabel={exit (vB)},
+  xmin=7, xmax=21, ymin=0, ymax=3400,
+  xtick={8,12,16,20}, grid=major, grid style={black!12},
+  legend style={at={(1.04,0.5)}, anchor=west, font=\scriptsize, draw=none, fill=none, legend cell align=left, align=left},
+  tick label style={font=\scriptsize}, label style={font=\scriptsize}, clip=false
+]
+\addplot[thick, mark=*, mark size=1.5pt] coordinates {(8,762) (12,891) (16,1020) (20,1149)};
+\addlegendentry{FULL, measured}
+\addplot[thick, dashed] coordinates {(8,1311) (12,1911) (16,2511) (20,3111)};
+\addlegendentry{tx tree, model}
+\addplot[only marks, mark=triangle*, mark size=2.2pt] coordinates {(16,1355)};
+\node[font=\scriptsize, anchor=west] at (axis cs:16.4,1355) {MID 1{,}355};
+\addplot[only marks, mark=diamond*, mark size=2.4pt] coordinates {(16,1473)};
+\node[font=\scriptsize, anchor=east] at (axis cs:15.7,1473) {MIN 1{,}473};
+\addplot[only marks, mark=square*, mark size=1.8pt] coordinates {(16,908)};
+\node[font=\scriptsize, anchor=north west] at (axis cs:16.3,880) {CCV 908};
+\end{axis}
+\end{tikzpicture}
+\caption{Exit cost against depth: LayerTree measured, radix-2 transaction tree modelled.}
+\label{fig:plot}
+\end{figure}
+\fi
+
 \iffullversion
 \paragraph{Implementation.} A Python tapscript interpreter for both leaf
 versions models BIP-441 numerics, \op{TX}, CSFS, the EC opcodes and
@@ -20,8 +49,7 @@ simulator; its BIP-341 signature hash equals the simulator's.
 \paragraph{Implementation and model.} A Python tapscript interpreter for
 both leaf versions computes the real BIP-341 signature message and runs
 every compiled script against a reference tree, with positive and
-negative cases per rule (forged leaf, stale root, unconserved amount,
-early eviction, voucher replay, and others); a Go implementation on
+negative cases per rule; a Go implementation on
 \texttt{btcd} and \texttt{lnd} generates the same scripts byte for byte
 and builds, signs and verifies every transition of every tier. A vB figure is a
 whole transaction on a $946\WU$ skeleton (Appendix~\ref{app:cmp-model}).
@@ -59,15 +87,18 @@ $1{,}311\vB$. Under mass exit a tree's interior is shared, about $261\vB$
 per member at radix 2 and $191\vB$ at radix 4 with the claim, against
 $165\vB$ for a cohort leaving by \tr{REWRITE}$_6$ (Table~\ref{tab:ark},
 Appendix~\ref{app:eval})\else, $165$ against $261\vB$ a member under
-mass exit\fi. The model prices neither the latency of $D$
-sequential confirmations nor the larger opcode set\iffullversion\else{}
+mass exit\fi. The model omits the latency of $D$
+confirmations and the larger opcode set\iffullversion\else{}
 (Appendix~\ref{app:compare})\fi.
 
+
+
+\iffullversion
 \begin{figure}[tbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  width=0.58\linewidth, height=\iffullversion 4.2cm\else 3.6cm\fi,
+  width=0.58\linewidth, height=4.2cm,
   xlabel={depth $D$ ($\log_2$ positions)}, ylabel={unilateral exit (vB)},
   xmin=7, xmax=21, ymin=0, ymax=3400,
   xtick={8,12,16,20}, grid=major, grid style={black!12},
@@ -89,6 +120,52 @@ sequential confirmations nor the larger opcode set\iffullversion\else{}
 \caption{Unilateral exit cost against tree depth: measured for LayerTree (FULL, and the other tiers at $D=16$), modelled for an unamortised radix-2 transaction tree.}
 \label{fig:plot}
 \end{figure}
+\fi
+
+\paragraph{A native opcode (hypothetical).} An opcode that
+verifies a Merkle-sum path and returns the root with one leaf replaced
+would make \tr{EXIT}$_1$ 252 bytes of script at every depth, with one 40-byte witness sibling per occupied level. Nobody has
+proposed it and nothing here depends on it\iffullversion; it is measured only in the simulator\fi. For
+$2^k$ members in a key-addressed depth-64 tree the exit is about
+$381 + 10k\vB$ (541 at $2^{16}$\iffullversion, 701 at $2^{32}$\fi), against $504 + 32.25k$
+for FULL (1{,}020\iffullversion; 1{,}536\fi) and $150k + 111$ for a transaction tree
+(2{,}511\iffullversion; 4{,}911\fi): $10\vB$ per doubling and no fixed depth.
+\iffullversion Figure~\ref{fig:scale} plots this. The six-leaf
+$388\vB$ of Figure~\ref{fig:anatomy} and the $520\vB$ of a full depth-16
+tree are the simulator's smaller model; 541 is the key-addressed one.
+Batched settlement of pending receives (\S\ref{sec:pending}) costs
+$547\vB$ per pair at 64 positions on the same model. The price is that
+the opcode fixes this tree format in consensus, which is why the work
+composes proposed opcodes and proposes none (\S\ref{sec:discussion}).
+\else
+Settling pending receives costs $547\vB$ a pair at 64 positions.
+\fi
+
+
+\iffullversion
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.58\linewidth, height=4.2cm,
+  xlabel={members $2^k$}, ylabel={unilateral exit (vB)},
+  xmin=8, xmax=32, ymin=0, ymax=5200,
+  xtick={8,16,24,32}, grid=major, grid style={black!12},
+  legend style={at={(1.04,0.5)}, anchor=west, font=\scriptsize, draw=none, fill=none, legend cell align=left, align=left},
+  tick label style={font=\scriptsize}, label style={font=\scriptsize}, clip=false
+]
+\addplot[thick, mark=*, mark size=1.5pt] coordinates {(8,762) (16,1020) (24,1278) (32,1536)};
+\addlegendentry{FULL, dense,\\$504 + 32.25k$}
+\addplot[thick, dashed] coordinates {(8,1311) (16,2511) (24,3711) (32,4911)};
+\addlegendentry{transaction tree,\\model}
+\addplot[thick, dotted, mark=triangle*, mark size=2pt] coordinates {(8,461) (16,541) (24,621) (32,701)};
+\addlegendentry{native opcode,\\hypothetical,\\$381 + 10k$}
+\end{axis}
+\end{tikzpicture}
+\caption{Exit cost against membership $2^k$ under the scaling model: a key-addressed depth-64 tree for the hypothetical native opcode, dense depth $k$ for FULL, a radix-2 transaction tree. The dotted line needs an opcode no one has proposed.}
+\label{fig:scale}
+\end{figure}
+\fi
 
 % The batch table (table-batch.tex) and its paragraph are the full
 % version's here; the short version gives each shape in its operations

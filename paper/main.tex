@@ -312,7 +312,9 @@ unconditionally but exits are guaranteed only for members who verified
 their path. (5) Lightning channels as leaves, and the conditions under
 which they compose. (6) A simulator, a byte-exact Go implementation, and
 measured scripts with their modelled transaction costs: a $1{,}020\vB$ exit at depth~16, $665\vB$ for a second
-exit in the same transaction, 158 to $203\vB$ per swept leaf.
+exit in the same transaction, 158 to $203\vB$ per swept leaf. (7) For scale, a hypothetical native Merkle-sum
+opcode, measured in the simulator and proposed by no one, would make the exit grow
+by $10\vB$ per doubling of the membership (\S\ref{sec:eval}).
 \else
 This paper explains the design for those who would build on it: the
 tree (\S\ref{sec:howitworks}), every operation as a predicate with the
@@ -321,7 +323,7 @@ receiving from Lightning (\S\ref{sec:vouchers}), and who can do what
 (\S\ref{sec:trust}); Appendix~\ref{app:impl} gives what an implementer
 stores and pays for. The operations compile to four tiers of proposed
 opcodes (\S\ref{sec:scripts}); we propose none, and three tiers assume
-opcodes in a tapleaf version their proposals do not define.\ifanon\else{} The elliptic-curve
+opcodes in a tapleaf version their proposals do not define. A hypothetical native opcode would cut the exit to $10\vB$ per doubling (\S\ref{sec:eval}).\ifanon\else{} The elliptic-curve
 draft~\cite{ecops} is by the author.\fi{} The ideal functionality, its
 UC proof and the Lean development are in the full version
 (\S\ref{sec:proved}).

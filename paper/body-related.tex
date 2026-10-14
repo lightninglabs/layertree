@@ -5,13 +5,12 @@ per-user balances whose one-transaction withdrawal rests on a new opcode,
 \op{MERKLESUB}; \texttt{OP\_TAPLEAF\_\allowbreak UPDATE\_\allowbreak VERIFY}~\cite{tluv} recreates a pool
 output with the leaver's key and leaf removed, and \op{EVICT}~\cite{opevict}
 removes unresponsive members. LayerTree reaches one-transaction exit
-from opcodes proposed as general primitives, holds balances in a
+from general-purpose opcodes, holds balances in a
 Merkle-sum tree rather than keys in a taptree, and adds \iffullversion lease-based
 eviction, cohort grafts, channel leaves and a composable statement\else
 leases, grafts and channel leaves\fi.
 \emph{Transaction trees.} Channel factories~\cite{factories} need all $N$
-members to sign every change. Ark~\cite{ark}, deployed today~\cite{arkd},
-batches users into rounds whose outputs are leaves of a pre-signed MuSig2
+members to sign every change. Ark~\cite{ark}\iffullversion, deployed today~\cite{arkd},\fi{} batches users into rounds whose outputs are leaves of a pre-signed MuSig2
 tree; covenant Ark replaces the signing with CTV
 templates~\cite{clark} but keeps the tree, its unrolled exit and its expiry. Timeout
 trees~\cite{timeouttrees} and SuperScalar~\cite{superscalar} add laddered
