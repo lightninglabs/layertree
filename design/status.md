@@ -438,8 +438,8 @@ ones most likely to move:
    call (4 bytes over the P2TR compare), the fixed part 377 / 360 bytes
    shorter, per-leaf costs within a few vB of FULL's and MID's
    (`REWRITE_6` exit 164, update 150 under `0xC2`; `REWRITE_5` exit 262,
-   update 249 under `0xC0`, as of 0.15.1, where MID's `h ≤ 5` stack cap holds with two
-   elements to spare); tested in `tools/test_ccv.py` on the FULL suite's
+   update 249 under `0xC0`, as of 0.15.1, where MID's `h ≤ 5` stack cap holds with one
+   element to spare against MID, the mode flag taking the other of `r`, `m`); tested in `tools/test_ccv.py` on the FULL suite's
    cohort with every rule's negative in both numerics, the top-up that
    vouchers and `EXIT_K^t` authorisations survive, the credit leaf and a
    `NONNEG` case; golden `CCV/D/D4` and `CCV0/D/D4` `REWRITE_2` and

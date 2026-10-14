@@ -684,8 +684,9 @@ saving is the fixed part alone (`PROLOGUE` and the key arithmetic of
 `0xC0`, less 4 per position, and the witness loses the 64 bytes of `r`
 and `m` (the empty mode flag adds none). Per leaf the rewrite therefore costs what it costs in FULL and
 MID to within a few vB (11).
-Under `0xC0` the 1,000-element bound of 4.5 applies with the two
-elements `r` and `m` and the prologue's three pushes to spare: `h ≤ 5`
+Under `0xC0` the 1,000-element bound of 4.5 applies with one element
+to spare against MID (MID's `r` and `m`, less the mode flag) and the
+prologue's three pushes: `h ≤ 5`
 fits at any occupancy and a full 64-leaf cohort is rewritten as two
 `REWRITE_5` spends, as in MID.
 
