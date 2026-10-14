@@ -227,10 +227,10 @@ it has a recurring price. Leases are aligned per cohort, since one later
 lease holds up a sweep. A renewal moves a member into a cohort with the
 new lease, by an \tr{UPDATE} and a whole-balance \tr{SPLIT}
 ($2{,}616\vB$), or renews a cohort in place with one \tr{REWRITE}$_6$
-at $148\vB$ per member, which needs every renewing member's signature;
+at $151\vB$ per member, which needs every renewing member's signature;
 a member who does not sign keeps the old lease; a sweep needs every
 lease in the cohort to have passed, so the operator evicts it alone or
-moves it when its lease passes. So a member pays between $148$ and $2{,}616\vB$ per lease
+moves it when its lease passes. So a member pays between $151$ and $2{,}616\vB$ per lease
 period it stays, and the operator chooses the period. When a lease
 passes, the operator should warn the member and offer renewal (spec
 9.4); if it evicts instead, the member sees its whole balance arrive at

@@ -108,12 +108,12 @@ into at join time by accepting a lease.
 rewrite \tr{REWRITE}$_h$ (\S\ref{sec:ops}) with every position leaving.
 It is the same post-order fold, authorised by one plain signature per
 leaf and the operator's, with no nonce round. At $D = 16$ four owners
-leaving a height-2 cohort pay $364\vB$ each, sixteen at $h = 4$ pay
-$200\vB$, and sixty-four at $h = 6$ pay $162\vB$, within four vbytes of
+leaving a height-2 cohort pay $366\vB$ each, sixteen at $h = 4$ pay
+$202\vB$, and sixty-four at $h = 6$ pay $165\vB$, within seven vbytes of
 the operator's sweep. The same script settles a cohort in place:
-rotating every key of a height-6 cohort is $148\vB$ per changed leaf
+rotating every key of a height-6 cohort is $151\vB$ per changed leaf
 against $1{,}030\vB$ for an \tr{UPDATE} each, and a position that does
-not change costs about $92\vB$ and needs no signature, so an absent
+not change costs about $95\vB$ and needs no signature, so an absent
 member is carried through rather than excluded.
 
 \begin{figure}[htbp]
@@ -121,7 +121,7 @@ member is carried through rather than excluded.
 \includegraphics[width=\linewidth]{figures/exit-amortisation.pdf}
 \caption{Cost per leaf against leaves removed in one transaction (log
 scale): owner exits (\tr{EXIT}$_1$, \tr{EXIT}$_2$), owners leaving by
-\tr{REWRITE}$_h$ ($364$, $200$ and $162\vB$ at 4, 16 and 64 positions),
+\tr{REWRITE}$_h$ ($366$, $202$ and $165\vB$ at 4, 16 and 64 positions),
 and operator sweeps (\tr{EVICT\_SUBTREE}$_{4,6,8}$: 13, 51 and 205
 leaves).}
 \label{fig:cmp-amortise}
@@ -134,7 +134,7 @@ leaves).}
 the number removed in one transaction: owners alone or in pairs, owners
 leaving together by \tr{REWRITE}$_h$, and the operator's sweep. The
 rewrite starts below the \tr{EXIT}$_K$ floor and meets the sweep near
-$h = 6$ ($162$ against $158\vB$ per leaf).}
+$h = 6$ ($165$ against $158\vB$ per leaf).}
 \label{fig:cmp-cohort}
 \end{figure}
 
@@ -212,7 +212,7 @@ payer to payee, credit until redeemed, and an issuer usually settles it
 off-chain rather than the holder redeeming it (\S\ref{sec:vouchers}).
 \tr{UPDATE} is maintenance: resizing a balance, renewing a lease,
 rotating a key. When a cohort's balances do have to settle on-chain,
-\tr{REWRITE}$_h$ does it for about $148\vB$ per changed leaf with only the
+\tr{REWRITE}$_h$ does it for about $151\vB$ per changed leaf with only the
 changed leaves' owners signing, which is the settlement an Ark round
 performs without the round.
 
@@ -402,7 +402,7 @@ cohort. A member
 who does leave alone pays $1{,}020\vB$, about nine times a bare spend and
 about twice a Lightning force close; the proof is the price of the shared
 output. An on-chain update is $1{,}030\vB$, so payments must be off-chain
-or batched. Renewing a lease costs $2{,}616\vB$ alone or $148\vB$ a
+or batched. Renewing a lease costs $2{,}616\vB$ alone or $151\vB$ a
 member in a signed cohort rewrite. Everything serialises through one
 output, at about 25 single exits a block even when they cooperate,
 which bounds how many
@@ -433,6 +433,6 @@ carry each sibling as several small elements. The sizes come from
 \path{tools/gen_listings.py} (\path{spec/scripts/sizes.md}), the fee
 tables from \path{tools/fee_analysis.py}, and the figures of this
 appendix from \path{tools/gen_cost_figures.py}; the baselines are models,
-not measurements. The suites behind the sizes run 1{,}244 FULL, 777 MID,
-57 MIN, 2{,}328 CCV and 220 channel-leaf checks, and 61 for the
+not measurements. The suites behind the sizes run 1{,}594 FULL, 1{,}391 MID,
+57 MIN, 4{,}295 CCV and 220 channel-leaf checks, and 133 for the
 hypothetical opcode, which stays out of every tier.

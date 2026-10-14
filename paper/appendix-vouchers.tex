@@ -17,7 +17,7 @@ a smaller one is never worth more to it, so no contest window.
 Settled credit is retired by advancing $\mathsf{seq}$. Once the issuer
 pays the recipient another way, it advances the source's $\mathsf{seq}$, which voids every outstanding
 voucher against it: one \tr{UPDATE} per source leaf ($1{,}030\vB$), or
-one \tr{REWRITE}$_h$ for a cohort of them (about $148\vB$ per leaf at
+one \tr{REWRITE}$_h$ for a cohort of them (about $151\vB$ per leaf at
 $h = 6$). Until then the issuer tracks every voucher it has signed as a
 liability. Plain \tr{CLAIM} leaves a hole: anyone holding an old voucher
 can redeem it, and the issuer holds them all, so redeeming the voucher

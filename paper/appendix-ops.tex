@@ -92,10 +92,10 @@ through unchanged. \emph{Proves} the old
 subtree, every leaf of it published, against the root, and computes the
 new one. \emph{On chain} each emptied leaf is paid exactly its amount at
 its exit key. At $h = 6$ a mass exit
-costs $162\vB$ per leaf, about what a sweep costs the operator, and
-rewriting every balance $148\vB$ per leaf against $1{,}030\vB$ for an
+costs $165\vB$ per leaf, about what a sweep costs the operator, and
+rewriting every balance $151\vB$ per leaf against $1{,}030\vB$ for an
 \tr{UPDATE} each; a position whose leaf does not change is published
-once, behind a one-byte marker, for about $92\vB$. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
+once, behind a one-byte marker, for about $95\vB$. \tr{REWRITE}$_h^{x}$ adds the exit key's signature
 ($16\vB$ per signed position) and replaces \tr{REWRITE}$_h$ wherever
 \tr{UPDATE}$^{x}$ or \tr{CLAIM}$^{x}$ is present. It exists in every
 tier but MIN; under \texttt{0xC0} the stack limit holds a full cohort
@@ -157,7 +157,7 @@ leaves that name the operator as evictor into a cohort, align leases per
 cohort, and renew a member by moving it to a cohort with the new lease
 (an \tr{UPDATE} and a \tr{SPLIT} of the whole balance, $2{,}616\vB$),
 or renews a whole cohort in place by one \tr{REWRITE}$_6$ that every
-renewing member signs ($148\vB$ each; a member who does not sign keeps
+renewing member signs ($151\vB$ each; a member who does not sign keeps
 the old lease).
 
 \subsection{Scaling Out}
