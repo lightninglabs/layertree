@@ -190,12 +190,27 @@ spec 9.8 in sync, and check C.10 (which items the base spec has adopted).
   scripts back into named macro calls (round-trip verified against the
   bytes); run it after any generator change, together with
   `tools/gen_listings.py`, or the paper's listings go stale.
-* **Paper structure and versioning**: the body is functionality first
-  (section 3 the ideal functionality, 4 the abstract protocol and its
-  covenant predicates, 5 the tiers, 6 the UC theorem with inline Lean
-  signatures in `leansig` listings, 7 channel composition); the full
-  simulator is Appendix A. Keep the Lean signature blocks in sync with
-  `formal/LayerTree/*.lean` when a theorem statement changes. Build with
+* **Paper structure and versioning**: the full version's body is
+  functionality first (section 3 the ideal functionality, 4 the abstract
+  protocol, 5 the tiers, 6 the UC theorem with inline Lean signatures in
+  `leansig` listings, 7 channel composition); the full simulator is
+  Appendix A. Section 4 is built from three shared files:
+  `paper/predicates.tex` (the covenant predicates as numbered-check boxes,
+  one macro each, with the spec rule they implement),
+  `paper/algorithms.tex` (the honest parties as numbered algorithms with a
+  walking paragraph each, citing spec 9.1 to 9.7) and `paper/fig-compose.tex`
+  (how the predicates compose, drawn from the predicates' names). The
+  short version calls the Exit, Join, Claim and Rewrite predicates and the
+  Exit, Accept, Receive and Settle algorithms where its operations
+  section needs them, carries `fig-compose.tex`, and moves the
+  per-operation detail to the short-only `paper/appendix-ops.tex`
+  (operations in the order a member meets them) and
+  `paper/appendix-vouchers.tex`. The Lean appendix (`appendix-lean.tex`)
+  ends in a correspondence table (`tab:lean-corr`) from each predicate,
+  algorithm and claim of the paper to its Lean name. When a predicate, an
+  algorithm or a theorem statement changes, update that table, the
+  `leansig` blocks, `\LeanTheoremCount` in `main.tex` and the module line
+  counts in the appendix's table. Build with
   `make`, not bare `latexmk`: `make` writes `paper/version.tex` (hash,
   date, `git describe --dirty`, clean/dirty); the author block shows
   "Draft (commit <hash>)" and the running footer the describe string. Commit sources first, then `make`, then commit
