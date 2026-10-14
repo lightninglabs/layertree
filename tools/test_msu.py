@@ -633,10 +633,12 @@ def _amount_only(old, new):
             and old.serialize()[8:] == new.serialize()[8:])
 
 
-def _rewrite_case(pw, h, base, old, new, locktime=0, sign=(), payouts=(), flag=None, out0_delta=0, amounts=False):
+def _rewrite_case(pw, h, base, old, new, locktime=0, sign=(), payouts=(), flag=None, out0_delta=0, amounts=False,
+                  exit_sigs=True):
     """A REWRITE_XR_h over positions base..base+2^h-1 under CCV + MSU.
     `sign` lists offsets that carry the owner's and the exit key's
-    signatures (labels from the leaf's recipient), `payouts` the outputs
+    signatures (exit_sigs=False: the owner's alone, for the plain REWRITE_h
+    that has no exit consent), `payouts` the outputs
     1.. the rewrite's exits pay; with amounts a new leaf that differs from
     its old one in the amount alone is the 8-byte amount-only element."""
     n = 1 << h
@@ -661,7 +663,8 @@ def _rewrite_case(pw, h, base, old, new, locktime=0, sign=(), payouts=(), flag=N
     for i in reversed(range(n)):
         o, nw = old.get(i), new.get(i)
         if i in sign:
-            blocks.append(schnorr_sign(ctx.sighash(), sign[i][1]))   # xsig by the exit key
+            if exit_sigs:
+                blocks.append(schnorr_sign(ctx.sighash(), sign[i][1]))   # xsig by the exit key
             blocks.append(schnorr_sign(ctx.sighash(), sign[i][0]))   # sig by the owner
         if o is not None and nw is not None and o.serialize() == nw.serialize():
             blocks.append(REWRITE_SAME)
@@ -840,6 +843,430 @@ def pending_cost_model(merge, reclaim, rewrite, exit_):
     return rows
 
 
+# ----------------------------------------- UPDATE, JOIN_h, EVICT_SUBTREE_h --
+# The single-fold transitions of spec 7.3, 7.4 and 7.7 and the plain form of
+# REWRITE_h (7.9) under CCV + MSU, in one taptree over a dense tree.
+
+COHORT_HEIGHTS = (1, 2, 4, 6)
+
+
+class CohortMsu(PendingMsu):
+    """A dense tree carrying UPDATE, UPDATE^x, JOIN_h, EVICT_SUBTREE_h and the
+    plain REWRITE_h under CCV + MSU."""
+
+    def __init__(self, depth, heights=COHORT_HEIGHTS, join_hs=(2, 4)):
+        self.depth = depth
+        self.rk = pubkey_x(RECLAIM_SK)
+        self.op_sk = sk("operator")
+        self.op_pk = pubkey_x(self.op_sk)
+        gens = {"UPDATE": U.update_script_msu(depth, self.op_pk),
+                "UPDATE_X": U.update_script_msu(depth, self.op_pk, exit_consent=True)}
+        for h in join_hs:
+            if h < depth:
+                gens[f"JOIN_{h}"] = U.join_h_script_msu(depth, h, self.op_pk)
+        for h in heights:
+            if h < depth:
+                gens[f"REWRITE_{h}"] = U.rewrite_script_msu(depth, h, self.op_pk, False, None)
+                if h >= 2:
+                    gens[f"EVICT_SUBTREE_{h}"] = U.evict_subtree_script_msu(depth, h, self.op_pk)
+        self.gens = gens
+        self.compiled = {n: assemble(g) for n, g in gens.items()}
+        self.m = lt.taptree_root([lt.tapleaf_hash(c) for c in self.compiled.values()])
+        self.tree = lt.Tree(depth)
+
+
+def _update_case(uw, name, old, new, slot=5, flag=None, out0_delta=0, owner="bob", op_sk=None,
+                 owner_sig=None, op_sig=None, exit_sig=None, tree_out=None, input_root=None):
+    """An UPDATE of `old` to `new` at `slot`. owner is the label whose owner
+    key signs; tree_out, a Tree, is the state output 0 commits to instead of
+    the true new one; input_root, a Tree, the state the input commits to
+    instead of the true old one. owner_sig, op_sig and exit_sig override the
+    signature elements (b"" = missing)."""
+    uw.tree.leaves = {slot: old, **uw.fillers()}
+    root = uw.tree.root()
+    t1 = uw.clone()
+    t1.leaves[slot] = new
+    r1 = t1.root()
+    freed = root[1] - r1[1]
+    committed = tree_out.root() if tree_out else r1
+    in_root = input_root.root() if input_root else root
+    outputs = [(committed[1] + out0_delta, uw.spk(committed)), (max(freed, 0) + 1_000, P2WPKH)]
+    ctx = TxContext([(in_root[1], uw.spk(in_root)), (5_000 + max(-freed, 0), P2WPKH)], outputs,
+                    internal_key=lt.ccv_internal_key(in_root[0]), taptree_root=uw.m)
+    h = ctx.sighash()
+    osig = owner_sig if owner_sig is not None else schnorr_sign(h, sk(owner + "-owner"))
+    psig = op_sig if op_sig is not None else schnorr_sign(h, op_sk or uw.op_sk)
+    if flag is None:
+        flag = b"\x01" if freed > 0 else b""
+    wit = [flag, build_proof(uw.tree, slot, uw.depth), old.serialize(), new.serialize(), osig, psig]
+    if name == "UPDATE_X":
+        wit.append(exit_sig if exit_sig is not None else schnorr_sign(h, sk(owner + "-exit")))
+    return wit, ctx
+
+
+def test_update_msu(uw):
+    """UPDATE and UPDATE^x under CCV + MSU; returns the measured sizes."""
+    old = mk_leaf("bob", 125_000, uw.op_pk, 800_000)
+    rot = lt.Leaf(old.amount, old.exit_key, pubkey_x(sk("bob-owner2")), old.evictor_key,
+                  old.evict_after, old.nonce, old.seq)
+    wit, ctx = _update_case(uw, "UPDATE", old, rot)
+    it = uw.run("UPDATE", wit, ctx)
+    check(True, "msu UPDATE: owner key rotated, owner and operator sign")
+    sizes = {"UPDATE": (len(uw.compiled["UPDATE"]), wit, it.cost)}
+    renew = lt.Leaf(old.amount, old.exit_key, old.owner_key, old.evictor_key, 900_000, old.nonce, old.seq)
+    uw.run("UPDATE", *_update_case(uw, "UPDATE", old, renew))
+    check(True, "msu UPDATE: lease renewal")
+    inc = old.with_amount_seq(old.amount + 700, old.seq)
+    uw.run("UPDATE", *_update_case(uw, "UPDATE", old, inc))
+    check(True, "msu UPDATE: an increase, assign mode, funded by another input")
+    dec = old.with_amount_seq(old.amount - 700, old.seq)
+    wit_d, ctx_d = _update_case(uw, "UPDATE", old, dec)
+    uw.run("UPDATE", wit_d, ctx_d)
+    check(wit_d[0] == b"\x01", "msu UPDATE: a decrease takes the deduct flag")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, dec, flag=b"")),
+                "msu UPDATE decrease with output 0 in the assign mode")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, inc, flag=b"\x01")),
+                "msu UPDATE increase with output 0 in the deduct mode")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, flag=b"\x02")),
+                "msu UPDATE with a non-minimal mode flag")
+    # the old root: the input commits to another tree / the old leaf is forged
+    other = uw.clone()
+    other.leaves = {5: old, 9: mk_leaf("carol", 41_000), 0: mk_leaf("alice", 50_000)}
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, input_root=other)),
+                "msu UPDATE wrong old root: the input commits to another tree")
+    wf, cf = _update_case(uw, "UPDATE", old, rot)
+    wf[2] = old.with_amount_seq(old.amount + 1, old.seq).serialize()
+    expect_fail(lambda: uw.run("UPDATE", wf, cf), "msu UPDATE wrong old root: a forged old leaf")
+    # the new root: output 0 commits to a state the new leaf does not give
+    wrong = uw.clone()
+    wrong.leaves = {**uw.fillers(), 5: dec}
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, tree_out=wrong)),
+                "msu UPDATE wrong new root: output 0 commits to another leaf")
+    moved = uw.clone()
+    moved.leaves = {**uw.fillers(), 6: rot}
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, tree_out=moved)),
+                "msu UPDATE wrong new root: the new leaf committed at another position")
+    # the sums
+    for delta in (-1, 1):
+        expect_fail(lambda delta=delta: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, out0_delta=delta)),
+                    f"msu UPDATE sum mismatch: output 0 off by {delta:+d}")
+        expect_fail(lambda delta=delta: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, inc, out0_delta=delta)),
+                    f"msu UPDATE sum mismatch on an increase: output 0 off by {delta:+d}")
+    # the signatures: the OLD leaf's owner and the operator, both required
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, owner="mallory")),
+                "msu UPDATE signed by a key other than the old owner")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, owner="bob2")),
+                "msu UPDATE signed by the NEW owner key")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, owner_sig=b"")),
+                "msu UPDATE without the owner signature")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, op_sig=b"")),
+                "msu UPDATE without the operator signature")
+    expect_fail(lambda: uw.run("UPDATE", *_update_case(uw, "UPDATE", old, rot, op_sk=sk("mallory"))),
+                "msu UPDATE signed by a key other than the operator")
+    # a new element that is not a leaf
+    wl, cl = _update_case(uw, "UPDATE", old, rot)
+    wl[3] = wl[3][:-1]
+    expect_fail(lambda: uw.run("UPDATE", wl, cl), "msu UPDATE with a 115-byte new element")
+
+    # UPDATE^x: the old leaf's exit key signs too
+    wit_x, ctx_x = _update_case(uw, "UPDATE_X", old, rot)
+    it_x = uw.run("UPDATE_X", wit_x, ctx_x)
+    check(True, "msu UPDATE^x: owner, operator and exit key sign")
+    sizes["UPDATE_X"] = (len(uw.compiled["UPDATE_X"]), wit_x, it_x.cost)
+    expect_fail(lambda: uw.run("UPDATE_X", *_update_case(uw, "UPDATE_X", old, rot, exit_sig=b"")),
+                "msu UPDATE^x without the exit-key signature")
+    wx, cx = _update_case(uw, "UPDATE_X", old, rot)
+    wx[-1] = schnorr_sign(cx.sighash(), sk("bob-owner"))
+    expect_fail(lambda: uw.run("UPDATE_X", wx, cx), "msu UPDATE^x with the exit signature made by the owner key")
+    return sizes
+
+
+def _graft_cohort(h, label="g", base_amount=3_000):
+    """A dense cohort of 2^h leaves built off-chain, as a height-h Tree."""
+    sub = lt.Tree(h)
+    sub.leaves = {i: mk_leaf(f"{label}{i}", base_amount + 11 * i) for i in range(1 << h)}
+    return sub
+
+
+def _join_case(uw, h, base, cohort, op_sig=None, op_sk=None, out0_delta=0, node_override=None,
+               tree_out=None, occupied=False, input_root=None, level_empties=False):
+    """A JOIN_h grafting `cohort` (a height-h Tree) at the aligned slot
+    starting at `base`. occupied=True leaves a member in the slot (the old
+    node is then not E_h); tree_out and input_root as in _update_case."""
+    uw.tree.leaves = dict(uw.fillers())
+    if occupied:
+        uw.tree.leaves[base] = mk_leaf("squatter", 1_000)
+    root = uw.tree.root()
+    t1 = uw.clone()
+    for i, lf in cohort.leaves.items():
+        t1.leaves[base + i] = lf
+    r1 = t1.root()
+    node = node_override if node_override is not None else n40(cohort.root())
+    committed = tree_out.root() if tree_out else r1
+    in_root = input_root.root() if input_root else root
+    gain = cohort.root()[1]
+    ctx = TxContext([(in_root[1], uw.spk(in_root)), (gain + 5_000, P2WPKH)],
+                    [(committed[1] + out0_delta, uw.spk(committed)), (400, P2WPKH)],
+                    internal_key=lt.ccv_internal_key(in_root[0]), taptree_root=uw.m)
+    sig = op_sig if op_sig is not None else schnorr_sign(ctx.sighash(), op_sk or uw.op_sk)
+    prf = build_proof(uw.tree, base, uw.depth, height=h, level_empties=level_empties)
+    return [prf, node, sig], ctx
+
+
+def test_join_h_msu(uw):
+    """JOIN_h, the cohort graft, under CCV + MSU; returns the measured sizes."""
+    sizes = {}
+    for h in (2, 4):
+        base = 3 * (1 << h)             # subtree index 3 of height h, clear of the fillers
+        name = f"JOIN_{h}"
+        cohort = _graft_cohort(h)
+        wit, ctx = _join_case(uw, h, base, cohort)
+        it = uw.run(name, wit, ctx)
+        check(True, f"msu {name}: graft of {1 << h} members into an empty aligned slot")
+        sizes[name] = (len(uw.compiled[name]), wit, it.cost)
+        partial = lt.Tree(h)
+        partial.leaves = {i: lf for i, lf in cohort.leaves.items() if i % 3}
+        uw.run(name, *_join_case(uw, h, base, partial))
+        check(True, f"msu {name}: a cohort with empty positions inside the subtree")
+        # the old root: the slot is not empty / the input commits to another tree
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, occupied=True)),
+                    f"msu {name} over an occupied slot (wrong old root)")
+        other = uw.clone()
+        other.leaves = {5: mk_leaf("zed", 9_000), 0: mk_leaf("alice", 50_000)}
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, input_root=other)),
+                    f"msu {name} wrong old root: the input commits to another tree")
+        # the new root: output 0 commits to another state than the graft gives
+        wrong = uw.clone()
+        wrong.leaves = {**uw.fillers(), **{base + i: lf for i, lf in _graft_cohort(h, label="x").leaves.items()}}
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, tree_out=wrong)),
+                    f"msu {name} wrong new root: output 0 commits to another cohort")
+        shifted = uw.clone()
+        shifted.leaves = {**uw.fillers(), **{base + (1 << h) + i: lf for i, lf in cohort.leaves.items()}}
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, tree_out=shifted)),
+                    f"msu {name} wrong new root: the cohort committed at another slot")
+        # the sum: output 0 is the new root's sum, whatever the funding
+        for delta in (-1, 1):
+            expect_fail(lambda delta=delta: uw.run(name, *_join_case(uw, h, base, cohort, out0_delta=delta)),
+                        f"msu {name} sum mismatch: output 0 off by {delta:+d}")
+        bad_sum = cohort.root()[0] + (cohort.root()[1] + 1).to_bytes(8, "little")
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, node_override=bad_sum)),
+                    f"msu {name} claiming a sum the output does not carry")
+        # the signature
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, op_sig=b"")),
+                    f"msu {name} without the operator signature")
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, op_sk=sk("carol-owner"))),
+                    f"msu {name} signed by a key other than the operator")
+        expect_fail(lambda: uw.run(name, *_join_case(uw, h, base, cohort, node_override=n40(cohort.root())[:-1])),
+                    f"msu {name} with a 39-byte node")
+        # a proof that omits E_{h+k}: the opcode folds E_k, so the root is wrong
+        wl, cl = _join_case(uw, h, base, cohort, level_empties=True)
+        check(len(wl[0]) < len(wit[0]), f"msu {name} proof: omitting E_(h+k) would shorten it")
+        expect_fail(lambda: uw.run(name, wl, cl),
+                    f"msu {name} proof omitting E_(h+k): the opcode folds E_k instead")
+    return sizes
+
+
+def _sweep_case(uw, h, base, locktime=800_000, op_sig=None, op_sk=None, pay_delta=0, pay_key=None,
+                out0_delta=0, stubborn=False, tree_out=None, input_root=None):
+    """EVICT_SUBTREE_h over the aligned subtree at `base`, the positions with
+    i % 5 == 3 already empty, as tools/test_scripts.py's test_evict_subtree
+    (13 of 16 swept at h = 4, 51 of 64 at h = 6)."""
+    n = 1 << h
+    cohort = {base + i: mk_leaf(f"c{i}", 10_000 + 7 * i, uw.op_pk, 800_000)
+              for i in range(n) if i % 5 != 3}
+    if stubborn:
+        cohort[base + 3] = mk_leaf("stubborn", 5_000)       # NUMS evictor
+    uw.tree.leaves = {**uw.fillers(), **cohort}
+    root = uw.tree.root()
+    t1 = uw.clone()
+    for p in cohort:
+        del t1.leaves[p]
+    r1 = t1.root()
+    committed = tree_out.root() if tree_out else r1
+    in_root = input_root.root() if input_root else root
+    payouts = [(cohort[base + i].amount, lt.p2tr_spk(cohort[base + i].exit_key))
+               for i in range(n) if base + i in cohort]
+    if pay_delta:
+        payouts[0] = (payouts[0][0] + pay_delta, payouts[0][1])
+    if pay_key:
+        payouts[0] = (payouts[0][0], lt.p2tr_spk(pubkey_x(sk(pay_key))))
+    ctx = TxContext([(in_root[1], uw.spk(in_root)), (5_000, P2WPKH)],
+                    [(committed[1] + out0_delta, uw.spk(committed))] + payouts + [(400, P2WPKH)],
+                    locktime=locktime, internal_key=lt.ccv_internal_key(in_root[0]), taptree_root=uw.m)
+    sig = op_sig if op_sig is not None else schnorr_sign(ctx.sighash(), op_sk or uw.op_sk)
+    leaves_rev = [cohort[base + i].serialize() if base + i in cohort else b"" for i in reversed(range(n))]
+    return [build_proof(uw.tree, base, uw.depth, height=h)] + leaves_rev + [sig], ctx, len(payouts)
+
+
+def test_evict_msu(uw):
+    """EVICT_SUBTREE_h under CCV + MSU: the sweep's post-order hashing stays in
+    script, the opcode folds the subtree root up the path. Returns the sizes."""
+    sizes = {}
+    for h in COHORT_HEIGHTS[1:]:
+        name = f"EVICT_SUBTREE_{h}"
+        base = 1 << h
+        wit, ctx, p = _sweep_case(uw, h, base)
+        it = uw.run(name, wit, ctx)
+        check(True, f"msu {name}: sweep of {p} of {1 << h} positions, every lease expired")
+        sizes[h] = (len(uw.compiled[name]), wit, it.cost, p)
+        if h != 2:
+            continue
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, locktime=799_999)[:2]),
+                    f"msu {name} before the lease expires")
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, pay_delta=-1)[:2]),
+                    f"msu {name} shortchanging a leaf")
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, pay_delta=1)[:2]),
+                    f"msu {name} overpaying a leaf")
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, pay_key="mallory")[:2]),
+                    f"msu {name} paying a leaf's value to another key")
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, stubborn=True)[:2]),
+                    f"msu {name} with a leaf the operator may not evict")
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, op_sig=b"")[:2]),
+                    f"msu {name} without the operator signature")
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, op_sk=sk("alice-owner"))[:2]),
+                    f"msu {name} signed by a key other than the operator")
+        # the old root
+        other = uw.clone()
+        other.leaves = {0: mk_leaf("alice", 50_000), 9: mk_leaf("carol", 40_000)}
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, input_root=other)[:2]),
+                    f"msu {name} wrong old root: the input commits to another tree")
+        wf, cf, _ = _sweep_case(uw, h, base)
+        wf[-2] = mk_leaf("c0", 10_001, uw.op_pk, 800_000).serialize()
+        expect_fail(lambda: uw.run(name, wf, cf), f"msu {name} wrong old root: a forged leaf")
+        # the new root and the sums
+        wrong = uw.clone()
+        wrong.leaves = dict(uw.fillers())
+        wrong.leaves[base] = mk_leaf("left-behind", 1_000)
+        expect_fail(lambda: uw.run(name, *_sweep_case(uw, h, base, tree_out=wrong)[:2]),
+                    f"msu {name} wrong new root: output 0 commits to a leftover leaf")
+        for delta in (-1, 1):
+            expect_fail(lambda delta=delta: uw.run(name, *_sweep_case(uw, h, base, out0_delta=delta)[:2]),
+                        f"msu {name} sum mismatch: output 0 off by {delta:+d}")
+        # an empty position presented as 116 zero bytes is not an empty leaf
+        w0, c0, _ = _sweep_case(uw, h, base)
+        w0[1 + (1 << h) - 1 - 3] = bytes(116)
+        expect_fail(lambda: uw.run(name, w0, c0), f"msu {name} an empty position presented as 116 zero bytes")
+    # a sweep that drains the tree is terminal: output 0 is unconstrained
+    uw.tree.leaves = {4 + i: mk_leaf(f"c{i}", 10_000 + 7 * i, uw.op_pk, 800_000) for i in range(4)}
+    root = uw.tree.root()
+    outs = [(400, P2WPKH)] + [(lf.amount, lt.p2tr_spk(lf.exit_key)) for _, lf in sorted(uw.tree.leaves.items())]
+    ctx = TxContext([(root[1], uw.spk(root)), (5_000, P2WPKH)], outs, locktime=800_000,
+                    internal_key=lt.ccv_internal_key(root[0]), taptree_root=uw.m)
+    sig = schnorr_sign(ctx.sighash(), uw.op_sk)
+    uw.run("EVICT_SUBTREE_2", [build_proof(uw.tree, 4, uw.depth, height=2)]
+           + [lf.serialize() for _, lf in sorted(uw.tree.leaves.items(), reverse=True)] + [sig], ctx)
+    check(True, "msu EVICT_SUBTREE_2 of the whole tree is terminal")
+    return sizes
+
+
+def test_rewrite_plain_msu(uw):
+    """The plain REWRITE_h (no reclaim form, no exit consent) under CCV + MSU:
+    the batched UPDATE. 'update' rotates every owner key (one signature per
+    position), 'topup' raises every amount (amount-only elements, no
+    signature). Returns the sizes."""
+    sizes = {}
+    for h in COHORT_HEIGHTS:
+        name = f"REWRITE_{h}"
+        base = 1 << h if (1 << (h + 1)) <= (1 << uw.depth) - 3 else 0
+        old = {i: mk_leaf(f"c{i}", 10_000 + 7 * i, uw.op_pk, 800_000) for i in range(1 << h)}
+        rot = {i: lt.Leaf(lf.amount, lf.exit_key, pubkey_x(sk(f"c{i}-owner2")), lf.evictor_key, lf.evict_after,
+                          lf.nonce, lf.seq) for i, lf in old.items()}
+        owners = {i: (sk(f"c{i}-owner"), None) for i in old}
+        topup = {i: lf.with_amount_seq(lf.amount + 500, lf.seq) for i, lf in old.items()}
+        case = lambda o, n, **kw: _rewrite_case(uw, h, base, o, n, exit_sigs=False, **kw)   # noqa: E731
+        wit, ctx = case(old, rot, sign=owners)
+        it = uw.run(name, wit, ctx)
+        check(True, f"msu {name}: every key rotated, one owner signature per position")
+        wit_t, ctx_t = case(old, topup, amounts=True)
+        it_t = uw.run(name, wit_t, ctx_t)
+        check(True, f"msu {name}: every balance topped up, amount-only elements, operator alone")
+        sizes[h] = {"script": len(uw.compiled[name]), "update": (wit, it.cost), "topup": (wit_t, it_t.cost)}
+        if h != 1:
+            continue
+        # the old root: another position's proof, and a forged old element
+        w_st, c_st = case(old, rot, sign=owners)
+        w_st[1] = build_proof(uw.tree, 6, uw.depth, height=h)
+        expect_fail(lambda: uw.run(name, w_st, c_st), f"msu {name} wrong old root: the proof folds another position")
+        w_f, c_f = case(old, rot, sign=owners)
+        w_f[w_f.index(old[0].serialize())] = old[0].with_amount_seq(old[0].amount + 1, 0).serialize()
+        expect_fail(lambda: uw.run(name, w_f, c_f), f"msu {name} wrong old root: a forged old element")
+        # the sums
+        for delta in (-1, 1):
+            expect_fail(lambda delta=delta: uw.run(name, *case(old, rot, sign=owners, out0_delta=delta)),
+                        f"msu {name} sum mismatch: output 0 off by {delta:+d}")
+        # the new root: the witness names a new leaf output 0 does not commit to
+        w_n, c_n = case(old, rot, sign=owners)
+        w_n[w_n.index(rot[0].serialize())] = lt.Leaf(rot[0].amount, rot[0].exit_key, pubkey_x(sk("mallory")),
+                                                     rot[0].evictor_key, rot[0].evict_after, rot[0].nonce,
+                                                     rot[0].seq).serialize()
+        expect_fail(lambda: uw.run(name, w_n, c_n), f"msu {name} wrong new root: output 0 commits to another new leaf")
+        # the signatures
+        w_s, c_s = case(old, rot, sign=owners)
+        w_s[w_s.index(schnorr_sign(c_s.sighash(), sk("c0-owner")))] = b""
+        expect_fail(lambda: uw.run(name, w_s, c_s), f"msu {name} a rotation without its owner signature")
+        w_o, c_o = case(old, rot, sign=owners)
+        w_o[-1] = b""
+        expect_fail(lambda: uw.run(name, w_o, c_o), f"msu {name} without the operator signature")
+        expect_fail(lambda: uw.run(name, *case(old, rot, sign={**owners, 0: (sk("mallory"), None)})),
+                    f"msu {name} a rotation signed by another key")
+        # the plain form reads no exit-key signatures
+        expect_fail(lambda: uw.run(name, *_rewrite_case(uw, h, base, old, rot, sign={i: (sk(f"c{i}-owner"), sk(f"c{i}-exit"))
+                                                                                      for i in old})),
+                    f"msu {name} with exit-key signatures the script does not read")
+    return sizes
+
+
+def cohort_cost_model(upd, upd_x, joins, join0, evicts, rewrites):
+    """Whole-transaction vbytes for UPDATE, JOIN_h, JOIN_0, EVICT_SUBTREE_h and
+    the plain REWRITE_h under CCV + MSU, in the same model as
+    pending_cost_model: a key-addressed depth-64 tree of N = 2^k members,
+    the proof of a height-h node 1 + 2 ceil((64 - h)/8) bytes of header and
+    k - h occupied siblings of 40 bytes (the start-height field, or a dense
+    tree), payouts one per swept leaf and none otherwise. `dense` is the
+    same transaction in a fully occupied depth-16 tree (16 siblings of 40
+    bytes, no compression), the model of the FULL figures."""
+    def rest(wit, proof_at=None):
+        """Witness bytes but the proof (at index proof_at, if there is one)."""
+        return sum(len(x) for x in wit) - (len(wit[proof_at]) if proof_at is not None else 0)
+
+    rows = []
+    for k in (16, 20, 32):
+        r = {"k": k}
+        for key, tab in (("UPDATE", upd), ("UPDATE_X", upd_x)):
+            sc, wit, _ = tab[key]
+            r[key] = U.tx_vbytes(sc, U.proof_bytes(U.MODEL_DEPTH, k) + rest(wit, 1), 0)
+        sc, rest0 = join0
+        r["JOIN_0"] = U.tx_vbytes(sc, U.proof_bytes(U.MODEL_DEPTH, k) + rest0, 0)
+        for h in (2, 4, 8, 10):
+            sc, wit, _ = joins["JOIN_2"]
+            r[f"JOIN_{h}"] = U.tx_vbytes(sc, U.proof_bytes(U.MODEL_DEPTH - h, k - h) + rest(wit, 0), 0)
+        for h, (sc, wit, _, p) in evicts.items():
+            vb = U.tx_vbytes(sc, U.proof_bytes(U.MODEL_DEPTH - h, k - h) + rest(wit, 0), p)
+            r[f"EVICT_{h}"] = (vb, p, vb / p)
+        for h, rw in rewrites.items():
+            prf = U.proof_bytes(U.MODEL_DEPTH - h, k - h)
+            vu = U.tx_vbytes(rw["script"], prf + rest(rw["update"][0], 1), 0)
+            vt = U.tx_vbytes(rw["script"], prf + rest(rw["topup"][0], 1), 0)
+            r[f"RW_{h}"] = (vu, vu / (1 << h), vt, vt / (1 << h))
+        rows.append(r)
+    dense = {}
+    for key, tab in (("UPDATE", upd), ("UPDATE_X", upd_x)):
+        sc, wit, _ = tab[key]
+        dense[key] = U.tx_vbytes(sc, U.proof_bytes(16, 16) + rest(wit, 1), 0)
+    sc, rest0 = join0
+    dense["JOIN_0"] = U.tx_vbytes(sc, U.proof_bytes(16, 16) + rest0, 0)
+    sc, wit, _ = joins["JOIN_2"]
+    for h in (2, 8, 10):
+        dense[f"JOIN_{h}"] = U.tx_vbytes(sc, U.proof_bytes(16 - h, 16 - h) + rest(wit, 0), 0)
+    for h, (sc, wit, _, p) in evicts.items():
+        dense[f"EVICT_{h}"] = U.tx_vbytes(sc, U.proof_bytes(16 - h, 16 - h) + rest(wit, 0), p)
+    for h, rw in rewrites.items():
+        prf = U.proof_bytes(16 - h, 16 - h)
+        dense[f"RW_{h}"] = (U.tx_vbytes(rw["script"], prf + rest(rw["update"][0], 1), 0),
+                            U.tx_vbytes(rw["script"], prf + rest(rw["topup"][0], 1), 0))
+    return rows, dense
+
+
 # ------------------------------------------------------------ quarantine --
 
 def test_quarantine():
@@ -900,6 +1327,18 @@ def main():
     rewrite = test_rewrite_msu(pw)
     exit_ = test_landing_exit_msu(pw)
     print(f"  pending-leaf receive D/8: {CHECKS - before} checks")
+    before = CHECKS
+    cw = CohortMsu(8)
+    upd = test_update_msu(cw)
+    joins = test_join_h_msu(cw)
+    evicts = test_evict_msu(cw)
+    rewrites = test_rewrite_plain_msu(cw)
+    for d in (16, 32):
+        deep = CohortMsu(d, heights=(), join_hs=())
+        check(len(deep.compiled["UPDATE"]) == len(cw.compiled["UPDATE"]),
+              f"msu UPDATE script is {len(cw.compiled['UPDATE'])} B at D=8 and D={d}")
+    check(len(cw.compiled["JOIN_2"]) == len(cw.compiled["JOIN_4"]), "msu JOIN_h script is the same size at every h")
+    print(f"  UPDATE, JOIN_h, EVICT_SUBTREE_h, plain REWRITE_h D/8: {CHECKS - before} checks")
     print("\nMeasured (script / witness bytes, varops):")
     for (profile, depth), sizes in all_sizes.items():
         for k, (sl, wl, cost) in sizes.items():
@@ -926,6 +1365,38 @@ def main():
         print(f"  {'REWRITE_XR_' + str(h) + ' roll tx':24}" + "".join(f"{r[f'R_{h}'][1]:>12,}" for r in rows))
         print(f"  {'  settlement per pair':24}" + "".join(f"{r[f'R_{h}'][2]:>12,.1f}" for r in rows))
         print(f"  {'  with 116-byte leaves':24}" + "".join(f"{r[f'R_{h}_full'][2]:>12,.1f}" for r in rows))
+    print("\nUPDATE, JOIN_h, EVICT_SUBTREE_h, plain REWRITE_h, D/8 (script B; witness B = proof + rest; varops):")
+    for name, (sl, wit, cost) in {**upd, **joins}.items():
+        print(f"  {name:18} {sl:6} {sum(len(x) for x in wit):6} = {len(wit[1] if name.startswith('UPDATE') else wit[0]):4} + "
+              f"{sum(len(x) for x in wit) - len(wit[1] if name.startswith('UPDATE') else wit[0]):4}  {cost}")
+    for h, (sl, wit, cost, p) in evicts.items():
+        print(f"  EVICT_SUBTREE_{h:<4} {sl:6} {sum(len(x) for x in wit):6} = {len(wit[0]):4} + "
+              f"{sum(len(x) for x in wit) - len(wit[0]):5}  {cost}   ({p} of {1 << h} swept)")
+    for h, r in rewrites.items():
+        for sc in ("update", "topup"):
+            wit, cost = r[sc]
+            print(f"  REWRITE_{h} {sc:8}    {r['script']:6} {sum(len(x) for x in wit):6} = {len(wit[1]):4} + "
+                  f"{sum(len(x) for x in wit) - len(wit[1]):5}  {cost}")
+    sl0 = all_sizes[("D", 16)]["JOIN_0"][0]
+    rows2, dense = cohort_cost_model(upd, upd, joins, (sl0, 116 + 64), evicts, rewrites)
+    print("\nWhole-transaction vB at N = 2^k, key-addressed depth 64 (same model as above):")
+    print(f"  {'':24}" + "".join(f"{'k=' + str(r['k']):>12}" for r in rows2) + f"{'dense D=16':>14}")
+    for key in ("UPDATE", "UPDATE_X", "JOIN_0", "JOIN_2", "JOIN_8", "JOIN_10"):
+        print(f"  {key:24}" + "".join(f"{r[key]:>12,}" for r in rows2) + f"{dense[key]:>14,}")
+    for h in evicts:
+        print(f"  {'EVICT_SUBTREE_' + str(h) + ' tx':24}" + "".join(f"{r[f'EVICT_{h}'][0]:>12,}" for r in rows2)
+              + f"{dense[f'EVICT_{h}']:>14,}   ({evicts[h][3]} of {1 << h} swept)")
+        print(f"  {'  per swept leaf':24}" + "".join(f"{r[f'EVICT_{h}'][2]:>12,.1f}" for r in rows2)
+              + f"{dense[f'EVICT_{h}'] / evicts[h][3]:>14,.1f}")
+    for h in rewrites:
+        print(f"  {'REWRITE_' + str(h) + ' update tx':24}" + "".join(f"{r[f'RW_{h}'][0]:>12,}" for r in rows2)
+              + f"{dense[f'RW_{h}'][0]:>14,}   (every key rotated)")
+        print(f"  {'  per changed leaf':24}" + "".join(f"{r[f'RW_{h}'][1]:>12,.1f}" for r in rows2)
+              + f"{dense[f'RW_{h}'][0] / (1 << h):>14,.1f}")
+        print(f"  {'REWRITE_' + str(h) + ' top-up tx':24}" + "".join(f"{r[f'RW_{h}'][2]:>12,}" for r in rows2)
+              + f"{dense[f'RW_{h}'][1]:>14,}   (amount-only elements)")
+        print(f"  {'  per changed leaf':24}" + "".join(f"{r[f'RW_{h}'][3]:>12,.1f}" for r in rows2)
+              + f"{dense[f'RW_{h}'][1] / (1 << h):>14,.1f}")
     print(f"\n{CHECKS} checks, {FAILS} failures")
     return 1 if FAILS else 0
 

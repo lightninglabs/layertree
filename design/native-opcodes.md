@@ -136,7 +136,9 @@ the natural extension is to let the bitmap name *pairs* of levels
 call's old root required to equal the first's new root. `CLAIM` is two
 chained calls; `EVICT_SUBTREE_h` needs the subtree root from its
 `2^h` leaves (script-level hashing at small `h`, or a companion
-`OP_MERKLESUMBUILD` for cohort sweeps).
+`OP_MERKLESUMBUILD` for cohort sweeps). `UPDATE`, `JOIN_h`, the sweep
+with script-level hashing and the plain `REWRITE_h` are measured in the
+last section before "Reproducing"; the companion opcode is not.
 
 ## The honest objections
 
@@ -335,10 +337,126 @@ script set (`RECLAIM_1`, `CLAIM_M`, `CLAIM_HM`, `REWRITE_R_h`,
 `REWRITE_XR_h`): none of them, and no golden script, contains
 `OP_MERKLESUMUPDATE`, and none of the MSU scripts is in any tier.
 
+## UPDATE, JOIN_h, the cohort sweep and the plain rewrite under CCV + MSU
+
+The same model and conventions as the pending-leaf section: CCV + MSU in
+`0xC2` numerics, the spec's fee model (903 WU of skeleton and control
+block when nothing is paid out, 172 WU for each payout past the first),
+and a key-addressed depth-64 tree of `N = 2^k` members whose proof of a
+height-`h` node is `1 + 2 ⌈(64 − h)/8⌉` bytes of header and `k − h`
+occupied siblings of 40 bytes. The `dense` column is the same
+transaction in a fully occupied depth-16 tree (16 siblings, no
+compression), which is the model of the FULL figures (spec 8.8, 11). The
+scripts are `update_script_msu`, `join_h_script_msu` and
+`evict_subtree_script_msu` in `tools/layertree_msu.py`; the plain
+`REWRITE_h` is `rewrite_script_msu` with no exit consent and no reclaim
+key. The reclaim-form measurement above does not give it: that script
+carries the R1 and R3 rules (959 B at `h = 1` against 756, 22,829 B at
+`h = 6` against 17,265) and prices a window settlement per pair, not a
+changed leaf. `tools/test_msu.py` has positives and negatives for each
+(the old root, the new root, the sums, the signatures).
+
+### What is expressible
+
+* **`UPDATE`** is one MSU call: the old and the new leaf become nodes and
+  fold over one proof. Because both leaves share the proof's position, the
+  sparse profile's rule that `pos(new) = pos(old)` (7.4 rule 4) holds by
+  construction. The script has the output-0 mode flag of the CCV tier (a
+  decrease is free for the transaction, 7.4 rule 3). It does not depend on
+  `D`: 188 B at `D = 8`, 16 and 32 (`UPDATE^x`: 195 B). Measured.
+* **`JOIN_h`** is expressible as specified. The opcode folds any two
+  40-byte nodes it is given, and a graft arrives precomputed: the old node
+  is the constant `E_h`, the new node is the operator's 40-byte witness
+  element, taken unexamined (7.3 rule 4). What the format cannot do is
+  *build* a subtree root from leaves, and `JOIN_h` never has to. The script
+  is 118 B for every `h` and `D`. The proof for a height-`h` node is where
+  the start-height question of the pending-leaf section bites: under the
+  opcode as specified a proof must carry every empty sibling `E_{h+k}`
+  explicitly (a negative in `tools/test_msu.py` shows that omitting them
+  folds the wrong root), so the figures below assume either a dense tree
+  or the one-byte start-height field. Without either, a depth-64
+  key-addressed graft carries `40 (64 − k)` more bytes, 480 more vB at
+  `k = 16`: a `JOIN_2` of 906 vB, about FULL's 872. Measured.
+* **`EVICT_SUBTREE_h`** is not expressible in the opcode alone, because it
+  needs the old subtree root from `2^h` leaves and the opcode does not
+  build roots. It is measurable with the hashing done in script, which is
+  what FULL and CCV do, and then the opcode replaces only the fold above
+  `h`. The measurement therefore says what MSU saves of a sweep and nothing
+  about a companion that builds roots: no such opcode is specified here,
+  and inventing one for a number would break the repository's rule, so
+  that variant is **not measured**. The sweep, the lease and the exact
+  payouts per leaf are CCV's `leaf_step_ccv`. The new node is `E_h`. The
+  same start-height caveat applies to its proof.
+* **Plain `REWRITE_h`** is the reclaim-form machine without the reclaim
+  rules, and the fold above `h` is one MSU call from height `h`. The same
+  start-height caveat applies.
+
+### Measured
+
+Scripts at `D = 8` (none depends on `D` but through the 32-byte `E_D`);
+witness without the proof.
+
+| Script | Script (B) | Witness without the proof (B) | FULL script (B) |
+|---|---|---|---|
+| `UPDATE` | 188 | 360: old, new, two signatures (+1 for a deduct flag) | 2,137 (D = 16) |
+| `UPDATE^x` | 195 | 424 | 2,144 |
+| `JOIN_0` (leaf hashed in script) | 237 | 180 | 2,017 |
+| `JOIN_h` (any `h`) | 118 | 104: node, signature | 1,841 (`JOIN_2`) |
+| `EVICT_SUBTREE_2`, 3 of 4 swept | 1,130 | 412 | 2,709 |
+| `EVICT_SUBTREE_4`, 13 of 16 | 3,926 | 1,572 | 5,281 |
+| `EVICT_SUBTREE_6`, 51 of 64 | 15,110 | 5,980 | 16,097 |
+| `REWRITE_6`, every key rotated | 17,265 | 19,008: 64 owner signatures | 18,236 |
+| `REWRITE_6`, every balance topped up (amount-only) | 17,265 | 8,000 | 18,236 |
+
+### Whole transactions
+
+| Transaction | FULL vB (dense `D = 16`) | `N = 2^16` | `N = 2^20` | `N = 2^32` | dense `D = 16` |
+|---|---|---|---|---|---|
+| `UPDATE` | 1,030 | **527** | 567 | 687 | 524 |
+| `UPDATE^x` | 1,048 | 545 | 585 | 705 | 542 |
+| `JOIN_0` | 937 | **495** | 535 | 655 | 492 |
+| `JOIN_2`, 4 members | 872 | 426 | 466 | 586 | 423 |
+| `JOIN_8`, 256 members | 679 | 365 | 405 | 525 | 362 |
+| `JOIN_10`, 1,024 members | 614 | 345 | 385 | 505 | 342 |
+| `EVICT_SUBTREE_4`, 13 of 16 | 2,638 (203 per leaf) | 2,284 (175.7 per leaf) | 2,324 | 2,444 | 2,281 |
+| `EVICT_SUBTREE_6`, 51 of 64 | 8,057 (158 per leaf) | 7,796 (152.9 per leaf) | 7,836 | 7,956 | 7,793 |
+| `REWRITE_6`, 64 keys rotated | 9,656 (151 per leaf) | 9,399 (146.9 per leaf) | 9,439 | 9,559 | 9,396 |
+| `REWRITE_6`, 64 balances topped up | 6,904 (108 per leaf) | 6,647 (103.9 per leaf) | 6,687 | 6,807 | 6,644 |
+
+Formulas at `N = 2^k` (vB, `proof` the bytes of the proof): `UPDATE`
+`ceil((1,468 + 40k) / 4)`, `UPDATE^x` `ceil((1,539 + 40k) / 4)`, `JOIN_0`
+`ceil((1,337 + 40k) / 4)`, `JOIN_h` `ceil((1,125 + 1 + 2 ⌈(64 − h)/8⌉ + 40
+(k − h)) / 4)`. A sweep or a rewrite adds its script and witness to the
+same skeleton and proof, with 172 WU for every payout past the first.
+
+What the numbers say:
+
+* **MSU roughly halves `UPDATE` and `JOIN_h`**: 527 against 1,030 and
+  495 against 937, a factor of 1.9, because the script (188 B against
+  2,137) is the whole saving and the witness is irreducible. Depth costs
+  10 vB per doubling, as for the exit.
+* **A graft is cheaper than a solo join, as in FULL.** The proof
+  dominates, and a bigger cohort proves a shorter path: 365 vB for 256
+  members against 495 for one, and against FULL's 679. These assume a
+  proof that can start above height 0 (see above).
+* **The cohort operations barely move.** A sweep or a rewrite is
+  dominated by the per-position step in script (about 240 to 270 bytes
+  of script per position) and by the leaves in the witness, not by the
+  fold, so MSU saves 3% of a 51-leaf sweep (152.9 per leaf against 158)
+  and 3% of a rewrite of 64 changed leaves (146.9 against 151). The
+  smaller cohorts gain more, `EVICT_SUBTREE_4` 13%, because the fold is a
+  larger share of them. The batched operations are the ones the opcode
+  helps least, as in the settlement above.
+* **No script here derives a position from a leaf.** The position is the
+  proof's own bits, so the sparse profile's derived-position rules (the
+  `JOIN_0` position of 7.3, the per-leaf check of 7.4 rule 4 beyond what
+  one proof gives) are outside these figures, as they are outside the
+  measured `EXIT_1` and `JOIN_0`.
+
 ## Reproducing
 
 ```
-python3 tools/test_msu.py      # 133 checks: opcode units, quarantine, scripts, pending-leaf receive
+python3 tools/test_msu.py      # 222 checks: opcode units, quarantine, scripts, pending-leaf receive, UPDATE, JOIN_h, sweep, plain rewrite
 python3 tools/test_ccv.py      # the CCV tier (part 1), 798 checks
 ```
 
