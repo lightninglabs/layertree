@@ -37,7 +37,7 @@ varops, computes the real BIP-341 signature message and enforces
 \texttt{MINIMALDATA}; it models consensus limits, not standardness.
 Every compiled predicate runs against a reference tree with positive and
 negative cases per rule (forged leaf, stale root, attacker-chosen $m$,
-unconserved amount, early eviction, voucher replay, and others): 1{,}594
+unconserved amount, early eviction, voucher replay, and others): 1{,}610
 FULL, 1{,}391 MID, 57 MIN and 4{,}295 CCV checks, failing if a script uses an
 opcode outside its tier, plus 220 for channel leaves and 133 for the
 hypothetical opcode of \S\ref{sec:discussion}. A Go implementation on
@@ -231,7 +231,7 @@ sigop budget.
 \paragraph{Artefact.} Every number here is regenerated from the
 repository~\cite{layertreerepo} at the revision on the title page
 (\GitHash) by the scripts under \path{tools/}: \path{test_scripts.py}
-(1{,}594 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
+(1{,}610 checks; \texttt{-{}-rewrite} and \texttt{-{}-subtree} print the
 cohort shapes), \path{test_mid.py} (1{,}391), \path{test_min.py} (57),
 \path{test_ccv.py} (4{,}295), \path{test_chan.py} (220), \path{test_msu.py}
 (133), \path{gen_listings.py} (the size table), \path{fee_analysis.py}

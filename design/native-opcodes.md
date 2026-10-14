@@ -151,7 +151,7 @@ chained calls; `EVICT_SUBTREE_h` needs the subtree root from its
   must still be in the witness: MSU moves the *verification* work into
   consensus but the *data* (siblings, leaf, position) still travels.
   252 + 225 vs CCV's 1,716 + 838 is a 6.8x script reduction but only a
-  3.7x total-size reduction, and the witness is irreducible below the
+  5.4x reduction in script plus witness (2,554 to 477 bytes), and the witness is irreducible below the
   information-theoretic floor.
 * **CISC vs RISC.** The tier matrix exists precisely to measure this:
   FULL (RISC-plus), MID, MIN and CCV are all realizable from candidates

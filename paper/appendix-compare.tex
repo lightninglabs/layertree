@@ -72,7 +72,7 @@ FULL, fee taken from the payout & 921 & \\
 FULL, $D = 8$ and $D = 20$ & 762 and 1{,}149 & \\
 FULL tower exit \tr{EXIT}$_1^{t}$ & 1{,}046 & \\
 FULL sparse $D = 32$, six-leaf tree & 1{,}637 & 1{,}648 \\
-FULL sparse $D = 32$, $2^{16}$ members (estimate) & \sparseExitBig & \\
+FULL sparse $D = 32$, $2^{16}$ members (measured) & \sparseExitBig & \\
 MID & 1{,}355 & 1{,}398 \\
 MIN & 1{,}473 & 1{,}518 \\
 CCV, tapleaf \texttt{0xC2} & 908 & 918 \\
@@ -408,6 +408,6 @@ carry each sibling as several small elements. The sizes come from
 \path{tools/gen_listings.py} (\path{spec/scripts/sizes.md}), the fee
 tables from \path{tools/fee_analysis.py}, and the figures of this
 appendix from \path{tools/gen_cost_figures.py}; the baselines are models,
-not measurements. The suites behind the sizes run 1{,}594 FULL, 1{,}391 MID,
+not measurements. The suites behind the sizes run 1{,}610 FULL, 1{,}391 MID,
 57 MIN, 4{,}295 CCV and 220 channel-leaf checks, and 133 for the
 hypothetical opcode, which stays out of every tier.

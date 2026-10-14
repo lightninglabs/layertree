@@ -1,8 +1,8 @@
 % Shared by both versions: the sparse (hashed-position) profile, moved out
 % of the body. The full version includes it in appendix-eval.tex, the short
 % version in appendix-compare.tex. The body keeps one sentence (body-tree.tex).
-% Sizes are from spec/scripts/sizes.md; the 2^16 exit is an estimate until
-% measured, and is the macro \sparseExitBig so that it is set once in main.tex.
+% Sizes are from spec/scripts/sizes.md; the 2^16 exit at D = 32 is measured
+% (tools/test_scripts.py, test_exit_sparse_large) and set once in main.tex as \sparseExitBig.
 
 \subsection{The Sparse Profile}\label{app:sparse}
 
@@ -34,14 +34,14 @@ computes $\Emp_{k+1}$ for the next level. The full-width tree of Taproot
 Assets ($D = 256$) costs $35{,}611$ bytes of script per exit, about 17
 times the dense script and 9 times the dense transaction, and MID caps
 sparse depth at 31. An exit is $1{,}637\vB$ on the six-leaf tree and
-\sparseExitBig{} vB at $2^{16}$ members (estimate), against $1{,}020\vB$
+\sparseExitBig{} vB at $2^{16}$ members (measured), against $1{,}020\vB$
 for dense at $D = 16$; at $10\sat/\mathrm{vB}$ the six-leaf exit costs
 $16{,}370\sat$. Varops usage is 3.6 to 4.7\% of the BIP-440 budget
 ($D = 64$ to $32$), against 5.6 to 7.7\% in the dense profile.
 
 \begin{table}[tbp]
 \centering
-\caption{The sparse profile, FULL tier, on the model of \S\ref{sec:eval}. The witness is $244 + 41k$ bytes for $k$ non-empty siblings: $k = 2$ on the measured six-leaf tree (326 B), and $k \approx \log_2 N$ for the estimates at $N = 2^{16}$ ($k = 16$). Joins are charged without a payout output.}
+\caption{The sparse profile, FULL tier, on the model of \S\ref{sec:eval}. The witness is $244 + 41k$ bytes for $k$ non-empty siblings: $k = 2$ on the measured six-leaf tree (326 B), and $k = 16$ on the measured $2^{16}$-member tree (900 B), the mean over the members being $\approx \log_2 N$; the $D = 64$ row is an estimate. Joins are charged without a payout output.}
 \label{tab:sparse}
 \setlength{\tabcolsep}{3.5pt}\scriptsize
 \begin{tabular}{@{}lrrrrrr@{}}
@@ -49,7 +49,7 @@ $16{,}370\sat$. Varops usage is 3.6 to 4.7\% of the BIP-440 budget
 case & $D$ & $N$ & script (B) & witness data (B) & witness (WU) & tx (vB) \\
 \midrule
 \tr{EXIT}$_1$, measured & 32 & 6 & 5{,}147 & 326 & 5{,}602 & 1{,}637 \\
-\tr{EXIT}$_1$, estimate & 32 & $2^{16}$ & 5{,}147 & $\approx 900$ & $\approx 6{,}176$ & \sparseExitBig \\
+\tr{EXIT}$_1$, measured & 32 & $2^{16}$ & 5{,}147 & 900 & 6{,}176 & \sparseExitBig \\
 \tr{EXIT}$_1$, estimate & 64 & $2^{16}$ & 9{,}499 & $\approx 900$ & $\approx 10{,}528$ & $\approx 2{,}869$ \\
 \tr{JOIN}$_0$, one leaf & 32 & & & & & 1{,}601 \\
 \tr{JOINK}$_2$, two leaves & 32 & & & & & 2{,}821 \\
