@@ -48,7 +48,7 @@
     \item One output commits to a Merkle-sum tree of balances; the tree is data, not transactions.
     \item Every transition proves an old node and folds a new one up the same path; the sums make theft structurally impossible.
     \item Anyone leaves in \hl{one transaction} with their own signature: 1,020 vB at 65,536 members from proposed opcodes (FULL); about 541 vB, plus 10 vB per doubling, with a hypothetical Merkle-sum opcode.
-    \item Payments happen off-chain: channel leaves make it a one-UTXO Lightning hub, vouchers and pending pairs give zero-byte receives.
+    \item Payments happen off-chain: channel leaves make it a Lightning sub-graph in one UTXO, vouchers and pending pairs give zero-byte receives.
     \item The cost is one queue for everyone, and opcodes that aren't active yet. Four tiers show exactly how few are needed.
   \end{enumerate}
   \vspace{1em}
@@ -459,7 +459,7 @@
 % ======================================================================
 \section{Lightning}
 
-\begin{frame}{Channel leaves: a Lightning hub with one UTXO}
+\begin{frame}{Channel leaves: a Lightning sub-graph in one UTXO}
   \begin{columns}[c]
     \begin{column}{0.58\textwidth}
       \begin{tikzpicture}[scale=0.68,transform shape,>=Stealth]
