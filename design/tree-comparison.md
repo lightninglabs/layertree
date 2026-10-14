@@ -74,12 +74,15 @@ script wins.
 
 At `D = 16` a dense `EXIT_1` is 2,101 bytes of script and 902 of witness.
 The sparse `EXIT_1` at `D = 32` is 5,147 bytes of script and 326 of
-witness, measured on a six-leaf tree; each further occupied sibling adds
-41 bytes, and a tree of `N` leaves has about `log2 N` of them, so the same
-exit at 65,536 members carries about 860 witness bytes. The witness saving
-is real but it is worth at most 600 bytes, and the script costs 3,000
-more. In vbytes the dense exit is 1,020 and the sparse one is 1,637 on
-the six-leaf measurement and about 1,800 at 65,536 members.
+witness on a six-leaf tree, where all but two of the path's siblings are
+empty and cost nothing. Each occupied sibling adds 41 bytes, and a tree of
+`N` leaves has about `log2 N` of them. Built with 65,536 real leaves and
+run through the simulator, the same exit carries 900 witness bytes (16
+occupied siblings; the mean over a sample of members is 16.3). The witness
+saving over the dense `D = 16` exit is 576 bytes on the six-leaf tree and
+vanishes at 65,536 members (900 against 902), while the script costs
+3,000 more. In vbytes the dense exit is 1,020 and the sparse one is 1,637
+on the six-leaf measurement and 1,781 at 65,536 members.
 
 ![Bytes per level by profile and tier](figures/level-cost.svg)
 
@@ -111,9 +114,9 @@ bytes, over twice as many levels, are the whole difference.
 |---|---|---|---|
 | Script bytes | 2,101 | 5,147 | 9,499 |
 | Witness bytes (six leaves) | 902 | 326 | 326 |
-| Witness bytes (65,536 leaves) | 902 | about 860 | about 860 |
+| Witness bytes (65,536 leaves) | 902 | 900 (measured) | about 900 |
 | Transaction vbytes (six leaves) | 1,020 | 1,637 | 2,725 |
-| Transaction vbytes (65,536 leaves) | 1,020 | about 1,800 | about 2,890 |
+| Transaction vbytes (65,536 leaves) | 1,020 | 1,781 (measured) | about 2,870 |
 
 The bitmap encoding of the MS-SMT BIP, in which the witness carries a
 bitmap of empty levels and only the non-empty siblings, costs 276 bytes

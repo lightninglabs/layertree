@@ -618,7 +618,7 @@ class Interp:
                 ob, a = pop(), pop()
                 o = num_decode(ob)
                 self.charge(wordspan(len(ob)) * 2 + min(o, len(a)) * 3)
-                pushv(a[-o:] if o < len(a) else a)
+                pushv(a[len(a) - o:] if o < len(a) else a)  # o = 0 gives empty, o >= size gives a
             elif name == "OP_SIZE":
                 pushv(self.n_enc(len(top())))
             elif name in ("OP_EQUAL", "OP_EQUALVERIFY"):

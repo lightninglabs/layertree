@@ -1,5 +1,5 @@
 Witness data for the sparse profile is measured on a 6-leaf tree (compressed proofs);
-add 41 bytes per additional non-empty sibling (about log2 N in total).
+add 41 bytes per additional non-empty sibling (about log2 N in total); the S/65536 row is the measured exit of a member of a 2^16-leaf tree.
 
 | profile | D | transition | script (B) | witness data (B) | control block (B) | total witness (WU) | varops used | sigops |
 |---|---|---|---|---|---|---|---|---|
@@ -79,6 +79,7 @@ add 41 bytes per additional non-empty sibling (about log2 N in total).
 | S/bitmap | 32 | JOIN_0 | 5407 | 371 | 129 | 5907 | 3079436 | 1 |
 | S/bitmap | 64 | EXIT_1 (owner) | 10063 | 334 | 129 | 10526 | 3979013 | 1 |
 | S/bitmap | 64 | JOIN_0 | 10047 | 334 | 129 | 10510 | 3977179 | 1 |
+| S/65536 | 32 | EXIT_1 (owner) | 5147 | 900 | 129 | 6176 | 3072262 | 1 |
 | D/minimal | 8 | EXIT_1 (owner) | 1538 | 566 | 129 | 2233 | 2696051 | 1 |
 | D/minimal | 16 | EXIT_1 (owner) | 2378 | 886 | 129 | 3393 | 2855147 | 1 |
 | D/subtree | 16 | EVICT_SUBTREE_2 (4 positions) | 2709 | 1051 | 129 | 3889 | 2498069 | 1 |

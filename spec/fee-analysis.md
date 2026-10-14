@@ -40,9 +40,12 @@ State every number here explicitly; nothing below is looked up live.
   same way.
 * **Sparse rows.** The sparse witness figures in `spec/scripts/sizes.md`
   are measured on a six-leaf tree (two non-empty siblings), so the sparse
-  rows below are `N = 6` figures. At `N = 2^16` the witness grows by about
-  41 bytes per further non-empty sibling: 1,780 vB at `D = 32` and
-  2,870 vB at `D = 64` (section 11).
+  rows labelled "six leaves" below are `N = 6` figures. The row labelled
+  "2^16 members" is measured on a sparse tree of 65,536 real leaves, whose
+  member's path has 16 non-empty siblings (900 witness bytes against 326):
+  1,781 vB at `D = 32`. The `D = 64` figure at `N = 2^16` is an estimate,
+  about 2,870 vB (section 11), as each further non-empty sibling adds 41
+  bytes.
 * **Fee.** `fee_sat = vbytes * fee_rate_sat_per_vb` (fee rates: 1, 2, 5, 10,
   25, 50, 100, 250 sat/vB).
 * **Dust.** P2TR dust limit assumed at 330 sat (a payout output below this
@@ -70,8 +73,9 @@ State every number here explicitly; nothing below is looked up live.
 | FULL dense EXIT_1, D=12 | 2616 | 3562 | 891 | 891 | 1,782 | 4,455 | 8,910 | 22,275 | 44,550 | 89,100 | 222,750 |
 | FULL dense EXIT_1, D=16 | 3132 | 4078 | 1020 | 1,020 | 2,040 | 5,100 | 10,200 | 25,500 | 51,000 | 102,000 | 255,000 |
 | FULL dense EXIT_1, D=20 | 3648 | 4594 | 1149 | 1,149 | 2,298 | 5,745 | 11,490 | 28,725 | 57,450 | 114,900 | 287,250 |
-| FULL sparse EXIT_1, D=32 | 5602 | 6548 | 1637 | 1,637 | 3,274 | 8,185 | 16,370 | 40,925 | 81,850 | 163,700 | 409,250 |
-| FULL sparse EXIT_1, D=64 | 9954 | 10900 | 2725 | 2,725 | 5,450 | 13,625 | 27,250 | 68,125 | 136,250 | 272,500 | 681,250 |
+| FULL sparse EXIT_1, D=32 (six leaves) | 5602 | 6548 | 1637 | 1,637 | 3,274 | 8,185 | 16,370 | 40,925 | 81,850 | 163,700 | 409,250 |
+| FULL sparse EXIT_1, D=32 (2^16 members) | 6176 | 7122 | 1781 | 1,781 | 3,562 | 8,905 | 17,810 | 44,525 | 89,050 | 178,100 | 445,250 |
+| FULL sparse EXIT_1, D=64 (six leaves) | 9954 | 10900 | 2725 | 2,725 | 5,450 | 13,625 | 27,250 | 68,125 | 136,250 | 272,500 | 681,250 |
 | MID dense EXIT_1, D=16 | 4474 | 5420 | 1355 | 1,355 | 2,710 | 6,775 | 13,550 | 33,875 | 67,750 | 135,500 | 338,750 |
 | MIN dense EXIT_1, D=16 | 4944 | 5890 | 1473 | 1,473 | 2,946 | 7,365 | 14,730 | 36,825 | 73,650 | 147,300 | 368,250 |
 
@@ -82,8 +86,9 @@ Illustrative USD, at 10 sat/vB and 100 sat/vB, $100,000/BTC:
 | FULL dense EXIT_1, D=8 | 7,620 sat | $0.76 | 76,200 sat | $7.62 |
 | FULL dense EXIT_1, D=16 | 10,200 sat | $1.02 | 102,000 sat | $10.20 |
 | FULL dense EXIT_1, D=20 | 11,490 sat | $1.15 | 114,900 sat | $11.49 |
-| FULL sparse EXIT_1, D=32 | 16,370 sat | $1.64 | 163,700 sat | $16.37 |
-| FULL sparse EXIT_1, D=64 | 27,250 sat | $2.73 | 272,500 sat | $27.25 |
+| FULL sparse EXIT_1, D=32 (six leaves) | 16,370 sat | $1.64 | 163,700 sat | $16.37 |
+| FULL sparse EXIT_1, D=32 (2^16 members) | 17,810 sat | $1.78 | 178,100 sat | $17.81 |
+| FULL sparse EXIT_1, D=64 (six leaves) | 27,250 sat | $2.73 | 272,500 sat | $27.25 |
 | MID dense EXIT_1, D=16 | 13,550 sat | $1.36 | 135,500 sat | $13.55 |
 | MIN dense EXIT_1, D=16 | 14,730 sat | $1.47 | 147,300 sat | $14.73 |
 
@@ -91,8 +96,8 @@ Reading this table: depth costs about 30 WU per level of script plus witness
 (the D=8 -> D=20 spread is only 762 -> 1,149 vbytes, +51%, over a 4,096x
 increase in tree size); one tier step costs as much as 10 to 14 levels of
 depth (MID is +33%, MIN is +44% over FULL at the same D=16); sparse costs
-about 1.6-2.7x dense on the six-leaf measurement above (1.7 to 2.8x at
-N = 2^16), because a sparse tree needs D=32-64 levels of proof where a
+about 1.6-2.7x dense on the six-leaf measurement above (1.7x at D=32 and
+about 2.8x at D=64 for N = 2^16), because a sparse tree needs D=32-64 levels of proof where a
 dense tree needs 8-20.
 
 ## EXIT_2: marginal cost of a second exit in the same transaction
@@ -199,7 +204,7 @@ balance, at each fee rate.
 | 100 | 114,900 | 11,490,000 | 2,298,000 | 1,149,000 |
 | 250 | 287,250 | 28,725,000 | 5,745,000 | 2,872,500 |
 
-**FULL sparse EXIT_1, D=32** (1,637 vbytes)
+**FULL sparse EXIT_1, D=32 (six leaves)** (1,637 vbytes)
 
 | fee rate (sat/vB) | fee (sat) | balance @ 1% | balance @ 5% | balance @ 10% |
 |---|---|---|---|---|
@@ -211,6 +216,19 @@ balance, at each fee rate.
 | 50 | 81,850 | 8,185,000 | 1,637,000 | 818,500 |
 | 100 | 163,700 | 16,370,000 | 3,274,000 | 1,637,000 |
 | 250 | 409,250 | 40,925,000 | 8,185,000 | 4,092,500 |
+
+**FULL sparse EXIT_1, D=32 (2^16 members)** (1,781 vbytes)
+
+| fee rate (sat/vB) | fee (sat) | balance @ 1% | balance @ 5% | balance @ 10% |
+|---|---|---|---|---|
+| 1 | 1,781 | 178,100 | 35,620 | 17,810 |
+| 2 | 3,562 | 356,200 | 71,240 | 35,620 |
+| 5 | 8,905 | 890,500 | 178,100 | 89,050 |
+| 10 | 17,810 | 1,781,000 | 356,200 | 178,100 |
+| 25 | 44,525 | 4,452,500 | 890,500 | 445,250 |
+| 50 | 89,050 | 8,905,000 | 1,781,000 | 890,500 |
+| 100 | 178,100 | 17,810,000 | 3,562,000 | 1,781,000 |
+| 250 | 445,250 | 44,525,000 | 8,905,000 | 4,452,500 |
 
 ## Minimum economical leaf size
 

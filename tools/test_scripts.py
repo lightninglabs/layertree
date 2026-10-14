@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """End-to-end execution of the LayerTree scripts in the simulator (both profiles)."""
+import bisect
 import os
 import sys
 
@@ -2554,6 +2555,109 @@ if __name__ == "__main__" and "--rewrite" in sys.argv:
     sys.exit(1 if FAILS else 0)
 
 
+def test_splice_edges():
+    """OP_LEFT and OP_RIGHT at the edges the scripts rely on (spec 4.1 item
+    3): n = 0 gives the empty string and n >= size gives the string itself.
+    The R1 branch of the reclaim rules runs `108 OP_RIGHT` on an empty
+    element, and REWRITE_STEP's SEQ_FINAL check on a short one."""
+    x = b"abc"
+    cases = (("OP_LEFT", 0, b""), ("OP_LEFT", 2, b"ab"), ("OP_LEFT", 3, x), ("OP_LEFT", 9, x),
+             ("OP_RIGHT", 0, b""), ("OP_RIGHT", 2, b"bc"), ("OP_RIGHT", 3, x), ("OP_RIGHT", 9, x))
+    for op, n, want in cases:
+        try:
+            Interp(None).run(assemble([x, n, op, want, "OP_EQUALVERIFY", 1]), [])
+            ok = True
+        except ScriptError:
+            ok = False
+        check(ok, f"{x!r} {n} {op} is {want!r}")
+
+
+class SparseTree(lt.Tree):
+    """The sparse tree of `n` real leaves, evaluated lazily. lt.Tree.subtree
+    scans every leaf at every call, which is quadratic at 2^16 leaves; this
+    keeps the slots sorted and looks a range up by bisection, so a root costs
+    about one hash per leaf and level until the leaf's chain meets another."""
+
+    def __init__(self, depth, leaves):
+        super().__init__(depth)
+        self.leaves = leaves
+        self._slots = sorted(leaves)
+
+    def _count(self, lo, hi):
+        return bisect.bisect_left(self._slots, hi) - bisect.bisect_left(self._slots, lo)
+
+    def subtree(self, height, index):
+        lo, hi = index << height, (index + 1) << height
+        c = self._count(lo, hi)
+        if c == 0:
+            return lt.empty_node(height)
+        if height == 0:
+            return self.leaf_node(index)
+        return lt.parent(self.subtree(height - 1, 2 * index), self.subtree(height - 1, 2 * index + 1))
+
+
+def test_exit_sparse_large(depth=32, n=1 << 16, verbose=True):
+    """FULL sparse EXIT_1 for a member of a tree of `n` real leaves. The
+    six-leaf measurement of test_all has two non-empty siblings on the path
+    and elides the other thirty to one empty element each; a tree of 2^16
+    members has about sixteen non-empty siblings (every level above the
+    height where a subtree holds one leaf on average), and each costs 41
+    witness bytes. The leaves are real: positions come from the sparse
+    profile's hash of (owner_key, nonce), a collision is resolved by
+    advancing the nonce as a joiner would, and the exit is the same
+    transaction as test_all's owner exit of `bob`. Returns (interpreter,
+    script bytes, witness bytes, number of non-empty siblings on bob's
+    path, mean number over a sample of members)."""
+    w = World(depth, "S")
+    alice = mk_leaf("alice", 50_000)
+    bob = mk_leaf("bob", 125_000, evictor=w.op_pk, evict_after=800_000)
+    oper = mk_leaf("operator", 1_000_000)
+    leaves = {}
+    for lf in (alice, bob, oper):
+        leaves[lf.position(depth)] = lf
+    assert len(leaves) == 3
+    i = 0
+    while len(leaves) < n:
+        i += 1
+        for nonce in range(1 << 8):
+            lf = lt.Leaf(1_000, lt.sha256(b"member-exit-%d" % i), lt.sha256(b"member-owner-%d" % i),
+                         lt.NUMS_X, 0, nonce, 0)
+            pos = lf.position(depth)
+            if pos not in leaves:
+                leaves[pos] = lf
+                break
+    s_bob = bob.position(depth)
+    w.tree = SparseTree(depth, leaves)
+    root = w.tree.root()
+    path = w.tree.path(s_bob)
+    occupied = sum(1 for k, (_, sib) in enumerate(path) if sib != lt.empty_node(k))
+    t1 = SparseTree(depth, {k: v for k, v in leaves.items() if k != s_bob})
+    r1 = t1.root()
+    fee = 1_000
+    outputs = [(r1[1], w.spk(r1)), (bob.amount - fee, lt.p2tr_spk(bob.exit_key)), (49_000, P2WPKH)]
+    ctx = w.ctx(outputs, extra_in=(50_000, P2WPKH))
+    sig = schnorr_sign(ctx.sighash(), sk("bob-owner"))
+    wit = w.path_witness(path) + w.bm(path) + [bob.serialize(), sig, b"", root[0], w.m]
+    it = w.run("EXIT_1", wit, ctx)
+    check(True, f"S D={depth}: EXIT_1 of a member of a {n}-leaf tree runs")
+    expect_fail(lambda: w.run("EXIT_1", wit[:-1] + [lt.sha256(b"evil")], ctx), f"S D={depth}, {n} leaves: wrong merkle root")
+    # The mean over members: whether a sibling subtree is occupied needs no hashing.
+    slots = sorted(leaves)
+    sample = slots[:: max(1, len(slots) // 2000)]
+    total = 0
+    for sl in sample:
+        for k in range(depth):
+            lo = ((sl >> k) ^ 1) << k
+            if bisect.bisect_left(slots, lo + (1 << k)) - bisect.bisect_left(slots, lo):
+                total += 1
+    mean = total / len(sample)
+    sl_, wl_ = len(w.compiled["EXIT_1"]), sum(len(x) for x in wit)
+    if verbose:
+        print(f"S D={depth} EXIT_1, {n} leaves: script {sl_} B, witness {wl_} B, "
+              f"{occupied} non-empty siblings on the path (mean {mean:.1f} over {len(sample)} members)")
+    return it, sl_, wl_, occupied, mean
+
+
 if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in sys.argv:
     for d, h in ((16, 2), (16, 4)):
         test_evict_subtree(d, h)
@@ -2591,5 +2695,7 @@ if __name__ == "__main__" and "--subtree" not in sys.argv and "--rewrite" not in
     for d in (8, 32):
         test_all(d, "S")
     ls.COMPRESSION["S"] = "empty"
+    test_splice_edges()
+    test_exit_sparse_large()
     print(f"\n{CHECKS} checks, {FAILS} failures")
     sys.exit(1 if FAILS else 0)
