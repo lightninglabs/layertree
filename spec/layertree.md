@@ -213,8 +213,8 @@ design does not.
    `x`, as in the Satoshi client and the simulator. That includes the
    edges: `n = 0` pushes the empty string, and `n >= size(x)` pushes `x`
    unchanged rather than failing. The `R1` branch of the reclaim rules
-   and the `SEQ_FINAL` check of `REWRITE_STEP` (8.9) depend on the
-   out-of-range reading, and `OP_LEFT` is its mirror (`n >= size(x)`
+   (`108 OP_RIGHT` on an empty new element) depends on the out-of-range
+   reading, and `OP_LEFT` is its mirror (`n >= size(x)`
    pushes `x`, `n = 0` pushes the empty string). All LayerTree scripts
    are tapleaf version `0xC2`.
 4. **`OP_TX`** as in the draft BIP (`rustyrussell/bips`, branch
@@ -2635,7 +2635,7 @@ An 8-byte new element is replaced by itself followed by the last 108 bytes
 of the old element (`LEAF_BODY`) in the same place, so the rules see two
 full leaves that differ in the amount field alone and `same_rest` holds by
 construction. Against an empty old element there is no body to append
-(`OP_RIGHT` returns the whole 8 bytes, section 4.1 item 3) and `ELEM_NODE`'s size
+(`108 OP_RIGHT` returns the empty element unchanged, section 4.1 item 3, so the `OP_CAT` leaves the 8 bytes alone) and `ELEM_NODE`'s size
 check rejects the result, which is what makes an amount-only element
 against `E_0` fail; as an old element
 the 8 bytes fail the same check, and a 7-byte or 9-byte new element is
@@ -3802,7 +3802,7 @@ The minimal-inventory row (section 4.4) shows the price of doing without
 the restored splice opcodes and the EC point opcodes: about 260 WU per
 exit.
 
-The sparse profile at `D = 32` costs about 1.8 times the dense profile at
+The sparse profile at `D = 32` costs about 1.75 times the dense profile at
 `D = 16` per exit (1,781 against 1,020 vB at `N = 2^16`; 1.7 to 2.8 times
 over `D = 32` to `64`), which is why dense is the default profile (5.4).
 What sparse buys is key-addressed positions: no slot allocation, a

@@ -14,17 +14,14 @@ that carry a sibling, then those 40-byte siblings; every other level uses
 the empty node $\Emp_k$. The opcode adds the sums, fails on overflow past
 $2^{64}$ or on a non-canonical proof, and costs $2\times$ the depth in
 hashes, charged as BIP-440 varops. An old node equal to the new one is
-plain verification. It replaces the unrolled fold and its arithmetic, so
-with \op{CHECKCONTRACTVERIFY} binding the root and \op{TX} the payout, the
-covenant compares byte strings only: no numeric operands, no padding and
-no $2^{31}$ cap. Nobody has proposed it and nothing here depends on it; it
+plain verification. It replaces the unrolled fold and the sum arithmetic along the path; the script that remains checks the leaf, the payout and, for a pending receive, the amounts it moves. Nobody has proposed it and nothing here depends on it; it
 runs only in the simulator, behind a flag, in no tier and in no golden
 script.
 
 \tr{EXIT}$_1$ then has 252 bytes of script at every depth (2{,}101 in FULL
 and 1{,}716 in CCV at $D = 16$) and one 40-byte witness sibling per
-occupied level. Empty levels cost nothing, so a hashed-position tree
-(Appendix~\ref{app:sparse}) costs no more than a dense one. For $2^k$
+occupied level. Empty levels cost nothing, so a hashed-position tree (Appendix~
+ef{app:sparse}) costs about the same as a dense one. For $2^k$
 members in a key-addressed depth-64 tree the exit is about $381 + 10k\vB$
 (541 at $2^{16}$, 701 at $2^{32}$), against $504 + 32.25k$ for FULL (1{,}020;
 1{,}536) and $150k + 111$ for a transaction tree (2{,}511; 4{,}911):
@@ -32,15 +29,12 @@ $10\vB$ per doubling and no fixed depth. The $388\vB$ of
 Figure~\ref{fig:cmp-anatomy} and the $520\vB$ of a full depth-16 tree are the
 simulator's smaller model; 541 is the key-addressed one. The
 \tr{CLAIM}$^{hm}$ redemption of a pending leaf is $626\vB$ at $2^{16}$
-members against $1{,}136\vB$ in FULL.
+members against $1{,}136\vB$ in FULL. This and the settlement figure below assume a proof that can start above height 0 (a start-height field), or a dense tree of depth exactly $k$: the opcode's empty chain starts at $\Emp_0$, so without either a height-$h$ proof carries every empty level, about $480\vB$ more per merge or rewrite at $2^{16}$ members.
 
-It does little for batches. A rewrite or sweep is dominated by a
-per-position step of about 376 bytes of script at $h = 6$, which the opcode
+It does little for batches. A rewrite is dominated by a per-position step of about 376 bytes of script at $h = 6$, which the opcode
 does not touch: settling pending receives costs $547\vB$ a pair at 64
 positions (two transactions of $8{,}347$ and $9{,}155\vB$ at $2^{16}$
-members, 24{,}065 bytes of script each against 25{,}036 in FULL). A
-multi-leaf exit or a sweep would need several proofs in one call, or a way
-to build a subtree root, which the proof format above does not express.
+members, 24{,}065 bytes of script each against 25{,}036 in FULL). A multi-leaf exit can chain $K$ calls, each call's old root the previous call's new root; a sweep needs the subtree root of its $2^h$ leaves, which the proof format above does not express.
 The price is that the opcode fixes in consensus this tree's node encoding,
 empty-node chain, parent hash and overflow rule, so a different tree or a
 format change would need a different opcode. That is why the work composes
