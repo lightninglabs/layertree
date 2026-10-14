@@ -1,0 +1,59 @@
+# Publishes the explainer site to GitHub Pages (served at layertree.tech).
+# The site links into spec/, design/, CONCEPTS.md and the paper, so the
+# bundle keeps the repository layout with a root index.html that redirects
+# into site/. The repository itself stays private; only this bundle is served.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "spec/**"
+      - "design/**"
+      - "CONCEPTS.md"
+      - "formal/README.md"
+      - "paper/main.pdf"
+      - "paper/main-full.pdf"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the bundle
+        run: |
+          B=bundle
+          mkdir -p "$B/formal" "$B/paper"
+          cp -R site spec design "$B/"
+          cp CONCEPTS.md "$B/"
+          cp formal/README.md "$B/formal/"
+          cp paper/main.pdf paper/main-full.pdf "$B/paper/"
+          printf '%s\n' \
+            '<!doctype html>' \
+            '<html lang="en"><head><meta charset="utf-8"><title>LayerTree explained</title>' \
+            '<meta http-equiv="refresh" content="0; url=site/index.html">' \
+            '</head><body><p>Redirecting to <a href="site/index.html">the LayerTree explainer</a>.</p></body></html>' \
+            > "$B/index.html"
+          echo layertree.tech > "$B/CNAME"
+          touch "$B/.nojekyll"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: bundle
+      - id: deploy
+        uses: actions/deploy-pages@v4
