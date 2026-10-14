@@ -299,10 +299,10 @@
     \begin{column}{0.32\textwidth}
       \small
       \only<1>{Only the operator adds leaves. A single join proves that a slot holds the empty node, with the same kind of proof an exit uses.}
-      \only<2>{E's leaf folds up the same path. The output must grow by exactly 2, brought in by another input. \textbf{Single \tr{JOIN}$_0$, depth 16: 937 vB (FULL).} Hypothetical Merkle-sum opcode (MSU): script 237 B and 225 B of witness, \muted{vB not stated in the note.}}
+      \only<2>{E's leaf folds up the same path. The output must grow by exactly 2, brought in by another input. \textbf{Single \tr{JOIN}$_0$, depth 16: 937 vB (FULL).} About 492 vB with the hypothetical Merkle-sum opcode (MSU).}
       \only<3>{For a cohort the operator builds a subtree off-chain and sends each joiner their leaf and path. \hl{Each joiner checks their own path before paying.}}
       \only<4>{The graft proves one empty node of height 2 and replaces it with the cohort's node. The covenant never looks inside.\\[0.4em]
-        \textbf{256 members: 679 vB. 1,024: 614 vB} (FULL, cohort \tr{JOIN}$_h$; \msuTBD{join-h}). Under 1 vB per member, against 43 vB for an output in a batch.\\[0.3em]
+        \textbf{256 members: 679 vB. 1,024: 614 vB} (FULL, cohort \tr{JOIN}$_h$; with MSU 362 and 342 vB). Under 1 vB per member, against 43 vB for an output in a batch.\\[0.3em]
         \muted{A bad graft freezes value, it can't create or steal any: the sums still balance.}}
     \end{column}
   \end{columns}
@@ -320,7 +320,7 @@
     \begin{column}{0.32\textwidth}
       \small
       \only<1>{\tr{UPDATE} rewrites a leaf in place: resize, renew the lease, rotate keys. It needs the owner \emph{and} the operator.}
-      \only<2>{Here E renews its lease. One step, about 1,030 vB alone (FULL; \msuTBD{update}), which is why payments must not do this one at a time.}
+      \only<2>{Here E renews its lease. One step, about 1,030 vB alone (FULL; about 524 with MSU), which is why payments must not do this one at a time.}
       \only<3>{An \hl{amount-only increase} needs no owner signature: nobody can use it to rotate a key or shorten a lease. The operator tops E up by 3 from its own funds.\\[0.4em]
         \muted{Except on a \code{SEQ\_FINAL} leaf: a channel leaf's amount is the capacity its signed states commit to, so changing it needs the owner.}}
     \end{column}
@@ -343,7 +343,7 @@
       \only<2>{An eviction is an exit signed by the evictor, in a transaction whose \code{nLockTime} is at least the lease.}
       \only<3>{The payout must equal Y's amount exactly. The operator can remove Y but cannot take a satoshi of it.}
       \only<4>{\tr{EVICT\_SUBTREE}$_h$ publishes the cohort's slots once, checks every lease, pays every leaf, and proves one path.\\[0.4em]
-        \textbf{13 leaves: 203 vB each. 51 leaves: 158 vB each} (FULL; \msuTBD{sweep}).\\[0.3em]
+        \textbf{13 leaves: 203 vB each. 51 leaves: 158 vB each} (FULL; with MSU 176 and 153: the opcode cannot build the swept subtree's root, so the leaves are still hashed in script).\\[0.3em]
         \muted{Cheap eviction cuts both ways: it reclaims dead weight and it makes griefing cheap. Members who want a hard guarantee hold a long lease.}}
     \end{column}
   \end{columns}
@@ -426,7 +426,7 @@
       \only<1>{A, B and C were grafted together, so above their subtree they share one path.}
       \only<2>{In one rewrite: A leaves, B pays C 1, N joins. The witness has every slot twice, before and after. A and B sign because their leaves change. C's change is amount-only, so C needn't sign. The operator signs once.}
       \only<3>{The script rebuilds the old subtree, checks it against the root, rebuilds the new one and folds it up the same path. A is paid exactly 5; N's 4 comes from an input.\\[0.4em]
-        \textbf{64 positions: 151 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 165 per exit, 95 per leaf left alone} (a one-byte ``unchanged'' marker). All FULL; \msuTBD{rewrite-mixed}.}
+        \textbf{64 positions: 151 vB per changed leaf (vs 1,030 per \tr{UPDATE}), 165 per exit, 95 per leaf left alone} (a one-byte ``unchanged'' marker). All FULL; with MSU about 147 per changed leaf, since the per-position step is script either way.}
     \end{column}
   \end{columns}
 \end{frame}
@@ -449,7 +449,7 @@
       \begin{itemize}
         \item later exits pay $h$ levels, not $D$
         \item the cohort gets its own mempool chain
-        \item about 780 vB (FULL), 621 under CCV; \msuTBD{detach}
+        \item about 780 vB (FULL), 621 under CCV; not measured with MSU
       \end{itemize}
       It's the structural answer to contention: shard on demand.}
     \end{column}
@@ -761,7 +761,7 @@
       \footnotesize
       Owners exiting together each carry a full path, so a pair saves only the fixed overhead.\\[0.4em]
       A cohort shares one path above its subtree: the sweep (operator, after a lease) and the rewrite (owners, any time) hash the interior once.\\[0.4em]
-      \hl{Tapscript has no loops}: the per-position step is published in every batch. That script is most of a batch's cost, and the reason the next ideas focus on batches.\\[0.3em]\msuTBD{batching-chart}
+      \hl{Tapscript has no loops}: the per-position step is published in every batch. That script is most of a batch's cost, and the reason the next ideas focus on batches.\\[0.3em]{\color{ltmuted}With the hypothetical opcode a changed leaf costs about 147 vB against 151: the opcode removes the fold, not the step.}
     \end{column}
   \end{columns}
 \end{frame}
@@ -816,7 +816,7 @@
     \item \textbf{Against a bare output, on every solo exit.} 541 vB with the hypothetical opcode (1,020 in FULL) against 111. The proof is the price of sharing, and only batching gets it back.
     \item \textbf{Level with a Lightning force close in bytes only with the hypothetical opcode} (541 against 530 vB; FULL is about twice), but one transaction and one block against three and about a day.
     \item \textbf{A non-cooperative mass exit from one big tree.} Exits serialise through one output; transaction-tree branches unroll in parallel.
-    \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,030 vB (FULL; \msuTBD{update}). Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
+    \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,030 vB (FULL; about 524 with MSU). Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
     \item \textbf{It needs opcodes that aren't active.} With today's proposals the cheapest exit is CCV's 908 vB; the 541 vB figures assume an opcode nobody has proposed.
     \item \textbf{Joining needs the operator.} No liveness guarantee for getting in, only for getting out.
   \end{itemize}
