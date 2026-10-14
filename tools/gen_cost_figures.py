@@ -59,14 +59,14 @@ TREE_EXIT_VB = 2511
 # batch size. "Owner exits" is measured (spec/fee-analysis.md, one and two
 # leaves); the cohort rewrite exits are the measured REWRITE_2/4/6 with
 # every position leaving, priced by the fee analysis model with one 43 vB
-# payout per leaf (364, 200 and 162 vB per leaf at 4, 16 and 64
+# payout per leaf (366, 202 and 165 vB per leaf at 4, 16 and 64
 # positions, spec 11's table; the serialised transactions are in
 # spec/scripts/weights.md); the operator sweeps are the measured
 # EVICT_SUBTREE_4/6/8 sizes divided by the leaves they remove (13, 51
 # and 205: every fifth position of the measured cohorts is empty),
 # spec/scripts/sizes.md, with the same model.
 OWNER_EXITS = [(1, 1020), (2, 842)]
-REWRITE_EXITS = [(4, 364), (16, 200), (64, 162)]
+REWRITE_EXITS = [(4, 366), (16, 202), (64, 165)]
 OPERATOR_SWEEPS = [(13, 203), (51, 158), (205, 147)]
 # The sweeps at D = 16 only, h = 2, 4 and 6 (3, 13 and 51 leaves swept),
 # for the cohort figure; EVICT_SUBTREE_2 is 3,889 WU of witness, 1,295 vB.
@@ -74,19 +74,21 @@ SWEEPS_D16 = [(3, 432), (13, 203), (51, 158)]
 SECOND_EXIT_VB = 665  # marginal second exit in EXIT_2, spec/fee-analysis.md.
 BATCH_OUTPUT_VB = 43  # one P2TR output inside a batch transaction.
 
-# Join amortisation, vB per member admitted. Dense JOIN_h admits 2^h
-# members at depth D=16; the script walks D-h levels, so each point is
+# Join amortisation, vB per member admitted, on spec 11's model (774 WU
+# of skeleton, no payout output: a join pays nobody). Dense JOIN_h admits
+# 2^h members at depth D=16; the script walks D-h levels, so each point is
 # extrapolated from the JOIN_2 rows of spec/scripts/sizes.md at 88 script
 # and 41 witness bytes per level (JOIN_0 and JOIN_2 at D=16 are measured
-# directly). Sparse JOIN_0 and JOINK_2 at D=32 are measured in
-# spec/scripts/sizes.md. The on-chain batch line is derived: 43 vB per
+# directly: 937 and 872 vB, 679 vB at h = 8, 614 at h = 10). Sparse JOIN_0
+# and JOINK_2 at D=32 are measured in
+# spec/scripts/sizes.md (1,601 vB, and 2,821 for two members). The on-chain batch line is derived: 43 vB per
 # P2TR output plus 68.5 vB of shared transaction overhead (version,
 # locktime, counts and one input) divided by the batch size N. The
 # Lightning open is a one-input, two-output P2TR funding transaction
 # (about 154 vB), not a figure from the spec.
-JOIN_DENSE = [(1, 980), (4, 229), (16, 53), (64, 12.3), (256, 2.8),
-              (1024, 0.64), (4096, 0.145)]
-JOIN_SPARSE = [(1, 1644), (2, 1432)]
+JOIN_DENSE = [(1, 937), (4, 218), (16, 50.5), (64, 11.6), (256, 2.65),
+              (1024, 0.60), (4096, 0.134)]
+JOIN_SPARSE = [(1, 1601), (2, 1411)]
 BATCH_OVERHEAD_VB = 68.5
 LN_OPEN_VB = 154
 
@@ -99,9 +101,9 @@ LN_OPEN_VB = 154
 # order within a scenario is fixed: dense, sparse, Lightning, Ark, bare
 # on-chain.
 LIFETIME_GROUPS = [
-    ("Enters in a batch, never exits alone", [3, 1644, 197, 86, 154]),
-    ("Enters in a batch, exits in a batch", [161, 3108, 197, 86, 154]),
-    ("Enters in a batch, exits alone", [1023, 3281, 573, 2554, 154]),
+    ("Enters in a batch, never exits alone", [3, 1601, 197, 86, 154]),
+    ("Enters in a batch, exits in a batch", [161, 3065, 197, 86, 154]),
+    ("Enters in a batch, exits alone", [1023, 3238, 573, 2554, 154]),
 ]
 
 # ---------------------------------------------------------------------------
@@ -370,9 +372,9 @@ def fig_join_amortisation(png_dir):
             color=GRAY, lw=2 * PX, solid_joinstyle="round", zorder=3)
     series(ax, JOIN_SPARSE, BLUE_LIGHT)
     series(ax, JOIN_DENSE, BLUE)
-    label(ax, 1, 1644, "1,644 (sparse)", 10, 8)
-    label(ax, 1, 980, "980", 4, -14, ha="center")
-    label(ax, 4096, 0.145, "0.145", 10, 0)
+    label(ax, 1, 1601, "1,601 (sparse)", 10, 8)
+    label(ax, 1, 937, "937", 4, -14, ha="center")
+    label(ax, 4096, 0.134, "0.134", 10, 0)
     f.legend([line_handle(BLUE), line_handle(BLUE_LIGHT),
               line_handle(GRAY, marker=False),
               line_handle(AQUA, marker=False, lw=1.5)],
@@ -608,11 +610,11 @@ def fig_radix(png_dir):
 
 # The batching shapes share the axes of the exit-amortisation figure. The
 # cohort rewrite point is the measured REWRITE_6 with every key rotated
-# (148 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
+# (151 vB per changed leaf) and the detach point is an EXIT_1 at depth 8
 # after a DETACH_8 (780 vB once); the depth-8 EXIT_1 is 762 vB by the
 # fee analysis model (spec 11's table rounds it to 765). The other series
 # reuse the constants above.
-COHORT_REWRITE = [(64, 148)]
+COHORT_REWRITE = [(64, 151)]
 DETACH_EXIT = [(256, 762)]
 VIOLET = "#4a3aa7"
 
@@ -641,8 +643,8 @@ def fig_batching_shapes(png_dir):
     series(ax, COHORT_REWRITE, ORANGE, hollow=True, line=False)
     series(ax, DETACH_EXIT, VIOLET, hollow=True, line=False)
     label(ax, 1, 1020, "1,020", 10, 0)
-    label(ax, 64, 162, "162", 0, 12, ha="center")
-    label(ax, 64, 148, "148", 10, -4)
+    label(ax, 64, 165, "165", 0, 12, ha="center")
+    label(ax, 64, 151, "151", 10, -4)
     label(ax, 256, 762, "762", 0, 12, ha="center")
     label(ax, 205, 147, "147", 0, 12, ha="center")
     f.legend([line_handle(BLUE), line_handle(BLUE, hollow=True),
@@ -690,10 +692,10 @@ def fig_cohort_cost(png_dir):
     label(ax, 1, 1020, "1,020", 10, 0)
     label(ax, 2, 842, "842", 10, 4)
     label(ax, 3, 432, "432", -10, 0, ha="right")
-    label(ax, 4, 364, "364", 10, 4)
+    label(ax, 4, 366, "366", 10, 4)
     label(ax, 13, 203, "203", -10, -6, ha="right")
-    label(ax, 16, 200, "200", 10, 6)
-    label(ax, 64, 162, "162", 0, 12, ha="center")
+    label(ax, 16, 202, "202", 10, 6)
+    label(ax, 64, 165, "165", 0, 12, ha="center")
     f.legend([line_handle(GRAY), line_handle(BLUE), line_handle(AQUA)],
              ["EXIT_1 alone, then EXIT_2 (each owner carries its own "
               "path)",

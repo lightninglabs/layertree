@@ -236,10 +236,10 @@ L 92.103617 168.351709
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="56.08" y="142.85612" transform="rotate(-0 56.08 142.85612)">1,020</text>
    </g>
    <g id="text_19">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="322.221702" y="264.51692" transform="rotate(-0 322.221702 264.51692)">162</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="322.221702" y="264.049575" transform="rotate(-0 322.221702 264.049575)">165</text>
    </g>
    <g id="text_20">
-    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="332.221702" y="282.697866" transform="rotate(-0 332.221702 282.697866)">148</text>
+    <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="332.221702" y="282.23052" transform="rotate(-0 332.221702 282.23052)">151</text>
    </g>
    <g id="text_21">
     <text style="font-size: 8.64px; font-family: 'Helvetica Neue', 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #0b0b0b" x="414.268936" y="171.04783" transform="rotate(-0 414.268936 171.04783)">762</text>
@@ -282,9 +282,9 @@ z
 " style="stroke: #2a78d6; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#mdf79b5d5d5" x="138.127234" y="242.815418" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
-     <use xlink:href="#mdf79b5d5d5" x="230.174468" y="268.363636" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
-     <use xlink:href="#mdf79b5d5d5" x="322.221702" y="274.283345" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="138.127234" y="242.503855" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="230.174468" y="268.052073" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
+     <use xlink:href="#mdf79b5d5d5" x="322.221702" y="273.816" style="fill: #ffffff; stroke: #2a78d6; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="line2d_37">
@@ -321,7 +321,7 @@ z
 " style="stroke: #eb6834; stroke-width: 1.44"/>
     </defs>
     <g>
-     <use xlink:href="#m01dc74fd02" x="322.221702" y="276.464291" style="fill: #ffffff; stroke: #eb6834; stroke-width: 1.44"/>
+     <use xlink:href="#m01dc74fd02" x="322.221702" y="275.996945" style="fill: #ffffff; stroke: #eb6834; stroke-width: 1.44"/>
     </g>
    </g>
    <g id="line2d_39">
