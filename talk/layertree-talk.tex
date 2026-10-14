@@ -47,7 +47,7 @@
   \begin{enumerate}
     \item One output commits to a Merkle-sum tree of balances; the tree is data, not transactions.
     \item Every transition proves an old node and folds a new one up the same path; the sums make theft structurally impossible.
-    \item Anyone leaves in \hl{one transaction} with their own signature: about 541 vB at 65,536 members, plus 10 vB per doubling.
+    \item Anyone leaves in \hl{one transaction} with their own signature: 1,020 vB at 65,536 members from proposed opcodes (FULL); about 541 vB, plus 10 vB per doubling, with a hypothetical Merkle-sum opcode.
     \item Payments happen off-chain: channel leaves make it a one-UTXO Lightning hub, vouchers and pending pairs give zero-byte receives.
     \item The cost is one queue for everyone, and opcodes that aren't active yet. Four tiers show exactly how few are needed.
   \end{enumerate}
@@ -118,9 +118,9 @@
     \begin{column}{0.44\textwidth}
       \begin{block}{What it costs}
         About \textbf{32 vB per level} with proposed opcodes (FULL tier),
-        \textbf{10 vB per doubling} with a native Merkle-sum opcode.\\[0.4em]
+        \textbf{10 vB per doubling} with a hypothetical native Merkle-sum opcode.\\[0.4em]
         At 65,536 members: \textbf{1,020 vB} (FULL), \textbf{908 vB} (CCV),
-        about \textbf{541 vB} (CCV + Merkle-sum opcode).\\[0.4em]
+        about \textbf{541 vB} (CCV + the hypothetical opcode).\\[0.4em]
         Constant in $N$ up to the depth: it does not grow with the number of members.
       \end{block}
     \end{column}
@@ -541,7 +541,7 @@
       \only<3>{Another payment: a new voucher to an \emph{absolute} target, $L_0 + \Sigma a_i = 6$.
         Replay is harmless: a target can only be reached once. One voucher per window, however many payments.}
       \only<4>{\textbf{R3, the normal path.} Before $T-\Delta$ the operator's reclaim-form rewrite moves the settled total from P to L, with \emph{only the operator's signature}. Batched across many pairs. \hl{Non-interactive}: the recipient can be asleep.}
-      \only<5>{\textbf{R2, if the operator doesn't.} A tower redeems the latest voucher with the preimage (\tr{CLAIM}$^{hm}$, about 626 vB). It can only move value \emph{into} a leaf the recipient alone exits, so the tower holds no key.}
+      \only<5>{\textbf{R2, if the operator doesn't.} A tower redeems the latest voucher with the preimage (\tr{CLAIM}$^{hm}$: about 1,136 vB in FULL, 626 with the hypothetical opcode). It can only move value \emph{into} a leaf the recipient alone exits, so the tower holds no key.}
       \only<6>{\textbf{R1, after $T$.} The operator reclaims what's left of P with a \code{nLockTime} $\geq T$ (\tr{RECLAIM}$_1$), and must hold the inbound HTLCs until that confirms. Then it rolls a fresh pair.}
     \end{column}
   \end{columns}
@@ -562,7 +562,7 @@
   \begin{columns}[T]
     \begin{column}{0.5\textwidth}
       \begin{tabular}{@{}lr@{}}
-        \multicolumn{2}{@{}l}{\textbf{Per active pair, per window} (CCV + Merkle-sum)}\\ \midrule
+        \multicolumn{2}{@{}l}{\textbf{Per pair, per window} (CCV + opcode)}\\ \midrule
         no R3: \tr{CLAIM}$^m$ + \tr{RECLAIM}$_1$ & \nPairNoRthree\ vB \\
         R3 batch, 16 positions & \nPairWindowSixteen\ vB \\
         R3 batch, 64 positions & \nPairWindow\ vB \\
@@ -571,6 +571,7 @@
     \begin{column}{0.46\textwidth}
       Per payment: \textbf{zero}. The cost moves to the window, so a merchant with a thousand receives a day pays what a wallet with one does.
       Built end to end in FULL, MID and CCV; MIN can't (no CSFS).
+      \muted{These figures assume a proof that can start above height 0; without that, about 480 vB more per merge or rewrite.}
     \end{column}
   \end{columns}
 \end{frame}
@@ -643,20 +644,22 @@
 \begin{frame}{The floor: one Merkle-sum opcode}
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
-      Unrolling the fold is most of the script. A single opcode that verifies a Merkle-sum path and returns the updated root would make:
+      Unrolling the fold is most of the script. A single opcode that verifies a Merkle-sum path and returns the updated root replaces the fold and the sum arithmetic along the path. Then:
       \begin{itemize}
-        \item the exit script \textbf{252 bytes at any depth}, either profile,
-        \item the proof one 40-byte sibling per \emph{occupied} level,
-        \item a key-addressed tree of depth 64 practical: no sizing in advance,
-        \item an exit \textbf{about 381 + 10$\log_2 N$ vB}.
+        \item the exit script is \textbf{252 bytes at any depth}, dense or sparse,
+        \item the proof is one 40-byte sibling per \emph{occupied} level,
+        \item a key-addressed tree of depth 64 is practical,
+        \item an exit is \textbf{about 381 + 10$\log_2 N$ vB}.
       \end{itemize}
+      The scripts still do arithmetic for pending receives and lock-time checks.
     \end{column}
     \begin{column}{0.44\textwidth}
       \begin{block}{Status}
         Specified and measured in the simulator behind a \code{hypothetical} flag (\nChecksMSU\ checks).
-        Quarantined from every tier, every golden vector, every allowed-opcode set.
+        Quarantined from every tier and golden vector.
         Nobody has proposed it for Bitcoin.\\[0.4em]
-        The scaling numbers that follow assume it, with the FULL tier drawn for reference, because it's the most succinct form of the same design.
+        Later slides mark the figures that use it (541, 626, 547 vB). The rest are FULL or the named tier.\\[0.4em]
+        626 and 547 also assume a proof that can start above height 0; without that, about 480 vB more per merge or rewrite.
       \end{block}
     \end{column}
   \end{columns}
@@ -696,7 +699,7 @@
         $2^{32}$ & 701 & 1,536 & 4,911 \\
         \bottomrule
       \end{tabular}\\[0.6em]
-      A LayerTree exit is about $381 + 10\log_2 N$ vB: one 40-byte sibling per occupied level.
+      LT is CCV with the hypothetical opcode: $381 + 10\log_2 N$ vB, one 40-byte sibling per occupied level.
       A transaction tree pays a whole $\sim$150 vB transaction per level.\\[0.4em]
       \muted{At $2^{16}$: 4.6$\times$ smaller; at $2^{32}$: 7$\times$.}
     \end{column}
@@ -808,11 +811,11 @@
 
 \begin{frame}{Where it loses}
   \begin{itemize}
-    \item \textbf{Against a bare output, on every solo exit.} 541 vB against 111. The proof is the price of sharing, and only batching gets it back.
-    \item \textbf{Roughly level with a Lightning force close in bytes} (530 vB), but one transaction and one block against three and about a day.
+    \item \textbf{Against a bare output, on every solo exit.} 541 vB with the hypothetical opcode (1,020 in FULL) against 111. The proof is the price of sharing, and only batching gets it back.
+    \item \textbf{Level with a Lightning force close in bytes only with the hypothetical opcode} (541 against 530 vB; FULL is about twice), but one transaction and one block against three and about a day.
     \item \textbf{A non-cooperative mass exit from one big tree.} Exits serialise through one output; transaction-tree branches unroll in parallel.
     \item \textbf{On-chain payments.} An \tr{UPDATE} is about 1,030 vB. Value has to move off-chain: channel leaves, vouchers, or batched rewrites.
-    \item \textbf{It needs opcodes that aren't active.} With today's proposals the cheapest exit is CCV's 908 vB; the scaling numbers assume an opcode nobody has proposed.
+    \item \textbf{It needs opcodes that aren't active.} With today's proposals the cheapest exit is CCV's 908 vB; the 541 vB figures assume an opcode nobody has proposed.
     \item \textbf{Joining needs the operator.} No liveness guarantee for getting in, only for getting out.
   \end{itemize}
 \end{frame}
@@ -957,8 +960,8 @@
   \begin{columns}[T]
     \begin{column}{0.5\textwidth}
       \begin{itemize}
-        \item \textbf{Cheaper rewrite steps.} Just landed: an 8-byte amount-only element in place of a republished 116-byte leaf (587 $\to$ 547 vB per settled pair). The per-position script is now most of a batch's cost.
-        \item \textbf{A native Merkle-sum opcode.} 252 bytes of script at any depth; key-addressed trees of depth 64. Worth proposing?
+        \item \textbf{Cheaper rewrite steps.} Just landed: an 8-byte amount-only element in place of a republished 116-byte leaf (587 $\to$ 547 vB per settled pair, with the hypothetical opcode). The per-position script is now most of a batch's cost.
+        \item \textbf{A native Merkle-sum opcode.} 252 bytes of script at any depth; key-addressed trees of depth 64. It helps exits, not batches. Worth proposing?
         \item \textbf{Liquid prototype of MID.} Most of the opcodes exist there today.
         \item \textbf{Signet / Inquisition harness} to confirm the throughput and TRUC-anchor assumptions on a real node.
       \end{itemize}
