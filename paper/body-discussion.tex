@@ -14,7 +14,6 @@ tower exit \tr{EXIT}$_K^{t}$ (spec 7.2 rule 7) was adopted: a signature
 over the leaf without its amount and the tree's identifier, checked from the stack, lets a
 tower rebuild and rebroadcast an exit with the owner offline, which takes
 the owner's liveness out of the auction without changing its price. A
-Liquid prototype of MID is the obvious next experiment; a
 hypothetical native Merkle-sum opcode (simulator only, in no tier, not
 proposed here) takes \tr{EXIT}$_1$ to 252 B of script at every depth and the
 exit to about $381 + 10k\vB$ for $2^k$ members (\S\ref{sec:eval}).
@@ -24,7 +23,7 @@ is set by policy and fees, which [C] names; cluster
 mempool~\cite{clustermempool} raises $\kappa$ for a cooperative tree but
 shares the cluster with every descendant anyone attaches, and fee
 pinning is outside [C]. The price of the one-transaction exit is one
-UTXO for all activity. Next: a Liquid prototype of MID~\cite{elements}, a
+UTXO for all activity. Next: a
 verified compiler, a proof that channel leaves compose, a P
 model~\cite{plang}, and costing a native Merkle-sum opcode (\S\ref{sec:eval}).
 \fi
