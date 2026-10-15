@@ -1,7 +1,8 @@
 # Publishes the explainer site to GitHub Pages (served at layertree.tech).
 # The site's contents sit at the bundle root, next to spec/, design/,
 # CONCEPTS.md and the paper. Its relative links (../spec/, ../../design/)
-# still resolve there, since a browser clamps ".." at the root. The
+# still resolve there, since a browser clamps ".." at the root. A copy
+# also stays at site/ so links to the old layertree.tech/site/ paths work. The
 # repository itself stays private; only this bundle is served.
 name: pages
 
@@ -34,7 +35,7 @@ jobs:
           B=bundle
           mkdir -p "$B/formal" "$B/paper"
           cp -R site/. "$B/"
-          cp -R spec design "$B/"
+          cp -R site spec design "$B/"
           cp CONCEPTS.md "$B/"
           cp formal/README.md "$B/formal/"
           cp paper/main.pdf paper/main-full.pdf "$B/paper/"
