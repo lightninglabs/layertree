@@ -392,29 +392,37 @@ how many slots the depth allows.
 
 ## What it costs
 
-Sharing moves cost out of steady state and into the exit. All figures are
-FULL tier unless noted, measured in the simulator over real transactions;
-[`design/cost-comparison.md`](design/cost-comparison.md) has the
-derivations.
+Sharing moves cost out of steady state and into the exit. The FULL
+column is measured in the simulator over real transactions at depth 16
+(65,536 members); [`design/cost-comparison.md`](design/cost-comparison.md)
+has the derivations. The last column is CCV plus the hypothetical
+`OP_MERKLESUMUPDATE` of [`design/native-opcodes.md`](design/native-opcodes.md),
+measured at 65,536 members: one opcode that verifies a Merkle-sum path
+and computes the new root, in place of the unrolled fold. It's a
+measurement of where the floor is, not a tier anything depends on.
 
-| Operation | Cost |
-|---|---|
-| Exit alone, depth 16 | 1,020 vB (MID 1,355, MIN 1,473, CCV 908) |
-| Exit alone, depth 20 (~1M members) | about 1,150 vB |
-| Each extra level of depth | about 32 vB |
-| Two exits batched | 842 vB each |
-| Cohort sweep, 13 / 51 leaves | 203 / 158 vB per leaf |
-| `REWRITE_h`, everyone exits | about 165 vB per leaf |
-| `REWRITE_h`, every balance changes | about 151 vB per leaf |
-| `REWRITE_h`, position left unchanged | about 95 vB |
-| `UPDATE` | 1,030 vB |
-| `DETACH_h` of a 256-member cohort | about 780 vB (621 under CCV) |
-| Graft of 1 / 256 / 1,024 members | 937 / 679 / 614 vB in total |
-| A payment | 0 (off-chain) |
+| Operation | FULL | CCV + `OP_MERKLESUMUPDATE` |
+|---|---|---|
+| Exit alone, 65,536 members | 1,020 vB (MID 1,355, MIN 1,473, CCV 908) | 541 vB |
+| Exit alone, ~1M members | about 1,150 vB | 581 vB |
+| Each doubling of the membership | about 32 vB | about 10 vB |
+| Two exits batched | 842 vB each | not measured |
+| Cohort sweep, 13 / 51 leaves | 203 / 158 vB per leaf | 176 / 153 vB per leaf |
+| `REWRITE_h` of 64, everyone exits | about 165 vB per leaf | not measured |
+| `REWRITE_h` of 64, every key rotated | about 151 vB per leaf | 147 vB per leaf |
+| `REWRITE_h` of 64, every balance topped up | about 108 vB per leaf | 104 vB per leaf |
+| `REWRITE_h`, position left unchanged | about 95 vB | not measured |
+| `UPDATE` | 1,030 vB | 527 vB |
+| `DETACH_h` of a 256-member cohort | about 780 vB (621 under CCV) | not measured |
+| Graft of 1 / 256 / 1,024 members | 937 / 679 / 614 vB in total | 495 / 365 / 345 vB in total |
+| A payment | 0 (off-chain) | 0 (off-chain) |
 
-The per-leaf cost of removal *falls* as the cohort grows, because the
-interior of the subtree is hashed once rather than once per leaf.
-Transaction trees go the other way.
+The per-leaf cost of removal falls as the cohort grows, because the
+interior of the subtree is hashed once rather than once per leaf. The
+opcode roughly halves every single-path operation, since the script stops
+growing with depth and each level of witness shrinks to one 40-byte
+sibling. It barely moves the cohort operations, whose cost is the leaves
+they publish rather than the path.
 
 Lifetime bytes per member, entry plus exit, entering in a batch:
 
@@ -465,7 +473,7 @@ template brings back a signer.
 
 For a sense of the floor: a single hypothetical Merkle-sum-update opcode,
 measured in the simulator and kept out of every tier, would make an exit
-about 540 vB at 65,536 members with 252 bytes of script at any depth
+541 vB at 65,536 members with 252 bytes of script at any depth
 ([`design/native-opcodes.md`](design/native-opcodes.md)).
 
 ## How it's verified
