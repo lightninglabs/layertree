@@ -1,467 +1,532 @@
-# LayerTree, explained
+# LayerTree, end to end
 
-*A high-level tour of the design. The normative document is
-[`spec/layertree.md`](spec/layertree.md); the paper in [`paper/`](paper/)
-is the academic write-up. This file is the version you would read first.*
+*The engineer's tour of the whole system: what it is, how the pieces fit,
+what each party can and can't do, what it costs, and where the code lives.
+Read this first. The normative rules are in
+[`spec/layertree.md`](spec/layertree.md), and the reading list at the
+bottom points at the deeper notes.*
 
-## The problem: everyone shares one coin, but leaving is expensive
+## What it is
 
-Bitcoin's scaling constraint is not really about payments. It is about
-**ownership**. Every distinct owner wants their own unspent output, and
-outputs are the scarce resource. So the obvious move is to let many people
-share one output, and the hard part is what happens when one of them wants
-to leave.
+LayerTree is a non-custodial layer on top of Bitcoin. Many users share a
+single on-chain output (UTXO), and the balances inside it live in an
+off-chain Merkle-sum tree that the output commits to. An operator runs the
+tree: it admits members, co-signs changes, and forwards Lightning payments
+for members whose leaves host channels. It holds no key over anyone's
+money.
 
-Every shared-UTXO design in the wild answers that question the same way.
-Channel factories, CoinPool, Ark, timeout trees, covenant trees built on
-`OP_CHECKTEMPLATEVERIFY` or `OP_CHECKCONTRACTVERIFY`: the shared output is
-the root of a **tree of transactions**. To leave on your own, you publish
-the path from the root down to your leaf. That is `O(log N)` transactions,
-each paying a fee, each waiting for a confirmation. The interior of that
-tree has to exist in advance, either as transactions every member signed
-while online, or as covenant templates fixed at creation. And when the tree
-expires, reclaiming the funds of one unresponsive member means putting the
-whole thing on-chain.
+The property everything else is built around: any member can leave on
+their own, at any time, in **one transaction of constant size**, without
+asking the operator or any other member. At depth 16 (65,536 members) that
+exit is about 1,020 vB; at depth 20 (about a million) it is about 1,150 vB.
+Nothing expires, nothing has to be refreshed, and nobody has to come
+online by a deadline to keep their funds.
 
-You pay for the sharing at exactly the moment you most need it to be cheap.
+The catch is that it needs a covenant soft fork. The scripts use opcodes
+that are proposed but not active (`OP_CAT` at minimum, see "Opcodes and
+tiers" below). Everything here is a design, a spec, and a reference
+implementation that runs in a tapscript simulator with those opcodes
+switched on.
 
-## The idea: make the tree data, not transactions
+## The problem it solves
 
-LayerTree keeps the tree, but the tree never becomes transactions. It is a
-**Merkle-sum tree of balances** that lives entirely off-chain, and a single
-on-chain output commits to its root.
+Bitcoin's scarce resource is outputs, not payments. Every distinct owner
+wants their own UTXO, so the obvious scaling move is to let many owners
+share one, and the hard part is what happens when one of them wants out.
 
-To leave, you do not publish a path of transactions. You present your leaf
-and its Merkle proof **to the output itself**. The spending script:
+Every shared-UTXO design in the wild answers that the same way. Channel
+factories, Ark, timeout trees, and covenant trees built on
+`OP_CHECKTEMPLATEVERIFY` or `OP_CHECKCONTRACTVERIFY` all make the shared
+output the root of a **tree of transactions**. To leave alone, you
+publish the branch from the root down to your leaf: `O(log N)`
+transactions, each paying a fee and waiting for a confirmation. The
+interior of that tree has to exist ahead of time, either pre-signed by
+members who were online, or fixed as covenant templates at creation. And
+in the designs that expire, every member has to move their funds out
+before the deadline or lose them to whoever holds the timeout path.
+
+So you pay the most for the sharing at exactly the moment you need it to
+be cheap.
+
+## The core idea: the tree is data, not transactions
+
+LayerTree keeps a tree, but the tree never becomes transactions. It's a
+Merkle-sum tree of balances, held off-chain, and one taproot output
+commits to its root.
+
+To leave, you hand your leaf and its Merkle proof **to the output
+itself**. The spending script:
 
 1. recomputes the root from your leaf and your proof,
-2. checks that it matches the root the output committed to,
-3. recomputes the root a second time with your leaf removed,
-4. and forces the transaction to recreate the shared output under that new
-   root, paying you your balance.
+2. checks it against the root the output commits to,
+3. recomputes the root again with your leaf replaced by an empty one,
+4. and requires the transaction to recreate the shared output under the
+   new root, with your balance paid to your key in another output.
 
-One transaction. No pre-signing. Nobody else's signature. The cost grows
-with the *depth* of the tree, at about 32 virtual bytes per level, rather
-than with a path of transactions. At depth 16, which is 65,536 slots, a
-unilateral exit is about 1,020 virtual bytes.
+One transaction, no pre-signed paths, nobody else's signature. Cost grows
+with the *depth* of the tree, roughly 32 vB per level, rather than with a
+chain of transactions. Everything below is a consequence of that one
+move.
 
-That is the whole idea. Everything below is a consequence of it.
+## The data model
 
-## Five concepts that make it work
+### Leaves
 
-### 1. State lives in the output's address
+A leaf is a fixed 116-byte record (spec 5.2):
 
-A taproot output's address is derived from an internal public key and a
-tree of spending scripts. LayerTree derives the internal key from the
-Merkle root:
+| Field | Bytes | What it's for |
+|---|---|---|
+| `amount` | 8 | the balance, in satoshis |
+| `exit_key` | 32 | where an exit or eviction pays, as `P2TR(exit_key)` |
+| `owner_key` | 32 | authorises exits, updates and vouchers |
+| `evictor_key` | 32 | may remove the leaf once the lease is up |
+| `evict_after` | 4 | the lease: block height after which eviction is allowed |
+| `nonce` | 4 | with `owner_key`, identifies the leaf |
+| `seq` | 4 | bumped by every carve against the leaf, which is what makes vouchers single-use |
+
+`exit_key` is separate from `owner_key` on purpose. A hot key can
+authorise while the money lands on a cold key, and a channel leaf can name
+its future funding output there.
+
+Leases are optional. A member who never wants to be evicted sets
+`evictor_key` to an unspendable point. A member who does accept a lease
+loses nothing if it's enforced: eviction pays the full balance to their
+`exit_key`, the same output a voluntary exit would. Accepting a lease is
+what lets the operator sweep a whole cohort cheaply (more on that below).
+
+### Nodes carry sums
+
+Every node is a pair `(hash, sum)`. A parent is
 
 ```
-P = lift_x( NUMS + H_state(root) * G )
+(H_node(lh || enc64(ls) || rh || enc64(rs)),  ls + rs)
 ```
 
-`NUMS` is a point nobody knows the discrete log of, so there is no key-path
-spend and every spend must reveal and satisfy a script. But the *address*
-now encodes the tree's state. Change one balance and the output's address
-changes.
-
-This is the trick that turns an output into a state machine. The scripts do
-not need to store the state; they receive the claimed root in the witness,
-recompute the address from it, and compare against the output actually
-being spent. If the spender lies about the root, the addresses do not
-match and the script fails.
-
-The scripts also bind the *script set* the same way, because the address
-commits to both. Without that, a spender could recreate the shared output
-under rules of their own choosing, which would be the whole game.
-
-### 2. The tree carries sums, not just hashes
-
-Each node is a pair: a hash and an amount. A parent's amount is the sum of
-its children's. So the root does not just commit to *which* leaves exist,
-it commits to *how much they add up to*, and the output's satoshi value is
-required to equal that.
-
-This is what makes theft structurally impossible rather than merely
-forbidden. A script cannot see the whole tree; it sees one leaf and one
-path. But because sums travel up the path alongside hashes, a script that
-verifies your proof has also verified your leaf's contribution to the
-total. Every transition recomputes the root twice, once before and once
-after, and the difference between the two sums is exactly what may leave
-the output.
-
-An operator who wants to steal from you would have to produce a different
+so the root commits not just to *which* leaves exist but to *how much
+they add up to*, and the output's value must equal the root's sum. A
+script only ever sees one leaf and one path, but because every sum on
+the path is hashed into its parent, verifying your proof also verifies your
+contribution to the total. Each transition recomputes the root twice,
+before and after, and the difference between the two sums is exactly what
+may leave the output. Taking more than that would mean finding a different
 tree with the same root.
 
-### 3. Your proof is your authorisation
+### Dense and sparse
 
-The original sketch for this design had the operator sign a **voucher**
-that you presented in order to exit. The review threw that out, and the
-reasoning is worth keeping, because it is the heart of the security model.
+A tree has a fixed depth `D` and one of two profiles, chosen at creation.
 
-Once the covenant checks your proof against the committed root, the
-operator's signature adds nothing. Your leaf's presence in the root *is*
-the operator's commitment; they agreed to it when they signed the
-transition that put it there. What a required voucher *would* add is a
-dependency on the operator at exit time, and therefore a way for them to
-censor you by declining to issue one.
+**Dense** is the default. The operator assigns positions in order, so
+65,536 members need depth 16, and cohorts can be grafted in and swept out
+as aligned subtrees. Everything in this document assumes dense unless it
+says otherwise.
 
-So exits are authorised by the leaf owner's own signature over the spending
-transaction, and the operator holds no key over anyone's funds. They can
-add members, co-sign cooperative changes, and evict members whose lease has
-run out. They cannot take a satoshi or stop you leaving.
+**Sparse** places a leaf at a position hashed from its `owner_key` and
+`nonce`. That takes the operator out of slot assignment and gives proofs
+that a key is *absent*, which is what a key-addressed registry wants. It
+needs about twice the depth to avoid collisions and each level is a
+heavier script, so an exit costs 1.7 to 2.8 times as much, and it can't
+graft or sweep cohorts. [`design/tree-comparison.md`](design/tree-comparison.md)
+has the measurements.
 
-### 4. The interface is small
+## The shared output
 
-Everything the shared output can do fits on one page:
+### State lives in the address
 
-| Interface | Who | What it does |
+A taproot address is derived from an internal key and a tree of scripts.
+LayerTree derives the internal key from the Merkle root (spec 6):
+
+```
+P             = lift_x( NUMS + H_state(root)·G )
+TREE_SPK(r,m) = P2TR( P tweaked by m )        # m = taptree root of the script set
+```
+
+`NUMS` is a point with no known discrete log, so there's no key-path
+spend: every spend reveals and satisfies a script. But the address now
+encodes the state. Change one balance and the address changes.
+
+That's what turns an output into a state machine. The scripts don't store
+state. They take the claimed root and `m` from the witness, recompute
+`TREE_SPK(root, m)`, and compare it with the output being spent. Lie
+about the root and the comparison fails. The same check binds `m`, so a
+spender can't recreate the shared output under rules of their own
+choosing, and the new output must be `TREE_SPK(new_root, m)` with the
+same script set.
+
+Two more creation parameters matter. `tree_id` is a unique per-tree
+constant (by default a hash of the funding outpoint) that vouchers and
+channel IDs bind, so a signature for one tree can't be replayed in
+another tree built with identical parameters. `DUST_MIN` (330 sat by
+default) is the smallest leaf a carve may create, so nobody can plant a
+dust leaf that blocks a cohort sweep.
+
+### One machine: the step
+
+Every transition is a sequence of **steps**. A step proves an old node
+against the current root, then folds a new node up the same path to get
+the next root. An exit is one step that replaces a leaf with `E_0`, the
+empty node. A join is one step that replaces an empty subtree with a
+populated one. Two batched exits are two steps chained, the second
+proving against the root the first produced.
+
+Tapscript has no loops, so everything is unrolled twice over. Inside a
+script, the fold over depth is one copy of the level code per level,
+which is why script size grows linearly with `D`. Across scripts, each
+transition shape and batch size is different bytes and therefore its own
+leaf of the taptree. Revealing a script costs a Merkle path to it, so each
+doubling of the script set adds 8 vB to every spend. The set is fixed at
+creation because `m`, its root, is part of the tree's address.
+
+## The transitions
+
+The full menu, spec section 7:
+
+| Transition | Who signs | What it does |
 |---|---|---|
-| `JOIN` | operator | Grafts a new member, or a whole prebuilt subtree, into an empty slot |
-| `EXIT` | leaf owner | Removes your leaf, pays your balance to your exit key |
-| `EVICT` | evictor, after the lease height | Removes an expired leaf, paying the owner exactly |
-| `UPDATE` | owner and operator | Rewrites a leaf in place: resize, renew the lease, rotate keys |
-| `CLAIM` | anyone holding a voucher | Carves a new leaf out of an existing one; the new leaf keeps the source's evictor and a lease no longer than the source's, so eviction holds per balance |
-| `SPLIT` | a leaf owner | The same carve, authorised by signing the transaction rather than a voucher; needs no signature-over-stack-data opcode, so it exists in all four tiers, including MIN |
-| `SWEEP` (`EVICT_SUBTREE_h` in the spec) | evictor | Removes a whole expired cohort in one transaction |
+| `EXIT_K` | each leaf owner | removes `K` leaves, paying each to its `exit_key` |
+| `EXIT_K^=` | each leaf owner | the same, with the payout exactly the leaf amount (used by channel leaves) |
+| `EXIT_K^t` | anyone holding the owner's earlier authorisation | the exact-payout exit, authorised by an off-chain signature, so a tower can build it while the owner is offline |
+| eviction | the evictor, after `evict_after` | removes one expired leaf, paying it in full to `exit_key` |
+| `EVICT_SUBTREE_h` | the evictor | sweeps an expired aligned cohort of `2^h` positions in one transaction |
+| `JOIN_h` | the operator | grafts a prebuilt subtree of height `h` into an empty slot |
+| `JOINK_K` | the operator | `K` single-leaf joins in one transaction |
+| `UPDATE` | owner and operator | rewrites a leaf in place: resize, renew the lease, rotate keys |
+| `UPDATE^x` | owner, operator and exit key | the same, for leaves whose balance isn't the owner's alone (channels, credit leaves) |
+| `CLAIM` and its forms | anyone holding a voucher | carves a new leaf out of an existing one, two steps in one transaction |
+| `SPLIT` | the leaf owner | the same carve, authorised by signing the transaction instead of a voucher |
+| `REWRITE_h` | the operator, plus each owner whose leaf changes | publishes a cohort subtree before and after; any mix of exits, joins, key rotations and balance moves in one transaction |
+| `DETACH_h` | the operator | moves an aligned cohort into its own tree output, with the parent's rules and `tree_id` |
+| `RECLAIM_1` | the operator, after a deadline | removes an expired pending leaf from the receive flow, with no payout |
 
-They are all the same machine underneath. Every one of them is a sequence
-of **steps**, and a step is: prove an old node against the current root,
-then fold a new node up the same path to get the next root. An exit is one
-step replacing a leaf with emptiness. A join is one step replacing
-emptiness with a subtree. A batched exit of five members is five steps
-chained, each proving against the root the last one produced. The script
-for a five-way exit is the script for a one-way exit with the loop body
-repeated, because tapscript has no loops and everything is unrolled.
+The rules all reduce to a few checks: the old root binds to the input,
+the new root binds to output 0, the sums balance, the right key signed,
+and any payout is to `P2TR(exit_key)` for at least (or exactly) the leaf
+amount.
 
-A tree has one of two shapes, and **dense is the default**. In the dense
-profile the operator assigns slots in order, so 65,536 members need depth
-16, and cohorts can be grafted and swept as aligned subtrees. The sparse
-profile places each leaf at a position hashed from its owner's key, which
-removes the operator from slot assignment and gives proofs that a key is
-absent. It is kept as a secondary option for key-addressed registries, and
-it costs about 1.8 times as much at `D = 32` (1.7 to 2.8 times over `D = 32` to `64`): random positions need about twice the
-depth to avoid collisions, and each sparse level is a heavier script. It
-cannot graft or sweep cohorts. The rest of this file describes the dense
-profile.
+## A member's life
 
-That unrolling happens twice over, and the second one is easy to miss.
-Inside a script, the fold over the tree's depth is one copy of the level
-macro per level, which is why script size grows linearly with depth. Across
-scripts, every batch size is *different bytes* and therefore a different
-leaf of the taptree: a tree that supports exits of one and two, joins at
-two heights and a cohort sweep is carrying six scripts, not three. Revealing
-one leaf costs a Merkle path to it, so each doubling of the script set adds
-eight virtual bytes to every spend of every kind. That is cheap against a
-1,020 vB exit, and it is the reason the set is chosen at creation rather
-than grown later: the taptree root is the tree's identity.
+### Joining
 
-### 5. Removal can be cheaper in bulk than one at a time
+The operator builds the new members' subtree off-chain, each member checks
+their own leaf and path inside it, and the operator grafts it in with
+`JOIN_h`. The covenant only sees the subtree's root hash and sum, so a
+graft is cheap: a walk over the levels above the slot, whatever the
+cohort's size. At depth 16 one member costs 937 vB, 256 members 679 vB
+in total, 1,024 members 614 vB.
 
-Because the covenant is verifying *data* rather than executing
-transactions, it can take shortcuts a transaction tree cannot. `SWEEP`
-takes one path down to an aligned subtree plus all the leaves beneath it,
-recomputes the subtree root once, checks every lease, and pays every leaf.
-Hashing the interior once instead of once per leaf means the per-leaf cost
-*falls* as the cohort grows:
+A graft can only fill an empty slot, so it can't touch any existing leaf.
+The one rule a joiner has to follow is to **verify your own path inside
+the subtree before funding the join**: a subtree root with no real tree
+behind it creates no value (the sums still balance) but freezes whatever
+was put under it. A funder who signs an input to the graft transaction
+verifies by signing, since the signature commits to the output carrying
+the new root. [`design/graft.md`](design/graft.md) covers funding modes
+and who trusts whom.
 
-| Removal | Cost per leaf removed |
+Joining is the one operation the operator can refuse. A user who is
+never admitted has lost nothing.
+
+### Living in the tree
+
+Steady state costs nothing on-chain. Payments happen off-chain, in channel
+leaves or by voucher (next section). Rewriting a leaf on-chain with
+`UPDATE` costs 1,030 vB, so the design only works if ordinary payments
+don't do that, and they don't.
+
+The member, or a tower acting for them, keeps their path current as other
+transitions change the root (spec 9.7). That needs data, not
+signatures. Every transition's witness publishes the paths it touched, so
+a member can update their own path from the chain alone, and someone who
+falls behind can catch up the same way.
+
+### Leaving
+
+There are four ways out, from cheapest per member to most expensive:
+
+- **Swept or rewritten with a cohort.** An operator sweep of an expired
+  cohort costs 158 to 203 vB per leaf. Owners who leave together through
+  `REWRITE_h` pay about 165 vB each.
+- **Cooperatively.** The member asks; the operator folds the exit into its
+  next transition (spec 9.3). One message.
+- **Batched with other exits.** Two owners in one `EXIT_2` average 842 vB.
+- **Alone.** One `EXIT_1`, 1,020 vB at depth 16, any time, no one else
+  involved.
+
+There are no forced timeouts. A member who never accepted a lease can sit
+in the tree indefinitely and leave whenever they like.
+
+### Who has to be online
+
+Most operations have no round at all. Exits, eviction, sweeps, voucher
+redemption and detaches are built and broadcast by one party from data
+it already holds. `UPDATE` is one exchange of plain Schnorr signatures
+between owner and operator, with no nonce round. A voucher is one message
+in one direction. The joining round is the only place several parties
+coordinate, and only the joiners and the operator take part.
+
+A plain exit can't be pre-signed and left with someone, because the
+owner's signature commits to the tree outpoint, which every transition
+changes. Trees created with `EXIT_K^t` fix that: the owner signs
+`H_exit(tree_id || body(leaf))` once, off-chain, and whoever holds it can
+build the exit against whatever root is current, and rebuild it when
+outbid. The authorisation is a bearer right until the leaf changes in
+anything other than its amount, but it can only ever pay the leaf to its
+own `exit_key`.
+
+That last point is the general rule for delegation. Every instrument a
+tower holds pays a fixed output that belongs to the member: an exit pays
+`P2TR(exit_key)`, a voucher pays its claim leaf, a channel state pays the
+balances both sides signed. A tower chooses *when* and at what fee, never
+*where* the money goes. [`design/interactivity.md`](design/interactivity.md)
+works through every operation, and [`design/towers.md`](design/towers.md)
+covers the agents.
+
+## Payments and Lightning
+
+The tree is a custody and settlement layer, not a payment rail. Three
+mechanisms move value inside it.
+
+### Channel leaves
+
+Make a leaf's `exit_key` a 2-of-2 between the owner and the operator, and
+that leaf hosts a Lightning channel that exists only off-chain. The
+channel's funding output doesn't exist yet: it appears at the payout of
+whatever transition eventually removes the leaf. Payments between channel
+leaves are ordinary HTLC forwards through the operator and **don't touch
+the tree**: no spend, no proof, no fee. A tree of `N` channel leaves is a
+Lightning node with a one-UTXO footprint, and it's reachable from the
+public network because the operator forwards between a channel leaf and
+a regular channel with the same hash and timelock arithmetic.
+
+The channels use LN-Symmetry (rebindable `OP_TX` plus
+`OP_CHECKSIGFROMSTACK` commitments) rather than penalty transactions,
+which is spec Appendix C ([`spec/channel-leaves.md`](spec/channel-leaves.md)).
+The price is patience on a force close: the exit has to confirm first,
+and it competes with every other transition for the shared output, so
+HTLC deadlines need about 220 blocks of headroom against 40 to 80 on the
+public network.
+
+### Vouchers
+
+A leaf owner signs "carve this new leaf out of mine", and the holder
+redeems it with `CLAIM`: shrink the source leaf, place the new one in an
+empty slot, total unchanged. The first step bumps the source's `seq`, so
+the same voucher can never verify again. The voucher signs the leaf
+*without its amount*, so an operator top-up of the source doesn't void
+outstanding vouchers; any other change to the leaf does.
+
+The covenant prevents over-*redemption*, not over-*issuance*: nothing
+stops someone signing more vouchers than their balance covers. A voucher
+is credit until it's claimed, and redeeming it is an on-chain carve with
+two paths, so it costs more than an exit.
+
+Put a payment hash in the voucher and require the preimage, and it
+becomes a cheque: `CLAIM^h`. Now you can sell tree balance for Lightning
+sats or buy into the tree with Lightning sats and no on-chain coins,
+swapping one secret across both legs. The hash lock is 8 bytes of script
+and no new opcode, because the preimage is hashed straight into the
+signed message: a wrong preimage gives an invalid signature. There's no
+on-chain deadline on a voucher (script can say "not before", never "not
+after"), so the deadline lives in the Lightning leg, and the HTLC side
+has to resolve first.
+
+### Receiving over Lightning
+
+The wallet case: a user with no on-chain coins wants to receive over
+Lightning and end up with a balance they can leave with alone. The
+operator gives them a credit leaf, and each incoming payment is answered
+with a cumulative hash-locked voucher for the running total. No bytes
+on-chain per payment, no minimum, no expiry, and the recipient can redeem
+the latest voucher by themselves. `CLAIM^x` adds a signature from the
+credit leaf's `exit_key` (the recipient) so the operator can't drain the
+credit leaf by vouching to itself. [`design/receive.md`](design/receive.md)
+has the analysis.
+
+That leaves one payment of trust between the operator settling the HTLC
+and signing the voucher. The pending-leaf receive closes it: a pending leaf
+owned by the operator but exiting to the recipient, a merge voucher
+(`CLAIM^m`) that lifts the recipient's own leaf to an absolute target,
+reclaimable by the operator only after a deadline (`RECLAIM_1`), and a
+batch settlement of a whole window in one `REWRITE_h`. It's an HTLC that
+lives in the tree. [`design/pending-receive.md`](design/pending-receive.md)
+walks the flows.
+
+## Trust and failure modes
+
+The operator **can**: refuse to admit someone; evict a leaf whose lease
+has run out (paying it in full); refuse to co-sign an `UPDATE`; choose the
+order and fees of its own transitions.
+
+The operator **cannot**: move, shrink or rewrite a member's leaf without
+the owner's signature; stop an exit; redirect an exit or eviction payout;
+create value. Those are covenant rules, and the Lean model proves the
+corresponding properties of the state machine.
+
+The rest of the trust model is in three places:
+
+- **Grafts are opaque.** Verify your own path before funding a join, as
+  above. This is the one hypothesis in the proofs the covenant can't
+  enforce.
+- **Vouchers are credit until claimed.** Over-issuance isn't prevented;
+  the credit leaf with `CLAIM^x` removes the issue for the receive case.
+- **Eviction is cheap.** At about 160 vB per leaf, clearing expired
+  members is cheap, which also makes griefing cheap. Members who want a
+  hard guarantee pick a far lease or none.
+
+### Throughput: the one-output chain
+
+Every transition spends and recreates the same UTXO, so unconfirmed
+transitions form one chain. Relay policy caps that chain (25 descendants
+before Bitcoin Core 31.0, the cluster limit of 64 since), so a tree can
+process about `kappa` transitions per block, around 25 to 64. The limit
+counts transactions, not leaves: a sweep of 51 leaves is one transaction.
+The worst case is a mass exit where strangers leave one at a time, and
+an adversary can also pin the chain with a cheap early transition. The
+spec states this as an explicit contention assumption `[C]` with
+`Delta(q) = Delta_L (ceil((beta + q)/kappa) + 1)` (spec 10.5).
+
+The structural answers are batching (a cohort of 64 exits in one
+`REWRITE_h`) and `DETACH_h`, which moves a cohort into its own output with
+its own chain, its own `kappa`, and shorter exits afterwards. In practice
+trees should be sized by how fast they need to be able to drain, not by
+how many slots the depth allows.
+
+## What it costs
+
+Sharing moves cost out of steady state and into the exit. All figures are
+FULL tier unless noted, measured in the simulator over real transactions;
+[`design/cost-comparison.md`](design/cost-comparison.md) has the
+derivations.
+
+| Operation | Cost |
 |---|---|
-| One exit alone | 1,020 vB |
-| Two exits batched | 842 vB |
-| Cohort sweep, 13 leaves | 203 vB |
-| Cohort sweep, 51 leaves | 158 vB |
+| Exit alone, depth 16 | 1,020 vB (MID 1,355, MIN 1,473, CCV 908) |
+| Exit alone, depth 20 (~1M members) | about 1,150 vB |
+| Each extra level of depth | about 32 vB |
+| Two exits batched | 842 vB each |
+| Cohort sweep, 13 / 51 leaves | 203 / 158 vB per leaf |
+| `REWRITE_h`, everyone exits | about 165 vB per leaf |
+| `REWRITE_h`, every balance changes | about 151 vB per leaf |
+| `REWRITE_h`, position left unchanged | about 95 vB |
+| `UPDATE` | 1,030 vB |
+| `DETACH_h` of a 256-member cohort | about 780 vB (621 under CCV) |
+| Graft of 1 / 256 / 1,024 members | 937 / 679 / 614 vB in total |
+| A payment | 0 (off-chain) |
 
-The same asymmetry works on the way in. A graft walks only the levels
-above the slot it fills, so a bigger cohort is a cheaper transaction: at
-depth 16, one member costs 937 vB, 256 members 679 vB, and 1,024 members
-614 vB. The covenant does not look inside the grafted subtree, which is why
-the whole cohort is one price. Each cohort height is its own script. The
-reference taptree carries only the single-member and four-member grafts,
-and a deployment that wants larger cohorts compiles those heights in when
-it creates the tree.
+The per-leaf cost of removal *falls* as the cohort grows, because the
+interior of the subtree is hashed once rather than once per leaf.
+Transaction trees go the other way.
 
-## What it deliberately does not promise
+Lifetime bytes per member, entry plus exit, entering in a batch:
 
-A design is only as honest as its list of non-guarantees.
-
-**Nobody has to let you in.** `JOIN` needs the operator. A member who is
-never admitted has lost nothing, but there is no liveness guarantee for
-joining.
-
-**Grafting is safe for the members already there.** A graft needs only the
-operator's signature, and it can only fill a slot that was empty, so no
-existing leaf can be moved, shrunk or rewritten by one. The party at risk
-is a funder who pays before verifying. A funder who signs an input to the
-graft transaction has verified by signing, because the signature commits to
-the output that holds the new root. A buyer who pays off-chain verifies the
-confirmed root first. An operator that funds its own leaves, or grafts a bad
-node into its own part of a cohort, freezes only its own money. The trust
-model and funding costs are in [`design/graft.md`](design/graft.md).
-
-**Grafted subtrees might be opaque.** When the operator grafts a subtree,
-the covenant sees only its root hash and its claimed sum. It cannot look
-inside. If the operator grafts a node with no real tree behind it, no value
-is created, because the sums still balance. But nothing under that node can
-ever be proved, so the value is **frozen**. The protection is procedural
-and it is mandatory: verify your own path inside a subtree before you fund
-a join. The formal model made this precise, and it is the one place where
-the proofs have a hypothesis the covenant cannot enforce.
-
-**Everything funnels through one output.** Every transition spends and
-recreates the same UTXO, so unconfirmed transitions form a chain. Bitcoin Core's
-policy allowed 25 unconfirmed descendants before release 31.0 and bounds the
-chain by the cluster limit of 64 since, and a deployment must assume the
-lower of what its relay peers enforce, so there is a hard ceiling on how fast
-a tree can be dissolved against its will. The limit
-counts transactions, not leaves, so a batch counts once: a sweep of 51
-leaves is one transaction. The worst case is strangers exiting one at a
-time. Detaching a cohort into an output of its own, which
-[`design/batching.md`](design/batching.md) proposes but the spec does not
-yet define, would give each cohort its own chain and its own limit. The single chain
-also exposes the tree to fee pinning: one cheap transition early in the queue
-caps the fee rate of everything behind it. Trees should be sized by exit
-throughput, not by how many slots the depth allows. This is the design's
-real weak spot, and splitting a deployment into several trees is the only
-structural answer.
-
-**Eviction is cheap, which cuts both ways.** At about 160 vB per leaf, an
-operator can clear expired members very cheaply. That is good for
-reclaiming dead weight and it also makes griefing cheap. Members who want a
-hard guarantee buy it with a lease far in the future.
-
-## Paying each other
-
-The tree is a custody and settlement layer. It is not, by itself, a
-payment rail, and three different mechanisms fill that gap.
-
-**Channels inside leaves are the real answer.** Make a leaf's exit key a
-2-of-2 between the owner and the operator, and that leaf can host a
-Lightning channel that exists only off-chain. Its funding output does not
-exist yet; it materialises at the payout of whatever transition eventually
-removes the leaf. Payments between two such leaves are ordinary HTLC
-forwards through the operator, and **nothing touches the tree**: no spend,
-no proof, no transition, no fee. A tree of N channel leaves is a Lightning
-hub with a one-UTXO on-chain footprint, reachable from the public network
-because the operator can forward between a channel leaf and an ordinary
-channel with identical hash and timelock arithmetic.
-
-The price is patience. A force close has to get an exit confirmed first,
-and that exit competes with every other transition for the single output,
-so HTLC deadlines need roughly 220 blocks of headroom against 40 to 80 on
-the public network.
-
-**Vouchers push value to people who are not in the tree yet.** A leaf owner
-signs a message saying "carve this new leaf out of mine". The holder
-redeems it against the output with `CLAIM`, which is two steps in one
-transaction: shrink the source leaf, then place the new leaf in an empty
-slot. The total never changes. It is single-use for free, because the first
-step advances the source leaf's counter, so the signed message can never
-verify again. The message names the source leaf's keys, lease and
-counter but not its balance, so a top-up of the source by the operator
-leaves a voucher redeemable; only a change the owner signs retires it.
-
-Two honest caveats. The covenant prevents over-*redemption*, not
-over-*issuance*: nothing stops someone signing more vouchers than their
-balance covers, so a voucher is credit until it is redeemed. And
-redemption is an on-chain transition carrying two full Merkle paths, so it
-costs more than an exit does.
-
-**Hash-locked vouchers make the exchange atomic.** Put a payment hash in
-the voucher message and require the preimage to redeem it, and a voucher
-becomes an HTLC. Now you can sell tree balance for Lightning sats, or buy a
-leaf with Lightning sats while holding no on-chain Bitcoin at all, with
-neither side able to take the other's money and walk. The script cost of
-the hash lock is eight bytes and no new opcode, because the preimage is
-hashed straight into the signed message rather than compared against a
-copy: a wrong preimage produces an invalid signature.
-
-There is still no on-chain deadline, and there cannot be. Script can
-require that something not happen before a height, never that it happen
-before one, and the value backing a voucher never leaves the source leaf,
-so there is nothing to refund. Deadlines live in the other leg of the swap.
-An issuer retires an unredeemed voucher by bumping the source leaf's
-counter.
-
-**The wallet case is a credit leaf plus cumulative vouchers.** A user with
-no on-chain funds who wants to receive over Lightning can be given a credit
-leaf dedicated to them, funded by the operator. Each receive is a Lightning
-payment to the operator, which reissues one hash-locked voucher for the
-running total against the same claim leaf. That costs no on-chain bytes per
-payment, has no minimum amount and never expires, and the recipient can
-redeem the latest voucher alone if the operator stops cooperating. One gap
-remained until spec 0.9.0. With plain `CLAIM` the operator can issue
-itself a voucher against the credit leaf and drain it, voiding the
-recipient's. The trust-free version is `CLAIM^x` (spec 7.5.3), seven
-bytes more script, which also requires a signature from the source leaf's
-exit key, which is the recipient; with `UPDATE^x` and exact payouts the
-credit leaf can only grow or pay its recipient. The
-structure is one-way on purpose. If the recipient could also spend from the
-credit, an older and larger voucher would be a stale state, and refuting
-it needs a contest window, which is what the channel leaf provides.
-Receiving suits the credit leaf and two-way traffic suits the channel leaf.
-See [`design/receive.md`](design/receive.md).
-
-That asymmetry is the whole subtlety of swapping a voucher against a
-channel HTLC, and the two legs are built to fit: both require a preimage of
-exactly 32 bytes, so one secret settles both. But the HTLC has a deadline
-the chain enforces and the voucher does not, which fixes the order of
-play. The preimage has to be generated by whoever the HTLC pays, because
-revealing it is how they collect, and the voucher has to be the second leg
-to resolve. Put the deadline-free leg first and the HTLC can expire while
-the voucher sits unredeemed. Arranged correctly, the channel leg settles
-off-chain by exchanging the secret and only the voucher is ever redeemed,
-so the whole swap costs one transaction.
-
-## What it costs, honestly
-
-The shared output is not cheaper than a bare UTXO on every operation, and
-the claim here is narrower. Sharing moves its cost out of steady state and
-into the exit. The full argument, with the figures behind every number
-below, is in [`design/cost-comparison.md`](design/cost-comparison.md).
-
-**One exit alone is expensive.** At depth 16 a unilateral exit is 1,020 vB
-in the FULL tier, against 111 vB for a bare spend and 2,511 vB to
-unroll a transaction-tree branch of the same size. The MID and MIN tiers
-cost 1,355 and 1,473 vB, CCV 908. That is the price of the proof, and it
-is a constant: it does not grow with the number of members. The floor,
-measured in the simulator and never a tier, is about 520 vB for a full
-dense depth-16 tree (388 on the simulator's six-leaf tree; the scaling page's
-key-addressed depth-64 model gives 541 at 65,536 members): one purpose-built
-Merkle-sum opcode would replace the unrolled fold with 252 bytes of script
-at any depth and one 40-byte sibling of witness per occupied level
-(`design/native-opcodes.md`).
-
-**Per-leaf cost falls with batch size.** Owners who exit together each
-still carry a full path, so two batched exits average 842 vB. The
-operator's sweep shares one path across a subtree and costs 203 vB per leaf
-for 13 leaves and 158 vB per leaf for 51, but it works only on leaves
-that accepted a lease. The owner-side equivalent is the cohort rewrite
-`REWRITE_h` (spec 7.9): members of one subtree publish the subtree twice,
-before and after, sign only the positions they change, and exit, join,
-rotate keys or settle balances among themselves in one transaction. Sixty
-four owners who all leave pay 165 vB each, seven more than the operator's
-sweep, a cohort that rewrites every balance pays about 151 vB per leaf
-against 1,030 for one `UPDATE` each, and a leaf the rewrite leaves alone
-costs about 95, published once with a one-byte marker. `DETACH_h` (7.10) moves a
-cohort into its own tree output for about 780 vB (621 under CCV), after
-which each exit pays the shorter path and the cohort has its own mempool
-chain.
-
-**Entry is almost free in bulk.** In a cohort graft each member's share is
-under one vB at a thousand members, against 43 vB for one output in an
-on-chain batch. That holds when the operator funds the graft and members
-buy their balances off-chain. When each member funds their own leaf,
-every member adds an input of about 58 vB and most of the saving is gone.
-
-**Moving value is free.** It happens off-chain, in channel leaves or by
-voucher. Rewriting a leaf on-chain costs 1,030 vB, so the design only
-works if payments do not do that.
-
-The fair comparison is lifetime bytes per member, entry plus exit, and it
-depends on how the member leaves:
-
-| vB per member, entering in a batch | Never exits alone | Exits in a batch | Exits alone |
+| | Never exits alone | Exits in a batch | Exits alone |
 |---|---|---|---|
 | LayerTree, dense | 3 | 161 | 1,023 |
 | Lightning channel | 197 | 197 | 573 |
 | Ark round tree | 86 | 86 | 2,554 |
 | Bare UTXO | 154 | 154 | 154 |
 
-A member who never exits alone, because they hold a lease and are swept or
-sell their balance by voucher, pays almost nothing. A member who exits
-alone pays for the proof and loses to Lightning and the bare UTXO, though
-not to Ark, whose unilateral exit is 2.5 times as large and also needs a
-timelock and a refresh before the round expires. The assumptions behind
-each cell are stated on the cost page.
+Against Ark specifically: a LayerTree exit is one transaction against
+Ark's 16-level branch plus a claim (2,511 vB at the same size), with no
+expiry, no refresh, and no operator liquidity locked up for refreshes. Ark
+wins on running today with no soft fork, on cheap cooperative entry and
+exit (about 43 vB), and on parallel exits, which unroll independently
+rather than queueing on one output.
 
-## The opcodes this needs, and how few they are
+## Opcodes and tiers
 
-None of this runs on Bitcoin today. It needs covenant capabilities that
-have been proposed but not activated, and a deliberate part of the work was
-measuring exactly how much of the proposed menu is actually required. So
-the transitions are implemented against four opcode sets: three that
-shrink (FULL, MID, MIN) and a fourth, CCV, that swaps the key arithmetic
-for one proposed covenant opcode.
+Every transition is built against four opcode sets, so the cost of each
+proposal is measured rather than argued:
 
-**FULL** uses a new tapleaf version that restores the string and arithmetic
-opcodes disabled in 2010, plus transaction introspection, signature checks
-over stack data, and elliptic-curve arithmetic. Everything works and it is
-the cheapest.
+| Tier | Opcodes | Exit at depth 16 | Notes |
+|---|---|---|---|
+| FULL | tapleaf `0xC2` (BIP-441 restored opcodes), `OP_TX`, `OP_CHECKSIGFROMSTACK`, EC point ops | 1,020 vB | every transition; the reference |
+| MID | tapleaf `0xC0` with `OP_CAT`, `OP_TX`, `OP_CHECKSIGFROMSTACK`, `OP_TWEAKADD` | 1,355 vB | every transition; 4-byte arithmetic, so sums under 2^31 sat and cohort rewrites of at most 32 full positions |
+| MIN | `OP_CAT` and `OP_TWEAKADD` only | 1,473 vB | exit and `SPLIT`; the existence proof |
+| CCV | `OP_CHECKCONTRACTVERIFY` (BIP-443) and `OP_TX` | 908 vB | every MID transition; the cheapest exit |
 
-**MID** drops to today's tapscript semantics with only `OP_CAT`,
-introspection, stack signature checks and a point-tweak opcode. Four-byte
-arithmetic means leaves arrive as separate fields and get stitched back
-together, and sums need padding gadgets. Every transition works,
-including the cohort sweep (dense, bounded by the 1,000-element stack
-limit, so a full 64-leaf cohort takes two sweeps), at about a third more
-cost for an exit (1,355 vB against 1,020 at depth 16). Liquid has most of
-these opcodes today.
+MIN is the interesting one. It has no introspection opcode, so the script
+can't read the transaction it's in. But `OP_CHECKSIG` does see the
+transaction. So the script builds the BIP-341 signature message itself
+from the fields it wants to pin, hashes it, and checks a signature over
+it under the generator `G` with nonce `G`. For that key and nonce the
+signature is something the script can compute, so it authorises nothing;
+what it buys is *binding*, because `OP_CHECKSIG` hashes the real
+transaction and passes only if it matches the message the script built.
+The upshot is that a one-transaction exit needs only `OP_CAT` and one
+point-tweak opcode.
 
-**MIN** is the interesting one: `OP_CAT` and a single point-tweak opcode,
-and nothing else beyond standard tapscript. There is no introspection
-opcode at all, so the script cannot read the transaction it is in. The
-covenant needs to.
+A template-only set like BIP 448 (`OP_TEMPLATEHASH`,
+`OP_CHECKSIGFROMSTACK`, `OP_INTERNALKEY`) isn't enough, because it has no
+`OP_CAT`. The script has to concatenate leaf bytes and sibling hashes to
+recompute the path, add up the sums, and put a *new* root, computed at
+spend time, into the next output's key. A template commits to outputs
+fixed in advance, and using `OP_CHECKSIGFROMSTACK` to approve a new
+template brings back a signer.
 
-The way out is that `OP_CHECKSIG` *does* see the transaction. So the script
-**builds the signature message itself** from the values it wants to
-constrain, hashes it, and then verifies a signature over it under the
-generator point `G` with nonce `G`. For that key and that nonce the
-verification equation collapses to a single solution the script can compute
-directly, so the signature is free to produce and authorises nothing. What
-it provides is *binding*: `OP_CHECKSIG` hashes the real transaction, so the
-check passes only if the message the script constructed equals the real
-one. Every field the script pinned down is thereby enforced. Introspection,
-recovered from a signature check.
+For a sense of the floor: a single hypothetical Merkle-sum-update opcode,
+measured in the simulator and kept out of every tier, would make an exit
+about 540 vB at 65,536 members with 252 bytes of script at any depth
+([`design/native-opcodes.md`](design/native-opcodes.md)).
 
-It costs 43% more than FULL and it does only the single-leaf exit and
-`SPLIT`, the owner-signed carve that pays another member, so it is an upper
-bound rather than a recommendation: the one-transaction exit
-needs `OP_CAT` and one point-tweak opcode. No lower bound is claimed.
+## How it's verified
 
-**CCV** replaces the key arithmetic with `OP_CHECKCONTRACTVERIFY` (BIP-443)
-plus transaction introspection, in either the `0xC2` or the `0xC0`
-numerics. It carries every transition MID does, and its exit is the
-cheapest of the four tiers, 908 vB at depth 16 against 1,020 for FULL.
-
-## What is proved and what is merely tested
-
-The rules of the state machine are mechanised in Lean 4, about 4,500 lines
-and 72 theorems, with no external libraries. The theorems say: roots bind trees, so a node
-that verifies against the root really is the node at that position; sums
-are conserved by every valid sequence of steps, unconditionally; and any
-leaf holder can always construct an accepted exit, conditional on the
-tree's root really being a tree's root.
-
-That conditional is the honest part. Conservation needs no assumption at
-all. Payability needs the real-tree invariant, which creation and grafting
-have to establish off-chain. Writing the proofs is what forced that
-distinction into the open; the informal argument had blurred it.
-
-What Lean does *not* cover is the bytecode. The link from rules to script
-is execution, not proof: a tapscript simulator runs every compiled script
-against a reference tree with negative cases for every rule, and a Go
-implementation regenerates the same scripts byte-for-byte against golden
-vectors and agrees with the simulator on the signature hash.
-
-| Layer | How it is checked |
+| Layer | Check |
 |---|---|
-| State machine rules | Lean 4 theorems, no `sorry`, axiom-audited |
-| Compiled scripts | 7,353 executable checks across four tiers (1,610 FULL, 1,391 MID, 57 MIN, 4,295 CCV), positive and negative, plus 220 for the channel leaves of Appendix C |
-| Python against Go | 145 byte-exact golden scripts, shared signature-hash vector |
-| Composable security | A universal-composability argument, with the Lean theorems as its extraction lemmas |
+| State-machine rules | Lean 4, about 4,500 lines, 72 theorems, no `sorry`, axiom-audited |
+| Compiled scripts | 7,353 simulator checks across the four tiers (1,610 FULL, 1,391 MID, 57 MIN, 4,295 CCV), each rule with targeted negatives, plus 220 for channel leaves |
+| Python against Go | 145 byte-exact golden scripts and a shared BIP-341 sighash vector |
+| Go transactions | 427 Go-built witnesses replayed through the simulator |
+| Composable security | a UC argument in the full paper, with the Lean theorems as its lemmas |
 
-## Where to read more
+The Lean model proves the rules: a node that verifies against a root
+really is the node at that position, every valid sequence of steps
+conserves the sum, and any leaf holder can always build an accepted exit,
+given that the root really is a tree's root (which is what "verify your
+path before funding a join" guarantees). The scripts are checked by
+execution, not proof: the simulator runs every compiled script against a
+reference tree, including a negative case for each rule.
 
-| Document | What is in it |
+## Where the code lives
+
+| Path | What's there |
 |---|---|
-| [`spec/layertree.md`](spec/layertree.md) | The normative specification: data structures, transitions, scripts, security |
-| [`spec/channel-leaves.md`](spec/channel-leaves.md) | Appendix C: Lightning channels hosted in leaves |
-| [`paper/main.pdf`](paper/) | The academic write-up: ideal functionality, protocol, tiers, security proof |
-| [`formal/`](formal/) | The Lean 4 development and a guide to what it does and does not prove |
-| [`design/review.md`](design/review.md) | The design review that shaped the construction, finding by finding |
-| [`design/status.md`](design/status.md) | Current state, decision log, and open work |
-| [`design/cost-comparison.md`](design/cost-comparison.md) | Where LayerTree wins and loses on bytes, against a bare UTXO, Lightning and Ark |
-| [`design/tree-comparison.md`](design/tree-comparison.md) | Dense against sparse profiles, measured, and what a higher radix would change |
-| [`design/batching.md`](design/batching.md) | How a transition's cost is shared across leaves: what exists and three proposed shapes |
-| [`design/graft.md`](design/graft.md) | How a cohort joins, who trusts whom, and what a graft costs by funding mode |
-| [`design/receive.md`](design/receive.md) | Receiving over Lightning into a credit leaf, and the one script variant it needs |
+| `tools/` | The Python reference and tapscript simulator: `layertree_ref.py` (tree, vectors), `layertree_scripts.py` (FULL), `layertree_mid.py`, `layertree_min.py`, `layertree_ccv.py`, `layertree_chan.py` (channel leaves), `script_sim.py`, and a `test_*.py` per tier |
+| `tree/` | Go: leaves, Merkle-sum nodes, dense and sparse trees, paths and proof compression (`tree.go`), and the taproot binding (`taproot.go`, with BIP-341's `NUMS` as `NUMSHex`) |
+| `script/` | Go: the script generators per tier (`full.go`, `mid.go`, `min.go`, `ccv.go`, `chan.go`), byte-exact against `spec/golden.json` |
+| `txn/` | Go: one transaction builder per transition, the tier selected from the tree's options (`tier.go`), witness assembly and BIP-341 signing |
+| `msg/` | Go: off-chain TLV messages, proofs, vouchers, join and channel messages |
+| `formal/` | The Lean 4 model |
+| `paper/` | The paper, short and full versions |
+
+Go can build and sign every transition but can't execute the scripts,
+since no Bitcoin node has these opcodes. `tools/replay_txn_dump.py` is
+what closes that loop. `CLAUDE.md` has the full command matrix.
+
+## Further reading
+
+The spec and paper:
+
+- [`spec/layertree.md`](spec/layertree.md): the normative specification.
+- [`spec/channel-leaves.md`](spec/channel-leaves.md): Appendix C, Lightning channels in leaves.
+- [`spec/fee-analysis.md`](spec/fee-analysis.md): fees from 1 to 250 sat/vB.
+- [The paper](https://layertree.tech/paper/main.pdf), and the
+  [full version](https://layertree.tech/paper/main-full.pdf) with the UC
+  proof and the Lean appendix.
+- [`formal/README.md`](formal/README.md): what the Lean model proves.
+
+Design notes, by topic:
+
+- [`design/interactivity.md`](design/interactivity.md): who has to be online for each operation, and how that compares with the alternatives.
+- [`design/receive.md`](design/receive.md): receiving over Lightning into a credit leaf.
+- [`design/pending-receive.md`](design/pending-receive.md): the atomic receive with pending leaves.
+- [`design/towers.md`](design/towers.md): what an agent acting for an offline member holds and can do.
+- [`design/batching.md`](design/batching.md): how `REWRITE_h` and `DETACH_h` share one path across a cohort.
+- [`design/graft.md`](design/graft.md): how a cohort joins, who trusts whom, funding costs.
+- [`design/cost-comparison.md`](design/cost-comparison.md): bytes against a bare UTXO, Lightning and Ark.
+- [`design/tree-comparison.md`](design/tree-comparison.md): dense against sparse, and why the radix stays 2.
+- [`design/native-opcodes.md`](design/native-opcodes.md): the CCV tier and the hypothetical Merkle-sum opcode.
+- [`design/review.md`](design/review.md): the review that shaped the construction, finding by finding.
+- [`design/status.md`](design/status.md): current state and the decision log.
+
+The explainer site at [layertree.tech](https://layertree.tech) walks the
+same material with interactive diagrams.
