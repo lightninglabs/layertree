@@ -160,7 +160,7 @@ func BuildMerge(st *TreeState, srcPos, tgtPos, x uint64, voucherSig []byte,
 	switch {
 	case r.sparse:
 		return nil, nil, fmt.Errorf("txn: %s is a dense profile script", name)
-	case srcPos >= uint64(1)<<uint(cur.Depth):
+	case srcPos>>uint(cur.Depth) != 0:
 		return nil, nil, fmt.Errorf("txn: source position %d is outside "+
 			"a tree of depth %d", srcPos, cur.Depth)
 	case tgtPos != srcPos^1:

@@ -452,7 +452,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 	case height < 0 || height > cur.Depth:
 		return nil, nil, fmt.Errorf("txn: join height %d out of range",
 			height)
-	case index >= uint64(1)<<uint(cur.Depth-height):
+	case index>>uint(cur.Depth-height) != 0:
 		return nil, nil, fmt.Errorf("txn: join index %d out of range",
 			index)
 	case len(leaves) == 0:
@@ -469,7 +469,7 @@ func BuildJoin(st *TreeState, height int, index uint64,
 	next := cur.Clone()
 	var leaf *tree.Leaf
 	for off, l := range leaves {
-		if off >= uint64(1)<<uint(height) {
+		if off>>uint(height) != 0 {
 			return nil, nil, fmt.Errorf("txn: offset %d outside a "+
 				"subtree of height %d", off, height)
 		}
@@ -529,7 +529,7 @@ func BuildJoinK(st *TreeState, joins []PlacedLeaf, opts *TxOpts) (*Spend,
 	in := st.input(r)
 	next := st.Tree.Clone()
 	for i, j := range joins {
-		if j.Pos >= uint64(1)<<uint(next.Depth) {
+		if j.Pos>>uint(next.Depth) != 0 {
 			return nil, nil, fmt.Errorf("txn: join %d: position "+
 				"%d out of range", i+1, j.Pos)
 		}
@@ -856,7 +856,7 @@ func buildCarve(st *TreeState, srcPos, claimPos uint64, claim *tree.Leaf,
 		return nil, nil, fmt.Errorf("txn: the carve leaves a residual of "+
 			"%d, below DUST_MIN %d (spec 7.5 rule 6)",
 			src.Amount-claim.Amount, dustMin)
-	case claimPos >= uint64(1)<<uint(st.Tree.Depth):
+	case claimPos>>uint(st.Tree.Depth) != 0:
 		return nil, nil, fmt.Errorf("txn: claim position %d is outside "+
 			"a tree of depth %d", claimPos, st.Tree.Depth)
 	}

@@ -97,7 +97,7 @@ func (st *TreeState) checkSubtree(r rules, name string, height int,
 		return fmt.Errorf("txn: %s is a dense profile script", name)
 	case height < 0 || height > maxHeight:
 		return fmt.Errorf("txn: %s height %d out of range", name, height)
-	case index >= uint64(1)<<uint(st.Tree.Depth-height):
+	case index>>uint(st.Tree.Depth-height) != 0:
 		return fmt.Errorf("txn: %s index %d out of range", name, index)
 	}
 	return nil
@@ -415,7 +415,7 @@ func BuildDetach(st *TreeState, height int, index uint64, opts *TxOpts) (*Spend,
 	host := cur.Clone()
 	child := tree.New(height)
 	for pos, leaf := range cur.Leaves {
-		if pos >= base && pos < base+uint64(1)<<uint(height) {
+		if pos>>uint(height) == index {
 			delete(host.Leaves, pos)
 			child.Leaves[pos-base] = leaf
 		}

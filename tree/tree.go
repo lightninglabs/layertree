@@ -372,9 +372,9 @@ func (t *Tree) leafNode(pos uint64) Node {
 	return EmptyLeaf
 }
 
-func (t *Tree) hasLeafIn(lo, hi uint64) bool {
+func (t *Tree) hasLeafIn(height int, index uint64) bool {
 	for p := range t.Leaves {
-		if p >= lo && p < hi {
+		if p>>uint(height) == index {
 			return true
 		}
 	}
@@ -383,8 +383,7 @@ func (t *Tree) hasLeafIn(lo, hi uint64) bool {
 
 // Subtree returns the node at (height, index).
 func (t *Tree) Subtree(height int, index uint64) Node {
-	lo, hi := index<<uint(height), (index+1)<<uint(height)
-	if !t.hasLeafIn(lo, hi) {
+	if !t.hasLeafIn(height, index) {
 		return EmptyNode(height)
 	}
 	if height == 0 {
