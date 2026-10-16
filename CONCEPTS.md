@@ -424,7 +424,27 @@ growing with depth and each level of witness shrinks to one 40-byte
 sibling. It barely moves the cohort operations, whose cost is the leaves
 they publish rather than the path.
 
-Lifetime bytes per member, entry plus exit, entering in a batch:
+The per-operation table doesn't say which design is cheaper overall,
+because the designs spend their bytes at different points: Lightning pays
+to open, Ark pays every round, LayerTree pays to leave. So the fair
+comparison is **lifetime bytes per member**: the on-chain vbytes that
+one member's whole stay costs, from getting in to getting out, with
+shared transactions split evenly among the members they serve.
+
+Every row below assumes the member enters in a batch. For Lightning, Ark
+and a bare UTXO that's one 43 vB output in a shared transaction; for
+LayerTree it's a 1/256 share of a 256-member graft (679 vB / 256, about
+3 vB). The columns then vary only how the member leaves:
+
+- **Never exits alone.** The cheapest way out. In LayerTree that's selling
+  the balance off-chain by voucher or over Lightning, so the member adds
+  nothing past their entry share. In Lightning it's a cooperative close
+  (154 vB), in Ark a cooperative exit in a round.
+- **Exits in a batch.** In LayerTree, the 51-leaf cohort sweep (158 vB
+  per leaf), which requires the member to have accepted a lease.
+- **Exits alone.** The unilateral path: LayerTree's `EXIT_1`, a Lightning
+  force close (commitment, anchor child and sweep, 530 vB), or Ark's
+  2,511 vB unroll of its branch of the round tree.
 
 | | Never exits alone | Exits in a batch | Exits alone |
 |---|---|---|---|
@@ -432,6 +452,12 @@ Lifetime bytes per member, entry plus exit, entering in a batch:
 | Lightning channel | 197 | 197 | 573 |
 | Ark round tree | 86 | 86 | 2,554 |
 | Bare UTXO | 154 | 154 | 154 |
+
+A bare UTXO is received once and spent once, the same 154 vB however
+its owner leaves. LayerTree beats it, and every other row, in the first
+two columns, and loses to Lightning and the bare UTXO in the third. A
+member who stays until swept or sells out off-chain pays almost nothing;
+a member who insists on leaving alone pays for the proof.
 
 Against Ark specifically: a LayerTree exit is one transaction against
 Ark's 16-level branch plus a claim (2,511 vB at the same size), with no
