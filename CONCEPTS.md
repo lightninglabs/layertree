@@ -469,7 +469,8 @@ rather than queueing on one output.
 ## Opcodes and tiers
 
 Every transition is built against four opcode sets, so the cost of each
-proposal is measured rather than argued:
+proposal is measured rather than argued. A fifth row, the hypothetical
+Merkle-sum opcode, shows the floor:
 
 | Tier | Opcodes | Exit at depth 16 | Notes |
 |---|---|---|---|
@@ -477,6 +478,7 @@ proposal is measured rather than argued:
 | MID | tapleaf `0xC0` with `OP_CAT`, `OP_TX`, `OP_CHECKSIGFROMSTACK`, `OP_TWEAKADD` | 1,355 vB | every transition; 4-byte arithmetic, so sums under 2^31 sat and cohort rewrites of at most 32 full positions |
 | MIN | `OP_CAT` and `OP_TWEAKADD` only | 1,473 vB | exit and `SPLIT`; the existence proof |
 | CCV | `OP_CHECKCONTRACTVERIFY` (BIP-443) and `OP_TX` | 908 vB | every MID transition; the cheapest exit |
+| CCV + MSU (hypothetical) | CCV's set plus `OP_MERKLESUMUPDATE`, an opcode that does not exist as a proposal | 541 vB | exit, joins, `UPDATE`, the sweep, the plain `REWRITE_h` and the pending-receive scripts; a measurement, never a tier |
 
 MIN is the interesting one. It has no introspection opcode, so the script
 can't read the transaction it's in. But `OP_CHECKSIG` does see the
@@ -497,9 +499,18 @@ spend time, into the next output's key. A template commits to outputs
 fixed in advance, and using `OP_CHECKSIGFROMSTACK` to approve a new
 template brings back a signer.
 
-For a sense of the floor: a single hypothetical Merkle-sum-update opcode,
-measured in the simulator and kept out of every tier, would make an exit
-541 vB at 65,536 members with 252 bytes of script at any depth
+The Merkle-sum row answers the question of what a purpose-built opcode
+would buy. `OP_MERKLESUMUPDATE` takes a Merkle-sum proof, an old node
+and a new node, folds both up the same path, and pushes the old and new
+roots. The script checks the first against the input and binds the
+second into the output, and the opcode replaces the whole unrolled fold. The exit script becomes
+252 bytes at any depth, and each level of witness shrinks to one 40-byte
+sibling, so an exit is 541 vB at 65,536 members and 581 at a million.
+The cohort operations barely move, because their cost is the leaves they
+publish. The opcode is specified precisely enough to measure and runs in
+the simulator behind a `hypothetical` flag, but no tier, golden vector or
+generated script uses it. The project's rule is to compose only opcodes
+that have been proposed, and this is a yardstick for how close those get
 ([`design/native-opcodes.md`](design/native-opcodes.md)).
 
 ## How it's verified
