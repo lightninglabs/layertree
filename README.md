@@ -17,7 +17,7 @@ test suite fails if a script uses anything else.
 | Path | What |
 |---|---|
 | [`spec/layertree.md`](spec/layertree.md) | The specification (RFC 2119 language) |
-| [`CONCEPTS.md`](CONCEPTS.md) | High-level explainer: the problem, the core ideas, what the design does and does not promise, how payments work, and what is proved versus tested. Start here. |
+| [`CONCEPTS.md`](CONCEPTS.md) | End-to-end guide for engineers: the data model, the transitions, a member's life, payments and Lightning, trust, costs, opcode tiers, verification and a map of the code. Start here. |
 | [`site/`](site/README.md) | Interactive explainer website: a step-through of a tree's life, then one page per component (the state machine, joining, exiting, payments, swaps, eviction, batching, opcode tiers) with its own animation; static HTML, CSS and SVG, no build step |
 | [`spec/channel-leaves.md`](spec/channel-leaves.md) | Appendix C: payment channels hosted in leaves (rebindable `OP_TX` + CSFS commitments, LN-Symmetry state machine, HTLC routing) |
 | [`spec/fee-analysis.md`](spec/fee-analysis.md) | Exit and eviction costs at fee rates from 1 to 250 sat/vB |
